@@ -161,11 +161,12 @@ Deliver:
 - explicit integration contract for `rag-sidecar`
 - document `MinerU` as the document extraction dependency
 - document `RAGAnything` as the multimodal retrieval dependency
-- backend capability matrix for text, PDF, image, table, and equation flows
+- backend capability matrix for text, video, PDF, image, table, and equation flows
 
 Success:
 
 - the repo clearly distinguishes `memd` core from the external LightRAG stack
+- the full stack contract is explicitly multimodal, not text-only
 
 ### Phase 6.1: Agent Attach Automation
 
@@ -207,9 +208,14 @@ Success:
 ## Immediate Next Steps
 
 1. Finish bundle-first LightRAG defaults and adapter behavior.
-2. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
-3. Tighten freshness and contradiction resolution.
-4. Add graph-aware memory only after the core lifecycle is stable.
+2. Wire the external multimodal backend stack contract:
+   - `rag-sidecar`
+   - `MinerU`
+   - `RAGAnything`
+   - video, PDF, image, table, equation flow validation
+3. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
+4. Tighten freshness and contradiction resolution.
+5. Add graph-aware memory only after the core lifecycle is stable.
 
 ## Non-Goals
 

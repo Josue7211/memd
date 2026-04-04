@@ -6,6 +6,14 @@ storage as an optional backend.
 The intended backend is LightRAG or a LightRAG-compatible service, but the
 core product does not require it to run.
 
+The full backend stack, when configured, must support multimodal inputs:
+
+- video
+- PDF
+- image
+- table
+- equation
+
 ## Why It Exists
 
 `memd` already handles:
