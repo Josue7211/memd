@@ -119,6 +119,12 @@ Compile a search query into a markdown wiki page inside the vault:
 cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --project notes --query "rust memory patterns" --apply
 ```
 
+Target a shared workspace lane instead of the private default:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --project notes --workspace team-alpha --visibility workspace --query "rust memory patterns" --apply
+```
+
 Compile it and open the generated page immediately:
 
 ```bash
@@ -133,6 +139,11 @@ cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --id 123
 
 This is the preferred shape when you want an item to become part of the
 Obsidian knowledge base instead of only a transient writeback note.
+
+The Obsidian commands that read or compile memory can also take
+`--workspace <name>` and `--visibility <private|workspace|public>` so compiled
+pages line up with the same safe shared-memory boundaries as the rest of the
+control plane.
 
 Each applied compile also updates:
 
