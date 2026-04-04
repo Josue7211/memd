@@ -16,8 +16,15 @@ The target is not a feature. The target is an open-source platform.
 
 ## Current Status
 
-`memd` is past the core platform build and is now in Phase 5 with Phase 6
-starting to land.
+`memd` is past the core platform build. The remaining roadmap is now about
+making the platform feel inevitable to use:
+
+- the core still works without RAG
+- LightRAG is the intended long-term semantic backend
+- project bundles make the long-term path configurable
+- clients attach through the same control plane
+
+Phase summary:
 
 - Phase 0: done
 - Phase 1: done
@@ -134,34 +141,45 @@ Success:
 
 - long-term memory is searchable and evidence-backed without becoming the hot path
 
-### Phase 6: Client Integrations
+### Phase 5.1: RAG Adapter Hardening
 
 Deliver:
 
-- Codex adapter
-- Claude Code adapter
-- Mission Control integration
-- OpenClaw integration
+- stronger `memd rag` sync/search behavior
+- bundle-level RAG configuration
+- clear enabled/disabled/healthy state
+- deterministic export of canonical memory into the semantic backend
 
 Success:
 
-- every client can request compact context and submit durable memory candidates
+- RAG feels like part of the product, not a sidecar script
 
-### Phase 7: Freshness and Contradictions
+### Phase 6.1: Agent Attach Automation
 
 Deliver:
 
-- verification jobs
-- background verification worker
-- staleness decay
-- supersession chains
-- contradiction resolution
+- one-command project attach flow
+- per-agent launch snippets for Claude Code, Codex, Mission Control, and OpenClaw
+- automatic bundle loading for project defaults
 
 Success:
 
-- stale or contradicted memories stop poisoning retrieval
+- an agent can start a task with the right memory context without manual wiring
 
-### Phase 8: Graph and Learning
+### Phase 7.1: Memory Quality Enforcement
+
+Deliver:
+
+- stronger freshness checks
+- contradiction surfacing
+- inbox triage for contested memories
+- verification-based promotion and demotion
+
+Success:
+
+- memory stops drifting into stale truth
+
+### Phase 8.1: Graph and Learning
 
 Deliver:
 
@@ -175,8 +193,8 @@ Success:
 
 ## Immediate Next Steps
 
-1. Finish the LightRAG adapter path and long-term namespace behavior.
-2. Finish client integrations for Claude Code, Codex, Mission Control, and OpenClaw.
+1. Finish bundle-first LightRAG defaults and adapter behavior.
+2. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
 3. Tighten freshness and contradiction resolution.
 4. Add graph-aware memory only after the core lifecycle is stable.
 
