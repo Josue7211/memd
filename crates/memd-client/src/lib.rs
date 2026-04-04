@@ -9,7 +9,7 @@ use memd_schema::{
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest,
     StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse,
+    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -82,6 +82,13 @@ impl MemdClient {
     ) -> anyhow::Result<CompactContextResponse> {
         self.get_json_with_query("/memory/context/compact", req)
             .await
+    }
+
+    pub async fn working(
+        &self,
+        req: &WorkingMemoryRequest,
+    ) -> anyhow::Result<WorkingMemoryResponse> {
+        self.get_json_with_query("/memory/working", req).await
     }
 
     pub async fn inbox(&self, req: &MemoryInboxRequest) -> anyhow::Result<MemoryInboxResponse> {

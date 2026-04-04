@@ -247,6 +247,29 @@ pub struct CompactContextResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkingMemoryRequest {
+    pub project: Option<String>,
+    pub agent: Option<String>,
+    pub route: Option<RetrievalRoute>,
+    pub intent: Option<RetrievalIntent>,
+    pub limit: Option<usize>,
+    pub max_chars_per_item: Option<usize>,
+    pub max_total_chars: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryResponse {
+    pub route: RetrievalRoute,
+    pub intent: RetrievalIntent,
+    pub retrieval_order: Vec<MemoryScope>,
+    pub budget_chars: usize,
+    pub used_chars: usize,
+    pub remaining_chars: usize,
+    pub truncated: bool,
+    pub records: Vec<CompactMemoryRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryInboxRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -827,5 +850,40 @@ mod tests {
         assert_eq!(decoded_response.stale_items, response.stale_items);
         assert_eq!(decoded_response.skipped, response.skipped);
         assert_eq!(decoded_response.highlights, response.highlights);
+    }
+
+    #[test]
+    fn working_memory_roundtrips() {
+        let request = WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(4),
+            max_chars_per_item: Some(180),
+            max_total_chars: Some(900),
+        };
+
+        let response = WorkingMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project, MemoryScope::Synced],
+            budget_chars: 900,
+            used_chars: 612,
+            remaining_chars: 288,
+            truncated: false,
+            records: vec![CompactMemoryRecord {
+                id: Uuid::new_v4(),
+                record: "focus on the working set".to_string(),
+            }],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: WorkingMemoryRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: WorkingMemoryResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.limit, request.limit);
+        assert_eq!(decoded_response.budget_chars, response.budget_chars);
+        assert_eq!(decoded_response.records.len(), 1);
     }
 }

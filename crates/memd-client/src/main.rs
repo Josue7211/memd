@@ -26,6 +26,7 @@ use memd_schema::{
     MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
     MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
+    WorkingMemoryRequest, WorkingMemoryResponse,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -58,6 +59,7 @@ enum Commands {
     Verify(RequestInput),
     Search(SearchArgs),
     Context(ContextArgs),
+    Working(WorkingArgs),
     Inbox(InboxArgs),
     Explain(ExplainArgs),
     Entity(EntityArgs),
@@ -116,6 +118,36 @@ struct ContextArgs {
 
     #[arg(long)]
     stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct WorkingArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    max_chars_per_item: Option<usize>,
+
+    #[arg(long)]
+    max_total_chars: Option<usize>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -879,6 +911,24 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&client.context_compact(&req).await?)?;
             } else {
                 print_json(&client.context(&req).await?)?;
+            }
+        }
+        Commands::Working(args) => {
+            let response = client
+                .working(&WorkingMemoryRequest {
+                    project: args.project.clone(),
+                    agent: args.agent.clone(),
+                    route: parse_retrieval_route(args.route.clone())?,
+                    intent: parse_retrieval_intent(args.intent.clone())?,
+                    limit: args.limit,
+                    max_chars_per_item: args.max_chars_per_item,
+                    max_total_chars: args.max_total_chars,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_working_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Inbox(args) => {
@@ -2070,6 +2120,33 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follo
                     compact_inline(&event.summary, 40)
                 )
             })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+    }
+
+    output
+}
+
+fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> String {
+    let mut output = format!(
+        "working route={} intent={} budget={} used={} remaining={} truncated={} records={}",
+        route_label(response.route),
+        intent_label(response.intent),
+        response.budget_chars,
+        response.used_chars,
+        response.remaining_chars,
+        response.truncated,
+        response.records.len()
+    );
+
+    if follow {
+        let trail = response
+            .records
+            .iter()
+            .take(3)
+            .map(|record| compact_inline(&record.record, 48))
             .collect::<Vec<_>>();
         if !trail.is_empty() {
             output.push_str(&format!(" trail={}", trail.join(" | ")));

@@ -25,6 +25,7 @@ use memd_schema::{
     MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -242,6 +243,7 @@ async fn main() {
         .route("/memory/search", post(search_memory))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
+        .route("/memory/working", get(get_working_memory))
         .route("/memory/inbox", get(get_inbox))
         .route("/memory/entity", get(get_entity))
         .route("/memory/entity/search", get(get_entity_search))
@@ -404,6 +406,60 @@ async fn get_compact_context(
         route: plan.route,
         intent: plan.intent,
         retrieval_order,
+        records,
+    }))
+}
+
+async fn get_working_memory(
+    State(state): State<AppState>,
+    Query(req): Query<WorkingMemoryRequest>,
+) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
+    let compact_req = ContextRequest {
+        project: req.project.clone(),
+        agent: req.agent.clone(),
+        route: req.route,
+        intent: req.intent,
+        limit: req.limit,
+        max_chars_per_item: req.max_chars_per_item,
+    };
+    let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
+    state.rehearse_items(&items, 3).map_err(internal_error)?;
+
+    let budget_chars = req.max_total_chars.unwrap_or(1600).clamp(400, 8000);
+    let max_chars_per_item = req.max_chars_per_item.unwrap_or(220).clamp(80, 2000);
+    let mut used_chars = 0usize;
+    let mut truncated = false;
+    let mut records = Vec::new();
+
+    for item in items {
+        let mut record = compact_record(&item);
+        if record.chars().count() > max_chars_per_item {
+            record = record
+                .chars()
+                .take(max_chars_per_item.saturating_sub(3))
+                .collect();
+            record.push_str("...");
+        }
+        let record_chars = record.chars().count();
+        if used_chars + record_chars > budget_chars {
+            truncated = true;
+            break;
+        }
+        used_chars += record_chars;
+        records.push(CompactMemoryRecord {
+            id: item.id,
+            record,
+        });
+    }
+
+    Ok(Json(WorkingMemoryResponse {
+        route: plan.route,
+        intent: plan.intent,
+        retrieval_order,
+        budget_chars,
+        used_chars,
+        remaining_chars: budget_chars.saturating_sub(used_chars),
+        truncated,
         records,
     }))
 }
