@@ -85,6 +85,7 @@ Runs an explicit bounded repair action for a memory item.
 Rules:
 
 - supports `verify`, `expire`, `supersede`, `contest`, and `correct_metadata`
+- supports `prefer_branch` to mark one belief branch as the current preferred contradiction lane
 - keeps the lifecycle explicit and auditable
 - can update source metadata, tags, confidence, and supersede links when needed
 - returns the repaired item and the reasons the action was applied
@@ -115,6 +116,7 @@ Rules:
 - returns source and lifecycle reasons
 - returns source-memory drilldown for the item's project, namespace, and source tuple
 - returns sibling belief branches for competing records with the same redundancy lane
+- returns whether the current branch is preferred and whether contradiction state is unresolved
 - returns a compact artifact trail so raw evidence stays reachable behind the summary
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
 - returns compact retrieval-feedback counters derived from durable retrieval events

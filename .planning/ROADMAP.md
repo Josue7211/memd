@@ -96,15 +96,27 @@ Success:
 - expose preferred, contested, and unresolved branch state explicitly
 - keep contradictory branches queryable while allowing one branch to become the current preferred lane
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - contradictory belief branches can be inspected and resolved without flattening history
 
+#### Phase 7: `v2` Procedural and Self Model Memory
+
+- make procedural memory and self-model memory first-class instead of implicit tags
+- expose retrieval and repair surfaces for runbooks, capabilities, and failure modes
+- keep the first slice narrow enough to remain compatible with current typed memory records
+
+Status: Ready
+
+Success:
+
+- `memd` stops hand-waving procedural and self-model memory as future ideas
+
 ## Immediate Next Phase
 
-Phase 6: `v2` Contradiction Resolution
+Phase 7: `v2` Procedural and Self Model Memory
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

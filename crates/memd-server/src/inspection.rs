@@ -56,7 +56,7 @@ pub(crate) fn explain_memory(
     let retrieval_feedback = build_retrieval_feedback(&events, &item);
     let branch_siblings = build_branch_siblings(state, &item).map_err(internal_error)?;
     let artifact_trail = build_artifact_trail(&item, &events, &sources);
-    let policy_hooks = build_policy_hooks(&item, &plan, &sources);
+    let policy_hooks = build_policy_hooks(&item, &plan, &sources, &branch_siblings);
 
     Ok(ExplainMemoryResponse {
         route: plan.route,
@@ -144,6 +144,7 @@ fn build_branch_siblings(
         .map(|candidate| ExplainBranchSiblingRecord {
             id: candidate.id,
             belief_branch: candidate.belief_branch,
+            preferred: candidate.preferred,
             status: candidate.status,
             stage: candidate.stage,
             confidence: candidate.confidence,
@@ -207,6 +208,7 @@ fn build_policy_hooks(
     item: &MemoryItem,
     plan: &super::routing::RetrievalPlan,
     sources: &[SourceMemoryRecord],
+    branch_siblings: &[ExplainBranchSiblingRecord],
 ) -> Vec<String> {
     let mut hooks = vec![
         format!("route={}", format_route(plan.route)),
@@ -234,6 +236,11 @@ fn build_policy_hooks(
         } else if best_source.trust_score >= 0.75 {
             hooks.push("trust_boost".to_string());
         }
+    }
+    if item.preferred {
+        hooks.push("preferred_branch".to_string());
+    } else if !branch_siblings.is_empty() && !branch_siblings.iter().any(|sibling| sibling.preferred) {
+        hooks.push("unresolved_contradiction".to_string());
     }
     if let Some(branch) = &item.belief_branch {
         hooks.push(format!("belief_branch={branch}"));

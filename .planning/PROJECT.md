@@ -30,7 +30,8 @@ inspectable, and useful under real task pressure.
 - [x] Keep branchable belief lanes explicit and inspectable.
 - [x] Add retrieval feedback surfaces so ranking can learn from outcomes.
 - [x] Make source-trust floors affect ranking, not just inspection.
-- [ ] Add contradiction resolution on top of branchable belief lanes.
+- [x] Add contradiction resolution on top of branchable belief lanes.
+- [ ] Make procedural and self-model memory explicit.
 - [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope

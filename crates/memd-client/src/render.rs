@@ -546,12 +546,13 @@ pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: boo
 
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "explain item={} route={} intent={} status={} confidence={:.2} branch={} siblings={} retrievals={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
+        "explain item={} route={} intent={} status={} confidence={:.2} preferred={} branch={} siblings={} retrievals={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
         short_uuid(response.item.id),
         route_label(response.route),
         intent_label(response.intent),
         format!("{:?}", response.item.status).to_ascii_lowercase(),
         response.item.confidence,
+        response.item.preferred,
         response.item.belief_branch.as_deref().unwrap_or("none"),
         response.branch_siblings.len(),
         response.retrieval_feedback.total_retrievals,
@@ -600,10 +601,11 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
                 .take(3)
                 .map(|sibling| {
                     format!(
-                        "{}:{}:{:.2}",
+                        "{}:{}:{:.2}:{}",
                         sibling.belief_branch.as_deref().unwrap_or("none"),
                         short_uuid(sibling.id),
-                        sibling.confidence
+                        sibling.confidence,
+                        if sibling.preferred { "preferred" } else { "candidate" }
                     )
                 })
                 .collect::<Vec<_>>();

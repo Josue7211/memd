@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 6 `v2` Contradiction Resolution.
+**Current focus:** Phase 7 `v2` Procedural and Self Model Memory.
 
 ## Current Status
 
@@ -20,14 +20,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - `v2` branchable beliefs are in place with explicit belief branches and sibling inspection
 - `v2` retrieval feedback is in place with durable retrieval events and compact explain counters
 - `v2` trust-weighted ranking is in place across search and working memory
+- `v2` contradiction resolution is in place with preferred branch state
 
 ## Open Loops
 
-- phase 6 contradiction resolution is planned but not implemented
+- phase 7 procedural and self-model memory is planned but not implemented
 
 ## Next Command
 
-Run `gsd-execute-phase 6`.
+Run `gsd-execute-phase 7`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

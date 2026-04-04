@@ -83,6 +83,7 @@ pub struct MemoryItem {
     pub content: String,
     pub redundancy_key: Option<String>,
     pub belief_branch: Option<String>,
+    pub preferred: bool,
     pub kind: MemoryKind,
     pub scope: MemoryScope,
     pub project: Option<String>,
@@ -201,6 +202,7 @@ pub enum MemoryRepairMode {
     Expire,
     Supersede,
     Contest,
+    PreferBranch,
     CorrectMetadata,
 }
 
@@ -776,6 +778,7 @@ pub struct ExplainMemoryResponse {
 pub struct ExplainBranchSiblingRecord {
     pub id: Uuid,
     pub belief_branch: Option<String>,
+    pub preferred: bool,
     pub status: MemoryStatus,
     pub stage: MemoryStage,
     pub confidence: f32,
@@ -1210,6 +1213,7 @@ mod tests {
                 content: "prefer bundle-first config".to_string(),
                 redundancy_key: Some("decision:bundle-first".to_string()),
                 belief_branch: Some("mainline".to_string()),
+                preferred: true,
                 kind: MemoryKind::Decision,
                 scope: MemoryScope::Project,
                 project: Some("memd".to_string()),
@@ -1270,6 +1274,7 @@ mod tests {
             branch_siblings: vec![ExplainBranchSiblingRecord {
                 id: Uuid::new_v4(),
                 belief_branch: Some("fallback".to_string()),
+                preferred: false,
                 status: MemoryStatus::Contested,
                 stage: MemoryStage::Canonical,
                 confidence: 0.71,
@@ -1547,6 +1552,7 @@ mod tests {
                 content: "repaired memory content".to_string(),
                 redundancy_key: Some("dedupe:key".to_string()),
                 belief_branch: Some("mainline".to_string()),
+                preferred: false,
                 kind: MemoryKind::Decision,
                 scope: MemoryScope::Project,
                 project: Some("memd".to_string()),

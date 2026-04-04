@@ -164,6 +164,7 @@ mod tests {
             content: content.to_string(),
             redundancy_key: None,
             belief_branch: None,
+            preferred: false,
             kind: MemoryKind::Fact,
             scope: MemoryScope::Project,
             project: Some("memd".into()),

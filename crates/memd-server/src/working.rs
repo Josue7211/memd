@@ -394,6 +394,7 @@ mod tests {
             content: "content".to_string(),
             redundancy_key: None,
             belief_branch: None,
+            preferred: false,
             kind: memd_schema::MemoryKind::Fact,
             scope: memd_schema::MemoryScope::Project,
             project: Some("proj".to_string()),

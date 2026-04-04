@@ -58,6 +58,7 @@ impl AppState {
             content: req.content.trim().to_string(),
             redundancy_key: None,
             belief_branch: req.belief_branch,
+            preferred: false,
             kind: req.kind,
             scope: req.scope,
             project: req.project,
@@ -2040,6 +2041,9 @@ fn entity_context_bonus(
 
 fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
     let mut reasons = Vec::new();
+    if item.preferred {
+        reasons.push("preferred-branch".to_string());
+    }
     if item.stage == MemoryStage::Candidate {
         reasons.push("candidate".to_string());
     }
@@ -2061,6 +2065,9 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
     }
     if item.ttl_seconds.is_some() {
         reasons.push("ttl".to_string());
+    }
+    if item.belief_branch.is_some() && !item.preferred && item.status == MemoryStatus::Contested {
+        reasons.push("unresolved-contradiction".to_string());
     }
     reasons
 }

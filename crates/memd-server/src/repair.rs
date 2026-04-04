@@ -106,6 +106,51 @@ pub(crate) fn repair_item(
             }
             "contested"
         }
+        MemoryRepairMode::PreferBranch => {
+            item.preferred = true;
+            item.status = req.status.unwrap_or(MemoryStatus::Active);
+            if let Some(confidence) = req.confidence {
+                item.confidence = confidence.clamp(0.0, 1.0);
+                reasons.push("confidence_updated".to_string());
+            }
+            let siblings = state.snapshot().map_err(internal_error)?;
+            let canonical = canonical_key(&item);
+            let redundancy = redundancy_key(&item);
+            let mut demoted = 0usize;
+            for mut sibling in siblings {
+                if sibling.id == item.id {
+                    continue;
+                }
+                if sibling.kind != item.kind
+                    || sibling.scope != item.scope
+                    || sibling.project != item.project
+                    || sibling.namespace != item.namespace
+                    || sibling.redundancy_key.as_deref() != Some(redundancy.as_str())
+                    || canonical_key(&sibling) == canonical
+                    || !sibling.preferred
+                {
+                    continue;
+                }
+                sibling.preferred = false;
+                sibling.updated_at = Utc::now();
+                let sibling_canonical_key = canonical_key(&sibling);
+                let sibling_redundancy_key = redundancy_key(&sibling);
+                let sibling = MemoryItem {
+                    redundancy_key: Some(sibling_redundancy_key.clone()),
+                    ..sibling
+                };
+                state
+                    .store
+                    .update(&sibling, &sibling_canonical_key, &sibling_redundancy_key)
+                    .map_err(internal_error)?;
+                demoted += 1;
+            }
+            reasons.push("preferred_branch_selected".to_string());
+            if demoted > 0 {
+                reasons.push(format!("preferred_branch_cleared={demoted}"));
+            }
+            "preferred_branch"
+        }
         MemoryRepairMode::CorrectMetadata => {
             if let Some(source_agent) = req.source_agent {
                 item.source_agent = Some(source_agent);
@@ -208,6 +253,7 @@ fn format_mode(mode: MemoryRepairMode) -> &'static str {
         MemoryRepairMode::Expire => "expire",
         MemoryRepairMode::Supersede => "supersede",
         MemoryRepairMode::Contest => "contest",
+        MemoryRepairMode::PreferBranch => "prefer_branch",
         MemoryRepairMode::CorrectMetadata => "correct_metadata",
     }
 }

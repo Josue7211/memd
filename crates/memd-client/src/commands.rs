@@ -74,9 +74,10 @@ pub(crate) fn parse_memory_repair_mode_value(value: &str) -> anyhow::Result<Memo
         "expire" => Ok(MemoryRepairMode::Expire),
         "supersede" => Ok(MemoryRepairMode::Supersede),
         "contest" => Ok(MemoryRepairMode::Contest),
+        "prefer_branch" | "prefer" | "resolve" => Ok(MemoryRepairMode::PreferBranch),
         "correct_metadata" | "correct" | "repair" => Ok(MemoryRepairMode::CorrectMetadata),
         _ => anyhow::bail!(
-            "invalid repair mode '{value}'; expected verify, expire, supersede, contest, or correct_metadata"
+            "invalid repair mode '{value}'; expected verify, expire, supersede, contest, prefer_branch, or correct_metadata"
         ),
     }
 }
