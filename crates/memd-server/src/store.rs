@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use memd_schema::{
-    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
+    EntitySearchHit, EntitySearchRequest, MemoryConsolidationRequest, MemoryContextFrame,
+    MemoryDecayRequest, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
+    MemoryMaintenanceReportRequest,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -597,6 +598,86 @@ impl SqliteStore {
         }
     }
 
+    pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT payload_json FROM memory_entities ORDER BY updated_at DESC")
+            .context("prepare entity list query")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query memory entities")?;
+
+        let mut entities = Vec::new();
+        for row in rows {
+            let payload = row.context("read entity row")?;
+            let entity: MemoryEntityRecord =
+                serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+            entities.push(entity);
+        }
+        Ok(entities)
+    }
+
+    pub fn search_entities(
+        &self,
+        request: &EntitySearchRequest,
+    ) -> anyhow::Result<Vec<EntitySearchHit>> {
+        let query = normalize_search_text(&request.query);
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query_tokens = tokenize_search_text(&query);
+        let limit = request.limit.unwrap_or(5).min(20);
+        let mut hits = Vec::new();
+        for entity in self.list_entities()? {
+            if request.project.as_ref().is_some_and(|project| {
+                entity
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.project.as_ref())
+                    != Some(project)
+            }) {
+                continue;
+            }
+            if request.namespace.as_ref().is_some_and(|namespace| {
+                entity
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.namespace.as_ref())
+                    != Some(namespace)
+            }) {
+                continue;
+            }
+
+            let (score, reasons) = score_entity_search(&query, &query_tokens, &entity);
+            if score <= 0.0 {
+                continue;
+            }
+
+            hits.push(EntitySearchHit {
+                entity,
+                score,
+                reasons,
+            });
+        }
+
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.entity.rehearsal_count.cmp(&a.entity.rehearsal_count))
+                .then_with(|| {
+                    b.entity
+                        .salience_score
+                        .partial_cmp(&a.entity.salience_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| b.entity.updated_at.cmp(&a.entity.updated_at))
+        });
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
     fn stale_item_count(&self, request: &MemoryMaintenanceReportRequest) -> anyhow::Result<usize> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let mut stmt = conn
@@ -1047,6 +1128,121 @@ fn merge_tags(existing: &[String], incoming: &[String]) -> Vec<String> {
     tags
 }
 
+fn normalize_search_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn tokenize_search_text(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .map(|value| value.to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn score_entity_search(
+    query: &str,
+    query_tokens: &[String],
+    entity: &MemoryEntityRecord,
+) -> (f32, Vec<String>) {
+    let mut score = 0.0f32;
+    let mut reasons = Vec::new();
+    let haystacks = entity_search_haystacks(entity);
+
+    for haystack in &haystacks {
+        if haystack == query {
+            score += 1.0;
+            reasons.push("exact match".to_string());
+        } else if haystack.starts_with(query) {
+            score += 0.7;
+            reasons.push("prefix match".to_string());
+        } else if haystack.contains(query) {
+            score += 0.5;
+            reasons.push("substring match".to_string());
+        }
+    }
+
+    for token in query_tokens {
+        if haystacks.iter().any(|haystack| haystack.contains(token)) {
+            score += 0.2;
+            reasons.push(format!("token:{token}"));
+        }
+    }
+
+    if query_tokens.len() > 1 {
+        let joined = query_tokens.join(" ");
+        if haystacks.iter().any(|haystack| haystack.contains(&joined)) {
+            score += 0.28;
+            reasons.push("phrase match".to_string());
+        }
+    }
+
+    if entity.salience_score > 0.0 {
+        score += entity.salience_score * 0.08;
+    }
+    if entity.rehearsal_count > 0 {
+        score += (entity.rehearsal_count as f32).ln_1p() * 0.03;
+    }
+
+    score = score.min(1.0);
+    reasons.sort();
+    reasons.dedup();
+    (score, reasons)
+}
+
+fn entity_search_haystacks(entity: &MemoryEntityRecord) -> Vec<String> {
+    let mut haystacks = Vec::new();
+    haystacks.push(normalize_search_text(&entity.entity_type));
+    haystacks.extend(
+        entity
+            .aliases
+            .iter()
+            .map(|alias| normalize_search_text(alias)),
+    );
+    if let Some(state) = &entity.current_state {
+        haystacks.push(normalize_search_text(state));
+    }
+    if let Some(context) = &entity.context {
+        if let Some(project) = &context.project {
+            haystacks.push(normalize_search_text(project));
+        }
+        if let Some(namespace) = &context.namespace {
+            haystacks.push(normalize_search_text(namespace));
+        }
+        if let Some(repo) = &context.repo {
+            haystacks.push(normalize_search_text(repo));
+        }
+        if let Some(agent) = &context.agent {
+            haystacks.push(normalize_search_text(agent));
+        }
+        if let Some(location) = &context.location {
+            haystacks.push(normalize_search_text(location));
+            if let Some(file_name) = Path::new(location)
+                .file_name()
+                .and_then(|value| value.to_str())
+            {
+                haystacks.push(normalize_search_text(file_name));
+            }
+        }
+    }
+    haystacks.extend(entity.tags.iter().map(|tag| normalize_search_text(tag)));
+    haystacks.sort();
+    haystacks.dedup();
+    haystacks
+}
+
 fn compact_entity_state(item: &MemoryItem) -> String {
     let mut state = item
         .content
@@ -1084,4 +1280,47 @@ fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuzzy_entity_search_scores_alias_hits_highest() {
+        let entity = MemoryEntityRecord {
+            id: Uuid::new_v4(),
+            entity_type: "repo".to_string(),
+            aliases: vec!["memd".to_string(), "memory manager".to_string()],
+            current_state: Some("main branch with smart memory".to_string()),
+            state_version: 1,
+            confidence: 0.9,
+            salience_score: 0.8,
+            rehearsal_count: 3,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            last_accessed_at: Some(chrono::Utc::now()),
+            last_seen_at: Some(chrono::Utc::now()),
+            tags: vec!["project".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(chrono::Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("/tmp/memd".to_string()),
+            }),
+        };
+
+        let (score, reasons) = score_entity_search(
+            &normalize_search_text("memd repo"),
+            &tokenize_search_text("memd repo"),
+            &entity,
+        );
+
+        assert!(score > 0.5);
+        assert!(reasons.iter().any(|reason| reason.contains("token:memd")));
+    }
 }

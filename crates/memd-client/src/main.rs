@@ -18,10 +18,11 @@ use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest}
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
+    ContextRequest, EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest,
+    ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
+    MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use serde::Serialize;
@@ -55,6 +56,7 @@ enum Commands {
     Inbox(InboxArgs),
     Explain(ExplainArgs),
     Entity(EntityArgs),
+    EntitySearch(EntitySearchArgs),
     Timeline(TimelineArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
@@ -142,6 +144,33 @@ struct ExplainArgs {
 struct EntityArgs {
     #[arg(long)]
     id: String,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct EntitySearchArgs {
+    #[arg(long)]
+    query: String,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
 
     #[arg(long)]
     route: Option<String>,
@@ -763,6 +792,23 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&response)?;
             }
         }
+        Commands::EntitySearch(args) => {
+            let response = client
+                .entity_search(&EntitySearchRequest {
+                    query: args.query,
+                    project: args.project,
+                    namespace: args.namespace,
+                    route: parse_retrieval_route(args.route)?,
+                    intent: parse_retrieval_intent(args.intent)?,
+                    limit: args.limit,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_entity_search_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Timeline(args) => {
             let req = memd_schema::TimelineMemoryRequest {
                 id: args.id.parse().context("parse memory id as uuid")?,
@@ -1036,6 +1082,46 @@ fn render_entity_summary(response: &memd_schema::EntityMemoryResponse, follow: b
             event.event_type,
             compact_inline(&event.summary, 48)
         ));
+    }
+
+    output
+}
+
+fn render_entity_search_summary(response: &EntitySearchResponse, follow: bool) -> String {
+    let mut output = format!(
+        "entity-search query=\"{}\" candidates={} ambiguous={}",
+        compact_inline(&response.query, 48),
+        response.candidates.len(),
+        response.ambiguous
+    );
+
+    if let Some(best) = response.best_match.as_ref() {
+        output.push_str(&format!(
+            " best={} type={} score={:.2} reasons={}",
+            short_uuid(best.entity.id),
+            best.entity.entity_type,
+            best.score,
+            compact_inline(&best.reasons.join(","), 64)
+        ));
+    }
+
+    if follow {
+        let trail = response
+            .candidates
+            .iter()
+            .take(3)
+            .map(|candidate| {
+                format!(
+                    "{}:{}:{:.2}",
+                    short_uuid(candidate.entity.id),
+                    candidate.entity.entity_type,
+                    candidate.score
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
     }
 
     output

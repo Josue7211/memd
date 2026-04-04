@@ -1,13 +1,14 @@
 use anyhow::Context;
 use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, ContextRequest,
-    ContextResponse, EntityMemoryRequest, EntityMemoryResponse, ExpireMemoryRequest,
-    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
-    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, PromoteMemoryRequest, PromoteMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    ContextResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest,
+    EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
+    ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -95,6 +96,13 @@ impl MemdClient {
 
     pub async fn entity(&self, req: &EntityMemoryRequest) -> anyhow::Result<EntityMemoryResponse> {
         self.get_json_with_query("/memory/entity", req).await
+    }
+
+    pub async fn entity_search(
+        &self,
+        req: &EntitySearchRequest,
+    ) -> anyhow::Result<EntitySearchResponse> {
+        self.get_json_with_query("/memory/entity/search", req).await
     }
 
     pub async fn timeline(

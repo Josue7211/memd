@@ -14,11 +14,12 @@ use chrono::Utc;
 use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
-    ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse,
-    ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
-    HealthResponse, InboxMemoryItem, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityRecord,
-    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
+    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryEntityRecord, MemoryEventRecord,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
     MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
@@ -242,6 +243,7 @@ async fn main() {
         .route("/memory/context/compact", get(get_compact_context))
         .route("/memory/inbox", get(get_inbox))
         .route("/memory/entity", get(get_entity))
+        .route("/memory/entity/search", get(get_entity_search))
         .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
@@ -465,6 +467,67 @@ async fn get_entity(
         intent: plan.intent,
         entity,
         events,
+    }))
+}
+
+async fn get_entity_search(
+    State(state): State<AppState>,
+    Query(req): Query<EntitySearchRequest>,
+) -> Result<Json<EntitySearchResponse>, (StatusCode, String)> {
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
+    let query = req.query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Json(EntitySearchResponse {
+            route: plan.route,
+            intent: plan.intent,
+            query,
+            best_match: None,
+            candidates: Vec::new(),
+            ambiguous: false,
+        }));
+    }
+
+    let mut candidates = if let Ok(id) = Uuid::parse_str(&query) {
+        match state.store.entity_by_id(id).map_err(internal_error)? {
+            Some(entity) => vec![EntitySearchHit {
+                entity,
+                score: 1.0,
+                reasons: vec!["exact entity id".to_string()],
+            }],
+            None => Vec::new(),
+        }
+    } else {
+        state
+            .store
+            .search_entities(&EntitySearchRequest {
+                query: query.clone(),
+                project: req.project.clone(),
+                namespace: req.namespace.clone(),
+                route: req.route,
+                intent: req.intent,
+                limit: req.limit,
+            })
+            .map_err(internal_error)?
+    };
+
+    let best_match = candidates.first().cloned();
+    let ambiguous = candidates.len() > 1
+        && candidates
+            .get(1)
+            .map(|candidate| {
+                best_match
+                    .as_ref()
+                    .is_some_and(|best| (best.score - candidate.score).abs() < 0.15)
+            })
+            .unwrap_or(false);
+
+    Ok(Json(EntitySearchResponse {
+        route: plan.route,
+        intent: plan.intent,
+        query,
+        best_match,
+        candidates: std::mem::take(&mut candidates),
+        ambiguous,
     }))
 }
 

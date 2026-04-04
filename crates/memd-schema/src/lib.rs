@@ -341,6 +341,33 @@ pub struct EntityMemoryResponse {
     pub events: Vec<MemoryEventRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EntitySearchRequest {
+    pub query: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub route: Option<RetrievalRoute>,
+    pub intent: Option<RetrievalIntent>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitySearchHit {
+    pub entity: MemoryEntityRecord,
+    pub score: f32,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitySearchResponse {
+    pub route: RetrievalRoute,
+    pub intent: RetrievalIntent,
+    pub query: String,
+    pub best_match: Option<EntitySearchHit>,
+    pub candidates: Vec<EntitySearchHit>,
+    pub ambiguous: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineMemoryRequest {
     pub id: Uuid,
@@ -562,6 +589,62 @@ mod tests {
         let decoded: MemoryEventRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.event_type, "rename");
         assert_eq!(decoded.tags.len(), 2);
+    }
+
+    #[test]
+    fn entity_search_roundtrips() {
+        let entity = MemoryEntityRecord {
+            id: Uuid::new_v4(),
+            entity_type: "repo".to_string(),
+            aliases: vec!["memd".to_string()],
+            current_state: Some("main".to_string()),
+            state_version: 1,
+            confidence: 0.8,
+            salience_score: 0.7,
+            rehearsal_count: 2,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_accessed_at: Some(Utc::now()),
+            last_seen_at: Some(Utc::now()),
+            tags: vec!["project".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("/tmp/memd".to_string()),
+            }),
+        };
+        let request = EntitySearchRequest {
+            query: "memd repo".to_string(),
+            project: Some("memd".to_string()),
+            namespace: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::Fact),
+            limit: Some(5),
+        };
+        let response = EntitySearchResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::Fact,
+            query: request.query.clone(),
+            best_match: Some(EntitySearchHit {
+                entity,
+                score: 0.93,
+                reasons: vec!["alias match".to_string()],
+            }),
+            candidates: Vec::new(),
+            ambiguous: false,
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: EntitySearchRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: EntitySearchResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.query, request.query);
+        assert_eq!(decoded_response.best_match.unwrap().score, 0.93);
     }
 
     #[test]
