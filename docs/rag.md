@@ -6,6 +6,10 @@ storage as an optional backend.
 The intended backend is LightRAG or a LightRAG-compatible service behind
 `rag-sidecar`, but the core product does not require it to run.
 
+That is important because `memd` also supports a markdown-native path through
+Obsidian vault ingest and compiled wiki workflows. For smaller knowledge bases,
+that can be enough without reaching for a semantic backend first.
+
 The full backend stack, when configured, must support multimodal inputs:
 
 - video
@@ -64,6 +68,7 @@ RAG is optional for runtime deployment, but it is a core part of the long-term
 product story.
 
 Use `memd` alone for compact structured memory.
+Use Obsidian plus `memd` for markdown-native raw-source and compiled-wiki workflows.
 Add RAG when you want cross-project, cross-session semantic recall.
 
 See also:

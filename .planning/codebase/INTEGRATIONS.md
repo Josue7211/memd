@@ -47,6 +47,7 @@ Generated project bundles contain:
 - multimodal ingest logic: `crates/memd-multimodal/src/lib.rs`
 - obsidian bridge: `crates/memd-client/src/obsidian.rs`
 - obsidian docs: `docs/obsidian.md`
+- obsidian is now also part of the intended compiled-wiki product path, not only a vault import bridge
 
 ## Operational Scripts
 

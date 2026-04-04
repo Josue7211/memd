@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
     time::SystemTime,
 };
 
@@ -13,6 +14,7 @@ use memd_schema::{
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use url::form_urlencoded::byte_serialize;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -481,6 +483,68 @@ pub fn default_writeback_path(vault: &Path, explain: &ExplainMemoryResponse) -> 
         .join(".memd")
         .join("writeback")
         .join(format!("{kind}-{short_id}.md"))
+}
+
+pub fn build_open_uri(path: &Path, pane_type: Option<&str>) -> anyhow::Result<String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("read current directory for obsidian uri")?
+            .join(path)
+    };
+    let mut uri = format!(
+        "obsidian://open?path={}",
+        encode_uri_component(&absolute.to_string_lossy())
+    );
+    if let Some(pane_type) = pane_type {
+        let normalized = pane_type.trim();
+        if !normalized.is_empty() {
+            uri.push_str("&paneType=");
+            uri.push_str(&encode_uri_component(normalized));
+        }
+    }
+    Ok(uri)
+}
+
+fn encode_uri_component(value: &str) -> String {
+    byte_serialize(value.as_bytes()).collect()
+}
+
+pub fn open_uri(uri: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(uri);
+        command
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(uri);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", uri]);
+        command
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        anyhow::bail!("opening Obsidian URIs is not supported on this platform");
+    }
+
+    let status = command
+        .status()
+        .with_context(|| format!("launch Obsidian URI {uri}"))?;
+    if !status.success() {
+        anyhow::bail!("Obsidian URI launcher exited with status {status}");
+    }
+    Ok(())
 }
 
 pub fn build_writeback_markdown(
@@ -1749,5 +1813,12 @@ mod tests {
                 .join("attachments")
                 .join("assets/image.md")
         );
+    }
+
+    #[test]
+    fn builds_obsidian_open_uri() {
+        let uri = build_open_uri(Path::new("/tmp/vault/writeback/note.md"), Some("split")).unwrap();
+        assert!(uri.starts_with("obsidian://open?path=%2Ftmp%2Fvault%2Fwriteback%2Fnote.md"));
+        assert!(uri.contains("&paneType=split"));
     }
 }

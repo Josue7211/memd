@@ -4,9 +4,21 @@
 That makes it compatible with a CouchDB-synced vault without requiring any
 special Obsidian plugin or CLI workflow.
 
+It also fits a stronger workflow than simple note import:
+
+- keep raw source material in the vault
+- let an agent compile or maintain derived wiki pages as markdown
+- use Obsidian as the human and agent workspace for browsing, backlinks, and outputs
+- let `memd` preserve typed memory, provenance, contradiction state, and policy outside the vault text itself
+
+That means Obsidian is not only an ingest source. It can also be the markdown
+frontend for a compiled knowledge base, while `memd` remains the memory control
+plane behind it.
+
 The bridge is filesystem-first:
 
 - markdown notes become candidate memories
+- compiled wiki pages can be imported the same way as hand-written notes
 - note paths are preserved as source anchors
 - unchanged notes are skipped using a local sync state file
 - wiki links can be turned into entity links
@@ -69,6 +81,18 @@ Write a memory item back into the vault as a note:
 cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply
 ```
 
+Write it back and open it in Obsidian immediately:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply --open
+```
+
+Open it in a split pane instead of replacing the current tab:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply --open --pane-type split
+```
+
 Round-trip a vault and annotate source notes in place:
 
 ```bash
@@ -99,6 +123,13 @@ Each note becomes a compact candidate memory with:
 - backlinks when the vault contains inbound wiki references
 - `source_system=obsidian`
 - `source_path` anchored to the note file
+
+At the product level, this supports a compiled-wiki workflow:
+
+- `raw/` source material can stay in the vault or nearby project tree
+- agent-maintained summary and concept pages can live in the same vault
+- generated outputs such as reports, slides, and analysis notes can be filed back into the vault
+- `memd` can index those files without forcing a separate semantic backend for small and medium knowledge bases
 
 If `--link-notes` is enabled, wiki links like `[[Other Note]]` are resolved
 against imported note titles and written as entity links.
@@ -133,6 +164,11 @@ This bridge does not depend on Obsidian's CLI. If you already use a CLI to
 open or manage the vault, you can keep doing that. `memd` only needs the
 local vault path.
 
+For desktop open-hand-off, `memd` can also emit and launch an `obsidian://open`
+URI that targets the generated writeback file. `obsidian writeback --open`
+uses the platform opener (`open`, `xdg-open`, or `start`) so the result lands
+back in the vault UI immediately.
+
 Writeback notes are generated under `<vault>/.memd/writeback/` by default.
 Pass `--output` to place them somewhere else and `--overwrite` to replace an
 existing note.
@@ -151,3 +187,27 @@ scope the vault bridge to a slice of the vault instead of the whole tree.
 
 `obsidian status` reports sync entry count, mirror coverage, changed vs
 unchanged items, and whether the round-trip path is already live.
+
+## Relationship To RAG
+
+Obsidian is a first-class markdown workspace option, not a replacement for the
+optional semantic backend.
+
+Use Obsidian mode when:
+
+- the knowledge base is still small or medium enough to stay markdown-native
+- backlinks, local files, and direct agent-written notes are the main workflow
+- you want the agent to compile and maintain a wiki in place
+
+Use the optional semantic backend when:
+
+- the vault or source corpus grows beyond comfortable direct file navigation
+- semantic recall across larger corpora becomes necessary
+- multimodal retrieval pressure is high enough that a dedicated backend pays for itself
+
+The intended shape is:
+
+- raw sources
+- compiled markdown wiki in Obsidian
+- `memd` typed memory and policy layer
+- optional LightRAG-compatible backend when scale demands it

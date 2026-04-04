@@ -53,6 +53,7 @@
 - [x] **INTG-02**: Agent attach flow works for Claude Code, Codex, Mission Control, and OpenClaw.
 - [x] **INTG-03**: Optional semantic backend stays behind the documented sidecar contract.
 - [x] **INTG-04**: Obsidian and multimodal ingest preserve memory usefulness and provenance.
+- [ ] **INTG-05**: Obsidian can also serve as a compiled markdown wiki workspace without replacing typed memory or provenance controls.
 
 ## v2 Requirements
 
@@ -93,6 +94,7 @@
 | INTG-02 | v1 | Complete |
 | INTG-03 | v1 | Complete |
 | INTG-04 | v1 | Complete |
+| INTG-05 | v2 | Pending |
 | SUPR-01 | v2 | Complete |
 | SUPR-02 | v2 | Complete |
 | SUPR-03 | v2 | Complete |

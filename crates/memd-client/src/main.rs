@@ -585,6 +585,12 @@ struct ObsidianArgs {
     overwrite: bool,
 
     #[arg(long)]
+    open: bool,
+
+    #[arg(long)]
+    pane_type: Option<String>,
+
+    #[arg(long)]
     id: Option<String>,
 
     #[arg(long, default_value_t = 750)]
@@ -2051,6 +2057,7 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
 
     let preview = serde_json::json!({
         "output_path": output_path.display().to_string(),
+        "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
         "title": title,
         "id": explain.item.id,
         "kind": format!("{:?}", explain.item.kind).to_lowercase(),
@@ -2073,6 +2080,10 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
         );
     }
     obsidian::write_markdown(&output_path, &markdown)?;
+    if args.open {
+        let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
+        obsidian::open_uri(&uri)?;
+    }
     print_json(&preview)?;
     Ok(())
 }

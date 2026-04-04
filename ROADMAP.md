@@ -59,6 +59,7 @@ What is already real in the repo:
 
 - the core works without RAG
 - LightRAG is the intended long-term semantic backend
+- Obsidian vault ingest already exists as a filesystem-first source lane
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
 - graph/entity primitives exist
@@ -82,6 +83,7 @@ Backends and producers work behind it:
 - local memory
 - short-term sync
 - auto-dream / consolidation
+- Obsidian vault and compiled markdown wiki workflows
 - semantic retrieval
 - graph relationships
 - verification workers
@@ -139,6 +141,8 @@ Deliver:
 - compact retrieval and budgeted context delivery
 - shared short-term sync
 - dream/candidate ingestion and promotion gates
+- Obsidian vault bridge for markdown-native ingest and writeback
+- compiled-wiki workflow support where raw sources and derived notes can live in the same knowledge workspace
 - LightRAG adapter and bundle-first backend configuration
 - backend stack contract for `rag-sidecar`, `MinerU`, and `RAGAnything`
 - one-command attach flow for Claude Code, Codex, Mission Control, and OpenClaw
@@ -151,6 +155,7 @@ Success:
 - agents can carry context across sessions and machines without drowning in
   transcripts
 - memory remains compact, typed, inspectable, and evidence-backed
+- markdown-native research and wiki workflows can stay in Obsidian without giving up typed memory, provenance, or agent automation
 - the substrate behaves like a brain-inspired control plane, not a bag of notes
 
 Implementation history:
@@ -190,6 +195,7 @@ Deliver:
 - reversible compression with summary-first retrieval and raw evidence recovery
 - provenance-native memory where every durable belief carries source,
   freshness, trust, and verification state
+- compiled wiki material can be treated as a first-class evidence lane, not only as loose note text
 - explicit working-memory admission, eviction, and rehydration policy
 - retrieval as a learned control loop instead of a fixed heuristic table
 - trust-weighted source memory across humans, agents, tools, files, and sensors
@@ -203,6 +209,7 @@ Success:
 - `memd` uses biology for structure without inheriting biological bottlenecks
 - the system can remember far more than it keeps hot without becoming incoherent
 - contradictions remain navigable instead of being flattened away
+- Obsidian-scale knowledge bases can stay markdown-native at small/medium scale, with semantic backends added only when retrieval pressure demands it
 - retrieval becomes part of cognition instead of an accessory to storage
 
 ### v3: Federated and Collective Memory
