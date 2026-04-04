@@ -16,6 +16,9 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+const MEMD_ROUNDTRIP_BEGIN: &str = "<!-- memd:begin -->";
+const MEMD_ROUNDTRIP_END: &str = "<!-- memd:end -->";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ObsidianVaultScan {
     pub vault: PathBuf,
@@ -539,6 +542,78 @@ pub fn write_markdown(path: impl AsRef<Path>, content: &str) -> anyhow::Result<(
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     fs::write(path, content).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+pub fn build_roundtrip_annotation(
+    note: &ObsidianNote,
+    item_id: Option<Uuid>,
+    entity_id: Option<Uuid>,
+) -> String {
+    let mut block = String::new();
+    block.push_str(MEMD_ROUNDTRIP_BEGIN);
+    block.push('\n');
+    block.push_str("## memd sync\n\n");
+    block.push_str(&format!("- note: {}\n", note.title));
+    block.push_str(&format!("- path: {}\n", note.relative_path));
+    block.push_str(&format!("- kind: {:?}\n", note.kind).to_lowercase());
+    if let Some(item_id) = item_id {
+        block.push_str(&format!("- item_id: {}\n", item_id));
+    }
+    if let Some(entity_id) = entity_id {
+        block.push_str(&format!("- entity_id: {}\n", entity_id));
+    }
+    if !note.links.is_empty() {
+        block.push_str(&format!("- links: {}\n", note.links.join(", ")));
+    }
+    if !note.backlinks.is_empty() {
+        block.push_str(&format!("- backlinks: {}\n", note.backlinks.join(", ")));
+    }
+    if let Some(folder_path) = note.folder_path.as_deref() {
+        block.push_str(&format!("- folder: {}\n", folder_path));
+    }
+    block.push_str(&format!("- folder_depth: {}\n", note.folder_depth));
+    block.push_str(&format!("- content_hash: {}\n", note.content_hash));
+    block.push_str(&format!("- bytes: {}\n", note.bytes));
+    if let Some(modified_at) = note.modified_at {
+        block.push_str(&format!("- modified_at: {}\n", modified_at.to_rfc3339()));
+    }
+    block.push_str(&format!("- synced_at: {}\n", Utc::now().to_rfc3339()));
+    block.push_str(MEMD_ROUNDTRIP_END);
+    block.push('\n');
+    block
+}
+
+pub fn upsert_markdown_block(
+    content: &str,
+    begin_marker: &str,
+    end_marker: &str,
+    block: &str,
+) -> String {
+    if let (Some(begin), Some(end)) = (content.find(begin_marker), content.find(end_marker)) {
+        let mut end = end + end_marker.len();
+        if content[end..].starts_with('\n') {
+            end += '\n'.len_utf8();
+        }
+        let mut updated = content.to_string();
+        updated.replace_range(begin..end, block);
+        return updated;
+    }
+
+    let mut updated = content.trim_end().to_string();
+    if !updated.is_empty() {
+        updated.push_str("\n\n");
+    }
+    updated.push_str(block.trim_end());
+    updated.push('\n');
+    updated
+}
+
+pub fn annotate_note(path: impl AsRef<Path>, block: &str) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    let original = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let updated = upsert_markdown_block(&original, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, block);
+    fs::write(path, updated).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
@@ -1289,5 +1364,39 @@ mod tests {
         assert_eq!(scan.attachment_sensitive_count, 1);
         assert_eq!(scan.attachment_count, 0);
         assert!(scan.attachments.is_empty());
+    }
+
+    #[test]
+    fn upserts_roundtrip_annotation_block() {
+        let content = "# Note\n\nBody.\n";
+        let note = ObsidianNote {
+            path: PathBuf::from("Note.md"),
+            relative_path: "Note.md".to_string(),
+            folder_path: None,
+            folder_depth: 0,
+            title: "Note".to_string(),
+            normalized_title: normalized_title("Note"),
+            excerpt: "Body.".to_string(),
+            kind: MemoryKind::Fact,
+            tags: Vec::new(),
+            aliases: Vec::new(),
+            links: vec!["Other".to_string()],
+            backlinks: vec!["Back.md".to_string()],
+            sensitivity: ObsidianSensitivity {
+                sensitive: false,
+                reasons: Vec::new(),
+            },
+            bytes: 8,
+            modified_at: None,
+            content_hash: "abc123".to_string(),
+        };
+        let block = build_roundtrip_annotation(&note, Some(Uuid::nil()), Some(Uuid::nil()));
+        let updated =
+            upsert_markdown_block(content, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, &block);
+        assert!(updated.contains("memd sync"));
+        assert!(updated.contains("item_id"));
+        let second =
+            upsert_markdown_block(&updated, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, &block);
+        assert_eq!(updated, second);
     }
 }

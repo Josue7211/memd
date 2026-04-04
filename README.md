@@ -172,7 +172,7 @@ Set `MEMD_DB_PATH` to change the SQLite database location.
 - Codex
 - Mission Control
 - OpenClaw
-- Obsidian vault bridge
+- Obsidian vault bridge with round-trip sync
 - Shared hook kit for shell integration
 - Optional LightRAG adapter
 - External backend stack contract

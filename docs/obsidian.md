@@ -14,6 +14,7 @@ The bridge is filesystem-first:
 - folder paths and depth are captured for graph-aware vault structure
 - attachments can be imported from the vault, routed through the multimodal path, and linked back to the note they belong to
 - notes that look like secrets are skipped before import
+- notes can be mirrored back in place with a small `memd` sync block for round-trip editing
 
 ## Scan
 
@@ -47,6 +48,12 @@ Write a memory item back into the vault as a note:
 
 ```bash
 cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply
+```
+
+Round-trip a vault and annotate source notes in place:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian roundtrip --vault ~/vault --project notes --apply
 ```
 
 Import notes and vault attachments together:
@@ -110,3 +117,7 @@ local vault path.
 Writeback notes are generated under `<vault>/.memd/writeback/` by default.
 Pass `--output` to place them somewhere else and `--overwrite` to replace an
 existing note.
+
+`obsidian roundtrip` also writes a compact `<!-- memd:begin -->` block back
+into each synced source note so the vault keeps a local record of the imported
+memory item and entity.
