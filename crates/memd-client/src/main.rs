@@ -329,6 +329,9 @@ struct ObsidianArgs {
     follow: bool,
 
     #[arg(long)]
+    review_sensitive: bool,
+
+    #[arg(long)]
     apply: bool,
 
     #[arg(long)]
@@ -1075,6 +1078,10 @@ async fn main() -> anyhow::Result<()> {
                     args.namespace.clone(),
                     args.max_notes,
                 )?;
+                if args.review_sensitive {
+                    println!("{}", obsidian::render_sensitive_review(&scan));
+                    return Ok(());
+                }
                 if args.summary {
                     println!("{}", render_obsidian_scan_summary(&scan, args.follow));
                 } else {
@@ -1088,6 +1095,10 @@ async fn main() -> anyhow::Result<()> {
                     args.namespace.clone(),
                     args.max_notes,
                 )?;
+                if args.review_sensitive {
+                    println!("{}", obsidian::render_sensitive_review(&scan));
+                    return Ok(());
+                }
                 let (preview, candidates) = obsidian::build_import_preview(scan);
                 if args.apply {
                     let responses = client.candidate_batch(&candidates).await?;

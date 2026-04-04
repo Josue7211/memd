@@ -22,12 +22,21 @@ pub struct ObsidianVaultScan {
     pub note_count: usize,
     pub sensitive_count: usize,
     pub skipped_count: usize,
+    pub sensitive_notes: Vec<ObsidianSensitiveNote>,
     pub notes: Vec<ObsidianNote>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ObsidianSensitivity {
     pub sensitive: bool,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObsidianSensitiveNote {
+    pub path: PathBuf,
+    pub relative_path: String,
+    pub title: String,
     pub reasons: Vec<String>,
 }
 
@@ -60,6 +69,7 @@ pub fn scan_vault(
 ) -> anyhow::Result<ObsidianVaultScan> {
     let vault = vault.as_ref();
     let mut notes = Vec::new();
+    let mut sensitive_notes = Vec::new();
     let mut skipped_count = 0usize;
     let mut sensitive_count = 0usize;
     let max_notes = max_notes.unwrap_or(usize::MAX);
@@ -87,6 +97,12 @@ pub fn scan_vault(
 
         if let Some(note) = parse_markdown_note(vault, entry.path())? {
             if note.sensitivity.sensitive {
+                sensitive_notes.push(ObsidianSensitiveNote {
+                    path: note.path.clone(),
+                    relative_path: note.relative_path.clone(),
+                    title: note.title.clone(),
+                    reasons: note.sensitivity.reasons.clone(),
+                });
                 sensitive_count += 1;
                 continue;
             }
@@ -101,6 +117,7 @@ pub fn scan_vault(
         note_count: notes.len(),
         sensitive_count,
         skipped_count,
+        sensitive_notes,
         notes,
     })
 }
@@ -338,6 +355,40 @@ fn detect_sensitivity(
         sensitive: !reasons.is_empty(),
         reasons,
     }
+}
+
+pub fn render_sensitive_review(scan: &ObsidianVaultScan) -> String {
+    let mut output = format!(
+        "vault={} sensitive={} notes={} skipped={}",
+        scan.vault.display(),
+        scan.sensitive_count,
+        scan.note_count,
+        scan.skipped_count
+    );
+
+    if !scan.sensitive_notes.is_empty() {
+        let trail = scan
+            .sensitive_notes
+            .iter()
+            .take(5)
+            .map(|note| {
+                format!(
+                    "{} [{}]",
+                    note.relative_path,
+                    note.reasons
+                        .iter()
+                        .take(2)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        output.push_str(&format!(" trail={trail}"));
+    }
+
+    output
 }
 
 fn split_frontmatter(raw: &str) -> (Option<HashMap<String, String>>, String) {

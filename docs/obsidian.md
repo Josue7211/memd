@@ -34,6 +34,12 @@ Import notes and also create associative links for wiki links:
 cargo run -p memd-client --bin memd -- obsidian import --vault ~/vault --project notes --apply --link-notes
 ```
 
+Review only the sensitive notes that were skipped:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian scan --vault ~/vault --review-sensitive --summary
+```
+
 ## What Gets Stored
 
 Each note becomes a compact candidate memory with:
@@ -50,6 +56,9 @@ against imported note titles and written as entity links.
 
 Notes that contain obvious credential markers such as API keys, private keys,
 or secret tokens are excluded from import by default.
+
+`--review-sensitive` prints only filenames and reasons for skipped sensitive
+notes. It does not print note bodies, excerpts, or candidate content.
 
 ## Obsidian CLI
 
