@@ -43,6 +43,7 @@ enum Commands {
     Attach(AttachArgs),
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
+    Ingest(IngestArgs),
     Store(RequestInput),
     Candidate(RequestInput),
     Promote(RequestInput),
@@ -136,6 +137,66 @@ struct ExplainArgs {
 struct SearchArgs {
     #[command(flatten)]
     input: RequestInput,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct IngestArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    kind: Option<String>,
+
+    #[arg(long)]
+    scope: Option<String>,
+
+    #[arg(long)]
+    source_agent: Option<String>,
+
+    #[arg(long)]
+    source_system: Option<String>,
+
+    #[arg(long)]
+    source_path: Option<String>,
+
+    #[arg(long)]
+    source_quality: Option<String>,
+
+    #[arg(long)]
+    confidence: Option<f32>,
+
+    #[arg(long)]
+    ttl_seconds: Option<u64>,
+
+    #[arg(long, value_name = "TEXT")]
+    tag: Vec<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    supersede: Vec<String>,
+
+    #[arg(long)]
+    content: Option<String>,
+
+    #[arg(long)]
+    json: Option<String>,
+
+    #[arg(long)]
+    input: Option<PathBuf>,
+
+    #[arg(long)]
+    stdin: bool,
+
+    #[arg(long)]
+    apply: bool,
 
     #[arg(long)]
     route: Option<String>,
@@ -510,6 +571,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Commands::Ingest(args) => {
+            let result = ingest_auto_route(&client, &args).await?;
+            print_json(&result)?;
+        }
         Commands::Store(input) => {
             let req = read_request::<StoreMemoryRequest>(&input)?;
             print_json(&client.store(&req).await?)?;
@@ -848,6 +913,246 @@ fn parse_rag_retrieve_mode(value: &str) -> anyhow::Result<RagRetrieveMode> {
         "graph" => Ok(RagRetrieveMode::Graph),
         _ => anyhow::bail!(
             "invalid rag retrieve mode '{value}'; expected auto, text, multimodal, or graph"
+        ),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct IngestAutoRouteResult {
+    route: String,
+    request: Option<CandidateMemoryRequest>,
+    candidate: Option<memd_schema::CandidateMemoryResponse>,
+    multimodal: Option<MultimodalIngestOutput>,
+}
+
+async fn ingest_auto_route(
+    client: &MemdClient,
+    args: &IngestArgs,
+) -> anyhow::Result<IngestAutoRouteResult> {
+    if let Some(content) = &args.content {
+        return ingest_text_memory(client, args, content.clone()).await;
+    }
+
+    if args.input.is_some() || args.stdin {
+        let raw = read_ingest_payload(args)?;
+        if looks_like_multimodal(&raw) {
+            return ingest_multimodal_payload(args, &raw).await;
+        }
+        return ingest_text_memory(client, args, raw).await;
+    }
+
+    anyhow::bail!("provide --content, --input, or --stdin");
+}
+
+fn read_ingest_payload(args: &IngestArgs) -> anyhow::Result<String> {
+    if let Some(json) = &args.json {
+        return Ok(json.clone());
+    }
+    if let Some(path) = &args.input {
+        return fs::read_to_string(path)
+            .with_context(|| format!("read ingest input file {}", path.display()));
+    }
+    if args.stdin {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .context("read ingest payload from stdin")?;
+        return Ok(buffer);
+    }
+    anyhow::bail!("no ingest payload");
+}
+
+fn looks_like_multimodal(input: &str) -> bool {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return false;
+    }
+    trimmed.split_whitespace().any(|token| {
+        let lowered = token
+            .trim_matches(|c: char| c == ',' || c == ';')
+            .to_ascii_lowercase();
+        lowered.ends_with(".pdf")
+            || lowered.ends_with(".png")
+            || lowered.ends_with(".jpg")
+            || lowered.ends_with(".jpeg")
+            || lowered.ends_with(".webp")
+            || lowered.ends_with(".heic")
+            || lowered.ends_with(".mp4")
+            || lowered.ends_with(".mov")
+            || lowered.ends_with(".mkv")
+            || lowered.ends_with(".webm")
+            || lowered.ends_with(".csv")
+            || lowered.ends_with(".tsv")
+            || lowered.ends_with(".xlsx")
+            || lowered.ends_with(".txt")
+            || lowered.ends_with(".md")
+    })
+}
+
+async fn ingest_text_memory(
+    client: &MemdClient,
+    args: &IngestArgs,
+    content: String,
+) -> anyhow::Result<IngestAutoRouteResult> {
+    let kind = args
+        .kind
+        .as_deref()
+        .map(parse_memory_kind_value)
+        .transpose()?
+        .unwrap_or(MemoryKind::Fact);
+    let scope = args
+        .scope
+        .as_deref()
+        .map(parse_memory_scope_value)
+        .transpose()?
+        .unwrap_or(MemoryScope::Project);
+    let source_quality = args
+        .source_quality
+        .as_deref()
+        .map(parse_source_quality_value)
+        .transpose()?;
+    let supersedes = parse_uuid_list(&args.supersede)?;
+    let tags = args.tag.clone();
+
+    let req = CandidateMemoryRequest {
+        content,
+        kind,
+        scope,
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        source_agent: args.source_agent.clone(),
+        source_system: args.source_system.clone(),
+        source_path: args.source_path.clone(),
+        source_quality,
+        confidence: args.confidence,
+        ttl_seconds: args.ttl_seconds,
+        last_verified_at: None,
+        supersedes,
+        tags,
+    };
+
+    if args.apply {
+        let candidate = client.candidate(&req).await?;
+        Ok(IngestAutoRouteResult {
+            route: "memory".to_string(),
+            request: Some(req),
+            candidate: Some(candidate),
+            multimodal: None,
+        })
+    } else {
+        Ok(IngestAutoRouteResult {
+            route: "memory".to_string(),
+            request: Some(req),
+            candidate: None,
+            multimodal: None,
+        })
+    }
+}
+
+async fn ingest_multimodal_payload(
+    args: &IngestArgs,
+    payload: &str,
+) -> anyhow::Result<IngestAutoRouteResult> {
+    let paths = payload
+        .lines()
+        .flat_map(|line| line.split_whitespace())
+        .map(|token| token.trim_matches(|c: char| c == ',' || c == ';'))
+        .filter(|token| {
+            token.ends_with(".pdf")
+                || token.ends_with(".png")
+                || token.ends_with(".jpg")
+                || token.ends_with(".jpeg")
+                || token.ends_with(".webp")
+                || token.ends_with(".heic")
+                || token.ends_with(".mp4")
+                || token.ends_with(".mov")
+                || token.ends_with(".mkv")
+                || token.ends_with(".webm")
+                || token.ends_with(".csv")
+                || token.ends_with(".tsv")
+                || token.ends_with(".xlsx")
+                || token.ends_with(".txt")
+                || token.ends_with(".md")
+        })
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+
+    let preview = build_multimodal_preview(args.project.clone(), args.namespace.clone(), &paths)?;
+    let multimodal = if args.apply {
+        let rag_url =
+            std::env::var("MEMD_RAG_URL").context("set MEMD_RAG_URL for multimodal ingest")?;
+        let sidecar = SidecarClient::new(&rag_url)?;
+        let responses = ingest_multimodal_preview(&sidecar, &preview.requests).await?;
+        let submitted = responses.len();
+        MultimodalIngestOutput {
+            preview,
+            responses,
+            submitted,
+            dry_run: false,
+        }
+    } else {
+        MultimodalIngestOutput {
+            preview,
+            responses: Vec::new(),
+            submitted: 0,
+            dry_run: true,
+        }
+    };
+
+    Ok(IngestAutoRouteResult {
+        route: "multimodal".to_string(),
+        request: None,
+        candidate: None,
+        multimodal: Some(multimodal),
+    })
+}
+
+fn parse_uuid_list(values: &[String]) -> anyhow::Result<Vec<uuid::Uuid>> {
+    values
+        .iter()
+        .map(|value| value.parse::<uuid::Uuid>().context("parse uuid"))
+        .collect()
+}
+
+fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "fact" => Ok(MemoryKind::Fact),
+        "decision" => Ok(MemoryKind::Decision),
+        "preference" => Ok(MemoryKind::Preference),
+        "runbook" => Ok(MemoryKind::Runbook),
+        "topology" => Ok(MemoryKind::Topology),
+        "status" => Ok(MemoryKind::Status),
+        "pattern" => Ok(MemoryKind::Pattern),
+        "constraint" => Ok(MemoryKind::Constraint),
+        _ => anyhow::bail!(
+            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, topology, status, pattern, or constraint"
+        ),
+    }
+}
+
+fn parse_memory_scope_value(value: &str) -> anyhow::Result<MemoryScope> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "local" => Ok(MemoryScope::Local),
+        "synced" => Ok(MemoryScope::Synced),
+        "project" => Ok(MemoryScope::Project),
+        "global" => Ok(MemoryScope::Global),
+        _ => anyhow::bail!("invalid scope '{value}'; expected local, synced, project, or global"),
+    }
+}
+
+fn parse_source_quality_value(value: &str) -> anyhow::Result<memd_schema::SourceQuality> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "canonical" => Ok(memd_schema::SourceQuality::Canonical),
+        "derived" => Ok(memd_schema::SourceQuality::Derived),
+        "synthetic" => Ok(memd_schema::SourceQuality::Synthetic),
+        _ => anyhow::bail!(
+            "invalid source quality '{value}'; expected canonical, derived, or synthetic"
         ),
     }
 }
