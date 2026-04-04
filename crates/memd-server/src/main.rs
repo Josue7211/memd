@@ -1057,6 +1057,7 @@ impl AppState {
 struct MemoryViewItem {
     item: MemoryItem,
     entity: Option<MemoryEntityRecord>,
+    source_trust_score: f32,
 }
 
 fn enrich_with_entities(
@@ -1067,7 +1068,12 @@ fn enrich_with_entities(
         .into_iter()
         .map(|item| {
             let entity = state.store.entity_for_item(item.id)?;
-            Ok(MemoryViewItem { item, entity })
+            let source_trust_score = state.store.trust_score_for_item(&item)?;
+            Ok(MemoryViewItem {
+                item,
+                entity,
+                source_trust_score,
+            })
         })
         .collect()
 }
@@ -1102,8 +1108,14 @@ fn build_context(
             .collect();
 
         bucket.sort_by(|a, b| {
-            context_score(&b.item, b.entity.as_ref(), req, &plan)
-                .partial_cmp(&context_score(&a.item, a.entity.as_ref(), req, &plan))
+            context_score(&b.item, b.entity.as_ref(), b.source_trust_score, req, &plan)
+                .partial_cmp(&context_score(
+                    &a.item,
+                    a.entity.as_ref(),
+                    a.source_trust_score,
+                    req,
+                    &plan,
+                ))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
         });
@@ -1210,8 +1222,14 @@ fn filter_items(
         .collect();
 
     filtered.sort_by(|a, b| {
-        search_score(&b.item, b.entity.as_ref(), &query, plan)
-            .partial_cmp(&search_score(&a.item, a.entity.as_ref(), &query, plan))
+        search_score(&b.item, b.entity.as_ref(), b.source_trust_score, &query, plan)
+            .partial_cmp(&search_score(
+                &a.item,
+                a.entity.as_ref(),
+                a.source_trust_score,
+                &query,
+                plan,
+            ))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
                 b.item
@@ -1827,6 +1845,7 @@ fn enum_label_status(status: MemoryStatus) -> &'static str {
 fn context_score(
     item: &MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    source_trust_score: f32,
     req: &ContextRequest,
     plan: &RetrievalPlan,
 ) -> f32 {
@@ -1854,6 +1873,7 @@ fn context_score(
     }
 
     score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
+    score += trust_rank_adjustment(source_trust_score);
 
     if item.status == MemoryStatus::Stale {
         score -= 1.5;
@@ -1870,6 +1890,7 @@ fn context_score(
 fn search_score(
     item: &MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    source_trust_score: f32,
     query: &Option<String>,
     plan: &RetrievalPlan,
 ) -> f32 {
@@ -1897,6 +1918,7 @@ fn search_score(
     score += plan.scope_rank_bonus(item.scope) * 0.5;
     score += plan.intent_scope_bonus(item.scope) * 0.75;
     score += entity_attention_bonus(item, entity) * 0.75;
+    score += trust_rank_adjustment(source_trust_score) * 0.8;
 
     if let Some(query) = query {
         let content = item.content.to_ascii_lowercase();
@@ -1913,6 +1935,22 @@ fn search_score(
 
     score -= age_penalty(item.updated_at);
     score
+}
+
+fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
+    if source_trust_score < 0.35 {
+        -1.1
+    } else if source_trust_score < 0.5 {
+        -0.65
+    } else if source_trust_score < 0.6 {
+        -0.3
+    } else if source_trust_score >= 0.9 {
+        0.22
+    } else if source_trust_score >= 0.75 {
+        0.12
+    } else {
+        0.0
+    }
 }
 
 fn age_penalty(updated_at: chrono::DateTime<Utc>) -> f32 {

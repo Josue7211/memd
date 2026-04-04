@@ -84,15 +84,27 @@ Success:
 - penalize weak or contested source lanes predictably without hiding them from inspection
 - keep trust-aware ranking deterministic and explainable before any learned policy takes over
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - low-trust memory is demoted in ranking while remaining visible and auditable
 
+#### Phase 6: `v2` Contradiction Resolution
+
+- turn branchable belief lanes into an operator-visible resolution workflow
+- expose preferred, contested, and unresolved branch state explicitly
+- keep contradictory branches queryable while allowing one branch to become the current preferred lane
+
+Status: Ready
+
+Success:
+
+- contradictory belief branches can be inspected and resolved without flattening history
+
 ## Immediate Next Phase
 
-Phase 5: `v2` Trust-Weighted Ranking
+Phase 6: `v2` Contradiction Resolution
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

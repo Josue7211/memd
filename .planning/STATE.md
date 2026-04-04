@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 5 `v2` Trust-Weighted Ranking.
+**Current focus:** Phase 6 `v2` Contradiction Resolution.
 
 ## Current Status
 
@@ -19,14 +19,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - `v2` foundations are in place with explicit trust floors, artifact trails, and policy hooks
 - `v2` branchable beliefs are in place with explicit belief branches and sibling inspection
 - `v2` retrieval feedback is in place with durable retrieval events and compact explain counters
+- `v2` trust-weighted ranking is in place across search and working memory
 
 ## Open Loops
 
-- phase 5 trust-weighted ranking is planned but not implemented
+- phase 6 contradiction resolution is planned but not implemented
 
 ## Next Command
 
-Run `gsd-execute-phase 5`.
+Run `gsd-execute-phase 6`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

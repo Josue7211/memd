@@ -37,7 +37,12 @@ pub(crate) fn working_memory(
     let mut ranked_items = Vec::with_capacity(items.len());
     for item in items {
         let (entity, _) = state.entity_view(item.id, 1).map_err(internal_error)?;
-        let (score, reasons) = working_item_priority(&item, entity.as_ref(), now);
+        let source_trust_score = state
+            .store
+            .trust_score_for_item(&item)
+            .map_err(internal_error)?;
+        let (score, reasons) =
+            working_item_priority(&item, entity.as_ref(), source_trust_score, now);
         ranked_items.push((score, reasons, item));
     }
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
@@ -217,6 +222,7 @@ fn working_traces_for_items(
 fn working_item_priority(
     item: &memd_schema::MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    source_trust_score: f32,
     now: chrono::DateTime<Utc>,
 ) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
@@ -295,15 +301,35 @@ fn working_item_priority(
             }
         }
     };
+    let trust_score = if source_trust_score < 0.35 {
+        -0.18
+    } else if source_trust_score < 0.5 {
+        -0.12
+    } else if source_trust_score < 0.6 {
+        -0.06
+    } else if source_trust_score >= 0.9 {
+        0.08
+    } else if source_trust_score >= 0.75 {
+        0.04
+    } else {
+        0.0
+    };
 
     let mut reasons = vec![
         format!("status={}", format_status(item.status)),
         format!("source={}", format_source_quality(item.source_quality)),
+        format!("source_trust={source_trust_score:.2}"),
         format!("freshness_days={age_days:.0}"),
         format!("verified_days={verification_days:.0}"),
         format!("recent_use_days={recent_use_days:.0}"),
         format!("rehearsals={rehearsal_count}"),
     ];
+    if source_trust_score < 0.6 {
+        reasons.push("trust_below_floor".to_string());
+    }
+    if source_trust_score >= 0.75 {
+        reasons.push("trust_boost".to_string());
+    }
     if contradiction_score < 0.0 {
         reasons.push("contradiction_state".to_string());
     }
@@ -325,6 +351,7 @@ fn working_item_priority(
         + ttl_score
         + recent_use_score
         + rehearsal_score
+        + trust_score
         + contradiction_score)
         .clamp(0.0, 1.0),
         reasons,
@@ -405,7 +432,10 @@ mod tests {
             now - chrono::Duration::days(45),
         );
 
-        assert!(working_item_priority(&good, None, now).0 > working_item_priority(&weak, None, now).0);
+        assert!(
+            working_item_priority(&good, None, 0.95, now).0
+                > working_item_priority(&weak, None, 0.22, now).0
+        );
     }
 
     #[test]
@@ -427,8 +457,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&verified, None, now).0
-                > working_item_priority(&unverified, None, now).0
+            working_item_priority(&verified, None, 0.8, now).0
+                > working_item_priority(&unverified, None, 0.8, now).0
         );
     }
 
@@ -443,9 +473,10 @@ mod tests {
             now - chrono::Duration::days(40),
         );
 
-        let (_, reasons) = working_item_priority(&item, None, now);
+        let (_, reasons) = working_item_priority(&item, None, 0.28, now);
         assert!(reasons.iter().any(|reason| reason == "contested"));
         assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
+        assert!(reasons.iter().any(|reason| reason == "trust_below_floor"));
         assert!(reasons.iter().any(|reason| reason.starts_with("recent_use_days=")));
     }
 }

@@ -118,6 +118,7 @@ Rules:
 - returns a compact artifact trail so raw evidence stays reachable behind the summary
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
 - returns compact retrieval-feedback counters derived from durable retrieval events
+- returns explicit trust demotion hooks when the top source lane falls below the policy floor
 - optional `belief_branch` rejects mismatched lookups instead of silently crossing branches
 - route and intent are echoed in the response
 
@@ -188,6 +189,12 @@ Searches stored memory using:
 
 The response echoes the resolved retrieval route and intent.
 
+Ranking rules:
+
+- source trust below the policy floor is demoted, not hidden
+- high-trust source lanes receive a small deterministic boost
+- contested or weak source lanes remain inspectable through explain and inbox flows
+
 ### `GET /memory/context`
 
 Returns the compact context package for a client.
@@ -232,6 +239,7 @@ Rules:
 - reports evicted records when the candidate set overflows the buffer
 - exposes a bounded rehydration queue for the next-best records
 - can optionally trigger semantic consolidation for recent traces
+- uses source trust as a deterministic ranking input and includes trust reasons in eviction/rehydration records
 
 ## Runtime
 

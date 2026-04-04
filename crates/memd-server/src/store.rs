@@ -932,6 +932,21 @@ impl SqliteStore {
         Ok(SourceMemoryResponse { sources })
     }
 
+    pub fn trust_score_for_item(&self, item: &MemoryItem) -> anyhow::Result<f32> {
+        let response = self.source_memory(&SourceMemoryRequest {
+            project: item.project.clone(),
+            namespace: item.namespace.clone(),
+            source_agent: item.source_agent.clone(),
+            source_system: item.source_system.clone(),
+            limit: Some(1),
+        })?;
+        Ok(response
+            .sources
+            .first()
+            .map(|source| source.trust_score)
+            .unwrap_or(0.5))
+    }
+
     pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let mut stmt = conn

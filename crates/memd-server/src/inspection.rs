@@ -229,6 +229,11 @@ fn build_policy_hooks(
 
     if let Some(best_source) = sources.first() {
         hooks.push(format!("top_source_trust={:.2}", best_source.trust_score));
+        if best_source.trust_score < 0.6 {
+            hooks.push("trust_below_floor".to_string());
+        } else if best_source.trust_score >= 0.75 {
+            hooks.push("trust_boost".to_string());
+        }
     }
     if let Some(branch) = &item.belief_branch {
         hooks.push(format!("belief_branch={branch}"));
