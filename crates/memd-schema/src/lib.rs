@@ -262,6 +262,56 @@ pub struct InboxMemoryItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryContextFrame {
+    pub at: Option<DateTime<Utc>>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub repo: Option<String>,
+    pub host: Option<String>,
+    pub branch: Option<String>,
+    pub agent: Option<String>,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntityRecord {
+    pub id: Uuid,
+    pub entity_type: String,
+    pub aliases: Vec<String>,
+    pub current_state: Option<String>,
+    pub state_version: u64,
+    pub confidence: f32,
+    pub salience_score: f32,
+    pub rehearsal_count: u64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_accessed_at: Option<DateTime<Utc>>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub tags: Vec<String>,
+    pub context: Option<MemoryContextFrame>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEventRecord {
+    pub id: Uuid,
+    pub entity_id: Option<Uuid>,
+    pub event_type: String,
+    pub summary: String,
+    pub occurred_at: DateTime<Utc>,
+    pub recorded_at: DateTime<Utc>,
+    pub confidence: f32,
+    pub salience_score: f32,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub related_entity_ids: Vec<Uuid>,
+    pub tags: Vec<String>,
+    pub context: Option<MemoryContextFrame>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryInboxResponse {
     pub route: RetrievalRoute,
     pub intent: RetrievalIntent,
@@ -348,4 +398,79 @@ pub struct CompactionSpillResult {
 pub struct HealthResponse {
     pub status: String,
     pub items: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entity_record_roundtrips() {
+        let record = MemoryEntityRecord {
+            id: Uuid::new_v4(),
+            entity_type: "repo".to_string(),
+            aliases: vec!["memd".to_string(), "memd-core".to_string()],
+            current_state: Some("main branch with multimodal stack".to_string()),
+            state_version: 3,
+            confidence: 0.93,
+            salience_score: 0.82,
+            rehearsal_count: 4,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_accessed_at: Some(Utc::now()),
+            last_seen_at: Some(Utc::now()),
+            tags: vec!["project".to_string(), "permanent".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("home".to_string()),
+            }),
+        };
+
+        let json = serde_json::to_string(&record).unwrap();
+        let decoded: MemoryEntityRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.entity_type, "repo");
+        assert_eq!(decoded.aliases.len(), 2);
+    }
+
+    #[test]
+    fn event_record_roundtrips() {
+        let record = MemoryEventRecord {
+            id: Uuid::new_v4(),
+            entity_id: Some(Uuid::new_v4()),
+            event_type: "rename".to_string(),
+            summary: "repo renamed but entity stayed the same".to_string(),
+            occurred_at: Utc::now(),
+            recorded_at: Utc::now(),
+            confidence: 0.88,
+            salience_score: 0.74,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: Some("/tmp/memd".to_string()),
+            related_entity_ids: vec![Uuid::new_v4()],
+            tags: vec!["identity".to_string(), "timeline".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("office".to_string()),
+            }),
+        };
+
+        let json = serde_json::to_string(&record).unwrap();
+        let decoded: MemoryEventRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.event_type, "rename");
+        assert_eq!(decoded.tags.len(), 2);
+    }
 }

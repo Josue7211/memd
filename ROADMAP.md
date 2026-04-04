@@ -6,6 +6,7 @@
 
 It should solve memory as infrastructure:
 
+- token-efficient delivery is the first constraint
 - local working memory
 - shared short-term state
 - cross-project long-term knowledge
@@ -23,6 +24,7 @@ making the platform feel inevitable to use:
 - LightRAG is the intended long-term semantic backend
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
+- the next layer is human-like memory behavior under a strict token budget
 
 Phase summary:
 
@@ -35,6 +37,7 @@ Phase summary:
 - Phase 6: in progress
 - Phase 7: partially seeded
 - Phase 8: not started
+- Phase 8.2: not started
 
 ## Product Shape
 
@@ -48,6 +51,8 @@ Backends and producers work behind it:
 - semantic retrieval
 - graph relationships
 - verification workers
+- entity permanence and contextual validity
+- salience and rehearsal
 
 Clients consume it through one API:
 
@@ -205,6 +210,23 @@ Success:
 
 - memory becomes graph-aware and self-improving
 
+### Phase 8.2: Human-Like Memory Model
+
+Deliver:
+
+- stable entity identity with changing state
+- event records with time, place, and provenance
+- contextual validity windows for facts
+- salience scoring and rehearsal counters
+- object permanence across rename/move/split/merge
+- retrieval that prefers the smallest useful slice
+
+Success:
+
+- agents remember like a mind, but retrieve like a machine
+- identity persists while state changes
+- context stays compact and token efficient
+
 ## Immediate Next Steps
 
 1. Finish bundle-first LightRAG defaults and adapter behavior.
@@ -215,7 +237,8 @@ Success:
    - video, PDF, image, table, equation flow validation
 3. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
 4. Tighten freshness and contradiction resolution.
-5. Add graph-aware memory only after the core lifecycle is stable.
+5. Add human-like entity/event memory primitives with strict token budgets.
+6. Add graph-aware memory only after the core lifecycle is stable.
 
 ## Non-Goals
 
