@@ -28,7 +28,8 @@ inspectable, and useful under real task pressure.
 - [x] Start `v2` foundations: explicit working-memory controller semantics.
 - [x] Add trust-weighted source memory and reversible compression.
 - [x] Keep branchable belief lanes explicit and inspectable.
-- [ ] Add retrieval feedback surfaces so ranking can learn from outcomes.
+- [x] Add retrieval feedback surfaces so ranking can learn from outcomes.
+- [ ] Make source-trust floors affect ranking, not just inspection.
 - [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope
@@ -49,7 +50,7 @@ capability versions `v1` through `v5`.
 Recent work tightened bundle-first backend wiring, sidecar metadata fidelity,
 policy inspection, explicit repair, provenance drilldown, managed
 working-memory state, and branchable belief lanes. The repo is usable now, and
-`v2` is active with explicit trust, artifact, and sibling-branch surfaces.
+`v2` is active with explicit trust, artifact, sibling-branch, and retrieval-feedback surfaces.
 
 ## Constraints
 

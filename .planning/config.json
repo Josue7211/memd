@@ -7,7 +7,7 @@
   "firecrawl": false,
   "exa_search": false,
   "git": {
-    "branching_strategy": "none",
+    "branching_strategy": "phase",
     "phase_branch_template": "gsd/phase-{phase}-{slug}",
     "milestone_branch_template": "gsd/{milestone}-{slug}",
     "quick_branch_template": null
@@ -25,7 +25,7 @@
     "text_mode": false,
     "research_before_questions": false,
     "discuss_mode": "discuss",
-    "skip_discuss": false
+    "skip_discuss": true
   },
   "hooks": {
     "context_warnings": true
@@ -33,7 +33,7 @@
   "agent_skills": {},
   "mode": "yolo",
   "granularity": "standard",
-  "branching_strategy": "none",
+  "branching_strategy": "phase",
   "quick_branch_template": null,
   "resolve_model_ids": "omit"
 }

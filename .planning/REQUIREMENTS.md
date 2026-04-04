@@ -96,7 +96,7 @@
 | SUPR-01 | v2 | Pending |
 | SUPR-02 | v2 | Pending |
 | SUPR-03 | v2 | Complete |
-| SUPR-04 | v2 | Pending |
+| SUPR-04 | v2 | Complete |
 | SUPR-05 | v2 | Pending |
 
 **Coverage:**

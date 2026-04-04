@@ -72,15 +72,27 @@ Success:
 - expose lightweight retrieval feedback events and counters through the existing explain and policy surfaces
 - keep the first feedback loop deterministic, bounded, and cheap enough for the hot path
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - `memd` has an explicit retrieval-feedback substrate for future adaptive ranking
 
+#### Phase 5: `v2` Trust-Weighted Ranking
+
+- make source-trust floors influence search and working-memory ranking instead of only policy display
+- penalize weak or contested source lanes predictably without hiding them from inspection
+- keep trust-aware ranking deterministic and explainable before any learned policy takes over
+
+Status: Ready
+
+Success:
+
+- low-trust memory is demoted in ranking while remaining visible and auditable
+
 ## Immediate Next Phase
 
-Phase 4: `v2` Retrieval Feedback
+Phase 5: `v2` Trust-Weighted Ranking
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

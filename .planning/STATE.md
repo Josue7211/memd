@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 4 `v2` Retrieval Feedback.
+**Current focus:** Phase 5 `v2` Trust-Weighted Ranking.
 
 ## Current Status
 
@@ -18,14 +18,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - `v1` repair, provenance, and working-memory gaps are closed enough to move on
 - `v2` foundations are in place with explicit trust floors, artifact trails, and policy hooks
 - `v2` branchable beliefs are in place with explicit belief branches and sibling inspection
+- `v2` retrieval feedback is in place with durable retrieval events and compact explain counters
 
 ## Open Loops
 
-- phase 4 retrieval feedback is planned but not implemented
+- phase 5 trust-weighted ranking is planned but not implemented
 
 ## Next Command
 
-Run `gsd-execute-phase 4`.
+Run `gsd-execute-phase 5`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*
