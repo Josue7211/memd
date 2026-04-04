@@ -10,7 +10,8 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use memd_schema::{
     CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, ExplainMemoryResponse,
-    MemoryContextFrame, MemoryKind, MemoryScope, SearchMemoryResponse, SourceQuality,
+    MemoryContextFrame, MemoryKind, MemoryScope, MemoryVisibility, SearchMemoryResponse,
+    SourceQuality,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -26,6 +27,8 @@ pub struct ObsidianVaultScan {
     pub vault: PathBuf,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: MemoryVisibility,
     pub note_count: usize,
     pub sensitive_count: usize,
     pub skipped_count: usize,
@@ -121,6 +124,8 @@ pub fn scan_vault(
     vault: impl AsRef<Path>,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     max_notes: Option<usize>,
     include_attachments: bool,
     max_attachments: Option<usize>,
@@ -239,6 +244,8 @@ pub fn scan_vault(
         vault: vault.to_path_buf(),
         project,
         namespace,
+        workspace,
+        visibility: visibility.unwrap_or_default(),
         note_count: notes.len(),
         sensitive_count,
         skipped_count,
@@ -307,6 +314,8 @@ pub fn build_import_preview(
             note,
             scan.project.clone(),
             scan.namespace.clone(),
+            scan.workspace.clone(),
+            Some(scan.visibility),
             scan.vault.clone(),
             entry.and_then(|entry| entry.item_id),
         ));
@@ -412,6 +421,8 @@ pub fn build_attachment_request(
     attachment: &ObsidianAttachment,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     vault: PathBuf,
     linked_note: Option<&ObsidianNote>,
     sidecar_track_id: Option<Uuid>,
@@ -463,8 +474,8 @@ pub fn build_attachment_request(
         scope,
         project,
         namespace,
-        workspace: None,
-        visibility: None,
+        workspace,
+        visibility,
         belief_branch: None,
         source_agent: Some("obsidian".to_string()),
         source_system: Some("obsidian".to_string()),
@@ -1138,6 +1149,8 @@ pub fn build_note_request(
     note: &ObsidianNote,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     vault: PathBuf,
     supersedes_item_id: Option<Uuid>,
 ) -> CandidateMemoryRequest {
@@ -1186,8 +1199,8 @@ pub fn build_note_request(
         scope,
         project,
         namespace,
-        workspace: None,
-        visibility: None,
+        workspace,
+        visibility,
         belief_branch: None,
         source_agent: Some("obsidian".to_string()),
         source_system: Some("obsidian".to_string()),
@@ -1874,6 +1887,8 @@ mod tests {
             &vault,
             Some("notes".to_string()),
             None,
+            None,
+            None,
             Some(10),
             false,
             None,
@@ -1904,6 +1919,8 @@ mod tests {
 
         let scan = scan_vault(
             &vault,
+            None,
+            None,
             None,
             None,
             Some(10),
@@ -1951,6 +1968,8 @@ mod tests {
             &vault,
             None,
             None,
+            None,
+            None,
             Some(10),
             false,
             None,
@@ -1975,6 +1994,8 @@ mod tests {
 
         let scan = scan_vault(
             &vault,
+            None,
+            None,
             None,
             None,
             Some(10),

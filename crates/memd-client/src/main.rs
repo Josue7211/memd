@@ -1572,6 +1572,11 @@ async fn main() -> anyhow::Result<()> {
                     &args.vault,
                     args.project.clone(),
                     args.namespace.clone(),
+                    args.workspace.clone(),
+                    args.visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     args.max_notes,
                     args.include_attachments,
                     args.max_attachments,
@@ -1689,6 +1694,11 @@ async fn run_obsidian_import(
         &args.vault,
         args.project.clone(),
         args.namespace.clone(),
+        args.workspace.clone(),
+        args.visibility
+            .as_deref()
+            .map(parse_memory_visibility_value)
+            .transpose()?,
         args.max_notes,
         include_attachments,
         args.max_attachments,
@@ -1720,6 +1730,11 @@ async fn run_obsidian_import(
                 note,
                 args.project.clone(),
                 args.namespace.clone(),
+                args.workspace.clone(),
+                args.visibility
+                    .as_deref()
+                    .map(parse_memory_visibility_value)
+                    .transpose()?,
                 preview.scan.vault.clone(),
                 next_state
                     .entries
@@ -1830,6 +1845,11 @@ async fn run_obsidian_import(
                     asset,
                     args.project.clone(),
                     args.namespace.clone(),
+                    args.workspace.clone(),
+                    args.visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     preview.scan.vault.clone(),
                     linked_note,
                     Some(response.track_id),
@@ -2341,6 +2361,11 @@ async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyho
         &args.vault,
         args.project.clone(),
         args.namespace.clone(),
+        args.workspace.clone(),
+        args.visibility
+            .as_deref()
+            .map(parse_memory_visibility_value)
+            .transpose()?,
         args.max_notes,
         args.include_attachments,
         args.max_attachments,
