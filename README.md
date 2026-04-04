@@ -75,6 +75,12 @@ Request compact context:
 cargo run -p memd-client --bin memd -- context --project demo --agent codex --compact
 ```
 
+Bootstrap a project bundle:
+
+```bash
+cargo run -p memd-client --bin memd -- init --project demo --agent codex
+```
+
 Open the built-in dashboard:
 
 ```bash

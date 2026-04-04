@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;
@@ -44,6 +44,7 @@ enum Commands {
     Explain(ExplainArgs),
     Compact(CompactArgs),
     Hook(HookArgs),
+    Init(InitArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -236,6 +237,30 @@ struct HookSpillArgs {
 
     #[arg(long)]
     spill_transient: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct InitArgs {
+    #[arg(long)]
+    project: String,
+
+    #[arg(long)]
+    agent: String,
+
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long, default_value = "http://127.0.0.1:8787")]
+    base_url: String,
+
+    #[arg(long, default_value = "auto")]
+    route: String,
+
+    #[arg(long, default_value = "general")]
+    intent: String,
+
+    #[arg(long)]
+    force: bool,
 }
 
 #[tokio::main]
@@ -449,6 +474,13 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         },
+        Commands::Init(args) => {
+            write_init_bundle(&args)?;
+            println!(
+                "Initialized memd project bundle at {}",
+                args.output.display()
+            );
+        }
     }
 
     Ok(())
@@ -481,6 +513,123 @@ where
 {
     let json = serde_json::to_string_pretty(value).context("serialize response json")?;
     println!("{json}");
+    Ok(())
+}
+
+fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
+    let output = &args.output;
+    if output.exists() && !args.force {
+        anyhow::bail!(
+            "{} already exists; pass --force to overwrite",
+            output.display()
+        );
+    }
+
+    fs::create_dir_all(output.join("hooks"))
+        .with_context(|| format!("create {}", output.join("hooks").display()))?;
+
+    let config = serde_json::json!({
+        "project": args.project,
+        "agent": args.agent,
+        "base_url": args.base_url,
+        "route": args.route,
+        "intent": args.intent,
+        "hook_kit": {
+            "context": "hooks/memd-context.sh",
+            "spill": "hooks/memd-spill.sh",
+            "context_ps1": "hooks/memd-context.ps1",
+            "spill_ps1": "hooks/memd-spill.ps1"
+        }
+    });
+    fs::write(
+        output.join("config.json"),
+        serde_json::to_string_pretty(&config)? + "\n",
+    )
+    .with_context(|| format!("write {}", output.join("config.json").display()))?;
+
+    fs::write(
+        output.join("env"),
+        format!(
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n",
+            args.base_url, args.project, args.agent, args.route, args.intent
+        ),
+    )
+    .with_context(|| format!("write {}", output.join("env").display()))?;
+
+    fs::write(
+        output.join("env.ps1"),
+        format!(
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n",
+            escape_ps1(&args.base_url),
+            escape_ps1(&args.project),
+            escape_ps1(&args.agent),
+            escape_ps1(&args.route),
+            escape_ps1(&args.intent),
+        ),
+    )
+    .with_context(|| format!("write {}", output.join("env.ps1").display()))?;
+
+    let hook_root = output.join("hooks");
+    copy_hook_assets(Path::new(&hook_root))?;
+
+    fs::write(
+        output.join("README.md"),
+        format!(
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly.\n",
+            project = args.project
+        ),
+    )
+    .with_context(|| format!("write {}", output.join("README.md").display()))?;
+
+    Ok(())
+}
+
+fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
+    let source_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("integrations")
+        .join("hooks");
+
+    for file in [
+        "README.md",
+        "install.sh",
+        "install.ps1",
+        "memd-context.sh",
+        "memd-context.ps1",
+        "memd-spill.sh",
+        "memd-spill.ps1",
+    ] {
+        let src = source_dir.join(file);
+        let dst = target.join(file);
+        fs::copy(&src, &dst)
+            .with_context(|| format!("copy {} to {}", src.display(), dst.display()))?;
+        set_executable_if_shell_script(&dst, file)?;
+    }
+
+    Ok(())
+}
+
+fn escape_ps1(value: &str) -> String {
+    value.replace('\"', "`\"")
+}
+
+fn set_executable_if_shell_script(path: &Path, file_name: &str) -> anyhow::Result<()> {
+    if !file_name.ends_with(".sh") {
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions)
+            .with_context(|| format!("chmod +x {}", path.display()))?;
+    }
+
     Ok(())
 }
 

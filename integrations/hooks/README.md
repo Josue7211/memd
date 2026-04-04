@@ -8,6 +8,12 @@ Use them when a client wants:
 - durable spill at a compaction boundary
 - a single stable path into the memory manager
 
+For per-project bootstrap, use:
+
+```bash
+memd init --project <project> --agent <agent>
+```
+
 ## Environment
 
 Set:
