@@ -5,6 +5,7 @@ Thanks for helping improve `memd`.
 ## Local Workflow
 
 - work on a dedicated branch
+- start from the current `work/<milestone>` branch, then cut a scoped `feat/<area>` or `fix/<area>` branch
 - run `cargo fmt --all`
 - run `cargo test`
 - keep changes small and scoped
@@ -42,6 +43,7 @@ Please include:
 - tests, if behavior changed
 - doc updates for new public behavior
 - the branch name and what phase or scope it belongs to
+- whether the change lands on a milestone branch or a scoped feature branch
 
 ## Design Rule
 

@@ -5,7 +5,9 @@
 ## Branching
 
 - do active work on a dedicated branch
-- keep the branch focused on one phase or one small set of related changes
+- use a `work/<milestone>` branch as the integration line for the active version
+- cut `feat/<scope>` and `fix/<scope>` branches from that work branch for bounded implementation slices
+- keep each scoped branch focused on one phase or one small set of related changes
 - avoid doing cleanup directly on `main`
 - merge only after the phase or change set is verified
 - see [Branching Model](./branching.md) for branch names and commit discipline
@@ -19,11 +21,12 @@
 
 ## Contributor Workflow
 
-1. branch from the current development line
-2. keep the change scoped
+1. branch from the current `work/<milestone>` line
+2. keep the change scoped to one `feat/<scope>` or `fix/<scope>` branch
 3. run formatting and tests
 4. update docs when behavior changes
-5. open a review with the branch and the relevant version context
+5. merge back into the milestone branch once verified
+6. release from `main`, not from a feature branch
 
 ## Review Expectations
 
