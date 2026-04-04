@@ -1147,12 +1147,15 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     let mut attachment_multimodal = None;
+                    let mut attachment_submitted = 0usize;
+                    let mut attachment_duplicates = 0usize;
+                    let mut attachment_links_created = 0usize;
                     if args.include_attachments && !attachment_assets.is_empty() {
                         let attachment_paths = attachment_assets
                             .iter()
                             .map(|asset| asset.path.clone())
                             .collect::<Vec<_>>();
-                        let preview = build_multimodal_preview(
+                        let multimodal_preview = build_multimodal_preview(
                             args.project.clone(),
                             args.namespace.clone(),
                             &attachment_paths,
@@ -1160,26 +1163,69 @@ async fn main() -> anyhow::Result<()> {
                         let rag_url = std::env::var("MEMD_RAG_URL")
                             .context("set MEMD_RAG_URL for obsidian attachments")?;
                         let sidecar = SidecarClient::new(&rag_url)?;
-                        let responses =
-                            ingest_multimodal_preview(&sidecar, &preview.requests).await?;
-                        for (asset, response) in attachment_assets.iter().zip(responses.iter()) {
+                        let multimodal_responses =
+                            ingest_multimodal_preview(&sidecar, &multimodal_preview.requests).await?;
+                        attachment_multimodal = Some(MultimodalIngestOutput {
+                            preview: multimodal_preview,
+                            responses: multimodal_responses,
+                            submitted: attachment_assets.len(),
+                            dry_run: false,
+                        });
+
+                        let attachment_candidates = attachment_assets
+                            .iter()
+                            .zip(
+                                attachment_multimodal
+                                    .as_ref()
+                                    .into_iter()
+                                    .flat_map(|output| output.responses.iter()),
+                            )
+                            .map(|(asset, response)| {
+                                let match_ = obsidian::resolve_attachment_match(
+                                    asset,
+                                    &preview.scan.notes,
+                                    &preview.note_index,
+                                );
+                                let linked_note = match_
+                                    .as_ref()
+                                    .and_then(|association| preview.scan.notes.get(association.note_index));
+                                obsidian::build_attachment_request(
+                                    asset,
+                                    args.project.clone(),
+                                    args.namespace.clone(),
+                                    preview.scan.vault.clone(),
+                                    linked_note,
+                                    Some(response.track_id),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        let attachment_responses = client.candidate_batch(&attachment_candidates).await?;
+                        attachment_submitted = attachment_responses.len();
+                        attachment_duplicates = attachment_responses
+                            .iter()
+                            .filter(|response| response.duplicate_of.is_some())
+                            .count();
+                        for (asset, response) in attachment_assets.iter().zip(&attachment_responses) {
+                            let stored_id = response.duplicate_of.unwrap_or(response.item.id);
+                            let entity = client
+                                .entity(&memd_schema::EntityMemoryRequest {
+                                    id: stored_id,
+                                    route: None,
+                                    intent: None,
+                                    limit: Some(4),
+                                })
+                                .await?;
                             next_state.entries.insert(
                                 asset.relative_path.clone(),
                                 ObsidianSyncEntry {
                                     content_hash: asset.content_hash.clone(),
                                     bytes: asset.bytes,
                                     modified_at: asset.modified_at,
-                                    item_id: Some(response.track_id),
-                                    entity_id: None,
+                                    item_id: Some(stored_id),
+                                    entity_id: entity.entity.as_ref().map(|entity| entity.id),
                                 },
                             );
                         }
-                        attachment_multimodal = Some(MultimodalIngestOutput {
-                            preview,
-                            responses,
-                            submitted: attachment_assets.len(),
-                            dry_run: false,
-                        });
                     }
 
                     for note in &preview.scan.notes {
@@ -1258,14 +1304,88 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
 
+                    if args.include_attachments && !attachment_assets.is_empty() {
+                        for asset in &attachment_assets {
+                            let Some(match_) = obsidian::resolve_attachment_match(
+                                asset,
+                                &preview.scan.notes,
+                                &preview.note_index,
+                            ) else {
+                                continue;
+                            };
+                            let Some(attachment_entry) =
+                                next_state.entries.get(&asset.relative_path)
+                            else {
+                                continue;
+                            };
+                            let Some(attachment_item_id) = attachment_entry.item_id else {
+                                continue;
+                            };
+                            let Some(attachment_entity_id) =
+                                entity_ids_by_item_id.get(&attachment_item_id).copied()
+                            else {
+                                continue;
+                            };
+                            let Some(note) = preview.scan.notes.get(match_.note_index) else {
+                                continue;
+                            };
+                            let Some(note_entry) = next_state.entries.get(&note.relative_path)
+                            else {
+                                continue;
+                            };
+                            let Some(note_item_id) = note_entry.item_id else {
+                                continue;
+                            };
+                            let Some(note_entity_id) =
+                                entity_ids_by_item_id.get(&note_item_id).copied()
+                            else {
+                                continue;
+                            };
+                            if attachment_entity_id == note_entity_id {
+                                continue;
+                            }
+                            let request = memd_schema::EntityLinkRequest {
+                                from_entity_id: attachment_entity_id,
+                                to_entity_id: note_entity_id,
+                                relation_kind: match_.relation_kind,
+                                confidence: Some(0.78),
+                                note: Some(format!(
+                                    "obsidian attachment from {}",
+                                    asset.relative_path
+                                )),
+                                context: Some(memd_schema::MemoryContextFrame {
+                                    at: Some(chrono::Utc::now()),
+                                    project: args.project.clone(),
+                                    namespace: args.namespace.clone(),
+                                    repo: Some("obsidian".to_string()),
+                                    host: None,
+                                    branch: None,
+                                    agent: Some("obsidian".to_string()),
+                                    location: Some(asset.relative_path.clone()),
+                                }),
+                                tags: vec![
+                                    "obsidian".to_string(),
+                                    "vault_attachment".to_string(),
+                                    format!("linked_note={}", note.normalized_title),
+                                    format!("reason={}", match_.reason),
+                                ],
+                            };
+                            let _ = client.link_entity(&request).await?;
+                            attachment_links_created += 1;
+                        }
+                    }
+
                     let output = ObsidianImportOutput {
                         preview,
                         submitted: responses.len(),
+                        attachment_submitted,
                         duplicates: responses
                             .iter()
                             .filter(|response| response.duplicate_of.is_some())
                             .count(),
+                        attachment_duplicates,
                         links_created,
+                        attachment_links_created,
                         attachments: attachment_multimodal,
                         attachment_unchanged_count,
                         dry_run: false,
@@ -1279,8 +1399,11 @@ async fn main() -> anyhow::Result<()> {
                     let output = ObsidianImportOutput {
                         preview,
                         submitted: 0,
+                        attachment_submitted: 0,
                         duplicates: 0,
+                        attachment_duplicates: 0,
                         links_created: 0,
+                        attachment_links_created: 0,
                         attachments: None,
                         attachment_unchanged_count,
                         dry_run: true,
@@ -1385,8 +1508,11 @@ where
 struct ObsidianImportOutput {
     preview: ObsidianImportPreview,
     submitted: usize,
+    attachment_submitted: usize,
     duplicates: usize,
+    attachment_duplicates: usize,
     links_created: usize,
+    attachment_links_created: usize,
     attachments: Option<MultimodalIngestOutput>,
     attachment_unchanged_count: usize,
     dry_run: bool,

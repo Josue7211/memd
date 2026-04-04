@@ -100,6 +100,13 @@ pub struct ObsidianImportPreview {
     pub sync_state_path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub struct ObsidianAttachmentMatch {
+    pub note_index: usize,
+    pub relation_kind: EntityRelationKind,
+    pub reason: String,
+}
+
 pub fn scan_vault(
     vault: impl AsRef<Path>,
     project: Option<String>,
@@ -233,6 +240,9 @@ pub fn build_import_preview(
 
     for (idx, note) in scan.notes.iter().enumerate() {
         note_index.insert(note.normalized_title.clone(), idx);
+        for alias in &note.aliases {
+            note_index.entry(normalized_title(alias)).or_insert(idx);
+        }
         let entry = sync_state.entries.get(&note.relative_path);
         if entry.is_some_and(|entry| entry.content_hash == note.content_hash) {
             unchanged_count += 1;
@@ -262,6 +272,138 @@ pub fn build_import_preview(
         candidates,
         changed_notes,
     )
+}
+
+pub fn resolve_attachment_match(
+    attachment: &ObsidianAttachment,
+    notes: &[ObsidianNote],
+    note_index: &HashMap<String, usize>,
+) -> Option<ObsidianAttachmentMatch> {
+    let stem = attachment
+        .path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(normalized_title);
+    let parent = attachment
+        .path
+        .parent()
+        .and_then(|value| value.file_name())
+        .and_then(|value| value.to_str())
+        .map(normalized_title);
+    let relative = normalized_title(
+        attachment
+            .relative_path
+            .strip_suffix(attachment.path.extension().and_then(|ext| ext.to_str()).map(|ext| format!(".{ext}")).as_deref().unwrap_or(""))
+            .unwrap_or(&attachment.relative_path),
+    );
+
+    let mut best: Option<(usize, ObsidianAttachmentMatch)> = None;
+    for (candidate, relation_kind, reason) in [
+        (
+            stem.as_deref(),
+            EntityRelationKind::DerivedFrom,
+            "attachment stem matches note",
+        ),
+        (
+            parent.as_deref(),
+            EntityRelationKind::Related,
+            "attachment parent folder matches note",
+        ),
+        (
+            Some(relative.as_str()),
+            EntityRelationKind::Related,
+            "attachment relative path matches note",
+        ),
+    ] {
+        let Some(key) = candidate else {
+            continue;
+        };
+        if let Some(&idx) = note_index.get(key) {
+            let score = match relation_kind {
+                EntityRelationKind::DerivedFrom => 3,
+                EntityRelationKind::Related => 2,
+                _ => 1,
+            };
+            let should_replace = best
+                .as_ref()
+                .map(|(best_score, _)| score > *best_score)
+                .unwrap_or(true);
+            if should_replace {
+                best = Some((
+                    score,
+                    ObsidianAttachmentMatch {
+                        note_index: idx,
+                        relation_kind,
+                        reason: reason.to_string(),
+                    },
+                ));
+            }
+        }
+    }
+
+    best.map(|(_, match_)| match_)
+        .or_else(|| fallback_attachment_match(attachment, notes, note_index))
+}
+
+pub fn build_attachment_request(
+    attachment: &ObsidianAttachment,
+    project: Option<String>,
+    namespace: Option<String>,
+    vault: PathBuf,
+    linked_note: Option<&ObsidianNote>,
+    sidecar_track_id: Option<Uuid>,
+) -> CandidateMemoryRequest {
+    let scope = if project.is_some() {
+        MemoryScope::Project
+    } else {
+        MemoryScope::Synced
+    };
+    let source_path = vault.join(&attachment.path).display().to_string();
+    let mut tags = vec![
+        "obsidian".to_string(),
+        "vault_attachment".to_string(),
+        format!("asset_kind={}", attachment.asset_kind),
+    ];
+    if let Some(note) = linked_note {
+        tags.push("linked_note".to_string());
+        tags.push(format!("note={}", note.normalized_title));
+    }
+    if let Some(track_id) = sidecar_track_id {
+        tags.push(format!("sidecar_track_id={track_id}"));
+    }
+    let mut content = String::new();
+    content.push_str(&format!("Obsidian attachment: {}\n", attachment.relative_path));
+    content.push_str(&format!("Vault path: {}\n", attachment.relative_path));
+    content.push_str(&format!("Asset kind: {}\n", attachment.asset_kind));
+    if let Some(mime) = attachment.mime.as_deref() {
+        content.push_str(&format!("Mime: {mime}\n"));
+    }
+    content.push_str(&format!("Bytes: {}\n", attachment.bytes));
+    if let Some(note) = linked_note {
+        content.push_str(&format!("Linked note: {}\n", note.title));
+        content.push_str(&format!("Linked note path: {}\n", note.relative_path));
+    }
+    if let Some(track_id) = sidecar_track_id {
+        content.push_str(&format!("Sidecar track id: {track_id}\n"));
+    }
+    content.push_str("This attachment was imported from an Obsidian vault.\n");
+
+    CandidateMemoryRequest {
+        content,
+        kind: MemoryKind::Fact,
+        scope,
+        project,
+        namespace,
+        source_agent: Some("obsidian".to_string()),
+        source_system: Some("obsidian".to_string()),
+        source_path: Some(source_path),
+        source_quality: Some(SourceQuality::Derived),
+        confidence: Some(0.88),
+        ttl_seconds: None,
+        last_verified_at: Some(Utc::now()),
+        supersedes: Vec::new(),
+        tags,
+    }
 }
 
 pub fn partition_changed_attachments<'a>(
@@ -485,6 +627,59 @@ fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsidian
         content_hash,
         sensitivity,
     }))
+}
+
+fn fallback_attachment_match(
+    attachment: &ObsidianAttachment,
+    notes: &[ObsidianNote],
+    note_index: &HashMap<String, usize>,
+) -> Option<ObsidianAttachmentMatch> {
+    let stem = attachment
+        .path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(normalized_title)?;
+    let mut best: Option<(usize, usize)> = None;
+    for (idx, note) in notes.iter().enumerate() {
+        let mut score = 0usize;
+        if note.normalized_title == stem {
+            score += 5;
+        }
+        if note.aliases.iter().any(|alias| normalized_title(alias) == stem) {
+            score += 4;
+        }
+        if note.normalized_title.contains(&stem) || stem.contains(&note.normalized_title) {
+            score += 2;
+        }
+        if note
+            .path
+            .parent()
+            .and_then(|value| value.file_name())
+            .and_then(|value| value.to_str())
+            .map(normalized_title)
+            .as_deref()
+            == Some(stem.as_str())
+        {
+            score += 3;
+        }
+        if let Some(&resolved_idx) = note_index.get(&note.normalized_title) {
+            if resolved_idx == idx {
+                score += 1;
+            }
+        }
+        if score == 0 {
+            continue;
+        }
+        if best.as_ref().map(|(best_score, _)| score > *best_score).unwrap_or(true) {
+            best = Some((score, idx));
+        }
+    }
+
+    best.map(|(_, idx)| ObsidianAttachmentMatch {
+        note_index: idx,
+        relation_kind: EntityRelationKind::Related,
+        reason: "fuzzy attachment stem match".to_string(),
+    })
 }
 
 fn default_sync_state_path(vault: &Path) -> PathBuf {

@@ -10,7 +10,7 @@ The bridge is filesystem-first:
 - note paths are preserved as source anchors
 - unchanged notes are skipped using a local sync state file
 - wiki links can be turned into entity links
-- attachments can also be imported from the vault and routed through the multimodal path
+- attachments can be imported from the vault, routed through the multimodal path, and linked back to the note they belong to
 - notes that look like secrets are skipped before import
 
 ## Scan
@@ -68,9 +68,11 @@ or secret tokens are excluded from import by default.
 notes. It does not print note bodies, excerpts, or candidate content.
 
 When `--include-attachments` is enabled, `memd` scans non-markdown vault files,
-skips unchanged assets using the same sync state, and routes changed
-attachments through the multimodal sidecar. Text-like attachments are also
-screened for obvious secret markers before import.
+skips unchanged assets using the same sync state, routes changed attachments
+through the multimodal sidecar, and stores a compact attachment memory record
+so the graph can link the attachment back to its note when the filename or
+folder strongly matches. Text-like attachments are also screened for obvious
+secret markers before import.
 
 Incremental sync stores a small state file under the vault by default:
 
