@@ -117,6 +117,15 @@ Compile it and open the generated page immediately:
 cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --project notes --query "rust memory patterns" --apply --open
 ```
 
+Each applied compile also updates:
+
+```text
+<vault>/.memd/compiled/INDEX.md
+```
+
+so generated wiki pages accumulate into a browsable vault index instead of
+staying as isolated one-off files.
+
 Round-trip a vault and annotate source notes in place:
 
 ```bash

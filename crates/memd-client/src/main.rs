@@ -2161,6 +2161,15 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
         );
     }
     obsidian::write_markdown(&output_path, &markdown)?;
+    let index_path = obsidian::default_compiled_index_path(&args.vault);
+    let existing_index = fs::read_to_string(&index_path).ok();
+    let index_markdown = obsidian::build_compiled_index_markdown(
+        existing_index.as_deref(),
+        &title,
+        &output_path,
+        response.items.len(),
+    );
+    obsidian::write_markdown(&index_path, &index_markdown)?;
     if args.open {
         let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
         obsidian::open_uri(&uri)?;

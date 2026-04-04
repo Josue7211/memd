@@ -492,6 +492,10 @@ pub fn default_compiled_note_path(vault: &Path, query: &str) -> PathBuf {
         .join(format!("{}.md", slugify(query)))
 }
 
+pub fn default_compiled_index_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("compiled").join("INDEX.md")
+}
+
 pub fn resolve_open_path(vault: &Path, target: &Path) -> PathBuf {
     if target.is_absolute() {
         target.to_path_buf()
@@ -777,6 +781,45 @@ pub fn build_compiled_note_markdown(
         markdown.push_str("\n\n");
     }
     (title, markdown)
+}
+
+pub fn build_compiled_index_markdown(
+    existing: Option<&str>,
+    title: &str,
+    note_path: &Path,
+    item_count: usize,
+) -> String {
+    let note_title = note_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(title);
+    let entry = format!("- [[{}]] | query: {} | items: {}", note_title, title, item_count);
+    let mut entries = existing
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.starts_with("- [["))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.retain(|line| !line.contains(&format!("[[{note_title}]]")));
+    entries.push(entry);
+    entries.sort();
+
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str("title: Compiled Wiki Index\n");
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str("---\n\n");
+    markdown.push_str("# Compiled Wiki Index\n\n");
+    markdown.push_str("Generated pages built from `memd` search and explain flows.\n\n");
+    for entry in entries {
+        markdown.push_str(&entry);
+        markdown.push('\n');
+    }
+    markdown
 }
 
 fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
@@ -1998,6 +2041,25 @@ mod tests {
             path,
             Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md")
         );
+    }
+
+    #[test]
+    fn builds_compiled_index_path() {
+        let path = default_compiled_index_path(Path::new("/tmp/vault"));
+        assert_eq!(path, Path::new("/tmp/vault/.memd/compiled/INDEX.md"));
+    }
+
+    #[test]
+    fn updates_compiled_index_entries() {
+        let existing = "# Compiled Wiki Index\n\n- [[old-note]] | query: old note | items: 3\n";
+        let markdown = build_compiled_index_markdown(
+            Some(existing),
+            "Rust Memory Patterns",
+            Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md"),
+            7,
+        );
+        assert!(markdown.contains("[[old-note]]"));
+        assert!(markdown.contains("[[rust-memory-patterns]] | query: Rust Memory Patterns | items: 7"));
     }
 
     #[test]
