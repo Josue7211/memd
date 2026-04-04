@@ -364,7 +364,10 @@ async fn main() -> anyhow::Result<()> {
                         query: Some(args.query),
                         project: args.project,
                         namespace: args.namespace,
-                        kind: args.kind.map(|kind| parse_memory_kind_value(&kind)).transpose()?,
+                        kind: args
+                            .kind
+                            .map(|kind| parse_memory_kind_value(&kind))
+                            .transpose()?,
                         scope: None,
                         limit: args.limit,
                     };
@@ -825,12 +828,14 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 client
                     .healthz()
                     .await
-                    .map(|health| serde_json::json!({
-                        "enabled": true,
-                        "url": url,
-                        "healthy": true,
-                        "health": health,
-                    }))
+                    .map(|health| {
+                        serde_json::json!({
+                            "enabled": true,
+                            "url": url,
+                            "healthy": true,
+                            "health": health,
+                        })
+                    })
                     .unwrap_or_else(|error| {
                         serde_json::json!({
                             "enabled": true,
@@ -867,8 +872,8 @@ fn read_bundle_rag_url(output: &Path) -> anyhow::Result<Option<String>> {
 
     let raw = fs::read_to_string(&config_path)
         .with_context(|| format!("read {}", config_path.display()))?;
-    let config: serde_json::Value = serde_json::from_str(&raw)
-        .with_context(|| format!("parse {}", config_path.display()))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
 
     let rag_url = config
         .get("rag_url")

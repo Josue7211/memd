@@ -53,3 +53,8 @@ product story.
 
 Use `memd` alone for compact structured memory.
 Add RAG when you want cross-project, cross-session semantic recall.
+
+See also:
+
+- [Backend Stack Contract](./backend-stack.md)
+- [Credits](./credits.md)

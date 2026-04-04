@@ -154,6 +154,19 @@ Success:
 
 - RAG feels like part of the product, not a sidecar script
 
+### Phase 5.2: Backend Stack Contract
+
+Deliver:
+
+- explicit integration contract for `rag-sidecar`
+- document `MinerU` as the document extraction dependency
+- document `RAGAnything` as the multimodal retrieval dependency
+- backend capability matrix for text, PDF, image, table, and equation flows
+
+Success:
+
+- the repo clearly distinguishes `memd` core from the external LightRAG stack
+
 ### Phase 6.1: Agent Attach Automation
 
 Deliver:

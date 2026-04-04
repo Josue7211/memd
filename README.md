@@ -42,6 +42,7 @@ They are either:
 - `crates/memd-worker`: background verification worker
 - `crates/memd-rag`: optional semantic backend adapter for LightRAG-compatible stores
 - LightRAG or another backend: optional long-term semantic memory layer
+- External backend stack: `rag-sidecar`, `MinerU`, `RAGAnything`, `LightRAG`
 
 The core binaries are cross-platform. Linux-only deploy helpers live under `deploy/systemd/`.
 
@@ -124,6 +125,8 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Efficiency](./docs/efficiency.md)
 - [Routing](./docs/routing.md)
 - [RAG](./docs/rag.md)
+- [Backend Stack Contract](./docs/backend-stack.md)
+- [Credits](./docs/credits.md)
 - [Schema](./docs/schema.md)
 - [Promotion Policy](./docs/promotion-policy.md)
 - [Source Policy](./docs/source-policy.md)
@@ -167,6 +170,7 @@ Set `MEMD_DB_PATH` to change the SQLite database location.
 - OpenClaw
 - Shared hook kit for shell integration
 - Optional LightRAG adapter
+- External backend stack contract
 
 ## Status
 
