@@ -43,6 +43,12 @@ Sync a vault in one pass:
 cargo run -p memd-client --bin memd -- obsidian sync --vault ~/vault --project notes
 ```
 
+Write a memory item back into the vault as a note:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply
+```
+
 Import notes and vault attachments together:
 
 ```bash
@@ -100,3 +106,7 @@ superseding the previous import.
 This bridge does not depend on Obsidian's CLI. If you already use a CLI to
 open or manage the vault, you can keep doing that. `memd` only needs the
 local vault path.
+
+Writeback notes are generated under `<vault>/.memd/writeback/` by default.
+Pass `--output` to place them somewhere else and `--overwrite` to replace an
+existing note.

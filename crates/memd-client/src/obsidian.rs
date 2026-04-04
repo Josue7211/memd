@@ -8,8 +8,8 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use memd_schema::{
-    CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, MemoryContextFrame, MemoryKind,
-    MemoryScope, SourceQuality,
+    CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, ExplainMemoryResponse,
+    MemoryContextFrame, MemoryKind, MemoryScope, SourceQuality,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -452,6 +452,96 @@ pub fn build_attachment_request(
     }
 }
 
+pub fn default_writeback_path(vault: &Path, explain: &ExplainMemoryResponse) -> PathBuf {
+    let kind = format!("{:?}", explain.item.kind).to_lowercase();
+    let short_id = short_uuid(explain.item.id);
+    vault
+        .join(".memd")
+        .join("writeback")
+        .join(format!("{kind}-{short_id}.md"))
+}
+
+pub fn build_writeback_markdown(
+    explain: &ExplainMemoryResponse,
+    entity: Option<&memd_schema::MemoryEntityRecord>,
+) -> (String, String) {
+    let title = explain
+        .item
+        .tags
+        .iter()
+        .find(|tag| !tag.starts_with("source_"))
+        .cloned()
+        .unwrap_or_else(|| format!("{:?}", explain.item.kind));
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("id: {}\n", explain.item.id));
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str(&format!("kind: {:?}\n", explain.item.kind).to_lowercase());
+    markdown.push_str(&format!("scope: {:?}\n", explain.item.scope).to_lowercase());
+    if let Some(project) = explain.item.project.as_deref() {
+        markdown.push_str(&format!("project: {}\n", project));
+    }
+    if let Some(namespace) = explain.item.namespace.as_deref() {
+        markdown.push_str(&format!("namespace: {}\n", namespace));
+    }
+    if let Some(source_system) = explain.item.source_system.as_deref() {
+        markdown.push_str(&format!("source_system: {}\n", source_system));
+    }
+    if let Some(source_agent) = explain.item.source_agent.as_deref() {
+        markdown.push_str(&format!("source_agent: {}\n", source_agent));
+    }
+    if let Some(source_path) = explain.item.source_path.as_deref() {
+        markdown.push_str(&format!("source_path: {}\n", source_path));
+    }
+    markdown
+        .push_str(&format!("source_quality: {:?}\n", explain.item.source_quality).to_lowercase());
+    markdown.push_str(&format!("status: {:?}\n", explain.item.status).to_lowercase());
+    markdown.push_str(&format!("stage: {:?}\n", explain.item.stage).to_lowercase());
+    markdown.push_str(&format!("redundancy_key: {}\n", explain.redundancy_key));
+    markdown.push_str(&format!("canonical_key: {}\n", explain.canonical_key));
+    markdown.push_str("tags:\n");
+    for tag in &explain.item.tags {
+        markdown.push_str(&format!("  - {}\n", tag));
+    }
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Summary\n\n");
+    markdown.push_str(&explain.item.content);
+    markdown.push_str("\n\n## Why This Exists\n\n");
+    for reason in &explain.reasons {
+        markdown.push_str(&format!("- {}\n", reason));
+    }
+    if let Some(entity) = entity {
+        markdown.push_str("\n## Entity\n\n");
+        markdown.push_str(&format!("- entity: {}\n", entity.id));
+        markdown.push_str(&format!("- type: {}\n", entity.entity_type));
+        markdown.push_str(&format!("- salience: {:.2}\n", entity.salience_score));
+        markdown.push_str(&format!("- rehearsal: {}\n", entity.rehearsal_count));
+        markdown.push_str(&format!("- state version: {}\n", entity.state_version));
+    }
+    if !explain.events.is_empty() {
+        markdown.push_str("\n## Recent Events\n\n");
+        for event in explain.events.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {} {} {}\n",
+                event.occurred_at.to_rfc3339(),
+                event.event_type,
+                event.summary
+            ));
+        }
+    }
+    (title, markdown)
+}
+
+pub fn write_markdown(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(path, content).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 pub fn partition_changed_attachments<'a>(
     attachments: &'a [ObsidianAttachment],
     sync_state: &ObsidianSyncState,
@@ -837,6 +927,10 @@ fn should_skip_vault_path(path: &Path) -> bool {
                 if name == ".memd" || name == ".obsidian" || name == ".git"
         )
     })
+}
+
+fn short_uuid(id: Uuid) -> String {
+    id.to_string().chars().take(8).collect()
 }
 
 fn detect_sensitivity(

@@ -346,6 +346,15 @@ struct ObsidianArgs {
     #[arg(long)]
     link_notes: bool,
 
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    #[arg(long)]
+    overwrite: bool,
+
+    #[arg(long)]
+    id: Option<String>,
+
     #[command(subcommand)]
     mode: ObsidianMode,
 }
@@ -355,6 +364,7 @@ enum ObsidianMode {
     Scan,
     Import,
     Sync,
+    Writeback,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1106,6 +1116,9 @@ async fn main() -> anyhow::Result<()> {
             ObsidianMode::Sync => {
                 run_obsidian_import(&client, &args, true).await?;
             }
+            ObsidianMode::Writeback => {
+                run_obsidian_writeback(&client, &args).await?;
+            }
         },
         Commands::Hook(args) => match args.mode {
             HookMode::Context(args) => {
@@ -1476,6 +1489,55 @@ async fn run_obsidian_import(
         }
     }
 
+    Ok(())
+}
+
+async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
+    let Some(id) = args.id.as_ref() else {
+        anyhow::bail!("obsidian writeback requires --id <uuid>");
+    };
+    let id = id
+        .parse::<uuid::Uuid>()
+        .context("parse obsidian writeback id")?;
+    let explain = client
+        .explain(&ExplainMemoryRequest {
+            id,
+            route: None,
+            intent: None,
+        })
+        .await?;
+
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| obsidian::default_writeback_path(&args.vault, &explain));
+    let (title, markdown) = obsidian::build_writeback_markdown(&explain, explain.entity.as_ref());
+
+    let preview = serde_json::json!({
+        "output_path": output_path.display().to_string(),
+        "title": title,
+        "id": explain.item.id,
+        "kind": format!("{:?}", explain.item.kind).to_lowercase(),
+        "summary": explain.item.content.clone(),
+        "reasons": explain.reasons.clone(),
+        "entity": explain.entity.as_ref().map(|entity| entity.id),
+        "events": explain.events.len(),
+        "apply": args.apply,
+    });
+
+    if !args.apply {
+        print_json(&preview)?;
+        return Ok(());
+    }
+
+    if output_path.exists() && !args.overwrite {
+        anyhow::bail!(
+            "{} already exists; pass --overwrite to replace it",
+            output_path.display()
+        );
+    }
+    obsidian::write_markdown(&output_path, &markdown)?;
+    print_json(&preview)?;
     Ok(())
 }
 
