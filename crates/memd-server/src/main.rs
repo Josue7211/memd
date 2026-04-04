@@ -15,9 +15,10 @@ use axum::{
 use chrono::Utc;
 use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
-    AssociativeRecallHit, AssociativeRecallRequest, AssociativeRecallResponse,
-    CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
-    ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
+    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
+    CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
+    ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
@@ -26,9 +27,10 @@ use memd_schema::{
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
     MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkingMemoryTraceRecord,
+    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkingMemoryTraceRecord,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -254,6 +256,11 @@ async fn main() {
         .route("/memory/entity/links", get(get_entity_links))
         .route("/memory/entity/recall", get(get_entity_recall))
         .route("/memory/timeline", get(get_timeline))
+        .route(
+            "/memory/profile",
+            get(get_agent_profile).post(post_agent_profile),
+        )
+        .route("/memory/source", get(get_source_memory))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
@@ -382,6 +389,7 @@ async fn get_context(
     State(state): State<AppState>,
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<ContextResponse>, (StatusCode, String)> {
+    let req = apply_agent_profile_defaults(&state, req).map_err(internal_error)?;
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
     Ok(Json(ContextResponse {
@@ -418,6 +426,7 @@ async fn get_working_memory(
     State(state): State<AppState>,
     Query(req): Query<WorkingMemoryRequest>,
 ) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
+    let req = apply_working_profile_defaults(&state, req).map_err(internal_error)?;
     let compact_req = ContextRequest {
         project: req.project.clone(),
         agent: req.agent.clone(),
@@ -645,6 +654,35 @@ async fn get_entity_recall(
     Query(req): Query<AssociativeRecallRequest>,
 ) -> Result<Json<AssociativeRecallResponse>, (StatusCode, String)> {
     let response = state.associative_recall(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_agent_profile(
+    State(state): State<AppState>,
+    Query(req): Query<AgentProfileRequest>,
+) -> Result<Json<AgentProfileResponse>, (StatusCode, String)> {
+    let profile = state.store.agent_profile(&req).map_err(internal_error)?;
+    Ok(Json(AgentProfileResponse { profile }))
+}
+
+async fn post_agent_profile(
+    State(state): State<AppState>,
+    Json(req): Json<AgentProfileUpsertRequest>,
+) -> Result<Json<AgentProfileResponse>, (StatusCode, String)> {
+    let profile = state
+        .store
+        .upsert_agent_profile(&req)
+        .map_err(internal_error)?;
+    Ok(Json(AgentProfileResponse {
+        profile: Some(profile),
+    }))
+}
+
+async fn get_source_memory(
+    State(state): State<AppState>,
+    Query(req): Query<SourceMemoryRequest>,
+) -> Result<Json<SourceMemoryResponse>, (StatusCode, String)> {
+    let response = state.store.source_memory(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1143,6 +1181,71 @@ fn build_context(
     scoped.truncate(limit);
 
     Ok((plan, retrieval_order, scoped))
+}
+
+fn apply_agent_profile_defaults(
+    state: &AppState,
+    mut req: ContextRequest,
+) -> anyhow::Result<ContextRequest> {
+    let Some(agent) = req.agent.clone() else {
+        return Ok(req);
+    };
+
+    let profile = state.store.agent_profile(&AgentProfileRequest {
+        agent,
+        project: req.project.clone(),
+        namespace: None,
+    })?;
+    if let Some(profile) = profile {
+        if req.route.is_none() {
+            req.route = profile.preferred_route;
+        }
+        if req.intent.is_none() {
+            req.intent = profile.preferred_intent;
+        }
+        if req.max_chars_per_item.is_none() {
+            req.max_chars_per_item = profile.summary_chars;
+        }
+        if req.limit.is_none() && profile.recall_depth.is_some() {
+            req.limit = profile.recall_depth;
+        }
+    }
+
+    Ok(req)
+}
+
+fn apply_working_profile_defaults(
+    state: &AppState,
+    mut req: WorkingMemoryRequest,
+) -> anyhow::Result<WorkingMemoryRequest> {
+    let Some(agent) = req.agent.clone() else {
+        return Ok(req);
+    };
+
+    let profile = state.store.agent_profile(&AgentProfileRequest {
+        agent,
+        project: req.project.clone(),
+        namespace: None,
+    })?;
+    if let Some(profile) = profile {
+        if req.route.is_none() {
+            req.route = profile.preferred_route;
+        }
+        if req.intent.is_none() {
+            req.intent = profile.preferred_intent;
+        }
+        if req.max_chars_per_item.is_none() {
+            req.max_chars_per_item = profile.summary_chars;
+        }
+        if req.max_total_chars.is_none() {
+            req.max_total_chars = profile.max_total_chars;
+        }
+        if req.limit.is_none() && profile.recall_depth.is_some() {
+            req.limit = profile.recall_depth;
+        }
+    }
+
+    Ok(req)
 }
 
 fn filter_items(

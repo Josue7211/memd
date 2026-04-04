@@ -1,14 +1,15 @@
 use anyhow::Context;
 use memd_schema::{
-    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
-    CandidateMemoryResponse, CompactContextResponse, ContextRequest, ContextResponse,
-    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
-    EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest, EntitySearchResponse,
-    ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
-    HealthResponse, MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, PromoteMemoryRequest, PromoteMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
+    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
+    AssociativeRecallResponse, CandidateMemoryRequest, CandidateMemoryResponse,
+    CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
+    EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
+    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
+    MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
+    MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
+    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
+    SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
     WorkingMemoryRequest, WorkingMemoryResponse,
 };
@@ -156,6 +157,27 @@ impl MemdClient {
     ) -> anyhow::Result<MemoryMaintenanceReportResponse> {
         self.get_json_with_query("/memory/maintenance/report", req)
             .await
+    }
+
+    pub async fn agent_profile(
+        &self,
+        req: &AgentProfileRequest,
+    ) -> anyhow::Result<AgentProfileResponse> {
+        self.get_json_with_query("/memory/profile", req).await
+    }
+
+    pub async fn upsert_agent_profile(
+        &self,
+        req: &AgentProfileUpsertRequest,
+    ) -> anyhow::Result<AgentProfileResponse> {
+        self.post_json("/memory/profile", req).await
+    }
+
+    pub async fn source_memory(
+        &self,
+        req: &SourceMemoryRequest,
+    ) -> anyhow::Result<SourceMemoryResponse> {
+        self.get_json_with_query("/memory/source", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

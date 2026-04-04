@@ -19,14 +19,15 @@ use memd_multimodal::{
 };
 use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
 use memd_schema::{
-    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
-    CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
-    CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
-    EntityLinkRequest, EntityLinksRequest, EntitySearchRequest, EntitySearchResponse,
-    ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope,
-    MemoryStage, MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
+    AssociativeRecallResponse, CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop,
+    CompactionPacket, CompactionReference, CompactionSession, CompactionSpillOptions,
+    CompactionSpillResult, ContextRequest, EntityLinkRequest, EntityLinksRequest,
+    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExplainMemoryRequest,
+    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
+    SourceMemoryResponse, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
     WorkingMemoryResponse,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
@@ -61,6 +62,8 @@ enum Commands {
     Search(SearchArgs),
     Context(ContextArgs),
     Working(WorkingArgs),
+    Profile(ProfileArgs),
+    Source(SourceArgs),
     Inbox(InboxArgs),
     Explain(ExplainArgs),
     Entity(EntityArgs),
@@ -153,6 +156,75 @@ struct WorkingArgs {
 
     #[arg(long)]
     auto_consolidate: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ProfileArgs {
+    #[arg(long)]
+    agent: String,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    set: bool,
+
+    #[arg(long)]
+    preferred_route: Option<String>,
+
+    #[arg(long)]
+    preferred_intent: Option<String>,
+
+    #[arg(long)]
+    summary_chars: Option<usize>,
+
+    #[arg(long)]
+    max_total_chars: Option<usize>,
+
+    #[arg(long)]
+    recall_depth: Option<usize>,
+
+    #[arg(long)]
+    source_trust_floor: Option<f32>,
+
+    #[arg(long, value_name = "TEXT")]
+    style_tag: Vec<String>,
+
+    #[arg(long)]
+    notes: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SourceArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    source_agent: Option<String>,
+
+    #[arg(long)]
+    source_system: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -972,6 +1044,69 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             if args.summary {
                 println!("{}", render_working_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Profile(args) => {
+            let should_set = args.set
+                || args.preferred_route.is_some()
+                || args.preferred_intent.is_some()
+                || args.summary_chars.is_some()
+                || args.max_total_chars.is_some()
+                || args.recall_depth.is_some()
+                || args.source_trust_floor.is_some()
+                || !args.style_tag.is_empty()
+                || args.notes.is_some();
+
+            if should_set {
+                let response = client
+                    .upsert_agent_profile(&AgentProfileUpsertRequest {
+                        agent: args.agent.clone(),
+                        project: args.project.clone(),
+                        namespace: args.namespace.clone(),
+                        preferred_route: parse_retrieval_route(args.preferred_route.clone())?,
+                        preferred_intent: parse_retrieval_intent(args.preferred_intent.clone())?,
+                        summary_chars: args.summary_chars,
+                        max_total_chars: args.max_total_chars,
+                        recall_depth: args.recall_depth,
+                        source_trust_floor: args.source_trust_floor,
+                        style_tags: args.style_tag.clone(),
+                        notes: args.notes.clone(),
+                    })
+                    .await?;
+                if args.summary {
+                    println!("{}", render_profile_summary(&response, args.follow));
+                } else {
+                    print_json(&response)?;
+                }
+            } else {
+                let response = client
+                    .agent_profile(&AgentProfileRequest {
+                        agent: args.agent.clone(),
+                        project: args.project.clone(),
+                        namespace: args.namespace.clone(),
+                    })
+                    .await?;
+                if args.summary {
+                    println!("{}", render_profile_summary(&response, args.follow));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+        }
+        Commands::Source(args) => {
+            let response = client
+                .source_memory(&SourceMemoryRequest {
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    source_agent: args.source_agent.clone(),
+                    source_system: args.source_system.clone(),
+                    limit: args.limit,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_source_summary(&response, args.follow));
             } else {
                 print_json(&response)?;
             }
@@ -2307,6 +2442,99 @@ fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> Str
             if !trail.is_empty() {
                 output.push_str(&format!(" semantic_trail={}", trail.join(" | ")));
             }
+        }
+    }
+
+    output
+}
+
+fn render_profile_summary(response: &AgentProfileResponse, follow: bool) -> String {
+    let Some(profile) = response.profile.as_ref() else {
+        return "profile=none".to_string();
+    };
+
+    let mut output = format!(
+        "profile agent={} project={} namespace={} route={} intent={} summary_chars={} max_total_chars={} recall_depth={} trust_floor={} styles={}",
+        profile.agent,
+        profile.project.as_deref().unwrap_or("none"),
+        profile.namespace.as_deref().unwrap_or("none"),
+        profile.preferred_route.map(route_label).unwrap_or("none"),
+        profile.preferred_intent.map(intent_label).unwrap_or("none"),
+        profile
+            .summary_chars
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .max_total_chars
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .recall_depth
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .source_trust_floor
+            .map(|value| format!("{value:.2}"))
+            .unwrap_or_else(|| "none".to_string()),
+        if profile.style_tags.is_empty() {
+            "none".to_string()
+        } else {
+            profile.style_tags.join("|")
+        }
+    );
+
+    if follow {
+        if let Some(notes) = profile.notes.as_ref() {
+            output.push_str(&format!(" notes={}", compact_inline(notes, 72)));
+        }
+        output.push_str(&format!(
+            " created={} updated={}",
+            profile.created_at.to_rfc3339(),
+            profile.updated_at.to_rfc3339()
+        ));
+    }
+
+    output
+}
+
+fn render_source_summary(response: &SourceMemoryResponse, follow: bool) -> String {
+    let mut output = format!("source_memory sources={}", response.sources.len());
+
+    if let Some(best) = response.sources.first() {
+        output.push_str(&format!(
+            " top={} system={} project={} namespace={} items={} trust={:.2} avg_confidence={:.2}",
+            best.source_agent.as_deref().unwrap_or("none"),
+            best.source_system.as_deref().unwrap_or("none"),
+            best.project.as_deref().unwrap_or("none"),
+            best.namespace.as_deref().unwrap_or("none"),
+            best.item_count,
+            best.trust_score,
+            best.avg_confidence
+        ));
+    }
+
+    if follow {
+        let trail = response
+            .sources
+            .iter()
+            .take(3)
+            .map(|source| {
+                format!(
+                    "{}:{}:{}:{:.2}",
+                    source.source_agent.as_deref().unwrap_or("none"),
+                    source.source_system.as_deref().unwrap_or("none"),
+                    source.item_count,
+                    source.trust_score
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+        if let Some(best) = response.sources.first()
+            && !best.tags.is_empty()
+        {
+            output.push_str(&format!(" tags={}", best.tags.join("|")));
         }
     }
 

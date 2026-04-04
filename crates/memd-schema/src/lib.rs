@@ -272,6 +272,83 @@ pub struct WorkingMemoryResponse {
     pub semantic_consolidation: Option<MemoryConsolidationResponse>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentProfileRequest {
+    pub agent: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAgentProfile {
+    pub id: Uuid,
+    pub agent: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub preferred_route: Option<RetrievalRoute>,
+    pub preferred_intent: Option<RetrievalIntent>,
+    pub summary_chars: Option<usize>,
+    pub max_total_chars: Option<usize>,
+    pub recall_depth: Option<usize>,
+    pub source_trust_floor: Option<f32>,
+    pub style_tags: Vec<String>,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentProfileResponse {
+    pub profile: Option<MemoryAgentProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentProfileUpsertRequest {
+    pub agent: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub preferred_route: Option<RetrievalRoute>,
+    pub preferred_intent: Option<RetrievalIntent>,
+    pub summary_chars: Option<usize>,
+    pub max_total_chars: Option<usize>,
+    pub recall_depth: Option<usize>,
+    pub source_trust_floor: Option<f32>,
+    pub style_tags: Vec<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceMemoryRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceMemoryRecord {
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub item_count: usize,
+    pub active_count: usize,
+    pub candidate_count: usize,
+    pub derived_count: usize,
+    pub synthetic_count: usize,
+    pub contested_count: usize,
+    pub avg_confidence: f32,
+    pub trust_score: f32,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceMemoryResponse {
+    pub sources: Vec<SourceMemoryRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
@@ -1011,5 +1088,88 @@ mod tests {
         assert_eq!(decoded_response.records.len(), 1);
         assert_eq!(decoded_response.traces.len(), 1);
         assert_eq!(decoded_response.semantic_consolidation.is_some(), true);
+    }
+
+    #[test]
+    fn agent_profile_roundtrips() {
+        let request = AgentProfileUpsertRequest {
+            agent: "codex".to_string(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            preferred_route: Some(RetrievalRoute::ProjectFirst),
+            preferred_intent: Some(RetrievalIntent::CurrentTask),
+            summary_chars: Some(160),
+            max_total_chars: Some(1200),
+            recall_depth: Some(2),
+            source_trust_floor: Some(0.6),
+            style_tags: vec!["concise".to_string(), "token-cheap".to_string()],
+            notes: Some("prefer tight working sets".to_string()),
+        };
+        let profile = MemoryAgentProfile {
+            id: Uuid::new_v4(),
+            agent: "codex".to_string(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            preferred_route: Some(RetrievalRoute::ProjectFirst),
+            preferred_intent: Some(RetrievalIntent::CurrentTask),
+            summary_chars: Some(160),
+            max_total_chars: Some(1200),
+            recall_depth: Some(2),
+            source_trust_floor: Some(0.6),
+            style_tags: vec!["concise".to_string(), "token-cheap".to_string()],
+            notes: Some("prefer tight working sets".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let response = AgentProfileResponse {
+            profile: Some(profile),
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: AgentProfileUpsertRequest =
+            serde_json::from_str(&request_json).unwrap();
+        let decoded_response: AgentProfileResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.summary_chars, request.summary_chars);
+        assert_eq!(
+            decoded_response.profile.as_ref().unwrap().summary_chars,
+            Some(160)
+        );
+    }
+
+    #[test]
+    fn source_memory_roundtrips() {
+        let request = SourceMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            limit: Some(10),
+        };
+        let response = SourceMemoryResponse {
+            sources: vec![SourceMemoryRecord {
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                item_count: 12,
+                active_count: 10,
+                candidate_count: 2,
+                derived_count: 4,
+                synthetic_count: 0,
+                contested_count: 1,
+                avg_confidence: 0.84,
+                trust_score: 0.91,
+                last_seen_at: Some(Utc::now()),
+                tags: vec!["agent".to_string(), "cli".to_string()],
+            }],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: SourceMemoryRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: SourceMemoryResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.source_agent, request.source_agent);
+        assert_eq!(decoded_response.sources[0].trust_score, 0.91);
     }
 }

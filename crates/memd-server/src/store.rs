@@ -3,9 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use memd_schema::{
-    EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest,
-    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
+    AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
+    EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
+    MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, SourceMemoryRecord,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -117,6 +119,18 @@ impl SqliteStore {
               ON memory_entity_links(from_entity_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_memory_entity_links_to
               ON memory_entity_links(to_entity_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_agent_profiles (
+              id TEXT PRIMARY KEY,
+              agent TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              UNIQUE(agent, project, namespace)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_agent_profiles_updated_at
+              ON memory_agent_profiles(updated_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -738,6 +752,186 @@ impl SqliteStore {
         Ok(links)
     }
 
+    pub fn upsert_agent_profile(
+        &self,
+        request: &AgentProfileUpsertRequest,
+    ) -> anyhow::Result<MemoryAgentProfile> {
+        let now = chrono::Utc::now();
+        let profile = MemoryAgentProfile {
+            id: Uuid::new_v4(),
+            agent: request.agent.trim().to_string(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            preferred_route: request.preferred_route,
+            preferred_intent: request.preferred_intent,
+            summary_chars: request.summary_chars,
+            max_total_chars: request.max_total_chars,
+            recall_depth: request.recall_depth,
+            source_trust_floor: request.source_trust_floor,
+            style_tags: request.style_tags.clone(),
+            notes: request.notes.clone(),
+            created_at: now,
+            updated_at: now,
+        };
+        let payload_json = serde_json::to_string(&profile).context("serialize agent profile")?;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO memory_agent_profiles (
+              id, agent, project, namespace, updated_at, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(agent, project, namespace) DO UPDATE SET
+              id = excluded.id,
+              updated_at = excluded.updated_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                profile.id.to_string(),
+                profile.agent,
+                profile.project,
+                profile.namespace,
+                profile.updated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert agent profile")?;
+        Ok(profile)
+    }
+
+    pub fn agent_profile(
+        &self,
+        request: &AgentProfileRequest,
+    ) -> anyhow::Result<Option<MemoryAgentProfile>> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM memory_agent_profiles
+                ORDER BY updated_at DESC
+                "#,
+            )
+            .context("prepare agent profile query")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query agent profiles")?;
+
+        for row in rows {
+            let payload = row.context("read agent profile row")?;
+            let profile: MemoryAgentProfile =
+                serde_json::from_str(&payload).context("deserialize agent profile")?;
+            if profile.agent != request.agent {
+                continue;
+            }
+            if request
+                .project
+                .as_ref()
+                .is_some_and(|project| profile.project.as_ref() != Some(project))
+            {
+                continue;
+            }
+            if request
+                .namespace
+                .as_ref()
+                .is_some_and(|namespace| profile.namespace.as_ref() != Some(namespace))
+            {
+                continue;
+            }
+            return Ok(Some(profile));
+        }
+        Ok(None)
+    }
+
+    pub fn source_memory(
+        &self,
+        request: &SourceMemoryRequest,
+    ) -> anyhow::Result<SourceMemoryResponse> {
+        let mut grouped: std::collections::BTreeMap<SourceKey, SourceAggregate> =
+            std::collections::BTreeMap::new();
+
+        for item in self.list()? {
+            if request
+                .project
+                .as_ref()
+                .is_some_and(|value| item.project.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .namespace
+                .as_ref()
+                .is_some_and(|value| item.namespace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .source_agent
+                .as_ref()
+                .is_some_and(|value| item.source_agent.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .source_system
+                .as_ref()
+                .is_some_and(|value| item.source_system.as_ref() != Some(value))
+            {
+                continue;
+            }
+
+            let key = (
+                item.source_agent.clone(),
+                item.source_system.clone(),
+                item.project.clone(),
+                item.namespace.clone(),
+            );
+            let aggregate = grouped.entry(key).or_default();
+            aggregate.observe(&item);
+        }
+
+        let mut sources = grouped
+            .into_iter()
+            .map(
+                |((source_agent, source_system, project, namespace), aggregate)| {
+                    SourceMemoryRecord {
+                        source_agent,
+                        source_system,
+                        project,
+                        namespace,
+                        item_count: aggregate.item_count,
+                        active_count: aggregate.active_count,
+                        candidate_count: aggregate.candidate_count,
+                        derived_count: aggregate.derived_count,
+                        synthetic_count: aggregate.synthetic_count,
+                        contested_count: aggregate.contested_count,
+                        avg_confidence: aggregate.avg_confidence(),
+                        trust_score: source_trust_score(
+                            aggregate.item_count,
+                            aggregate.active_count,
+                            aggregate.candidate_count,
+                            aggregate.derived_count,
+                            aggregate.synthetic_count,
+                            aggregate.contested_count,
+                            aggregate.avg_confidence(),
+                        ),
+                        last_seen_at: aggregate.last_seen_at,
+                        tags: aggregate.tags(6),
+                    }
+                },
+            )
+            .collect::<Vec<_>>();
+
+        sources.sort_by(|a, b| {
+            b.trust_score
+                .partial_cmp(&a.trust_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+        });
+        let limit = request.limit.unwrap_or(20).min(100);
+        sources.truncate(limit);
+        Ok(SourceMemoryResponse { sources })
+    }
+
     pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let mut stmt = conn
@@ -1257,6 +1451,98 @@ fn merge_tags(existing: &[String], incoming: &[String]) -> Vec<String> {
     tags.sort();
     tags.dedup();
     tags
+}
+
+type SourceKey = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+#[derive(Default)]
+struct SourceAggregate {
+    item_count: usize,
+    active_count: usize,
+    candidate_count: usize,
+    derived_count: usize,
+    synthetic_count: usize,
+    contested_count: usize,
+    confidence_sum: f32,
+    last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
+    tag_counts: std::collections::BTreeMap<String, usize>,
+}
+
+impl SourceAggregate {
+    fn observe(&mut self, item: &MemoryItem) {
+        self.item_count = self.item_count.saturating_add(1);
+        if item.stage == memd_schema::MemoryStage::Canonical {
+            self.active_count = self.active_count.saturating_add(1);
+        } else {
+            self.candidate_count = self.candidate_count.saturating_add(1);
+        }
+        if item.source_quality == Some(SourceQuality::Derived) {
+            self.derived_count = self.derived_count.saturating_add(1);
+        }
+        if item.source_quality == Some(SourceQuality::Synthetic) {
+            self.synthetic_count = self.synthetic_count.saturating_add(1);
+        }
+        if item.status == memd_schema::MemoryStatus::Contested {
+            self.contested_count = self.contested_count.saturating_add(1);
+        }
+        self.confidence_sum += item.confidence.clamp(0.0, 1.0);
+        self.last_seen_at = match self.last_seen_at {
+            Some(current) if current >= item.updated_at => Some(current),
+            _ => Some(item.updated_at),
+        };
+        for tag in &item.tags {
+            *self.tag_counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+
+    fn avg_confidence(&self) -> f32 {
+        if self.item_count == 0 {
+            0.0
+        } else {
+            (self.confidence_sum / self.item_count as f32).clamp(0.0, 1.0)
+        }
+    }
+
+    fn tags(&self, limit: usize) -> Vec<String> {
+        let mut tags = self
+            .tag_counts
+            .iter()
+            .map(|(tag, count)| (tag.clone(), *count))
+            .collect::<Vec<_>>();
+        tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        tags.into_iter().take(limit).map(|(tag, _)| tag).collect()
+    }
+}
+
+fn source_trust_score(
+    item_count: usize,
+    active_count: usize,
+    candidate_count: usize,
+    derived_count: usize,
+    synthetic_count: usize,
+    contested_count: usize,
+    avg_confidence: f32,
+) -> f32 {
+    if item_count == 0 {
+        return 0.0;
+    }
+
+    let active_ratio = active_count as f32 / item_count as f32;
+    let derived_ratio = derived_count as f32 / item_count as f32;
+    let candidate_ratio = candidate_count as f32 / item_count as f32;
+    let synthetic_ratio = synthetic_count as f32 / item_count as f32;
+    let contested_ratio = contested_count as f32 / item_count as f32;
+
+    let score = avg_confidence * 0.58 + active_ratio * 0.18 + derived_ratio * 0.12
+        - candidate_ratio * 0.05
+        - synthetic_ratio * 0.18
+        - contested_ratio * 0.14;
+    score.clamp(0.0, 1.0)
 }
 
 fn normalize_search_text(value: &str) -> String {
