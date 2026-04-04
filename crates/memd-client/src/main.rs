@@ -151,6 +151,9 @@ struct EntityArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -169,6 +172,9 @@ struct TimelineArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -692,7 +698,7 @@ async fn main() -> anyhow::Result<()> {
             };
             let response = client.entity(&req).await?;
             if args.summary {
-                println!("{}", render_entity_summary(&response));
+                println!("{}", render_entity_summary(&response, args.follow));
             } else {
                 print_json(&response)?;
             }
@@ -706,7 +712,7 @@ async fn main() -> anyhow::Result<()> {
             };
             let response = client.timeline(&req).await?;
             if args.summary {
-                println!("{}", render_timeline_summary(&response));
+                println!("{}", render_timeline_summary(&response, args.follow));
             } else {
                 print_json(&response)?;
             }
@@ -895,7 +901,7 @@ where
     Ok(())
 }
 
-fn render_entity_summary(response: &memd_schema::EntityMemoryResponse) -> String {
+fn render_entity_summary(response: &memd_schema::EntityMemoryResponse, follow: bool) -> String {
     let Some(entity) = response.entity.as_ref() else {
         return format!(
             "entity=none route={} intent={}",
@@ -914,7 +920,7 @@ fn render_entity_summary(response: &memd_schema::EntityMemoryResponse) -> String
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| "unknown".to_string());
 
-    format!(
+    let mut output = format!(
         "entity={} type={} salience={:.2} rehearsal={} state_v={} last_seen={} state=\"{}\" events={}",
         short_uuid(entity.id),
         entity.entity_type,
@@ -924,10 +930,20 @@ fn render_entity_summary(response: &memd_schema::EntityMemoryResponse) -> String
         last_seen,
         state,
         response.events.len()
-    )
+    );
+
+    if follow && let Some(event) = response.events.first() {
+        output.push_str(&format!(
+            " latest={}::{}",
+            event.event_type,
+            compact_inline(&event.summary, 48)
+        ));
+    }
+
+    output
 }
 
-fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse) -> String {
+fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follow: bool) -> String {
     let entity = response
         .entity
         .as_ref()
@@ -951,14 +967,34 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse) -> St
         })
         .unwrap_or_else(|| "no-events".to_string());
 
-    format!(
+    let mut output = format!(
         "timeline {} route={} intent={} events={} latest={}",
         entity,
         route_label(response.route),
         intent_label(response.intent),
         response.events.len(),
         latest
-    )
+    );
+
+    if follow {
+        let trail = response
+            .events
+            .iter()
+            .take(3)
+            .map(|event| {
+                format!(
+                    "{}:{}",
+                    event.event_type,
+                    compact_inline(&event.summary, 40)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+    }
+
+    output
 }
 
 fn compact_inline(value: &str, max_chars: usize) -> String {

@@ -24,6 +24,9 @@ struct Args {
 
     #[arg(long, default_value_t = 0.05)]
     confidence_bump: f32,
+
+    #[arg(long)]
+    report: bool,
 }
 
 #[tokio::main]
@@ -39,10 +42,17 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let result = run_once(&client, &args).await?;
-        println!(
-            "verification pass complete: verified={}, expired={}, decayed={}, skipped={}",
-            result.verified, result.expired, result.decayed, result.skipped
-        );
+        if args.report {
+            println!(
+                "learning report: reinforced={} cooled={} stale_checked={} skipped={}",
+                result.verified, result.decayed, result.expired, result.skipped
+            );
+        } else {
+            println!(
+                "verification pass complete: verified={}, expired={}, decayed={}, skipped={}",
+                result.verified, result.expired, result.decayed, result.skipped
+            );
+        }
         sleep(Duration::from_secs(args.interval_secs)).await;
     }
 }
