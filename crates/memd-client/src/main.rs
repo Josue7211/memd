@@ -294,6 +294,9 @@ struct InboxArgs {
     namespace: Option<String>,
 
     #[arg(long)]
+    belief_branch: Option<String>,
+
+    #[arg(long)]
     route: Option<String>,
 
     #[arg(long)]
@@ -307,6 +310,9 @@ struct InboxArgs {
 struct ExplainArgs {
     #[arg(long)]
     id: String,
+
+    #[arg(long)]
+    belief_branch: Option<String>,
 
     #[arg(long)]
     route: Option<String>,
@@ -603,6 +609,9 @@ enum ObsidianMode {
 struct SearchArgs {
     #[command(flatten)]
     input: RequestInput,
+
+    #[arg(long)]
+    belief_branch: Option<String>,
 
     #[arg(long)]
     route: Option<String>,
@@ -1099,6 +1108,9 @@ async fn main() -> anyhow::Result<()> {
                 req.route = parse_retrieval_route(args.route)?;
                 req.intent = parse_retrieval_intent(args.intent)?;
             }
+            if args.belief_branch.is_some() {
+                req.belief_branch = args.belief_branch.clone();
+            }
             print_json(&client.search(&req).await?)?;
         }
         Commands::Context(args) => {
@@ -1212,6 +1224,7 @@ async fn main() -> anyhow::Result<()> {
             let req = MemoryInboxRequest {
                 project: args.project.clone(),
                 namespace: args.namespace.clone(),
+                belief_branch: args.belief_branch.clone(),
                 route: parse_retrieval_route(args.route.clone())?,
                 intent: parse_retrieval_intent(args.intent.clone())?,
                 limit: args.limit,
@@ -1221,6 +1234,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Explain(args) => {
             let req = ExplainMemoryRequest {
                 id: args.id.parse().context("parse memory id as uuid")?,
+                belief_branch: args.belief_branch.clone(),
                 route: parse_retrieval_route(args.route.clone())?,
                 intent: parse_retrieval_intent(args.intent.clone())?,
             };
@@ -2023,6 +2037,7 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
     let explain = client
         .explain(&ExplainMemoryRequest {
             id,
+            belief_branch: None,
             route: None,
             intent: None,
         })
@@ -2357,6 +2372,7 @@ async fn sync_to_rag(
             statuses: vec![MemoryStatus::Active],
             project: args.project.clone(),
             namespace: args.namespace.clone(),
+            belief_branch: None,
             source_agent: None,
             tags: Vec::new(),
             stages: vec![MemoryStage::Canonical],
@@ -2518,6 +2534,7 @@ async fn ingest_text_memory(
         scope,
         project: args.project.clone(),
         namespace: args.namespace.clone(),
+        belief_branch: None,
         source_agent: args.source_agent.clone(),
         source_system: args.source_system.clone(),
         source_path: args.source_path.clone(),

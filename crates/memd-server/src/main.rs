@@ -56,6 +56,7 @@ impl AppState {
             id: Uuid::new_v4(),
             content: req.content.trim().to_string(),
             redundancy_key: None,
+            belief_branch: req.belief_branch,
             kind: req.kind,
             scope: req.scope,
             project: req.project,
@@ -128,6 +129,7 @@ impl AppState {
         item.scope = req.scope.unwrap_or(item.scope);
         item.project = req.project.or(item.project);
         item.namespace = req.namespace.or(item.namespace);
+        item.belief_branch = req.belief_branch.or(item.belief_branch);
         item.confidence = req.confidence.unwrap_or(item.confidence);
         item.ttl_seconds = req.ttl_seconds.or(item.ttl_seconds);
         if let Some(tags) = req.tags {
@@ -284,6 +286,7 @@ async fn store_candidate(
         scope: req.scope,
         project: req.project,
         namespace: req.namespace,
+        belief_branch: req.belief_branch,
         source_agent: req.source_agent,
         source_system: req.source_system,
         source_path: req.source_path,
@@ -435,6 +438,11 @@ async fn get_inbox(
             req.namespace
                 .as_ref()
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
+        })
+        .filter(|entry| {
+            req.belief_branch
+                .as_ref()
+                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
         })
         .collect::<Vec<_>>();
 
@@ -735,6 +743,7 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    belief_branch: None,
                     source_agent: candidate
                         .entity
                         .context
@@ -1092,6 +1101,11 @@ fn filter_items(
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
         })
         .filter(|entry| {
+            req.belief_branch
+                .as_ref()
+                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
+        })
+        .filter(|entry| {
             req.source_agent
                 .as_ref()
                 .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
@@ -1250,6 +1264,11 @@ fn compact_record(item: &MemoryItem) -> String {
     if let Some(namespace) = &item.namespace {
         if !namespace.is_empty() {
             parts.push(format!("ns={}", sanitize_value(namespace)));
+        }
+    }
+    if let Some(branch) = &item.belief_branch {
+        if !branch.is_empty() {
+            parts.push(format!("belief_branch={}", sanitize_value(branch)));
         }
     }
     if let Some(agent) = &item.source_agent {

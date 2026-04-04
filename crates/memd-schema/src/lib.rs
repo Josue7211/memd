@@ -82,6 +82,7 @@ pub struct MemoryItem {
     pub id: Uuid,
     pub content: String,
     pub redundancy_key: Option<String>,
+    pub belief_branch: Option<String>,
     pub kind: MemoryKind,
     pub scope: MemoryScope,
     pub project: Option<String>,
@@ -108,6 +109,7 @@ pub struct StoreMemoryRequest {
     pub scope: MemoryScope,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -132,6 +134,7 @@ pub struct CandidateMemoryRequest {
     pub scope: MemoryScope,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -155,6 +158,7 @@ pub struct PromoteMemoryRequest {
     pub scope: Option<MemoryScope>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub belief_branch: Option<String>,
     pub confidence: Option<f32>,
     pub ttl_seconds: Option<u64>,
     pub tags: Option<Vec<String>>,
@@ -232,6 +236,7 @@ pub struct SearchMemoryRequest {
     pub statuses: Vec<MemoryStatus>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub tags: Vec<String>,
     pub stages: Vec<MemoryStage>,
@@ -421,6 +426,7 @@ pub struct WorkingMemoryTraceRecord {
 pub struct MemoryInboxRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub belief_branch: Option<String>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
     pub limit: Option<usize>,
@@ -494,6 +500,7 @@ pub struct MemoryInboxResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryRequest {
     pub id: Uuid,
+    pub belief_branch: Option<String>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
 }
@@ -751,8 +758,19 @@ pub struct ExplainMemoryResponse {
     pub entity: Option<MemoryEntityRecord>,
     pub events: Vec<MemoryEventRecord>,
     pub sources: Vec<SourceMemoryRecord>,
+    pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
     pub artifact_trail: Vec<ExplainArtifactRecord>,
     pub policy_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainBranchSiblingRecord {
+    pub id: Uuid,
+    pub belief_branch: Option<String>,
+    pub status: MemoryStatus,
+    pub stage: MemoryStage,
+    pub confidence: f32,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1168,6 +1186,7 @@ mod tests {
                 id: Uuid::new_v4(),
                 content: "prefer bundle-first config".to_string(),
                 redundancy_key: Some("decision:bundle-first".to_string()),
+                belief_branch: Some("mainline".to_string()),
                 kind: MemoryKind::Decision,
                 scope: MemoryScope::Project,
                 project: Some("memd".to_string()),
@@ -1207,6 +1226,14 @@ mod tests {
                 last_seen_at: Some(now),
                 tags: vec!["docs".to_string()],
             }],
+            branch_siblings: vec![ExplainBranchSiblingRecord {
+                id: Uuid::new_v4(),
+                belief_branch: Some("fallback".to_string()),
+                status: MemoryStatus::Contested,
+                stage: MemoryStage::Canonical,
+                confidence: 0.71,
+                updated_at: now,
+            }],
             artifact_trail: vec![ExplainArtifactRecord {
                 kind: "memory_item".to_string(),
                 label: "canonical memory".to_string(),
@@ -1226,6 +1253,8 @@ mod tests {
 
         let json = serde_json::to_string(&response).unwrap();
         let decoded: ExplainMemoryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.item.belief_branch.as_deref(), Some("mainline"));
+        assert_eq!(decoded.branch_siblings.len(), 1);
         assert_eq!(decoded.artifact_trail.len(), 1);
         assert_eq!(decoded.policy_hooks.len(), 3);
         assert_eq!(decoded.sources[0].trust_score, 0.95);
@@ -1464,6 +1493,7 @@ mod tests {
                 id: request.id,
                 content: "repaired memory content".to_string(),
                 redundancy_key: Some("dedupe:key".to_string()),
+                belief_branch: Some("mainline".to_string()),
                 kind: MemoryKind::Decision,
                 scope: MemoryScope::Project,
                 project: Some("memd".to_string()),

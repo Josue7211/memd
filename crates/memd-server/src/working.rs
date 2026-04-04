@@ -362,6 +362,7 @@ mod tests {
             id: Uuid::new_v4(),
             content: "content".to_string(),
             redundancy_key: None,
+            belief_branch: None,
             kind: memd_schema::MemoryKind::Fact,
             scope: memd_schema::MemoryScope::Project,
             project: Some("proj".to_string()),

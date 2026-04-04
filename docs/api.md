@@ -34,6 +34,7 @@ Rules:
 - omitted confidence defaults to a moderate value
 - writes directly to canonical memory
 - items are persisted in SQLite
+- optional `belief_branch` keeps competing durable beliefs separate without flattening them into one record
 
 ### `POST /memory/candidates`
 
@@ -44,6 +45,7 @@ Rules:
 - intended for auto-dream and client writeback pipelines
 - candidate memories are not canonical truth
 - exact candidate duplicates collapse onto the existing candidate item
+- `belief_branch` can be set before promotion so competing hypotheses stay separable
 
 ### `POST /memory/promote`
 
@@ -52,6 +54,7 @@ Promotes a candidate into canonical memory.
 Rules:
 
 - promotion can adjust scope, confidence, tags, and TTL
+- promotion can also move a record onto a named `belief_branch`
 - exact canonical duplicates collapse onto the existing canonical item
 - this is the intended path from dream output into durable memory
 
@@ -96,6 +99,7 @@ Rules:
 - intended for review, promotion, verification, and cleanup
 - returns reasons for attention on each item
 - filtered by project and namespace when provided
+- optional `belief_branch` limits review to one hypothesis lane
 - route and intent can be used to bias what rises to the top
 
 ### `GET /memory/explain`
@@ -110,8 +114,10 @@ Rules:
 - returns canonical and redundancy keys
 - returns source and lifecycle reasons
 - returns source-memory drilldown for the item's project, namespace, and source tuple
+- returns sibling belief branches for competing records with the same redundancy lane
 - returns a compact artifact trail so raw evidence stays reachable behind the summary
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
+- optional `belief_branch` rejects mismatched lookups instead of silently crossing branches
 - route and intent are echoed in the response
 
 ### `GET /memory/entity`
@@ -171,6 +177,7 @@ Searches stored memory using:
 - optional status filters
 - optional project filter
 - optional namespace filter
+- optional belief-branch filter
 - optional source agent filter
 - optional tags
 - optional stage filter

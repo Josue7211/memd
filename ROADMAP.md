@@ -49,8 +49,8 @@ The right way to track progress now is by capability versions:
 Current version state:
 
 - `v0`: complete
-- `v1`: mostly built
-- `v2`: not started
+- `v1`: complete enough to build past
+- `v2`: in progress
 - `v3`: not started
 - `v4`: not started
 - `v5`: not started
@@ -64,6 +64,7 @@ What is already real in the repo:
 - graph/entity primitives exist
 - salience, rehearsal, decay, and consolidation exist
 - explain, inbox, maintenance, and policy inspection exist
+- branchable belief lanes exist for competing durable memory records
 
 What is still missing before `v1` is truly complete:
 

@@ -1,8 +1,8 @@
 use axum::http::StatusCode;
 use memd_schema::{
-    ExplainArtifactRecord, ExplainMemoryRequest, ExplainMemoryResponse, MemoryEventRecord,
-    MemoryItem, MemoryStage, MemoryStatus, RetrievalIntent, RetrievalRoute, SourceMemoryRecord,
-    SourceMemoryRequest,
+    ExplainArtifactRecord, ExplainBranchSiblingRecord, ExplainMemoryRequest,
+    ExplainMemoryResponse, MemoryEventRecord, MemoryItem, MemoryStage, MemoryStatus,
+    RetrievalIntent, RetrievalRoute, SourceMemoryRecord, SourceMemoryRequest,
 };
 
 use super::{canonical_key, internal_error, redundancy_key, AppState};
@@ -17,6 +17,13 @@ pub(crate) fn explain_memory(
         .get(req.id)
         .map_err(internal_error)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+    if req
+        .belief_branch
+        .as_ref()
+        .is_some_and(|branch| item.belief_branch.as_ref() != Some(branch))
+    {
+        return Err((StatusCode::NOT_FOUND, "memory item not found".to_string()));
+    }
 
     let reasons = explain_reasons(&item, &plan);
     let canonical = canonical_key(&item);
@@ -44,6 +51,7 @@ pub(crate) fn explain_memory(
         })
         .map_err(internal_error)?
         .sources;
+    let branch_siblings = build_branch_siblings(state, &item).map_err(internal_error)?;
     let artifact_trail = build_artifact_trail(&item, &events, &sources);
     let policy_hooks = build_policy_hooks(&item, &plan, &sources);
 
@@ -57,9 +65,40 @@ pub(crate) fn explain_memory(
         entity,
         events,
         sources,
+        branch_siblings,
         artifact_trail,
         policy_hooks,
     })
+}
+
+fn build_branch_siblings(
+    state: &AppState,
+    item: &MemoryItem,
+) -> anyhow::Result<Vec<ExplainBranchSiblingRecord>> {
+    let canonical = canonical_key(item);
+    let redundancy = redundancy_key(item);
+    let mut siblings = state
+        .snapshot()?
+        .into_iter()
+        .filter(|candidate| candidate.id != item.id)
+        .filter(|candidate| candidate.kind == item.kind)
+        .filter(|candidate| candidate.scope == item.scope)
+        .filter(|candidate| candidate.project == item.project)
+        .filter(|candidate| candidate.namespace == item.namespace)
+        .filter(|candidate| candidate.redundancy_key.as_deref() == Some(redundancy.as_str()))
+        .filter(|candidate| canonical_key(candidate) != canonical)
+        .map(|candidate| ExplainBranchSiblingRecord {
+            id: candidate.id,
+            belief_branch: candidate.belief_branch,
+            status: candidate.status,
+            stage: candidate.stage,
+            confidence: candidate.confidence,
+            updated_at: candidate.updated_at,
+        })
+        .collect::<Vec<_>>();
+    siblings.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    siblings.truncate(6);
+    Ok(siblings)
 }
 
 fn build_artifact_trail(
@@ -137,6 +176,9 @@ fn build_policy_hooks(
     if let Some(best_source) = sources.first() {
         hooks.push(format!("top_source_trust={:.2}", best_source.trust_score));
     }
+    if let Some(branch) = &item.belief_branch {
+        hooks.push(format!("belief_branch={branch}"));
+    }
 
     hooks
 }
@@ -156,6 +198,9 @@ fn explain_reasons(item: &MemoryItem, plan: &super::routing::RetrievalPlan) -> V
     }
     if let Some(agent) = &item.source_agent {
         reasons.push(format!("source_agent={agent}"));
+    }
+    if let Some(branch) = &item.belief_branch {
+        reasons.push(format!("belief_branch={branch}"));
     }
     if let Some(path) = &item.source_path {
         reasons.push(format!("source_path={path}"));

@@ -546,12 +546,14 @@ pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: boo
 
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "explain item={} route={} intent={} status={} confidence={:.2} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
+        "explain item={} route={} intent={} status={} confidence={:.2} branch={} siblings={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
         short_uuid(response.item.id),
         route_label(response.route),
         intent_label(response.intent),
         format!("{:?}", response.item.status).to_ascii_lowercase(),
         response.item.confidence,
+        response.item.belief_branch.as_deref().unwrap_or("none"),
+        response.branch_siblings.len(),
         response
             .entity
             .as_ref()
@@ -589,6 +591,22 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             if !best_source.tags.is_empty() {
                 output.push_str(&format!(" tags={}", best_source.tags.join("|")));
             }
+        }
+        if !response.branch_siblings.is_empty() {
+            let siblings = response
+                .branch_siblings
+                .iter()
+                .take(3)
+                .map(|sibling| {
+                    format!(
+                        "{}:{}:{:.2}",
+                        sibling.belief_branch.as_deref().unwrap_or("none"),
+                        short_uuid(sibling.id),
+                        sibling.confidence
+                    )
+                })
+                .collect::<Vec<_>>();
+            output.push_str(&format!(" sibling_branches={}", siblings.join(" | ")));
         }
         let hooks = response
             .policy_hooks

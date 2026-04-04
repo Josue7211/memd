@@ -98,6 +98,7 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
             statuses: vec![MemoryStatus::Stale],
             project: None,
             namespace: None,
+            belief_branch: None,
             source_agent: None,
             tags: Vec::new(),
             stages: vec![MemoryStage::Canonical],
