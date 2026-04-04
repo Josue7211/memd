@@ -26,8 +26,20 @@ Set:
 ./memd-context.sh
 ```
 
+## Install on Unix
+
+```bash
+./install.sh
+```
+
 ## Spill Hook
 
 ```bash
 ./memd-spill.sh --stdin --apply < compaction.json
+```
+
+## Install on Windows
+
+```powershell
+./install.ps1
 ```
