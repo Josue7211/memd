@@ -1,0 +1,11 @@
+/target
+/.env
+/.direnv
+/.DS_Store
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log

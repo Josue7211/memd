@@ -1,0 +1,141 @@
+use std::path::Path;
+
+use anyhow::Context;
+use clap::Parser;
+use memd_client::MemdClient;
+use memd_schema::{
+    ExpireMemoryRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, SearchMemoryRequest,
+    VerifyMemoryRequest,
+};
+use tokio::time::{Duration, sleep};
+
+#[derive(Debug, Parser)]
+#[command(name = "memd-worker")]
+#[command(about = "Background verification worker for memd")]
+struct Args {
+    #[arg(long, default_value = "http://127.0.0.1:8787")]
+    base_url: String,
+
+    #[arg(long, default_value_t = 300)]
+    interval_secs: u64,
+
+    #[arg(long, default_value_t = 64)]
+    batch_size: usize,
+
+    #[arg(long, default_value_t = 0.05)]
+    confidence_bump: f32,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    let client = MemdClient::new(&args.base_url)?;
+
+    let health = client.healthz().await.context("check memd health")?;
+    println!(
+        "memd-worker connected to {} with {} persisted items",
+        args.base_url, health.items
+    );
+
+    loop {
+        let result = run_once(&client, &args).await?;
+        println!(
+            "verification pass complete: verified={}, expired={}, skipped={}",
+            result.verified, result.expired, result.skipped
+        );
+        sleep(Duration::from_secs(args.interval_secs)).await;
+    }
+}
+
+struct WorkerResult {
+    verified: usize,
+    expired: usize,
+    skipped: usize,
+}
+
+async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResult> {
+    let stale_items = client
+        .search(&SearchMemoryRequest {
+            query: None,
+            route: None,
+            intent: None,
+            scopes: vec![
+                MemoryScope::Local,
+                MemoryScope::Synced,
+                MemoryScope::Project,
+                MemoryScope::Global,
+            ],
+            kinds: vec![
+                MemoryKind::Fact,
+                MemoryKind::Decision,
+                MemoryKind::Preference,
+                MemoryKind::Runbook,
+                MemoryKind::Topology,
+                MemoryKind::Status,
+                MemoryKind::Pattern,
+                MemoryKind::Constraint,
+            ],
+            statuses: vec![MemoryStatus::Stale],
+            project: None,
+            namespace: None,
+            source_agent: None,
+            tags: Vec::new(),
+            stages: vec![MemoryStage::Canonical],
+            limit: Some(args.batch_size),
+            max_chars_per_item: Some(160),
+        })
+        .await
+        .context("load stale items")?;
+
+    let mut verified = 0usize;
+    let mut expired = 0usize;
+
+    for item in stale_items.items {
+        match verify_or_expire(client, &item.content, args.confidence_bump, &item).await? {
+            VerificationAction::Verified => verified += 1,
+            VerificationAction::Expired => expired += 1,
+        }
+    }
+
+    Ok(WorkerResult {
+        verified,
+        expired,
+        skipped: 0,
+    })
+}
+
+enum VerificationAction {
+    Verified,
+    Expired,
+}
+
+async fn verify_or_expire(
+    client: &MemdClient,
+    _content: &str,
+    confidence_bump: f32,
+    item: &memd_schema::MemoryItem,
+) -> anyhow::Result<VerificationAction> {
+    if let Some(source_path) = &item.source_path {
+        if Path::new(source_path).exists() {
+            let confidence = (item.confidence + confidence_bump).min(1.0);
+            client
+                .verify(&VerifyMemoryRequest {
+                    id: item.id,
+                    confidence: Some(confidence),
+                    status: Some(MemoryStatus::Active),
+                })
+                .await
+                .context("verify memory item")?;
+            return Ok(VerificationAction::Verified);
+        }
+    }
+
+    client
+        .expire(&ExpireMemoryRequest {
+            id: item.id,
+            status: Some(MemoryStatus::Expired),
+        })
+        .await
+        .context("expire unverifiable memory item")?;
+    Ok(VerificationAction::Expired)
+}

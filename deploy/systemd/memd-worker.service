@@ -1,0 +1,15 @@
+[Unit]
+Description=memd verification worker
+After=network-online.target memd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/memd/memd-worker.env
+ExecStart=/usr/local/bin/memd-worker --base-url ${MEMD_BASE_URL:-http://127.0.0.1:8787} --interval-secs ${MEMD_INTERVAL_SECS:-300} --batch-size ${MEMD_BATCH_SIZE:-64} --confidence-bump ${MEMD_CONFIDENCE_BUMP:-0.05}
+Restart=always
+RestartSec=10
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

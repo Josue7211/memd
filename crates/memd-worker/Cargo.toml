@@ -1,0 +1,12 @@
+[package]
+name = "memd-worker"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+memd-client = { path = "../memd-client" }
+memd-schema = { path = "../memd-schema" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
