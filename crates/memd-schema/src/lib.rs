@@ -326,6 +326,38 @@ pub struct ExplainMemoryRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityMemoryRequest {
+    pub id: Uuid,
+    pub route: Option<RetrievalRoute>,
+    pub intent: Option<RetrievalIntent>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityMemoryResponse {
+    pub route: RetrievalRoute,
+    pub intent: RetrievalIntent,
+    pub entity: Option<MemoryEntityRecord>,
+    pub events: Vec<MemoryEventRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineMemoryRequest {
+    pub id: Uuid,
+    pub route: Option<RetrievalRoute>,
+    pub intent: Option<RetrievalIntent>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineMemoryResponse {
+    pub route: RetrievalRoute,
+    pub intent: RetrievalIntent,
+    pub entity: Option<MemoryEntityRecord>,
+    pub events: Vec<MemoryEventRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,
     pub intent: RetrievalIntent,

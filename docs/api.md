@@ -94,9 +94,33 @@ Explains why a specific memory item exists.
 Rules:
 
 - returns the item itself
+- returns the resolved entity when available
+- returns a bounded recent event timeline when available
 - returns canonical and redundancy keys
 - returns source and lifecycle reasons
 - route and intent are echoed in the response
+
+### `GET /memory/entity`
+
+Returns the object-permanence view for a specific memory item.
+
+Rules:
+
+- exact-id lookup only
+- returns the resolved entity when available
+- returns a bounded recent event list
+- intended for object identity and state inspection without pulling full context
+
+### `GET /memory/timeline`
+
+Returns the recent timeline for a specific memory item.
+
+Rules:
+
+- exact-id lookup only
+- returns the resolved entity when available
+- returns a bounded event list ordered by recency
+- intended for "what changed" queries without scanning broader memory
 
 ### `POST /memory/search`
 

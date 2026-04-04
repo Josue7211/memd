@@ -53,6 +53,8 @@ enum Commands {
     Context(ContextArgs),
     Inbox(InboxArgs),
     Explain(ExplainArgs),
+    Entity(EntityArgs),
+    Timeline(TimelineArgs),
     Compact(CompactArgs),
     Hook(HookArgs),
     Init(InitArgs),
@@ -131,6 +133,36 @@ struct ExplainArgs {
 
     #[arg(long)]
     intent: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct EntityArgs {
+    #[arg(long)]
+    id: String,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct TimelineArgs {
+    #[arg(long)]
+    id: String,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -644,6 +676,24 @@ async fn main() -> anyhow::Result<()> {
                 intent: parse_retrieval_intent(args.intent)?,
             };
             print_json(&client.explain(&req).await?)?;
+        }
+        Commands::Entity(args) => {
+            let req = memd_schema::EntityMemoryRequest {
+                id: args.id.parse().context("parse memory id as uuid")?,
+                route: parse_retrieval_route(args.route)?,
+                intent: parse_retrieval_intent(args.intent)?,
+                limit: args.limit,
+            };
+            print_json(&client.entity(&req).await?)?;
+        }
+        Commands::Timeline(args) => {
+            let req = memd_schema::TimelineMemoryRequest {
+                id: args.id.parse().context("parse memory id as uuid")?,
+                route: parse_retrieval_route(args.route)?,
+                intent: parse_retrieval_intent(args.intent)?,
+                limit: args.limit,
+            };
+            print_json(&client.timeline(&req).await?)?;
         }
         Commands::Compact(args) => {
             if args.spill && args.wire {

@@ -13,13 +13,13 @@ use chrono::Utc;
 use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
-    ContextRequest, ContextResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
-    MemoryContextFrame, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
-    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
-    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse,
+    ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse,
+    ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
+    HealthResponse, InboxMemoryItem, MemoryContextFrame, MemoryEntityRecord, MemoryEventRecord,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind, MemoryScope, MemoryStage,
+    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -238,6 +238,8 @@ async fn main() {
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
         .route("/memory/inbox", get(get_inbox))
+        .route("/memory/entity", get(get_entity))
+        .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
         .with_state(state);
 
@@ -433,6 +435,38 @@ async fn get_inbox(
     }))
 }
 
+async fn get_entity(
+    State(state): State<AppState>,
+    Query(req): Query<EntityMemoryRequest>,
+) -> Result<Json<EntityMemoryResponse>, (StatusCode, String)> {
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
+    let limit = req.limit.unwrap_or(4).min(12);
+    let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
+
+    Ok(Json(EntityMemoryResponse {
+        route: plan.route,
+        intent: plan.intent,
+        entity,
+        events,
+    }))
+}
+
+async fn get_timeline(
+    State(state): State<AppState>,
+    Query(req): Query<TimelineMemoryRequest>,
+) -> Result<Json<TimelineMemoryResponse>, (StatusCode, String)> {
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
+    let limit = req.limit.unwrap_or(12).min(32);
+    let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
+
+    Ok(Json(TimelineMemoryResponse {
+        route: plan.route,
+        intent: plan.intent,
+        entity,
+        events,
+    }))
+}
+
 async fn get_explain(
     State(state): State<AppState>,
     Query(req): Query<ExplainMemoryRequest>,
@@ -469,6 +503,21 @@ async fn get_explain(
         entity,
         events,
     }))
+}
+
+impl AppState {
+    fn entity_view(
+        &self,
+        item_id: Uuid,
+        limit: usize,
+    ) -> anyhow::Result<(Option<MemoryEntityRecord>, Vec<MemoryEventRecord>)> {
+        let entity = self.store.entity_for_item(item_id)?;
+        let events = match &entity {
+            Some(entity) => self.store.events_for_entity(entity.id, limit)?,
+            None => Vec::new(),
+        };
+        Ok((entity, events))
+    }
 }
 
 fn build_context(
