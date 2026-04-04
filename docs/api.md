@@ -154,6 +154,7 @@ Rules:
 - exposes the default retrieval order
 - exposes route defaults by intent
 - exposes working-memory, promotion, decay, and consolidation thresholds
+- exposes the default source-trust floor used by policy-aware ranking
 - intended for operator inspection and debugging
 
 ### `POST /memory/search`

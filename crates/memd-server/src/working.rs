@@ -312,7 +312,6 @@ fn working_item_priority(
     if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
         reasons.push("trusted_source".to_string());
     }
-
     ((confidence * 0.48
         + status_score
         + source_score
@@ -493,6 +492,7 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             max_chars_per_item: 220,
             default_limit: 8,
         },
+        source_trust_floor: 0.6,
         promotion: MemoryPolicyPromotion {
             min_salience: 0.22,
             min_events: 3,

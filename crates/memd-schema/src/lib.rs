@@ -696,6 +696,7 @@ pub struct MemoryPolicyResponse {
     pub retrieval_order: Vec<MemoryScope>,
     pub route_defaults: Vec<MemoryPolicyRouteDefault>,
     pub working_memory: MemoryPolicyWorkingMemory,
+    pub source_trust_floor: f32,
     pub promotion: MemoryPolicyPromotion,
     pub decay: MemoryPolicyDecay,
     pub consolidation: MemoryPolicyConsolidation,
@@ -1167,6 +1168,7 @@ mod tests {
                 max_chars_per_item: 220,
                 default_limit: 8,
             },
+            source_trust_floor: 0.6,
             promotion: MemoryPolicyPromotion {
                 min_salience: 0.22,
                 min_events: 3,
@@ -1192,6 +1194,7 @@ mod tests {
         let decoded: MemoryPolicyResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.retrieval_order, response.retrieval_order);
         assert_eq!(decoded.working_memory.default_limit, 8);
+        assert_eq!(decoded.source_trust_floor, 0.6);
         assert_eq!(decoded.decay.max_decay, 0.12);
         assert_eq!(decoded.consolidation.max_groups, 24);
     }
