@@ -8,7 +8,9 @@ license = "Apache-2.0"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 memd-core = { path = "../memd-core" }
+memd-multimodal = { path = "../memd-multimodal" }
 memd-rag = { path = "../memd-rag" }
+memd-sidecar = { path = "../memd-sidecar" }
 memd-schema = { path = "../memd-schema" }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

@@ -11,6 +11,9 @@ use memd_core::{
     build_compaction_packet, derive_compaction_spill, derive_compaction_spill_with_options,
     render_compaction_wire,
 };
+use memd_multimodal::{
+    MultimodalChunk, MultimodalIngestPlan, build_ingest_plan, extract_chunks, to_sidecar_requests,
+};
 use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
@@ -19,6 +22,7 @@ use memd_schema::{
     MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute,
     SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
+use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -38,6 +42,7 @@ enum Commands {
     Status(StatusArgs),
     Attach(AttachArgs),
     Rag(RagArgs),
+    Multimodal(MultimodalArgs),
     Store(RequestInput),
     Candidate(RequestInput),
     Promote(RequestInput),
@@ -303,6 +308,23 @@ enum RagMode {
 }
 
 #[derive(Debug, Clone, Args)]
+struct MultimodalArgs {
+    #[arg(long)]
+    rag_url: Option<String>,
+
+    #[command(subcommand)]
+    mode: MultimodalMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum MultimodalMode {
+    Healthz,
+    Plan(MultimodalPlanArgs),
+    Ingest(MultimodalIngestArgs),
+    Retrieve(MultimodalRetrieveArgs),
+}
+
+#[derive(Debug, Clone, Args)]
 struct RagSyncArgs {
     #[arg(long)]
     project: Option<String>,
@@ -319,6 +341,54 @@ struct RagSyncArgs {
 
 #[derive(Debug, Clone, Args)]
 struct RagSearchArgs {
+    #[arg(long)]
+    query: String,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    mode: Option<String>,
+
+    #[arg(long)]
+    include_cross_modal: bool,
+
+    #[arg(long)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MultimodalPlanArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long, value_name = "PATH")]
+    path: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MultimodalIngestArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long, value_name = "PATH")]
+    path: Vec<PathBuf>,
+
+    #[arg(long)]
+    apply: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MultimodalRetrieveArgs {
     #[arg(long)]
     query: String,
 
@@ -382,6 +452,61 @@ async fn main() -> anyhow::Result<()> {
                 RagMode::Sync(args) => {
                     let summary = sync_to_rag(&client, &rag, args).await?;
                     print_json(&summary)?;
+                }
+            }
+        }
+        Commands::Multimodal(args) => {
+            let rag_url = args
+                .rag_url
+                .or_else(|| std::env::var("MEMD_RAG_URL").ok())
+                .context("provide --rag-url or set MEMD_RAG_URL")?;
+            let sidecar = SidecarClient::new(&rag_url)?;
+            match args.mode {
+                MultimodalMode::Healthz => print_json(&sidecar.healthz().await?)?,
+                MultimodalMode::Plan(args) => {
+                    let preview =
+                        build_multimodal_preview(args.project, args.namespace, &args.path)?;
+                    print_json(&preview)?;
+                }
+                MultimodalMode::Ingest(args) => {
+                    let preview =
+                        build_multimodal_preview(args.project, args.namespace, &args.path)?;
+                    if args.apply {
+                        let responses =
+                            ingest_multimodal_preview(&sidecar, &preview.requests).await?;
+                        let submitted = responses.len();
+                        print_json(&MultimodalIngestOutput {
+                            preview,
+                            responses,
+                            submitted,
+                            dry_run: false,
+                        })?;
+                    } else {
+                        print_json(&MultimodalIngestOutput {
+                            preview,
+                            responses: Vec::new(),
+                            submitted: 0,
+                            dry_run: true,
+                        })?;
+                    }
+                }
+                MultimodalMode::Retrieve(args) => {
+                    let mut request = memd_multimodal::build_retrieve_request(
+                        args.query,
+                        args.project,
+                        args.namespace,
+                        args.limit,
+                        args.include_cross_modal,
+                    );
+                    if let Some(mode) = args
+                        .mode
+                        .as_deref()
+                        .map(parse_rag_retrieve_mode)
+                        .transpose()?
+                    {
+                        request.mode = mode;
+                    }
+                    print_json(&sidecar.retrieve(&request).await?)?;
                 }
             }
         }
@@ -534,8 +659,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(rag) = maybe_rag_client_from_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
+                    let submitted = responses.len();
                     let result = CompactionSpillResult {
-                        submitted: responses.len(),
+                        submitted,
                         duplicates,
                         responses,
                         batch: spill,
@@ -584,8 +710,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(rag) = maybe_rag_client_from_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
+                    let submitted = responses.len();
                     print_json(&CompactionSpillResult {
-                        submitted: responses.len(),
+                        submitted,
                         duplicates,
                         responses,
                         batch: spill,
@@ -723,6 +850,52 @@ fn parse_rag_retrieve_mode(value: &str) -> anyhow::Result<RagRetrieveMode> {
             "invalid rag retrieve mode '{value}'; expected auto, text, multimodal, or graph"
         ),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct MultimodalPreview {
+    plan: MultimodalIngestPlan,
+    chunks: Vec<MultimodalChunk>,
+    requests: Vec<SidecarIngestRequest>,
+}
+
+#[derive(Debug, Serialize)]
+struct MultimodalIngestOutput {
+    preview: MultimodalPreview,
+    responses: Vec<SidecarIngestResponse>,
+    submitted: usize,
+    dry_run: bool,
+}
+
+fn build_multimodal_preview(
+    project: Option<String>,
+    namespace: Option<String>,
+    paths: &[PathBuf],
+) -> anyhow::Result<MultimodalPreview> {
+    if paths.is_empty() {
+        anyhow::bail!("provide at least one --path");
+    }
+
+    let plan = build_ingest_plan(paths.iter(), project, namespace)?;
+    let chunks = extract_chunks(&plan)?;
+    let requests = to_sidecar_requests(&plan, &chunks);
+
+    Ok(MultimodalPreview {
+        plan,
+        chunks,
+        requests,
+    })
+}
+
+async fn ingest_multimodal_preview(
+    sidecar: &SidecarClient,
+    requests: &[SidecarIngestRequest],
+) -> anyhow::Result<Vec<SidecarIngestResponse>> {
+    let mut responses = Vec::with_capacity(requests.len());
+    for request in requests {
+        responses.push(sidecar.ingest(request).await?);
+    }
+    Ok(responses)
 }
 
 fn maybe_rag_client_from_env() -> anyhow::Result<Option<RagClient>> {
