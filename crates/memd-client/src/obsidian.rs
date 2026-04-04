@@ -25,6 +25,7 @@ pub struct ObsidianVaultScan {
     pub sensitive_count: usize,
     pub skipped_count: usize,
     pub unchanged_count: usize,
+    pub backlink_count: usize,
     pub attachment_count: usize,
     pub attachment_sensitive_count: usize,
     pub attachment_unchanged_count: usize,
@@ -51,6 +52,7 @@ pub struct ObsidianSensitiveNote {
 pub struct ObsidianAttachment {
     pub path: PathBuf,
     pub relative_path: String,
+    pub folder_path: Option<String>,
     pub asset_kind: String,
     pub mime: Option<String>,
     pub bytes: u64,
@@ -78,6 +80,8 @@ pub struct ObsidianSyncEntry {
 pub struct ObsidianNote {
     pub path: PathBuf,
     pub relative_path: String,
+    pub folder_path: Option<String>,
+    pub folder_depth: usize,
     pub title: String,
     pub normalized_title: String,
     pub excerpt: String,
@@ -85,6 +89,7 @@ pub struct ObsidianNote {
     pub tags: Vec<String>,
     pub aliases: Vec<String>,
     pub links: Vec<String>,
+    pub backlinks: Vec<String>,
     pub sensitivity: ObsidianSensitivity,
     pub bytes: u64,
     pub modified_at: Option<DateTime<Utc>>,
@@ -181,6 +186,32 @@ pub fn scan_vault(
         }
     }
 
+    let mut note_index = HashMap::new();
+    for (idx, note) in notes.iter().enumerate() {
+        note_index.insert(note.normalized_title.clone(), idx);
+        for alias in &note.aliases {
+            note_index.entry(normalized_title(alias)).or_insert(idx);
+        }
+    }
+
+    let mut backlink_count = 0usize;
+    for idx in 0..notes.len() {
+        let mut backlinks = HashSet::new();
+        for source in &notes {
+            let source_hits_current = source
+                .links
+                .iter()
+                .any(|link| note_index.get(&normalized_title(link)).copied() == Some(idx));
+            if source_hits_current {
+                backlinks.insert(source.relative_path.clone());
+            }
+        }
+        backlink_count += backlinks.len();
+        let mut backlinks = backlinks.into_iter().collect::<Vec<_>>();
+        backlinks.sort();
+        notes[idx].backlinks = backlinks;
+    }
+
     Ok(ObsidianVaultScan {
         vault: vault.to_path_buf(),
         project,
@@ -189,6 +220,7 @@ pub fn scan_vault(
         sensitive_count,
         skipped_count,
         unchanged_count: 0,
+        backlink_count,
         attachment_count: attachments.len(),
         attachment_sensitive_count,
         attachment_unchanged_count: 0,
@@ -293,7 +325,15 @@ pub fn resolve_attachment_match(
     let relative = normalized_title(
         attachment
             .relative_path
-            .strip_suffix(attachment.path.extension().and_then(|ext| ext.to_str()).map(|ext| format!(".{ext}")).as_deref().unwrap_or(""))
+            .strip_suffix(
+                attachment
+                    .path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| format!(".{ext}"))
+                    .as_deref()
+                    .unwrap_or(""),
+            )
             .unwrap_or(&attachment.relative_path),
     );
 
@@ -372,9 +412,15 @@ pub fn build_attachment_request(
         tags.push(format!("sidecar_track_id={track_id}"));
     }
     let mut content = String::new();
-    content.push_str(&format!("Obsidian attachment: {}\n", attachment.relative_path));
+    content.push_str(&format!(
+        "Obsidian attachment: {}\n",
+        attachment.relative_path
+    ));
     content.push_str(&format!("Vault path: {}\n", attachment.relative_path));
     content.push_str(&format!("Asset kind: {}\n", attachment.asset_kind));
+    if let Some(folder_path) = attachment.folder_path.as_deref() {
+        content.push_str(&format!("Folder path: {}\n", folder_path));
+    }
     if let Some(mime) = attachment.mime.as_deref() {
         content.push_str(&format!("Mime: {mime}\n"));
     }
@@ -452,6 +498,10 @@ pub fn build_note_request(
     let mut content = String::new();
     content.push_str(&format!("Obsidian note: {}\n", note.title));
     content.push_str(&format!("Vault path: {}\n", note.relative_path));
+    if let Some(folder_path) = note.folder_path.as_deref() {
+        content.push_str(&format!("Folder path: {}\n", folder_path));
+    }
+    content.push_str(&format!("Folder depth: {}\n", note.folder_depth));
     if !note.aliases.is_empty() {
         content.push_str(&format!("Aliases: {}\n", note.aliases.join(", ")));
     }
@@ -460,6 +510,9 @@ pub fn build_note_request(
     }
     if !note.links.is_empty() {
         content.push_str(&format!("Wiki links: {}\n", note.links.join(", ")));
+    }
+    if !note.backlinks.is_empty() {
+        content.push_str(&format!("Backlinks: {}\n", note.backlinks.join(", ")));
     }
     content.push_str("Excerpt:\n");
     content.push_str(&note.excerpt);
@@ -566,12 +619,25 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         .unwrap_or(path)
         .display()
         .to_string();
+    let folder_path = path.parent().and_then(|value| {
+        value
+            .strip_prefix(vault)
+            .ok()
+            .map(|folder| folder.display().to_string())
+            .filter(|folder| !folder.is_empty())
+    });
+    let folder_depth = folder_path
+        .as_deref()
+        .map(|folder| folder.split('/').count())
+        .unwrap_or(0);
     let content_hash = hash_content(&raw);
     let modified_at = metadata.modified().ok().map(system_time_to_utc);
 
     Ok(Some(ObsidianNote {
         path: path.to_path_buf(),
         relative_path,
+        folder_path,
+        folder_depth,
         title: title.trim().to_string(),
         normalized_title: normalized_title(&title),
         excerpt,
@@ -579,6 +645,7 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         tags,
         aliases,
         links,
+        backlinks: Vec::new(),
         sensitivity: detect_sensitivity(&title, &body, frontmatter.as_ref()),
         bytes: metadata.len(),
         modified_at,
@@ -593,6 +660,13 @@ fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsidian
         .unwrap_or(path)
         .display()
         .to_string();
+    let folder_path = path.parent().and_then(|value| {
+        value
+            .strip_prefix(vault)
+            .ok()
+            .map(|folder| folder.display().to_string())
+            .filter(|folder| !folder.is_empty())
+    });
     let mime = mime_guess::from_path(path)
         .first_raw()
         .map(|value| value.to_string());
@@ -620,6 +694,7 @@ fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsidian
     Ok(Some(ObsidianAttachment {
         path: path.to_path_buf(),
         relative_path,
+        folder_path,
         asset_kind,
         mime,
         bytes,
@@ -645,7 +720,11 @@ fn fallback_attachment_match(
         if note.normalized_title == stem {
             score += 5;
         }
-        if note.aliases.iter().any(|alias| normalized_title(alias) == stem) {
+        if note
+            .aliases
+            .iter()
+            .any(|alias| normalized_title(alias) == stem)
+        {
             score += 4;
         }
         if note.normalized_title.contains(&stem) || stem.contains(&note.normalized_title) {
@@ -670,7 +749,11 @@ fn fallback_attachment_match(
         if score == 0 {
             continue;
         }
-        if best.as_ref().map(|(best_score, _)| score > *best_score).unwrap_or(true) {
+        if best
+            .as_ref()
+            .map(|(best_score, _)| score > *best_score)
+            .unwrap_or(true)
+        {
             best = Some((score, idx));
         }
     }

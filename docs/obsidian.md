@@ -10,6 +10,8 @@ The bridge is filesystem-first:
 - note paths are preserved as source anchors
 - unchanged notes are skipped using a local sync state file
 - wiki links can be turned into entity links
+- backlinks are recorded so the vault has directional note context
+- folder paths and depth are captured for graph-aware vault structure
 - attachments can be imported from the vault, routed through the multimodal path, and linked back to the note they belong to
 - notes that look like secrets are skipped before import
 
@@ -35,6 +37,12 @@ Import notes and also create associative links for wiki links:
 cargo run -p memd-client --bin memd -- obsidian import --vault ~/vault --project notes --apply --link-notes
 ```
 
+Sync a vault in one pass:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian sync --vault ~/vault --project notes
+```
+
 Import notes and vault attachments together:
 
 ```bash
@@ -53,8 +61,10 @@ Each note becomes a compact candidate memory with:
 
 - note title
 - vault-relative path
+- folder path and folder depth
 - tags and aliases from frontmatter when present
 - a short excerpt
+- backlinks when the vault contains inbound wiki references
 - `source_system=obsidian`
 - `source_path` anchored to the note file
 
@@ -72,7 +82,8 @@ skips unchanged assets using the same sync state, routes changed attachments
 through the multimodal sidecar, and stores a compact attachment memory record
 so the graph can link the attachment back to its note when the filename or
 folder strongly matches. Text-like attachments are also screened for obvious
-secret markers before import.
+secret markers before import. Attachments also carry folder metadata so vault
+structure stays visible in the graph.
 
 Incremental sync stores a small state file under the vault by default:
 
