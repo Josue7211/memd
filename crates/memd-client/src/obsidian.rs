@@ -20,8 +20,15 @@ pub struct ObsidianVaultScan {
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub note_count: usize,
+    pub sensitive_count: usize,
     pub skipped_count: usize,
     pub notes: Vec<ObsidianNote>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObsidianSensitivity {
+    pub sensitive: bool,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -35,6 +42,7 @@ pub struct ObsidianNote {
     pub tags: Vec<String>,
     pub aliases: Vec<String>,
     pub links: Vec<String>,
+    pub sensitivity: ObsidianSensitivity,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +61,7 @@ pub fn scan_vault(
     let vault = vault.as_ref();
     let mut notes = Vec::new();
     let mut skipped_count = 0usize;
+    let mut sensitive_count = 0usize;
     let max_notes = max_notes.unwrap_or(usize::MAX);
 
     for entry in WalkDir::new(vault)
@@ -77,6 +86,10 @@ pub fn scan_vault(
         }
 
         if let Some(note) = parse_markdown_note(vault, entry.path())? {
+            if note.sensitivity.sensitive {
+                sensitive_count += 1;
+                continue;
+            }
             notes.push(note);
         }
     }
@@ -86,6 +99,7 @@ pub fn scan_vault(
         project,
         namespace,
         note_count: notes.len(),
+        sensitive_count,
         skipped_count,
         notes,
     })
@@ -267,7 +281,63 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         tags,
         aliases,
         links,
+        sensitivity: detect_sensitivity(&title, &body, frontmatter.as_ref()),
     }))
+}
+
+fn detect_sensitivity(
+    title: &str,
+    body: &str,
+    frontmatter: Option<&HashMap<String, String>>,
+) -> ObsidianSensitivity {
+    let mut reasons = Vec::new();
+    let haystack = format!(
+        "{}\n{}\n{}",
+        title,
+        body,
+        frontmatter
+            .map(|frontmatter| {
+                frontmatter
+                    .iter()
+                    .map(|(key, value)| format!("{key}:{value}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+
+    let patterns = [
+        ("private_key", "-----begin private key-----"),
+        ("ssh_key", "ssh-rsa"),
+        ("aws_access_key_id", "aws_access_key_id"),
+        ("aws_secret_access_key", "aws_secret_access_key"),
+        ("x_api_key", "x-api-key"),
+        ("client_secret", "client_secret"),
+        ("api_key", "api key"),
+        ("api_key", "apikey"),
+        ("token", "bearer "),
+        ("token", "access token"),
+        ("password", "password"),
+        ("password", "passwd"),
+        ("secret", "secret"),
+        ("secret", "sk-"),
+        ("secret", "ghp_"),
+        ("secret", "github_pat_"),
+        ("secret", "xoxb-"),
+        ("secret", "xoxp-"),
+    ];
+
+    for (reason, needle) in patterns {
+        if haystack.contains(needle) {
+            reasons.push(reason.to_string());
+        }
+    }
+
+    ObsidianSensitivity {
+        sensitive: !reasons.is_empty(),
+        reasons,
+    }
 }
 
 fn split_frontmatter(raw: &str) -> (Option<HashMap<String, String>>, String) {
@@ -426,4 +496,66 @@ fn build_excerpt(body: &str, max_lines: usize, max_chars: usize) -> String {
         joined.push_str("...");
     }
     joined
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn temp_file(name: &str, contents: &str) -> PathBuf {
+        let dir = std::env::temp_dir();
+        let file_name = match name.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => {
+                format!("memd-obsidian-{}-{}.{}", stem, Uuid::new_v4(), ext)
+            }
+            _ => format!("memd-obsidian-{}-{}", name, Uuid::new_v4()),
+        };
+        let path = dir.join(file_name);
+        let mut file = fs::File::create(&path).unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn detects_sensitive_note_content() {
+        let note = parse_markdown_note(
+            Path::new("/tmp/vault"),
+            &temp_file(
+                "secrets.md",
+                "---\ntitle: Secrets\n---\n# Secrets\nAWS_SECRET_ACCESS_KEY=shhh\n",
+            ),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(note.sensitivity.sensitive);
+        assert!(!note.sensitivity.reasons.is_empty());
+    }
+
+    #[test]
+    fn skips_sensitive_notes_from_import() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+
+        let public = vault.join("public.md");
+        let secret = vault.join("secrets.md");
+        fs::write(
+            &public,
+            "---\ntitle: Public Note\ntags: [notes]\n---\n# Public Note\nHello world.\n",
+        )
+        .unwrap();
+        fs::write(
+            &secret,
+            "---\ntitle: Secrets Note\ntags: [keys]\n---\n# Secrets Note\nAWS_SECRET_ACCESS_KEY=shhh\n",
+        )
+        .unwrap();
+
+        let scan = scan_vault(&vault, Some("notes".to_string()), None, Some(10)).unwrap();
+        assert_eq!(scan.note_count, 1);
+        assert_eq!(scan.sensitive_count, 1);
+        assert_eq!(scan.notes.len(), 1);
+        assert_eq!(scan.notes[0].title, "Public Note");
+        assert!(!scan.notes[0].sensitivity.sensitive);
+    }
 }

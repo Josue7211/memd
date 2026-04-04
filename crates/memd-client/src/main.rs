@@ -1262,9 +1262,10 @@ struct ObsidianImportOutput {
 
 fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut output = format!(
-        "vault={} notes={} skipped={} project={}",
+        "vault={} notes={} sensitive={} skipped={} project={}",
         scan.vault.display(),
         scan.note_count,
+        scan.sensitive_count,
         scan.skipped_count,
         scan.project.as_deref().unwrap_or("none")
     );
@@ -1285,9 +1286,10 @@ fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> Strin
 
 fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -> String {
     let mut summary = format!(
-        "obsidian_import vault={} notes={} submitted={} duplicates={} links={} dry_run={}",
+        "obsidian_import vault={} notes={} sensitive={} submitted={} duplicates={} links={} dry_run={}",
         output.preview.scan.vault.display(),
         output.preview.scan.note_count,
+        output.preview.scan.sensitive_count,
         output.submitted,
         output.duplicates,
         output.links_created,

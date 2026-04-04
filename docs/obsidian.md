@@ -10,6 +10,7 @@ The bridge is filesystem-first:
 - note paths are preserved as source anchors
 - wiki links can be turned into entity links
 - attachments can still go through the multimodal path separately
+- notes that look like secrets are skipped before import
 
 ## Scan
 
@@ -47,9 +48,11 @@ Each note becomes a compact candidate memory with:
 If `--link-notes` is enabled, wiki links like `[[Other Note]]` are resolved
 against imported note titles and written as entity links.
 
+Notes that contain obvious credential markers such as API keys, private keys,
+or secret tokens are excluded from import by default.
+
 ## Obsidian CLI
 
 This bridge does not depend on Obsidian's CLI. If you already use a CLI to
 open or manage the vault, you can keep doing that. `memd` only needs the
 local vault path.
-
