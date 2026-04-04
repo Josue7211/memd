@@ -15,11 +15,12 @@ use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
     ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse,
     ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
-    HealthResponse, InboxMemoryItem, MemoryContextFrame, MemoryEntityRecord, MemoryEventRecord,
-    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind, MemoryScope, MemoryStage,
-    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    HealthResponse, InboxMemoryItem, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
+    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
+    MemoryKind, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -241,6 +242,7 @@ async fn main() {
         .route("/memory/entity", get(get_entity))
         .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
+        .route("/memory/maintenance/decay", post(decay_memory))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
@@ -514,6 +516,18 @@ async fn get_explain(
         redundancy_key: redundancy,
         reasons,
         entity,
+        events,
+    }))
+}
+
+async fn decay_memory(
+    State(state): State<AppState>,
+    Json(req): Json<MemoryDecayRequest>,
+) -> Result<Json<MemoryDecayResponse>, (StatusCode, String)> {
+    let (scanned, updated, events) = state.store.decay_entities(&req).map_err(internal_error)?;
+    Ok(Json(MemoryDecayResponse {
+        scanned,
+        updated,
         events,
     }))
 }

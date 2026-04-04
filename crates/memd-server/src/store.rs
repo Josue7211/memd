@@ -2,7 +2,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use memd_schema::{MemoryContextFrame, MemoryEntityRecord, MemoryEventRecord, MemoryItem};
+use memd_schema::{
+    MemoryContextFrame, MemoryDecayRequest, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
+};
 use rusqlite::{Connection, params};
 use uuid::Uuid;
 
@@ -234,6 +236,122 @@ impl SqliteStore {
         Ok(Some(record))
     }
 
+    pub fn decay_entities(
+        &self,
+        request: &MemoryDecayRequest,
+    ) -> anyhow::Result<(usize, usize, usize)> {
+        let max_items = request.max_items.unwrap_or(128).min(1_000);
+        let inactive_days = request.inactive_days.unwrap_or(21).max(1);
+        let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let record_events = request.record_events.unwrap_or(true);
+
+        let rows: Vec<(String, MemoryEntityRecord)> = {
+            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT entity_key, payload_json
+                    FROM memory_entities
+                    ORDER BY updated_at ASC
+                    LIMIT ?1
+                    "#,
+                )
+                .context("prepare decay entity query")?;
+            let rows = stmt
+                .query_map(params![max_items as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .context("query decay entities")?;
+
+            let mut decoded = Vec::new();
+            for row in rows {
+                let (entity_key, payload) = row.context("read decay entity row")?;
+                let entity: MemoryEntityRecord =
+                    serde_json::from_str(&payload).context("deserialize decay entity payload")?;
+                decoded.push((entity_key, entity));
+            }
+            decoded
+        };
+
+        let mut scanned = 0usize;
+        let mut updated = 0usize;
+        let mut events = 0usize;
+        let now = chrono::Utc::now();
+
+        for (entity_key, mut entity) in rows {
+            scanned += 1;
+
+            let reference = entity
+                .last_accessed_at
+                .or(entity.last_seen_at)
+                .unwrap_or(entity.updated_at);
+            let idle_days = (now - reference).num_days().max(0);
+            if idle_days < inactive_days {
+                continue;
+            }
+
+            let inactive_days_over = (idle_days - inactive_days) as f32;
+            let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
+            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            if decay <= 0.001 {
+                continue;
+            }
+
+            let original_salience = entity.salience_score;
+            entity.salience_score = (entity.salience_score - decay).max(0.0);
+            if (entity.salience_score - original_salience).abs() < f32::EPSILON {
+                continue;
+            }
+
+            entity.updated_at = now;
+            self.upsert_entity(&entity_key, &entity)?;
+            updated += 1;
+
+            if record_events {
+                let event = MemoryEventRecord {
+                    id: Uuid::new_v4(),
+                    entity_id: Some(entity.id),
+                    event_type: "decayed".to_string(),
+                    summary: format!(
+                        "salience decayed from {:.3} to {:.3} after {} idle days",
+                        original_salience, entity.salience_score, idle_days
+                    ),
+                    occurred_at: now,
+                    recorded_at: now,
+                    confidence: entity.confidence,
+                    salience_score: entity.salience_score,
+                    project: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone()),
+                    namespace: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.namespace.clone()),
+                    source_agent: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.agent.clone()),
+                    source_system: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.repo.clone()),
+                    source_path: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.location.clone()),
+                    related_entity_ids: Vec::new(),
+                    tags: entity.tags.clone(),
+                    context: entity.context.clone(),
+                };
+                self.insert_event(&event, None)?;
+                events += 1;
+            }
+        }
+
+        Ok((scanned, updated, events))
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let payload = conn.query_row(
@@ -332,24 +450,7 @@ impl SqliteStore {
         };
 
         let payload_json = serde_json::to_string(&event).context("serialize memory event")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        conn.execute(
-            r#"
-            INSERT INTO memory_events (
-              id, memory_item_id, entity_id, event_type, occurred_at, recorded_at, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#,
-            params![
-                event.id.to_string(),
-                memory_item_id.to_string(),
-                entity.id.to_string(),
-                event.event_type,
-                event.occurred_at.to_rfc3339(),
-                event.recorded_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("insert memory event")?;
+        self.insert_event_payload(&event, Some(memory_item_id), payload_json)?;
 
         Ok(event)
     }
@@ -485,6 +586,45 @@ impl SqliteStore {
             ],
         )
         .context("upsert memory entity")?;
+        Ok(())
+    }
+
+    fn insert_event(
+        &self,
+        event: &MemoryEventRecord,
+        memory_item_id: Option<Uuid>,
+    ) -> anyhow::Result<()> {
+        let payload_json = serde_json::to_string(event).context("serialize memory event")?;
+        self.insert_event_payload(event, memory_item_id, payload_json)
+    }
+
+    fn insert_event_payload(
+        &self,
+        event: &MemoryEventRecord,
+        memory_item_id: Option<Uuid>,
+        payload_json: String,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO memory_events (
+              id, memory_item_id, entity_id, event_type, occurred_at, recorded_at, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![
+                event.id.to_string(),
+                memory_item_id.map(|value| value.to_string()),
+                event
+                    .entity_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                event.event_type,
+                event.occurred_at.to_rfc3339(),
+                event.recorded_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("insert memory event")?;
         Ok(())
     }
 }

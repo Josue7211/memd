@@ -122,6 +122,17 @@ Rules:
 - returns a bounded event list ordered by recency
 - intended for "what changed" queries without scanning broader memory
 
+### `POST /memory/maintenance/decay`
+
+Runs a bounded salience decay sweep over inactive entities.
+
+Rules:
+
+- intended for the background worker
+- updates entity salience and rehearsal state
+- can emit decay events into the timeline
+- keeps unused traces from staying artificially hot forever
+
 ### `POST /memory/search`
 
 Searches stored memory using:

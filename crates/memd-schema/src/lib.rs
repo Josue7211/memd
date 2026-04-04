@@ -357,6 +357,21 @@ pub struct TimelineMemoryResponse {
     pub events: Vec<MemoryEventRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryDecayRequest {
+    pub max_items: Option<usize>,
+    pub inactive_days: Option<i64>,
+    pub max_decay: Option<f32>,
+    pub record_events: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryDecayResponse {
+    pub scanned: usize,
+    pub updated: usize,
+    pub events: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,

@@ -4,8 +4,8 @@ use anyhow::Context;
 use clap::Parser;
 use memd_client::MemdClient;
 use memd_schema::{
-    ExpireMemoryRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, SearchMemoryRequest,
-    VerifyMemoryRequest,
+    ExpireMemoryRequest, MemoryDecayRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
+    SearchMemoryRequest, VerifyMemoryRequest,
 };
 use tokio::time::{Duration, sleep};
 
@@ -40,8 +40,8 @@ async fn main() -> anyhow::Result<()> {
     loop {
         let result = run_once(&client, &args).await?;
         println!(
-            "verification pass complete: verified={}, expired={}, skipped={}",
-            result.verified, result.expired, result.skipped
+            "verification pass complete: verified={}, expired={}, decayed={}, skipped={}",
+            result.verified, result.expired, result.decayed, result.skipped
         );
         sleep(Duration::from_secs(args.interval_secs)).await;
     }
@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
 struct WorkerResult {
     verified: usize,
     expired: usize,
+    decayed: usize,
     skipped: usize,
 }
 
@@ -97,9 +98,20 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         }
     }
 
+    let decay = client
+        .decay(&MemoryDecayRequest {
+            max_items: Some(args.batch_size),
+            inactive_days: Some(21),
+            max_decay: Some(0.12),
+            record_events: Some(true),
+        })
+        .await
+        .context("decay memory entities")?;
+
     Ok(WorkerResult {
         verified,
         expired,
+        decayed: decay.updated,
         skipped: 0,
     })
 }

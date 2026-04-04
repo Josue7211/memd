@@ -3,9 +3,10 @@ use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, ContextRequest,
     ContextResponse, EntityMemoryRequest, EntityMemoryResponse, ExpireMemoryRequest,
     ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
-    MemoryInboxRequest, MemoryInboxResponse, PromoteMemoryRequest, PromoteMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
+    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -100,6 +101,10 @@ impl MemdClient {
         req: &TimelineMemoryRequest,
     ) -> anyhow::Result<TimelineMemoryResponse> {
         self.get_json_with_query("/memory/timeline", req).await
+    }
+
+    pub async fn decay(&self, req: &MemoryDecayRequest) -> anyhow::Result<MemoryDecayResponse> {
+        self.post_json("/memory/maintenance/decay", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>
