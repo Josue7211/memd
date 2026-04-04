@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use memd_schema::{
     MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -361,6 +361,61 @@ impl SqliteStore {
         Ok((scanned, updated, events))
     }
 
+    pub fn decay_candidate_count(&self, request: &MemoryDecayRequest) -> anyhow::Result<usize> {
+        let max_items = request.max_items.unwrap_or(128).min(1_000);
+        let inactive_days = request.inactive_days.unwrap_or(21).max(1);
+        let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+
+        let rows: Vec<MemoryEntityRecord> = {
+            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT payload_json
+                    FROM memory_entities
+                    ORDER BY updated_at ASC
+                    LIMIT ?1
+                    "#,
+                )
+                .context("prepare decay count query")?;
+            let rows = stmt
+                .query_map(params![max_items as i64], |row| row.get::<_, String>(0))
+                .context("query decay count entities")?;
+
+            let mut decoded = Vec::new();
+            for row in rows {
+                let payload = row.context("read decay count entity row")?;
+                let entity: MemoryEntityRecord = serde_json::from_str(&payload)
+                    .context("deserialize decay count entity payload")?;
+                decoded.push(entity);
+            }
+            decoded
+        };
+
+        let now = chrono::Utc::now();
+        let mut updated = 0usize;
+
+        for entity in rows {
+            let reference = entity
+                .last_accessed_at
+                .or(entity.last_seen_at)
+                .unwrap_or(entity.updated_at);
+            let idle_days = (now - reference).num_days().max(0);
+            if idle_days < inactive_days {
+                continue;
+            }
+
+            let inactive_days_over = (idle_days - inactive_days) as f32;
+            let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
+            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            if decay > 0.001 {
+                updated += 1;
+            }
+        }
+
+        Ok(updated)
+    }
+
     pub fn consolidation_candidates(
         &self,
         request: &MemoryConsolidationRequest,
@@ -450,6 +505,40 @@ impl SqliteStore {
         Ok(candidates)
     }
 
+    pub fn maintenance_report(
+        &self,
+        request: &MemoryMaintenanceReportRequest,
+    ) -> anyhow::Result<(usize, usize, usize, usize, usize)> {
+        let stale_items = self.stale_item_count(request)?;
+        let reinforced_candidates = self.reinforced_candidate_count(request)?;
+        let cooled_candidates = self.decay_candidate_count(&MemoryDecayRequest {
+            max_items: Some(256),
+            inactive_days: request.inactive_days,
+            max_decay: request.max_decay,
+            record_events: Some(false),
+        })?;
+        let consolidated_candidates = self
+            .consolidation_candidates(&MemoryConsolidationRequest {
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                max_groups: Some(256),
+                min_events: request.min_events,
+                lookback_days: request.lookback_days,
+                min_salience: None,
+                record_events: Some(false),
+            })?
+            .len();
+        let skipped = stale_items.saturating_sub(reinforced_candidates);
+
+        Ok((
+            reinforced_candidates,
+            cooled_candidates,
+            consolidated_candidates,
+            stale_items,
+            skipped,
+        ))
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let payload = conn.query_row(
@@ -493,6 +582,65 @@ impl SqliteStore {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(err) => Err(err).context("fetch memory entity by id"),
         }
+    }
+
+    fn stale_item_count(&self, request: &MemoryMaintenanceReportRequest) -> anyhow::Result<usize> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT COUNT(*)
+                FROM memory_items
+                WHERE status = ?1
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                "#,
+            )
+            .context("prepare stale item count query")?;
+        let count: i64 = stmt
+            .query_row(
+                params![
+                    serde_json::to_string(&memd_schema::MemoryStatus::Stale)?,
+                    request.project.as_deref(),
+                    request.namespace.as_deref(),
+                ],
+                |row| row.get(0),
+            )
+            .context("count stale memory items")?;
+        Ok(count as usize)
+    }
+
+    fn reinforced_candidate_count(
+        &self,
+        request: &MemoryMaintenanceReportRequest,
+    ) -> anyhow::Result<usize> {
+        let items = self.list()?;
+        let mut count = 0usize;
+        for item in items {
+            if item.status != memd_schema::MemoryStatus::Stale {
+                continue;
+            }
+            if request
+                .project
+                .as_ref()
+                .is_some_and(|project| item.project.as_ref() != Some(project))
+            {
+                continue;
+            }
+            if request
+                .namespace
+                .as_ref()
+                .is_some_and(|namespace| item.namespace.as_ref() != Some(namespace))
+            {
+                continue;
+            }
+            if let Some(source_path) = &item.source_path {
+                if Path::new(source_path).exists() {
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
     }
 
     pub fn events_for_entity(

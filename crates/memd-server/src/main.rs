@@ -19,10 +19,10 @@ use memd_schema::{
     HealthResponse, InboxMemoryItem, MemoryConsolidationRequest, MemoryConsolidationResponse,
     MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityRecord,
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
-    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
+    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -246,6 +246,7 @@ async fn main() {
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
+        .route("/memory/maintenance/report", get(get_maintenance_report))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
@@ -545,6 +546,14 @@ async fn consolidate_memory(
     Ok(Json(response))
 }
 
+async fn get_maintenance_report(
+    State(state): State<AppState>,
+    Query(req): Query<MemoryMaintenanceReportRequest>,
+) -> Result<Json<MemoryMaintenanceReportResponse>, (StatusCode, String)> {
+    let response = state.maintenance_report(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 impl AppState {
     fn rehearse_items(&self, items: &[MemoryItem], limit: usize) -> anyhow::Result<()> {
         for item in items.iter().take(limit) {
@@ -719,6 +728,27 @@ impl AppState {
             consolidated,
             duplicates,
             events,
+        })
+    }
+
+    fn maintenance_report(
+        &self,
+        req: &MemoryMaintenanceReportRequest,
+    ) -> anyhow::Result<MemoryMaintenanceReportResponse> {
+        let (
+            reinforced_candidates,
+            cooled_candidates,
+            consolidated_candidates,
+            stale_items,
+            skipped,
+        ) = self.store.maintenance_report(req)?;
+
+        Ok(MemoryMaintenanceReportResponse {
+            reinforced_candidates,
+            cooled_candidates,
+            consolidated_candidates,
+            stale_items,
+            skipped,
         })
     }
 

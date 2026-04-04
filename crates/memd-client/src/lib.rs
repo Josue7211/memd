@@ -4,10 +4,10 @@ use memd_schema::{
     ContextResponse, EntityMemoryRequest, EntityMemoryResponse, ExpireMemoryRequest,
     ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, PromoteMemoryRequest,
-    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, PromoteMemoryRequest, PromoteMemoryResponse,
+    SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -113,6 +113,14 @@ impl MemdClient {
         req: &MemoryConsolidationRequest,
     ) -> anyhow::Result<MemoryConsolidationResponse> {
         self.post_json("/memory/maintenance/consolidate", req).await
+    }
+
+    pub async fn maintenance_report(
+        &self,
+        req: &MemoryMaintenanceReportRequest,
+    ) -> anyhow::Result<MemoryMaintenanceReportResponse> {
+        self.get_json_with_query("/memory/maintenance/report", req)
+            .await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

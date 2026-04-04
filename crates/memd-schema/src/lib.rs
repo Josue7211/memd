@@ -392,6 +392,25 @@ pub struct MemoryConsolidationResponse {
     pub events: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryMaintenanceReportRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub inactive_days: Option<i64>,
+    pub lookback_days: Option<i64>,
+    pub min_events: Option<usize>,
+    pub max_decay: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryMaintenanceReportResponse {
+    pub reinforced_candidates: usize,
+    pub cooled_candidates: usize,
+    pub consolidated_candidates: usize,
+    pub stale_items: usize,
+    pub skipped: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,
@@ -577,5 +596,35 @@ mod tests {
         assert_eq!(decoded.scanned, response.scanned);
         assert_eq!(decoded.consolidated, response.consolidated);
         assert_eq!(decoded.events, response.events);
+    }
+
+    #[test]
+    fn maintenance_report_roundtrips() {
+        let request = MemoryMaintenanceReportRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("agent".to_string()),
+            inactive_days: Some(21),
+            lookback_days: Some(14),
+            min_events: Some(3),
+            max_decay: Some(0.12),
+        };
+
+        let response = MemoryMaintenanceReportResponse {
+            reinforced_candidates: 9,
+            cooled_candidates: 4,
+            consolidated_candidates: 2,
+            stale_items: 11,
+            skipped: 2,
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: MemoryMaintenanceReportRequest =
+            serde_json::from_str(&request_json).unwrap();
+        let decoded_response: MemoryMaintenanceReportResponse =
+            serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.project, request.project);
+        assert_eq!(decoded_response.stale_items, response.stale_items);
+        assert_eq!(decoded_response.skipped, response.skipped);
     }
 }

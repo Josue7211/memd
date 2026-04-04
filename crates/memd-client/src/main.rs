@@ -19,7 +19,8 @@ use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
@@ -56,6 +57,7 @@ enum Commands {
     Entity(EntityArgs),
     Timeline(TimelineArgs),
     Consolidate(ConsolidateArgs),
+    MaintenanceReport(MaintenanceReportArgs),
     Compact(CompactArgs),
     Hook(HookArgs),
     Init(InitArgs),
@@ -200,6 +202,33 @@ struct ConsolidateArgs {
 
     #[arg(long, default_value_t = true)]
     record_events: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MaintenanceReportArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    inactive_days: Option<i64>,
+
+    #[arg(long)]
+    lookback_days: Option<i64>,
+
+    #[arg(long)]
+    min_events: Option<usize>,
+
+    #[arg(long)]
+    max_decay: Option<f32>,
+
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -754,7 +783,28 @@ async fn main() -> anyhow::Result<()> {
                     record_events: Some(args.record_events),
                 })
                 .await?;
-            print_json(&response)?;
+            if args.summary {
+                println!("{}", render_consolidate_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::MaintenanceReport(args) => {
+            let response = client
+                .maintenance_report(&MemoryMaintenanceReportRequest {
+                    project: args.project,
+                    namespace: args.namespace,
+                    inactive_days: args.inactive_days,
+                    lookback_days: args.lookback_days,
+                    min_events: args.min_events,
+                    max_decay: args.max_decay,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_maintenance_report_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
         }
         Commands::Compact(args) => {
             if args.spill && args.wire {
@@ -1034,6 +1084,28 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follo
     }
 
     output
+}
+
+fn render_consolidate_summary(response: &memd_schema::MemoryConsolidationResponse) -> String {
+    format!(
+        "consolidate scanned={} groups={} consolidated={} duplicates={} events={}",
+        response.scanned,
+        response.groups,
+        response.consolidated,
+        response.duplicates,
+        response.events
+    )
+}
+
+fn render_maintenance_report_summary(response: &MemoryMaintenanceReportResponse) -> String {
+    format!(
+        "learning report reinforced={} cooled={} consolidated={} stale_checked={} skipped={}",
+        response.reinforced_candidates,
+        response.cooled_candidates,
+        response.consolidated_candidates,
+        response.stale_items,
+        response.skipped
+    )
 }
 
 fn compact_inline(value: &str, max_chars: usize) -> String {
