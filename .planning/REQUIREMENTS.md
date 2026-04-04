@@ -93,7 +93,7 @@
 | INTG-02 | v1 | Complete |
 | INTG-03 | v1 | Complete |
 | INTG-04 | v1 | Complete |
-| SUPR-01 | v2 | Pending |
+| SUPR-01 | v2 | Complete |
 | SUPR-02 | v2 | Complete |
 | SUPR-03 | v2 | Complete |
 | SUPR-04 | v2 | Complete |

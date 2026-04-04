@@ -2364,6 +2364,8 @@ async fn sync_to_rag(
                 MemoryKind::Decision,
                 MemoryKind::Preference,
                 MemoryKind::Runbook,
+                MemoryKind::Procedural,
+                MemoryKind::SelfModel,
                 MemoryKind::Topology,
                 MemoryKind::Status,
                 MemoryKind::Pattern,

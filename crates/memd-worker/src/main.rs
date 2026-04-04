@@ -90,6 +90,8 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
                 MemoryKind::Decision,
                 MemoryKind::Preference,
                 MemoryKind::Runbook,
+                MemoryKind::Procedural,
+                MemoryKind::SelfModel,
                 MemoryKind::Topology,
                 MemoryKind::Status,
                 MemoryKind::Pattern,

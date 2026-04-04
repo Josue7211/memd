@@ -221,6 +221,12 @@ fn build_policy_hooks(
         MemoryStage::Canonical => hooks.push("canonical_retention".to_string()),
     }
 
+    match item.kind {
+        memd_schema::MemoryKind::Procedural => hooks.push("procedural_memory".to_string()),
+        memd_schema::MemoryKind::SelfModel => hooks.push("self_model_memory".to_string()),
+        _ => {}
+    }
+
     match item.status {
         MemoryStatus::Stale => hooks.push("verification_queue".to_string()),
         MemoryStatus::Contested => hooks.push("conflict_resolution".to_string()),
@@ -307,6 +313,8 @@ fn format_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::CurrentTask => "current_task",
         RetrievalIntent::Decision => "decision",
         RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Procedural => "procedural",
+        RetrievalIntent::SelfModel => "self_model",
         RetrievalIntent::Topology => "topology",
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",

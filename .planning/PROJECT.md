@@ -31,7 +31,8 @@ inspectable, and useful under real task pressure.
 - [x] Add retrieval feedback surfaces so ranking can learn from outcomes.
 - [x] Make source-trust floors affect ranking, not just inspection.
 - [x] Add contradiction resolution on top of branchable belief lanes.
-- [ ] Make procedural and self-model memory explicit.
+- [x] Make procedural and self-model memory explicit.
+- [ ] Add reversible compression and evidence rehydration.
 - [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope
@@ -53,7 +54,8 @@ Recent work tightened bundle-first backend wiring, sidecar metadata fidelity,
 policy inspection, explicit repair, provenance drilldown, managed
 working-memory state, and branchable belief lanes. The repo is usable now, and
 `v2` is active with explicit trust, artifact, sibling-branch, retrieval-feedback,
-and trust-weighted ranking surfaces.
+trust-weighted ranking, contradiction resolution, and first-class procedural and
+self-model memory surfaces.
 
 ## Constraints
 

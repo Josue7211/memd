@@ -108,15 +108,27 @@ Success:
 - expose retrieval and repair surfaces for runbooks, capabilities, and failure modes
 - keep the first slice narrow enough to remain compatible with current typed memory records
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - `memd` stops hand-waving procedural and self-model memory as future ideas
 
+#### Phase 8: `v2` Reversible Compression and Rehydration
+
+- add a bounded evidence rehydration model behind summary-first retrieval
+- make explain and working-memory surfaces expose deeper evidence without dumping raw transcripts
+- keep reversible compression compact, explicit, and compatible with the current artifact trail model
+
+Status: Ready
+
+Success:
+
+- `memd` can move from compact summaries to deeper evidence without hallucinating the missing detail
+
 ## Immediate Next Phase
 
-Phase 7: `v2` Procedural and Self Model Memory
+Phase 8: `v2` Reversible Compression and Rehydration
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

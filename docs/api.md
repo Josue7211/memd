@@ -35,6 +35,7 @@ Rules:
 - writes directly to canonical memory
 - items are persisted in SQLite
 - optional `belief_branch` keeps competing durable beliefs separate without flattening them into one record
+- `kind` now includes explicit `procedural` and `self_model` lanes for runbooks, capabilities, and failure-mode memory
 
 ### `POST /memory/candidates`
 
@@ -102,6 +103,7 @@ Rules:
 - filtered by project and namespace when provided
 - optional `belief_branch` limits review to one hypothesis lane
 - route and intent can be used to bias what rises to the top
+- retrieval intent now includes `procedural` and `self_model` for workflow recall and agent self-knowledge recall
 
 ### `GET /memory/explain`
 
@@ -121,6 +123,7 @@ Rules:
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
 - returns compact retrieval-feedback counters derived from durable retrieval events
 - returns explicit trust demotion hooks when the top source lane falls below the policy floor
+- returns explicit procedural and self-model hooks when those first-class memory lanes are involved
 - optional `belief_branch` rejects mismatched lookups instead of silently crossing branches
 - route and intent are echoed in the response
 

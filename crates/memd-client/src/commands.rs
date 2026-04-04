@@ -18,12 +18,14 @@ pub(crate) fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind>
         "decision" => Ok(MemoryKind::Decision),
         "preference" => Ok(MemoryKind::Preference),
         "runbook" => Ok(MemoryKind::Runbook),
+        "procedural" | "procedure" | "workflow" => Ok(MemoryKind::Procedural),
+        "self_model" | "self" | "capability" | "capabilities" => Ok(MemoryKind::SelfModel),
         "topology" => Ok(MemoryKind::Topology),
         "status" => Ok(MemoryKind::Status),
         "pattern" => Ok(MemoryKind::Pattern),
         "constraint" => Ok(MemoryKind::Constraint),
         _ => anyhow::bail!(
-            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, topology, status, pattern, or constraint"
+            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, procedural, self_model, topology, status, pattern, or constraint"
         ),
     }
 }
@@ -140,12 +142,44 @@ pub(crate) fn parse_retrieval_intent_value(value: &str) -> anyhow::Result<Retrie
         "current_task" => Ok(RetrievalIntent::CurrentTask),
         "decision" => Ok(RetrievalIntent::Decision),
         "runbook" => Ok(RetrievalIntent::Runbook),
+        "procedural" | "procedure" | "workflow" => Ok(RetrievalIntent::Procedural),
+        "self_model" | "self" | "capability" | "capabilities" => Ok(RetrievalIntent::SelfModel),
         "topology" => Ok(RetrievalIntent::Topology),
         "preference" => Ok(RetrievalIntent::Preference),
         "fact" => Ok(RetrievalIntent::Fact),
         "pattern" => Ok(RetrievalIntent::Pattern),
         _ => anyhow::bail!(
-            "invalid retrieval intent '{value}'; expected general, current_task, decision, runbook, topology, preference, fact, or pattern"
+            "invalid retrieval intent '{value}'; expected general, current_task, decision, runbook, procedural, self_model, topology, preference, fact, or pattern"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_memory_kind_value, parse_retrieval_intent_value};
+    use memd_schema::{MemoryKind, RetrievalIntent};
+
+    #[test]
+    fn parses_new_memory_kinds() {
+        assert_eq!(
+            parse_memory_kind_value("procedural").unwrap(),
+            MemoryKind::Procedural
+        );
+        assert_eq!(
+            parse_memory_kind_value("self-model").unwrap(),
+            MemoryKind::SelfModel
+        );
+    }
+
+    #[test]
+    fn parses_new_retrieval_intents() {
+        assert_eq!(
+            parse_retrieval_intent_value("workflow").unwrap(),
+            RetrievalIntent::Procedural
+        );
+        assert_eq!(
+            parse_retrieval_intent_value("capabilities").unwrap(),
+            RetrievalIntent::SelfModel
+        );
     }
 }

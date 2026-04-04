@@ -502,6 +502,8 @@ fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::CurrentTask => "current_task",
         RetrievalIntent::Decision => "decision",
         RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Procedural => "procedural",
+        RetrievalIntent::SelfModel => "self_model",
         RetrievalIntent::Topology => "topology",
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",

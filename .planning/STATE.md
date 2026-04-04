@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 7 `v2` Procedural and Self Model Memory.
+**Current focus:** Phase 8 `v2` Reversible Compression and Rehydration.
 
 ## Current Status
 
@@ -24,11 +24,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 ## Open Loops
 
-- phase 7 procedural and self-model memory is planned but not implemented
+- phase 8 reversible compression and evidence rehydration is planned but not implemented
 
 ## Next Command
 
-Run `gsd-execute-phase 7`.
+Run `gsd-execute-phase 8`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

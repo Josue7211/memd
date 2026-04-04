@@ -1324,6 +1324,8 @@ fn consolidation_kind(entity_type: &str) -> MemoryKind {
         "decision" => MemoryKind::Decision,
         "preference" => MemoryKind::Preference,
         "runbook" => MemoryKind::Runbook,
+        "procedural" => MemoryKind::Procedural,
+        "self_model" => MemoryKind::SelfModel,
         "topology" => MemoryKind::Topology,
         "status" => MemoryKind::Status,
         "pattern" => MemoryKind::Pattern,
@@ -1411,6 +1413,8 @@ fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::CurrentTask => "current_task",
         RetrievalIntent::Decision => "decision",
         RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Procedural => "procedural",
+        RetrievalIntent::SelfModel => "self_model",
         RetrievalIntent::Topology => "topology",
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",
@@ -1689,6 +1693,8 @@ fn dashboard_html() -> String {
               <option value="current_task">current_task</option>
               <option value="decision">decision</option>
               <option value="runbook">runbook</option>
+              <option value="procedural">procedural</option>
+              <option value="self_model">self_model</option>
               <option value="topology">topology</option>
               <option value="preference">preference</option>
               <option value="fact">fact</option>
@@ -1810,6 +1816,8 @@ fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::Decision => "decision",
         MemoryKind::Preference => "preference",
         MemoryKind::Runbook => "runbook",
+        MemoryKind::Procedural => "procedural",
+        MemoryKind::SelfModel => "self_model",
         MemoryKind::Topology => "topology",
         MemoryKind::Status => "status",
         MemoryKind::Pattern => "pattern",

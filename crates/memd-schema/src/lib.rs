@@ -9,6 +9,8 @@ pub enum MemoryKind {
     Decision,
     Preference,
     Runbook,
+    Procedural,
+    SelfModel,
     Topology,
     Status,
     Pattern,
@@ -46,6 +48,8 @@ pub enum RetrievalIntent {
     CurrentTask,
     Decision,
     Runbook,
+    Procedural,
+    SelfModel,
     Topology,
     Preference,
     Fact,
@@ -1529,6 +1533,23 @@ mod tests {
         let decoded_response: SourceMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.source_agent, request.source_agent);
         assert_eq!(decoded_response.sources[0].trust_score, 0.91);
+    }
+
+    #[test]
+    fn procedural_and_self_model_enums_roundtrip() {
+        let kind_json = serde_json::to_string(&MemoryKind::Procedural).unwrap();
+        let intent_json = serde_json::to_string(&RetrievalIntent::SelfModel).unwrap();
+
+        assert_eq!(kind_json, "\"procedural\"");
+        assert_eq!(intent_json, "\"self_model\"");
+        assert_eq!(
+            serde_json::from_str::<MemoryKind>(&kind_json).unwrap(),
+            MemoryKind::Procedural
+        );
+        assert_eq!(
+            serde_json::from_str::<RetrievalIntent>(&intent_json).unwrap(),
+            RetrievalIntent::SelfModel
+        );
     }
 
     #[test]

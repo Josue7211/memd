@@ -100,6 +100,18 @@ impl RetrievalPlan {
                 MemoryScope::Synced => 0.4,
                 MemoryScope::Local => 0.2,
             },
+            RetrievalIntent::Procedural => match scope {
+                MemoryScope::Project => 1.08,
+                MemoryScope::Global => 0.92,
+                MemoryScope::Synced => 0.55,
+                MemoryScope::Local => 0.25,
+            },
+            RetrievalIntent::SelfModel => match scope {
+                MemoryScope::Local => 1.0,
+                MemoryScope::Project => 0.9,
+                MemoryScope::Synced => 0.7,
+                MemoryScope::Global => 0.35,
+            },
             RetrievalIntent::Topology => match scope {
                 MemoryScope::Project => 1.0,
                 MemoryScope::Global => 0.9,
@@ -132,10 +144,14 @@ fn default_route_for_intent(intent: RetrievalIntent) -> RetrievalRoute {
     match intent {
         RetrievalIntent::General | RetrievalIntent::Fact => RetrievalRoute::All,
         RetrievalIntent::CurrentTask => RetrievalRoute::LocalFirst,
-        RetrievalIntent::Decision | RetrievalIntent::Runbook | RetrievalIntent::Topology => {
+        RetrievalIntent::Decision
+        | RetrievalIntent::Runbook
+        | RetrievalIntent::Procedural
+        | RetrievalIntent::Topology => {
             RetrievalRoute::ProjectFirst
         }
         RetrievalIntent::Preference | RetrievalIntent::Pattern => RetrievalRoute::GlobalFirst,
+        RetrievalIntent::SelfModel => RetrievalRoute::LocalFirst,
     }
 }
 
@@ -173,5 +189,25 @@ mod tests {
         let plan = RetrievalPlan::resolve(Some(RetrievalRoute::ProjectOnly), None);
         assert!(plan.allows(MemoryScope::Project));
         assert!(!plan.allows(MemoryScope::Global));
+    }
+
+    #[test]
+    fn procedural_defaults_to_project_first() {
+        let plan = RetrievalPlan::resolve(None, Some(RetrievalIntent::Procedural));
+        assert_eq!(plan.route, RetrievalRoute::ProjectFirst);
+        assert!(
+            plan.intent_scope_bonus(MemoryScope::Project)
+                > plan.intent_scope_bonus(MemoryScope::Local)
+        );
+    }
+
+    #[test]
+    fn self_model_defaults_to_local_first() {
+        let plan = RetrievalPlan::resolve(None, Some(RetrievalIntent::SelfModel));
+        assert_eq!(plan.route, RetrievalRoute::LocalFirst);
+        assert!(
+            plan.intent_scope_bonus(MemoryScope::Local)
+                > plan.intent_scope_bonus(MemoryScope::Global)
+        );
     }
 }
