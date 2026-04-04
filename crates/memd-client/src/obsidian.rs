@@ -573,15 +573,31 @@ pub fn build_roundtrip_annotation(
         block.push_str(&format!("- folder: {}\n", folder_path));
     }
     block.push_str(&format!("- folder_depth: {}\n", note.folder_depth));
-    block.push_str(&format!("- content_hash: {}\n", note.content_hash));
-    block.push_str(&format!("- bytes: {}\n", note.bytes));
-    if let Some(modified_at) = note.modified_at {
-        block.push_str(&format!("- modified_at: {}\n", modified_at.to_rfc3339()));
-    }
-    block.push_str(&format!("- synced_at: {}\n", Utc::now().to_rfc3339()));
     block.push_str(MEMD_ROUNDTRIP_END);
     block.push('\n');
     block
+}
+
+pub fn strip_roundtrip_annotation(content: &str) -> String {
+    let mut current = content.to_string();
+    loop {
+        let Some(begin) = current.find(MEMD_ROUNDTRIP_BEGIN) else {
+            break;
+        };
+        let Some(relative_end) = current[begin..].find(MEMD_ROUNDTRIP_END) else {
+            break;
+        };
+        let mut end = begin + relative_end + MEMD_ROUNDTRIP_END.len();
+        if current[end..].starts_with('\n') {
+            end += '\n'.len_utf8();
+        }
+        current.replace_range(begin..end, "");
+    }
+    let mut compacted = current;
+    while compacted.contains("\n\n\n") {
+        compacted = compacted.replace("\n\n\n", "\n\n");
+    }
+    compacted
 }
 
 pub fn upsert_markdown_block(
@@ -613,6 +629,9 @@ pub fn annotate_note(path: impl AsRef<Path>, block: &str) -> anyhow::Result<()> 
     let path = path.as_ref();
     let original = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let updated = upsert_markdown_block(&original, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, block);
+    if updated == original {
+        return Ok(());
+    }
     fs::write(path, updated).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
@@ -743,6 +762,7 @@ pub fn normalized_title(value: &str) -> String {
 
 fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianNote>> {
     let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let raw = strip_roundtrip_annotation(&raw);
     let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
     let (frontmatter, body) = split_frontmatter(&raw);
     let title = frontmatter
@@ -1398,5 +1418,13 @@ mod tests {
         let second =
             upsert_markdown_block(&updated, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, &block);
         assert_eq!(updated, second);
+    }
+
+    #[test]
+    fn strips_roundtrip_annotation_from_source_content() {
+        let content = "# Note\n\nBody.\n\n<!-- memd:begin -->\n## memd sync\n\n- note: Note\n- path: Note.md\n- kind: fact\n<!-- memd:end -->\n";
+        let stripped = strip_roundtrip_annotation(content);
+        assert_eq!(stripped.trim_end(), "# Note\n\nBody.");
+        assert!(!stripped.contains("memd sync"));
     }
 }

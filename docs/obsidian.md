@@ -44,6 +44,12 @@ Sync a vault in one pass:
 cargo run -p memd-client --bin memd -- obsidian sync --vault ~/vault --project notes
 ```
 
+Watch a vault and keep it synced automatically:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian watch --vault ~/vault --project notes
+```
+
 Write a memory item back into the vault as a note:
 
 ```bash
@@ -121,3 +127,6 @@ existing note.
 `obsidian roundtrip` also writes a compact `<!-- memd:begin -->` block back
 into each synced source note so the vault keeps a local record of the imported
 memory item and entity.
+
+`obsidian watch` starts the same round-trip sync in a file watcher loop and
+reruns it after vault changes settle.

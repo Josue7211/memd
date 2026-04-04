@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -27,6 +28,7 @@ use memd_schema::{
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
+use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use obsidian::{ObsidianImportPreview, ObsidianSyncEntry, ObsidianVaultScan};
 use serde::Serialize;
 
@@ -355,6 +357,9 @@ struct ObsidianArgs {
     #[arg(long)]
     id: Option<String>,
 
+    #[arg(long, default_value_t = 750)]
+    debounce_ms: u64,
+
     #[command(subcommand)]
     mode: ObsidianMode,
 }
@@ -366,6 +371,7 @@ enum ObsidianMode {
     Sync,
     Writeback,
     Roundtrip,
+    Watch,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1123,6 +1129,9 @@ async fn main() -> anyhow::Result<()> {
             ObsidianMode::Roundtrip => {
                 run_obsidian_import(&client, &args, true, true).await?;
             }
+            ObsidianMode::Watch => {
+                run_obsidian_watch(&client, &args).await?;
+            }
         },
         Commands::Hook(args) => match args.mode {
             HookMode::Context(args) => {
@@ -1574,6 +1583,74 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
     obsidian::write_markdown(&output_path, &markdown)?;
     print_json(&preview)?;
     Ok(())
+}
+
+async fn run_obsidian_watch(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
+    println!(
+        "obsidian_watch vault={} debounce_ms={}",
+        args.vault.display(),
+        args.debounce_ms
+    );
+
+    run_obsidian_import(client, args, true, true).await?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut watcher = RecommendedWatcher::new(
+        move |result: notify::Result<notify::Event>| {
+            if let Ok(event) = result {
+                let should_trigger = matches!(
+                    event.kind,
+                    EventKind::Create(_)
+                        | EventKind::Modify(_)
+                        | EventKind::Remove(_)
+                        | EventKind::Any
+                ) && event
+                    .paths
+                    .iter()
+                    .any(|path| !obsidian_path_is_internal(path));
+                if should_trigger {
+                    let _ = tx.send(());
+                }
+            }
+        },
+        NotifyConfig::default(),
+    )
+    .context("create obsidian watcher")?;
+    watcher
+        .watch(&args.vault, RecursiveMode::Recursive)
+        .with_context(|| format!("watch {}", args.vault.display()))?;
+
+    let debounce = Duration::from_millis(args.debounce_ms.max(100));
+    loop {
+        if rx.recv().await.is_none() {
+            break;
+        }
+
+        let mut dirty = true;
+        while dirty {
+            dirty = false;
+            tokio::time::sleep(debounce).await;
+            while rx.try_recv().is_ok() {
+                dirty = true;
+            }
+        }
+
+        if let Err(err) = run_obsidian_import(client, args, true, true).await {
+            eprintln!("obsidian watch sync failed: {err:#}");
+        }
+    }
+
+    Ok(())
+}
+
+fn obsidian_path_is_internal(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(name)
+                if name == ".memd" || name == ".obsidian" || name == ".git"
+        )
+    })
 }
 
 fn read_request<T>(input: &RequestInput) -> anyhow::Result<T>
