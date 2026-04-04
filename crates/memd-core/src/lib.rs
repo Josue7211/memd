@@ -429,6 +429,8 @@ fn push_session_item(
         scope,
         project,
         namespace: Some("compaction".to_string()),
+        workspace: None,
+        visibility: None,
         belief_branch: None,
         source_agent,
         source_system: Some("memd".to_string()),

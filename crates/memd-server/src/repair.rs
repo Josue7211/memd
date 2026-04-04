@@ -235,6 +235,7 @@ fn record_lifecycle_event(
         item.updated_at,
         item.project.clone(),
         item.namespace.clone(),
+        item.workspace.clone(),
         item.source_agent.clone(),
         item.source_system.clone(),
         item.source_path.clone(),

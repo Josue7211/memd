@@ -47,6 +47,8 @@ pub(crate) fn explain_memory(
         .source_memory(&SourceMemoryRequest {
             project: item.project.clone(),
             namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
+            visibility: Some(item.visibility),
             source_agent: item.source_agent.clone(),
             source_system: item.source_system.clone(),
             limit: Some(5),

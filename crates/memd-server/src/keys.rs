@@ -155,7 +155,9 @@ fn normalized_tags(tags: &[String]) -> String {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, SourceQuality};
+    use memd_schema::{
+        MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, SourceQuality,
+    };
     use uuid::Uuid;
 
     fn test_item(content: &str) -> MemoryItem {
@@ -169,6 +171,8 @@ mod tests {
             scope: MemoryScope::Project,
             project: Some("memd".into()),
             namespace: Some("test".into()),
+            workspace: Some("core".into()),
+            visibility: MemoryVisibility::Workspace,
             source_agent: Some("codex".into()),
             source_system: Some("memd".into()),
             source_path: None,

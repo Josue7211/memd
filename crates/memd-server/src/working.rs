@@ -23,6 +23,8 @@ pub(crate) fn working_memory(
     let compact_req = ContextRequest {
         project: req.project.clone(),
         agent: req.agent.clone(),
+        workspace: req.workspace.clone(),
+        visibility: req.visibility,
         route: req.route,
         intent: req.intent,
         limit: Some(candidate_window),
@@ -422,6 +424,8 @@ mod tests {
             scope: memd_schema::MemoryScope::Project,
             project: Some("proj".to_string()),
             namespace: Some("ns".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: memd_schema::MemoryVisibility::Workspace,
             source_agent: Some("agent".to_string()),
             source_system: Some("system".to_string()),
             source_path: Some("path".to_string()),

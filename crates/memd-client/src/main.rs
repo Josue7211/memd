@@ -35,7 +35,8 @@ use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMod
 use obsidian::{ObsidianImportPreview, ObsidianSyncEntry};
 use commands::{
     parse_entity_relation_kind, parse_memory_kind_value, parse_memory_scope_value,
-    parse_retrieval_intent, parse_retrieval_route, parse_source_quality_value, parse_uuid_list,
+    parse_memory_visibility_value, parse_retrieval_intent, parse_retrieval_route,
+    parse_source_quality_value, parse_uuid_list,
 };
 use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
@@ -156,6 +157,12 @@ struct ContextArgs {
     agent: Option<String>,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     limit: Option<usize>,
 
     #[arg(long)]
@@ -187,6 +194,12 @@ struct WorkingArgs {
 
     #[arg(long)]
     agent: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
 
     #[arg(long)]
     limit: Option<usize>,
@@ -270,6 +283,12 @@ struct SourceArgs {
     namespace: Option<String>,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     source_agent: Option<String>,
 
     #[arg(long)]
@@ -292,6 +311,12 @@ struct InboxArgs {
 
     #[arg(long)]
     namespace: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
 
     #[arg(long)]
     belief_branch: Option<String>,
@@ -540,6 +565,12 @@ struct ObsidianArgs {
     namespace: Option<String>,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     max_notes: Option<usize>,
 
     #[arg(long)]
@@ -637,6 +668,12 @@ struct SearchArgs {
     belief_branch: Option<String>,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     route: Option<String>,
 
     #[arg(long)]
@@ -650,6 +687,12 @@ struct IngestArgs {
 
     #[arg(long)]
     namespace: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
 
     #[arg(long)]
     kind: Option<String>,
@@ -1134,6 +1177,12 @@ async fn main() -> anyhow::Result<()> {
             if args.belief_branch.is_some() {
                 req.belief_branch = args.belief_branch.clone();
             }
+            if args.workspace.is_some() {
+                req.workspace = args.workspace.clone();
+            }
+            if let Some(visibility) = args.visibility.as_deref() {
+                req.visibility = Some(parse_memory_visibility_value(visibility)?);
+            }
             print_json(&client.search(&req).await?)?;
         }
         Commands::Context(args) => {
@@ -1147,6 +1196,12 @@ async fn main() -> anyhow::Result<()> {
                 ContextRequest {
                     project: args.project.clone(),
                     agent: args.agent.clone(),
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     route: parse_retrieval_route(args.route.clone())?,
                     intent: parse_retrieval_intent(args.intent.clone())?,
                     limit: args.limit,
@@ -1165,6 +1220,12 @@ async fn main() -> anyhow::Result<()> {
                 .working(&WorkingMemoryRequest {
                     project: args.project.clone(),
                     agent: args.agent.clone(),
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     route: parse_retrieval_route(args.route.clone())?,
                     intent: parse_retrieval_intent(args.intent.clone())?,
                     limit: args.limit,
@@ -1232,6 +1293,12 @@ async fn main() -> anyhow::Result<()> {
                 .source_memory(&SourceMemoryRequest {
                     project: args.project.clone(),
                     namespace: args.namespace.clone(),
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     source_agent: args.source_agent.clone(),
                     source_system: args.source_system.clone(),
                     limit: args.limit,
@@ -1247,6 +1314,12 @@ async fn main() -> anyhow::Result<()> {
             let req = MemoryInboxRequest {
                 project: args.project.clone(),
                 namespace: args.namespace.clone(),
+                workspace: args.workspace.clone(),
+                visibility: args
+                    .visibility
+                    .as_deref()
+                    .map(parse_memory_visibility_value)
+                    .transpose()?,
                 belief_branch: args.belief_branch.clone(),
                 route: parse_retrieval_route(args.route.clone())?,
                 intent: parse_retrieval_intent(args.intent.clone())?,
@@ -1404,6 +1477,8 @@ async fn main() -> anyhow::Result<()> {
                 .context_compact(&ContextRequest {
                     project: args.project.clone(),
                     agent: args.agent.clone(),
+                    workspace: None,
+                    visibility: None,
                     route: parse_retrieval_route(args.route.clone())?,
                     intent: parse_retrieval_intent(args.intent.clone())?,
                     limit: args.limit,
@@ -1545,6 +1620,8 @@ async fn main() -> anyhow::Result<()> {
                 let req = ContextRequest {
                     project: args.project,
                     agent: args.agent,
+                    workspace: None,
+                    visibility: None,
                     route: parse_retrieval_route(args.route)?,
                     intent: parse_retrieval_intent(args.intent)?,
                     limit: args.limit,
@@ -1917,6 +1994,7 @@ async fn run_obsidian_import(
                         at: Some(chrono::Utc::now()),
                         project: args.project.clone(),
                         namespace: args.namespace.clone(),
+                        workspace: args.workspace.clone(),
                         repo: Some("obsidian".to_string()),
                         host: None,
                         branch: None,
@@ -2154,6 +2232,12 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
                 statuses: vec![MemoryStatus::Active, MemoryStatus::Stale, MemoryStatus::Contested],
                 project: args.project.clone(),
                 namespace: args.namespace.clone(),
+                workspace: args.workspace.clone(),
+                visibility: args
+                    .visibility
+                    .as_deref()
+                    .map(parse_memory_visibility_value)
+                    .transpose()?,
                 belief_branch: None,
                 source_agent: None,
                 tags: Vec::new(),
@@ -2549,6 +2633,8 @@ async fn sync_to_rag(
             statuses: vec![MemoryStatus::Active],
             project: args.project.clone(),
             namespace: args.namespace.clone(),
+            workspace: None,
+            visibility: None,
             belief_branch: None,
             source_agent: None,
             tags: Vec::new(),
@@ -2711,6 +2797,12 @@ async fn ingest_text_memory(
         scope,
         project: args.project.clone(),
         namespace: args.namespace.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args
+            .visibility
+            .as_deref()
+            .map(parse_memory_visibility_value)
+            .transpose()?,
         belief_branch: None,
         source_agent: args.source_agent.clone(),
         source_system: args.source_system.clone(),

@@ -372,6 +372,10 @@ impl SqliteStore {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    workspace: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
                     source_agent: entity
                         .context
                         .as_ref()
@@ -865,6 +869,19 @@ impl SqliteStore {
                 continue;
             }
             if request
+                .workspace
+                .as_ref()
+                .is_some_and(|value| item.workspace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .visibility
+                .is_some_and(|value| item.visibility != value)
+            {
+                continue;
+            }
+            if request
                 .source_agent
                 .as_ref()
                 .is_some_and(|value| item.source_agent.as_ref() != Some(value))
@@ -884,6 +901,8 @@ impl SqliteStore {
                 item.source_system.clone(),
                 item.project.clone(),
                 item.namespace.clone(),
+                item.workspace.clone(),
+                item.visibility,
             );
             let aggregate = grouped.entry(key).or_default();
             aggregate.observe(&item);
@@ -892,12 +911,14 @@ impl SqliteStore {
         let mut sources = grouped
             .into_iter()
             .map(
-                |((source_agent, source_system, project, namespace), aggregate)| {
+                |((source_agent, source_system, project, namespace, workspace, visibility), aggregate)| {
                     SourceMemoryRecord {
                         source_agent,
                         source_system,
                         project,
                         namespace,
+                        workspace,
+                        visibility,
                         item_count: aggregate.item_count,
                         active_count: aggregate.active_count,
                         candidate_count: aggregate.candidate_count,
@@ -936,6 +957,8 @@ impl SqliteStore {
         let response = self.source_memory(&SourceMemoryRequest {
             project: item.project.clone(),
             namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
+            visibility: Some(item.visibility),
             source_agent: item.source_agent.clone(),
             source_system: item.source_system.clone(),
             limit: Some(1),
@@ -1113,6 +1136,7 @@ impl SqliteStore {
         occurred_at: chrono::DateTime<chrono::Utc>,
         project: Option<String>,
         namespace: Option<String>,
+        workspace: Option<String>,
         source_agent: Option<String>,
         source_system: Option<String>,
         source_path: Option<String>,
@@ -1134,6 +1158,7 @@ impl SqliteStore {
             salience_score,
             project,
             namespace,
+            workspace,
             source_agent,
             source_system,
             source_path,
@@ -1373,6 +1398,7 @@ fn new_entity_record(item: &MemoryItem) -> MemoryEntityRecord {
             at: Some(item.updated_at),
             project: item.project.clone(),
             namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
             repo: item.source_system.clone(),
             host: None,
             branch: None,
@@ -1417,6 +1443,7 @@ fn update_entity_record(mut record: MemoryEntityRecord, item: &MemoryItem) -> Me
         at: Some(item.updated_at),
         project: item.project.clone().or(previous_project),
         namespace: item.namespace.clone().or(previous_namespace),
+        workspace: item.workspace.clone().or(previous.and_then(|context| context.workspace)),
         repo: item.source_system.clone().or(previous_repo),
         host: previous_host,
         branch: previous_branch,
@@ -1473,6 +1500,8 @@ type SourceKey = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    memd_schema::MemoryVisibility,
 );
 
 #[derive(Default)]
@@ -1849,6 +1878,7 @@ mod tests {
                 at: Some(chrono::Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),

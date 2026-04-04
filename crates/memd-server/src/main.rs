@@ -28,8 +28,8 @@ use memd_schema::{
     MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
-    RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
     SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
     TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
@@ -63,6 +63,8 @@ impl AppState {
             scope: req.scope,
             project: req.project,
             namespace: req.namespace,
+            workspace: req.workspace,
+            visibility: req.visibility.unwrap_or_default(),
             source_agent: req.source_agent,
             source_system: req.source_system,
             source_path: req.source_path,
@@ -131,6 +133,8 @@ impl AppState {
         item.scope = req.scope.unwrap_or(item.scope);
         item.project = req.project.or(item.project);
         item.namespace = req.namespace.or(item.namespace);
+        item.workspace = req.workspace.or(item.workspace);
+        item.visibility = req.visibility.unwrap_or(item.visibility);
         item.belief_branch = req.belief_branch.or(item.belief_branch);
         item.confidence = req.confidence.unwrap_or(item.confidence);
         item.ttl_seconds = req.ttl_seconds.or(item.ttl_seconds);
@@ -184,6 +188,7 @@ impl AppState {
             item.updated_at,
             item.project.clone(),
             item.namespace.clone(),
+            item.workspace.clone(),
             item.source_agent.clone(),
             item.source_system.clone(),
             item.source_path.clone(),
@@ -288,6 +293,8 @@ async fn store_candidate(
         scope: req.scope,
         project: req.project,
         namespace: req.namespace,
+        workspace: req.workspace,
+        visibility: req.visibility,
         belief_branch: req.belief_branch,
         source_agent: req.source_agent,
         source_system: req.source_system,
@@ -458,6 +465,15 @@ async fn get_inbox(
             req.namespace
                 .as_ref()
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
+        })
+        .filter(|entry| {
+            req.workspace
+                .as_ref()
+                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+        })
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
         })
         .filter(|entry| {
             req.belief_branch
@@ -728,6 +744,7 @@ impl AppState {
                 Utc::now(),
                 item.project.clone(),
                 item.namespace.clone(),
+                item.workspace.clone(),
                 item.source_agent.clone(),
                 item.source_system.clone(),
                 item.source_path.clone(),
@@ -823,6 +840,12 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    workspace: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
+                    visibility: Some(MemoryVisibility::Workspace),
                     belief_branch: None,
                     source_agent: candidate
                         .entity
@@ -880,6 +903,11 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
                     candidate
                         .entity
                         .context
@@ -1105,6 +1133,15 @@ fn build_context(
                 (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
                 _ => true,
             })
+            .filter(|entry| {
+                req.workspace
+                    .as_ref()
+                    .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+            })
+            .filter(|entry| {
+                req.visibility
+                    .is_none_or(|visibility| entry.item.visibility == visibility)
+            })
             .cloned()
             .collect();
 
@@ -1193,6 +1230,15 @@ fn filter_items(
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
         })
         .filter(|entry| {
+            req.workspace
+                .as_ref()
+                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+        })
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .filter(|entry| {
             req.belief_branch
                 .as_ref()
                 .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
@@ -1273,6 +1319,7 @@ fn entity_context_frame(entity: &MemoryEntityRecord, item: &MemoryItem) -> Memor
         at: Some(item.updated_at),
         project: item.project.clone(),
         namespace: item.namespace.clone(),
+        workspace: item.workspace.clone(),
         repo: item.source_system.clone(),
         host: None,
         branch: None,
@@ -1366,6 +1413,12 @@ fn compact_record(item: &MemoryItem) -> String {
             parts.push(format!("ns={}", sanitize_value(namespace)));
         }
     }
+    if let Some(workspace) = &item.workspace {
+        if !workspace.is_empty() {
+            parts.push(format!("ws={}", sanitize_value(workspace)));
+        }
+    }
+    parts.push(format!("vis={}", enum_label_visibility(item.visibility)));
     if let Some(branch) = &item.belief_branch {
         if !branch.is_empty() {
             parts.push(format!("belief_branch={}", sanitize_value(branch)));
@@ -1831,6 +1884,14 @@ fn enum_label_scope(scope: MemoryScope) -> &'static str {
         MemoryScope::Synced => "synced",
         MemoryScope::Project => "project",
         MemoryScope::Global => "global",
+    }
+}
+
+fn enum_label_visibility(visibility: MemoryVisibility) -> &'static str {
+    match visibility {
+        MemoryVisibility::Private => "private",
+        MemoryVisibility::Workspace => "workspace",
+        MemoryVisibility::Public => "public",
     }
 }
 

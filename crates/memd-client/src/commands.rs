@@ -1,7 +1,7 @@
 use anyhow::Context;
 use memd_schema::{
-    EntityRelationKind, MemoryKind, MemoryRepairMode, MemoryScope, RetrievalIntent,
-    RetrievalRoute,
+    EntityRelationKind, MemoryKind, MemoryRepairMode, MemoryScope, MemoryVisibility,
+    RetrievalIntent, RetrievalRoute,
 };
 
 pub(crate) fn parse_uuid_list(values: &[String]) -> anyhow::Result<Vec<uuid::Uuid>> {
@@ -38,6 +38,18 @@ pub(crate) fn parse_memory_scope_value(value: &str) -> anyhow::Result<MemoryScop
         "project" => Ok(MemoryScope::Project),
         "global" => Ok(MemoryScope::Global),
         _ => anyhow::bail!("invalid scope '{value}'; expected local, synced, project, or global"),
+    }
+}
+
+pub(crate) fn parse_memory_visibility_value(value: &str) -> anyhow::Result<MemoryVisibility> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "private" => Ok(MemoryVisibility::Private),
+        "workspace" | "shared" => Ok(MemoryVisibility::Workspace),
+        "public" => Ok(MemoryVisibility::Public),
+        _ => anyhow::bail!(
+            "invalid visibility '{value}'; expected private, workspace, or public"
+        ),
     }
 }
 

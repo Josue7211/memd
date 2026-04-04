@@ -431,11 +431,13 @@ pub(crate) fn render_source_summary(response: &SourceMemoryResponse, follow: boo
 
     if let Some(best) = response.sources.first() {
         output.push_str(&format!(
-            " top={} system={} project={} namespace={} items={} trust={:.2} avg_confidence={:.2}",
+            " top={} system={} project={} namespace={} workspace={} visibility={} items={} trust={:.2} avg_confidence={:.2}",
             best.source_agent.as_deref().unwrap_or("none"),
             best.source_system.as_deref().unwrap_or("none"),
             best.project.as_deref().unwrap_or("none"),
             best.namespace.as_deref().unwrap_or("none"),
+            best.workspace.as_deref().unwrap_or("none"),
+            format_visibility(best.visibility),
             best.item_count,
             best.trust_score,
             best.avg_confidence
@@ -449,9 +451,10 @@ pub(crate) fn render_source_summary(response: &SourceMemoryResponse, follow: boo
             .take(3)
             .map(|source| {
                 format!(
-                    "{}:{}:{}:{:.2}",
+                    "{}:{}:{}:{}:{:.2}",
                     source.source_agent.as_deref().unwrap_or("none"),
                     source.source_system.as_deref().unwrap_or("none"),
+                    source.workspace.as_deref().unwrap_or("none"),
                     source.item_count,
                     source.trust_score
                 )
@@ -699,5 +702,13 @@ fn intent_label(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::Preference => "preference",
         RetrievalIntent::Fact => "fact",
         RetrievalIntent::Pattern => "pattern",
+    }
+}
+
+fn format_visibility(value: memd_schema::MemoryVisibility) -> &'static str {
+    match value {
+        memd_schema::MemoryVisibility::Private => "private",
+        memd_schema::MemoryVisibility::Workspace => "workspace",
+        memd_schema::MemoryVisibility::Public => "public",
     }
 }

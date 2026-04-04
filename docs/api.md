@@ -185,6 +185,8 @@ Searches stored memory using:
 - optional status filters
 - optional project filter
 - optional namespace filter
+- optional workspace filter
+- optional visibility filter
 - optional belief-branch filter
 - optional source agent filter
 - optional tags
@@ -216,6 +218,7 @@ Rules:
 - route and intent are resolved before retrieval
 - returns active items only
 - bounded by a small default limit
+- optional workspace and visibility filters narrow the hot path without changing route resolution
 - project-scoped items outrank unrelated global memory
 - item content is compacted before response
 - TTL-expired items are automatically demoted before retrieval
@@ -241,10 +244,22 @@ Rules:
 
 - uses an explicit total character budget
 - applies an admission limit for the hot set
+- inherits optional workspace and visibility filters from the request
 - reports evicted records when the candidate set overflows the buffer
 - exposes a bounded rehydration queue using the same evidence shape as `/memory/explain`
 - can optionally trigger semantic consolidation for recent traces
 - uses source trust as a deterministic ranking input and carries bounded source metadata in rehydration records
+
+### `GET /memory/source`
+
+Returns aggregated source lanes for matching memory items.
+
+Rules:
+
+- supports optional project, namespace, workspace, and visibility filters
+- groups by source lane plus workspace visibility
+- preserves trust score, confidence, and status mix for each lane
+- intended for provenance drilldown, repair triage, and shared-workspace inspection
 
 ## Runtime
 
