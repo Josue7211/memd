@@ -524,6 +524,9 @@ async fn main() -> anyhow::Result<()> {
                         .iter()
                         .filter(|response| response.duplicate_of.is_some())
                         .count();
+                    if let Some(rag) = maybe_rag_client_from_env()? {
+                        sync_candidate_responses_to_rag(&rag, &responses).await?;
+                    }
                     let result = CompactionSpillResult {
                         submitted: responses.len(),
                         duplicates,
@@ -571,6 +574,9 @@ async fn main() -> anyhow::Result<()> {
                         .iter()
                         .filter(|response| response.duplicate_of.is_some())
                         .count();
+                    if let Some(rag) = maybe_rag_client_from_env()? {
+                        sync_candidate_responses_to_rag(&rag, &responses).await?;
+                    }
                     print_json(&CompactionSpillResult {
                         submitted: responses.len(),
                         duplicates,
@@ -683,6 +689,27 @@ async fn sync_to_rag(
         project: args.project,
         namespace: args.namespace,
     })
+}
+
+async fn sync_candidate_responses_to_rag(
+    rag: &RagClient,
+    responses: &[memd_schema::CandidateMemoryResponse],
+) -> anyhow::Result<usize> {
+    let mut pushed = 0usize;
+    for response in responses {
+        rag.upsert(&RagRecord::from(&response.item))
+            .await
+            .context("upsert rag record from spill")?;
+        pushed += 1;
+    }
+    Ok(pushed)
+}
+
+fn maybe_rag_client_from_env() -> anyhow::Result<Option<RagClient>> {
+    match std::env::var("MEMD_RAG_URL") {
+        Ok(value) if !value.trim().is_empty() => Ok(Some(RagClient::new(value)?)),
+        _ => Ok(None),
+    }
 }
 
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
