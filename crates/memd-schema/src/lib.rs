@@ -333,6 +333,8 @@ pub struct ExplainMemoryResponse {
     pub canonical_key: String,
     pub redundancy_key: String,
     pub reasons: Vec<String>,
+    pub entity: Option<MemoryEntityRecord>,
+    pub events: Vec<MemoryEventRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

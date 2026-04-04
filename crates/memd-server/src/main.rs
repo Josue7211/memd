@@ -15,10 +15,11 @@ use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
     ContextRequest, ContextResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
-    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind, MemoryScope, MemoryStage,
-    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse,
+    MemoryContextFrame, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
+    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
+    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
+    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -66,9 +67,23 @@ impl AppState {
             redundancy_key: Some(redundancy_key.clone()),
             ..item
         };
+        let _entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
+        if duplicate.is_none() {
+            let _ = self.record_item_event(
+                &item,
+                event_type_for_stage(stage),
+                format!(
+                    "{} memory item stored",
+                    match stage {
+                        MemoryStage::Candidate => "candidate",
+                        MemoryStage::Canonical => "canonical",
+                    }
+                ),
+            );
+        }
         Ok((item, duplicate))
     }
 
@@ -126,6 +141,11 @@ impl AppState {
         let redundancy_key_value = redundancy_key(&item);
         self.store
             .update(&item, &canonical_key, &redundancy_key_value)?;
+        let _ = self.record_item_event(
+            &item,
+            "promoted",
+            "memory item promoted to canonical stage".to_string(),
+        );
         Ok((item, None))
     }
 
@@ -144,6 +164,7 @@ impl AppState {
             ..item
         };
         self.store.update(&item, &canonical_key, &redundancy_key)?;
+        let _ = self.record_item_event(&item, "expired", "memory item marked expired".to_string());
         Ok(item)
     }
 
@@ -166,7 +187,36 @@ impl AppState {
             ..item
         };
         self.store.update(&item, &canonical_key, &redundancy_key)?;
+        let _ = self.record_item_event(&item, "verified", "memory item reverified".to_string());
         Ok(item)
+    }
+
+    fn record_item_event(
+        &self,
+        item: &MemoryItem,
+        event_type: &str,
+        summary: String,
+    ) -> anyhow::Result<MemoryEventRecord> {
+        let canonical_key = canonical_key(item);
+        let entity = self.store.resolve_entity_for_item(item, &canonical_key)?;
+        let context = Some(entity_context_frame(&entity.record, item));
+        self.store.record_event(
+            &entity.record,
+            item.id,
+            event_type,
+            summary,
+            item.updated_at,
+            item.project.clone(),
+            item.namespace.clone(),
+            item.source_agent.clone(),
+            item.source_system.clone(),
+            item.source_path.clone(),
+            vec![],
+            item.tags.clone(),
+            context,
+            item.confidence,
+            entity.record.salience_score,
+        )
     }
 }
 
@@ -397,6 +447,17 @@ async fn get_explain(
     let reasons = explain_reasons(&item, &plan);
     let canonical = canonical_key(&item);
     let redundancy = redundancy_key(&item);
+    let entity = state
+        .store
+        .entity_for_item(item.id)
+        .map_err(internal_error)?;
+    let events = match &entity {
+        Some(entity) => state
+            .store
+            .events_for_entity(entity.id, 8)
+            .map_err(internal_error)?,
+        None => Vec::new(),
+    };
 
     Ok(Json(ExplainMemoryResponse {
         route: plan.route,
@@ -405,6 +466,8 @@ async fn get_explain(
         canonical_key: canonical,
         redundancy_key: redundancy,
         reasons,
+        entity,
+        events,
     }))
 }
 
@@ -537,6 +600,26 @@ fn compact_content(content: &str, max_chars: usize) -> String {
     }
     compact.push_str("...");
     compact
+}
+
+fn event_type_for_stage(stage: MemoryStage) -> &'static str {
+    match stage {
+        MemoryStage::Candidate => "candidate_created",
+        MemoryStage::Canonical => "canonical_created",
+    }
+}
+
+fn entity_context_frame(entity: &MemoryEntityRecord, item: &MemoryItem) -> MemoryContextFrame {
+    entity.context.clone().unwrap_or(MemoryContextFrame {
+        at: Some(item.updated_at),
+        project: item.project.clone(),
+        namespace: item.namespace.clone(),
+        repo: item.source_system.clone(),
+        host: None,
+        branch: None,
+        agent: item.source_agent.clone(),
+        location: item.source_path.clone(),
+    })
 }
 
 fn internal_error(error: anyhow::Error) -> (StatusCode, String) {
