@@ -205,6 +205,9 @@ struct ConsolidateArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -787,7 +790,7 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await?;
             if args.summary {
-                println!("{}", render_consolidate_summary(&response));
+                println!("{}", render_consolidate_summary(&response, args.follow));
             } else {
                 print_json(&response)?;
             }
@@ -1092,15 +1095,30 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follo
     output
 }
 
-fn render_consolidate_summary(response: &memd_schema::MemoryConsolidationResponse) -> String {
-    format!(
+fn render_consolidate_summary(
+    response: &memd_schema::MemoryConsolidationResponse,
+    follow: bool,
+) -> String {
+    let mut output = format!(
         "consolidate scanned={} groups={} consolidated={} duplicates={} events={}",
         response.scanned,
         response.groups,
         response.consolidated,
         response.duplicates,
         response.events
-    )
+    );
+
+    if follow && !response.highlights.is_empty() {
+        let highlights = response
+            .highlights
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 40))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" trail={}", highlights.join(" | ")));
+    }
+
+    output
 }
 
 fn render_maintenance_report_summary(

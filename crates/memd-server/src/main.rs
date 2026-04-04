@@ -592,6 +592,7 @@ impl AppState {
         let mut consolidated = 0usize;
         let mut duplicates = 0usize;
         let mut events = 0usize;
+        let mut highlights = Vec::new();
 
         for candidate in candidates {
             scanned += candidate.event_count;
@@ -669,6 +670,14 @@ impl AppState {
                 continue;
             }
 
+            if highlights.len() < 3 {
+                highlights.push(format!(
+                    "{}:{} events salience={:.2}",
+                    candidate.entity.entity_type,
+                    candidate.event_count,
+                    candidate.entity.salience_score
+                ));
+            }
             consolidated += 1;
             if record_events {
                 let _ = self.store.record_event(
@@ -728,6 +737,7 @@ impl AppState {
             consolidated,
             duplicates,
             events,
+            highlights,
         })
     }
 

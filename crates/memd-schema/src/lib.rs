@@ -390,6 +390,7 @@ pub struct MemoryConsolidationResponse {
     pub consolidated: usize,
     pub duplicates: usize,
     pub events: usize,
+    pub highlights: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -590,6 +591,7 @@ mod tests {
             consolidated: 3,
             duplicates: 1,
             events: 3,
+            highlights: vec!["repo:3 events".to_string()],
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -597,6 +599,7 @@ mod tests {
         assert_eq!(decoded.scanned, response.scanned);
         assert_eq!(decoded.consolidated, response.consolidated);
         assert_eq!(decoded.events, response.events);
+        assert_eq!(decoded.highlights, response.highlights);
     }
 
     #[test]
