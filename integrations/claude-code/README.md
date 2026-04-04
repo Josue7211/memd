@@ -9,6 +9,9 @@ Recommended flow:
 3. promote only stable takeaways
 4. use the hook command at compaction boundaries
 
+If you want a shell-level integration, reuse the shared hook kit in
+[`../hooks`](../hooks).
+
 ## Read Context
 
 ```bash
@@ -19,6 +22,14 @@ memd context --project <project> --agent claude-code --compact
 
 ```bash
 memd hook context --project <project> --agent claude-code
+```
+
+## Shell Hook Example
+
+```bash
+MEMD_PROJECT=my-project \
+MEMD_AGENT=claude-code \
+./integrations/hooks/memd-context.sh
 ```
 
 ## Store Candidate Memory
@@ -86,4 +97,11 @@ cat <<'JSON' | memd hook spill --stdin --apply
   }
 }
 JSON
+```
+
+## Shell Spill Example
+
+```bash
+MEMD_BASE_URL=http://127.0.0.1:8787 \
+./integrations/hooks/memd-spill.sh --stdin --apply < compaction.json
 ```

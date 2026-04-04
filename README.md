@@ -106,6 +106,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Source Policy](./docs/source-policy.md)
 - [Redundancy Policy](./docs/redundancy.md)
 - [Platform Support](./docs/platforms.md)
+- [Hook Kit](./integrations/hooks/README.md)
 - [OSS Positioning](./docs/oss-positioning.md)
 - [Roadmap](./ROADMAP.md)
 
@@ -139,6 +140,7 @@ Set `MEMD_DB_PATH` to change the SQLite database location.
 - Codex
 - Mission Control
 - OpenClaw
+- Shared hook kit for shell integration
 
 ## Status
 
