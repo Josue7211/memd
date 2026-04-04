@@ -4,6 +4,9 @@
 
 `memd` is a universal memory substrate for agents and agent-powered applications.
 
+Priority 1 is Codex memory: if Codex cannot persist, retrieve, and inspect its
+own state across sessions, the system is not doing its job.
+
 It should solve memory as infrastructure:
 
 - token-efficient delivery is the first constraint
@@ -33,6 +36,9 @@ The target is not a feature. The target is an open-source platform.
 
 `memd` is no longer a simple phase-by-phase project. It is becoming the
 agent's own memory substrate.
+
+The first practical consumer is Codex, so the memory stack should be optimized
+for Codex continuity before broader integrations get the same polish.
 
 The roadmap now starts with repository foundations so the project can be
 worked on cleanly in public before the memory stack keeps expanding.

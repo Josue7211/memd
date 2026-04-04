@@ -4,6 +4,11 @@
 
 It gives AI systems one place to store, route, compact, explain, and verify memory without turning every session into a transcript dump.
 
+If you are using Codex or another agent day to day, `memd` should be the
+default memory substrate: retrieve working state from `memd`, inspect evidence
+with `memd explain`, and write compiled knowledge back into the workspace when
+the task is worth keeping.
+
 Supported platforms:
 
 - Linux
@@ -18,6 +23,7 @@ Supported platforms:
 - collapses duplicate and near-duplicate facts
 - preserves source quality and provenance
 - exposes inbox and explain views for review
+- keeps short-term and long-term memory usable across sessions
 - includes a built-in dashboard for inspection
 - keeps compaction separate from durable memory
 - supports LightRAG or another semantic backend for optional long-term retrieval
@@ -80,6 +86,13 @@ Request compact context:
 cargo run -p memd-client --bin memd -- context --project demo --agent codex --compact
 ```
 
+Inspect working memory and evidence:
+
+```bash
+cargo run -p memd-client --bin memd -- working --project demo --agent codex --follow
+cargo run -p memd-client --bin memd -- explain --id <uuid> --follow
+```
+
 Bootstrap a project bundle:
 
 ```bash
@@ -91,6 +104,10 @@ Bootstrap a project bundle with LightRAG configured:
 ```bash
 cargo run -p memd-client --bin memd -- init --project demo --agent codex --rag-url http://127.0.0.1:9000
 ```
+
+When you are still building the memory loop, keep `memd` as the source of
+truth and treat LightRAG as an optional semantic backend behind the control
+plane.
 
 Check bundle health:
 

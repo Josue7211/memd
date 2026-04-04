@@ -13,6 +13,9 @@ future systems like `braind` can treat as a real memory OS.
 Give agents short-term and long-term memory that stays compact, durable,
 inspectable, and useful under real task pressure.
 
+Priority 1 is Codex continuity: `memd` must let Codex persist state, recover
+evidence, and inspect its own working memory across sessions.
+
 ## Requirements
 
 ### Validated

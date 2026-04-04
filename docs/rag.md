@@ -3,6 +3,12 @@
 `memd` keeps the memory control plane in Rust and treats long-term semantic
 storage as an optional backend.
 
+For daily work, the flow should be:
+
+1. store and inspect state in `memd`
+2. compile or write back useful evidence into Obsidian when it should stay visible
+3. use LightRAG only when the vault or project memory is too large for markdown-native retrieval alone
+
 The intended backend is LightRAG or a LightRAG-compatible service behind
 `rag-sidecar`, but the core product does not require it to run.
 
@@ -70,6 +76,8 @@ product story.
 Use `memd` alone for compact structured memory.
 Use Obsidian plus `memd` for markdown-native raw-source and compiled-wiki workflows.
 Add RAG when you want cross-project, cross-session semantic recall.
+Keep `memd` as the control plane even after RAG is added so retrieval, provenance,
+and branchable belief state stay in one place.
 
 See also:
 

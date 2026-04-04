@@ -15,6 +15,14 @@ That means Obsidian is not only an ingest source. It can also be the markdown
 frontend for a compiled knowledge base, while `memd` remains the memory control
 plane behind it.
 
+For the working loop, the usual pattern is:
+
+- capture or sync source material into the vault
+- use `memd search`, `memd working`, and `memd explain` to inspect state
+- compile durable evidence pages with `obsidian compile`
+- keep writeback pages and compiled evidence pages indexed inside `.memd/`
+- add LightRAG only if markdown-native retrieval is no longer enough
+
 The bridge is filesystem-first:
 
 - markdown notes become candidate memories
@@ -122,6 +130,9 @@ Compile a specific memory item into a compiled evidence page inside the vault:
 ```bash
 cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --id 12345678-1234-5678-1234-567812345678 --apply
 ```
+
+This is the preferred shape when you want an item to become part of the
+Obsidian knowledge base instead of only a transient writeback note.
 
 Each applied compile also updates:
 

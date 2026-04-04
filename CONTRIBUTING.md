@@ -17,6 +17,10 @@ Read these first:
 `memd` is not a generic note store. Contributions should improve compact,
 durable, inspectable memory behavior for agents.
 
+The primary user story is agent continuity: `memd` should help Codex or another
+agent persist working state, retrieve evidence, and compile durable knowledge
+without depending on chat history alone.
+
 ## Good Contribution Areas
 
 - retrieval quality
@@ -125,6 +129,7 @@ Update docs when you change:
 - backend ownership or integration boundaries
 - branch/release workflow
 - roadmap-visible product direction
+- memory substrate workflow and evidence compilation
 
 Relevant docs usually live under `docs/`, but roadmap and maintainer workflow
 changes may also require updates to `README.md`, `CHANGELOG.md`, and
