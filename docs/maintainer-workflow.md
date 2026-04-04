@@ -25,6 +25,12 @@
 - merge `work/<milestone>` into `main` only when the milestone slice is coherent and verified
 - if a branch changes public behavior, update docs and `CHANGELOG.md` in the same branch
 
+Practical rule:
+
+- merge scoped work into the milestone branch
+- merge milestone work into `main`
+- do not use `main` as an integration sandbox
+
 ## Push Policy
 
 - push active milestone and scoped branches upstream once they become real workstreams
@@ -39,6 +45,14 @@
   - how it was verified
 - do not mix unrelated docs, refactors, and features in one PR unless they are inseparable
 
+Reviewers should check:
+
+- roadmap and scope alignment
+- public contract drift
+- missing docs or tests
+- whether the branch should have been split further
+- whether the change weakens provenance, retrieval compactness, or control-plane boundaries
+
 ## Release Policy
 
 1. land verified scoped work into the active `work/<milestone>` branch
@@ -46,3 +60,10 @@
 3. cut `release/vX.Y.Z` if release prep needs its own branch
 4. tag from `main`
 5. keep milestone summaries and roadmap state consistent with what actually shipped
+
+## Remote Hygiene
+
+- push active milestone and scoped branches upstream early
+- delete stale remote branches after merge
+- keep remote branch names aligned with the actual roadmap slices
+- avoid leaving significant local-only history that collaborators cannot see

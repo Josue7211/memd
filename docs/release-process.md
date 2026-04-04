@@ -18,6 +18,8 @@
 - keep roadmap phases aligned with versioned capabilities
 - prefer explicit release notes over silent behavior drift
 - maintain `CHANGELOG.md` as part of release prep
+- tag releases from `main`
+- keep milestone and feature branch names readable enough to reconstruct history later
 
 ## Contributor Workflow
 
@@ -27,6 +29,18 @@
 4. update docs when behavior changes
 5. merge back into the milestone branch once verified
 6. release from `main`, not from a feature branch
+
+## Release Checklist
+
+Before tagging a release:
+
+1. verify the intended milestone branch is coherent
+2. ensure public docs match shipped behavior
+3. update `CHANGELOG.md`
+4. confirm CI is green
+5. merge the release-ready state to `main`
+6. create and push the release tag
+7. only then announce the release
 
 ## Review Expectations
 
