@@ -105,6 +105,18 @@ Preview the URI without launching Obsidian:
 cargo run -p memd-client --bin memd -- obsidian open --vault ~/vault --note wiki/topic.md
 ```
 
+Compile a search query into a markdown wiki page inside the vault:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --project notes --query "rust memory patterns" --apply
+```
+
+Compile it and open the generated page immediately:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --project notes --query "rust memory patterns" --apply --open
+```
+
 Round-trip a vault and annotate source notes in place:
 
 ```bash

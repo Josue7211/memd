@@ -10,7 +10,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use memd_schema::{
     CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, ExplainMemoryResponse,
-    MemoryContextFrame, MemoryKind, MemoryScope, SourceQuality,
+    MemoryContextFrame, MemoryKind, MemoryScope, SearchMemoryResponse, SourceQuality,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -485,6 +485,13 @@ pub fn default_writeback_path(vault: &Path, explain: &ExplainMemoryResponse) -> 
         .join(format!("{kind}-{short_id}.md"))
 }
 
+pub fn default_compiled_note_path(vault: &Path, query: &str) -> PathBuf {
+    vault
+        .join(".memd")
+        .join("compiled")
+        .join(format!("{}.md", slugify(query)))
+}
+
 pub fn resolve_open_path(vault: &Path, target: &Path) -> PathBuf {
     if target.is_absolute() {
         target.to_path_buf()
@@ -517,6 +524,22 @@ pub fn build_open_uri(path: &Path, pane_type: Option<&str>) -> anyhow::Result<St
 
 fn encode_uri_component(value: &str) -> String {
     byte_serialize(value.as_bytes()).collect()
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in value.trim().chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            slug.push(normalized);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
 }
 
 pub fn open_uri(uri: &str) -> anyhow::Result<()> {
@@ -680,6 +703,56 @@ pub fn build_writeback_markdown(
                 markdown.push('\n');
             }
         }
+    }
+    (title, markdown)
+}
+
+pub fn build_compiled_note_markdown(
+    query: &str,
+    response: &SearchMemoryResponse,
+) -> (String, String) {
+    let title = query.trim().to_string();
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str(&format!("route: {:?}\n", response.route).to_lowercase());
+    markdown.push_str(&format!("intent: {:?}\n", response.intent).to_lowercase());
+    markdown.push_str(&format!("items: {}\n", response.items.len()));
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Query\n\n");
+    markdown.push_str(query);
+    markdown.push_str("\n\n## Matching Memory\n\n");
+    for item in response.items.iter().take(16) {
+        markdown.push_str(&format!(
+            "### {} `{}`\n\n",
+            item.tags
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("{:?}", item.kind).to_lowercase()),
+            item.id
+        ));
+        markdown.push_str(
+            &format!(
+                "- kind: {:?}\n- scope: {:?}\n- status: {:?}\n- confidence: {:.2}\n",
+                item.kind, item.scope, item.status, item.confidence
+            )
+            .to_lowercase(),
+        );
+        if let Some(project) = item.project.as_deref() {
+            markdown.push_str(&format!("- project: {}\n", project));
+        }
+        if let Some(namespace) = item.namespace.as_deref() {
+            markdown.push_str(&format!("- namespace: {}\n", namespace));
+        }
+        if let Some(branch) = item.belief_branch.as_deref() {
+            markdown.push_str(&format!("- belief_branch: {}\n", branch));
+        }
+        markdown.push('\n');
+        markdown.push_str(&item.content);
+        markdown.push_str("\n\n");
     }
     (title, markdown)
 }
@@ -1885,6 +1958,15 @@ mod tests {
         let uri = build_open_uri(Path::new("/tmp/vault/writeback/note.md"), Some("split")).unwrap();
         assert!(uri.starts_with("obsidian://open?path=%2Ftmp%2Fvault%2Fwriteback%2Fnote.md"));
         assert!(uri.contains("&paneType=split"));
+    }
+
+    #[test]
+    fn builds_compiled_note_path() {
+        let path = default_compiled_note_path(Path::new("/tmp/vault"), "Rust Memory Patterns");
+        assert_eq!(
+            path,
+            Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md")
+        );
     }
 
     #[test]
