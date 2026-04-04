@@ -1,6 +1,5 @@
 use anyhow::Context;
-use chrono::{DateTime, Utc};
-use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, SourceQuality};
+use memd_schema::{MemoryItem, SourceQuality};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -11,70 +10,74 @@ pub struct RagClient {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagRecord {
-    pub id: Uuid,
-    pub content: String,
-    pub project: Option<String>,
-    pub namespace: Option<String>,
-    pub kind: MemoryKind,
-    pub scope: MemoryScope,
-    pub stage: MemoryStage,
-    pub status: MemoryStatus,
-    pub source_quality: Option<SourceQuality>,
-    pub source_agent: Option<String>,
-    pub source_path: Option<String>,
-    pub redundancy_key: Option<String>,
-    pub canonical_key: Option<String>,
-    pub confidence: f32,
-    pub updated_at: DateTime<Utc>,
-    pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RagQuery {
-    pub query: Option<String>,
-    pub project: Option<String>,
-    pub namespace: Option<String>,
-    pub kind: Option<MemoryKind>,
-    pub scope: Option<MemoryScope>,
-    pub limit: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagSearchHit {
-    pub id: Uuid,
-    pub content: String,
-    pub score: f32,
-    pub project: Option<String>,
-    pub namespace: Option<String>,
-    pub kind: MemoryKind,
-    pub scope: MemoryScope,
-    pub stage: MemoryStage,
-    pub status: MemoryStatus,
-    pub source_quality: Option<SourceQuality>,
-    pub source_agent: Option<String>,
-    pub source_path: Option<String>,
-    pub redundancy_key: Option<String>,
-    pub canonical_key: Option<String>,
-    pub confidence: f32,
-    pub updated_at: DateTime<Utc>,
-    pub tags: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagSearchResponse {
-    pub items: Vec<RagSearchHit>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagUpsertResponse {
-    pub item: RagRecord,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RagHealthResponse {
+pub struct RagBackendHealthResponse {
     pub status: String,
-    pub items: Option<usize>,
+    pub backend: RagBackendHealth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagBackendHealth {
+    pub connected: bool,
+    pub name: Option<String>,
+    pub multimodal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagIngestSource {
+    pub id: Uuid,
+    pub kind: String,
+    pub content: String,
+    pub source_quality: Option<SourceQuality>,
+    pub source_agent: Option<String>,
+    pub source_path: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagIngestRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub source: RagIngestSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagIngestResponse {
+    pub status: String,
+    pub track_id: Uuid,
+    pub items: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RagRetrieveMode {
+    Auto,
+    Text,
+    Multimodal,
+    Graph,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagRetrieveRequest {
+    pub query: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub mode: RagRetrieveMode,
+    pub limit: Option<usize>,
+    pub include_cross_modal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagRetrieveItem {
+    pub content: String,
+    pub source: Option<String>,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagRetrieveResponse {
+    pub status: String,
+    pub mode: RagRetrieveMode,
+    pub items: Vec<RagRetrieveItem>,
 }
 
 impl RagClient {
@@ -86,16 +89,16 @@ impl RagClient {
         Ok(Self { base_url, http })
     }
 
-    pub async fn healthz(&self) -> anyhow::Result<RagHealthResponse> {
+    pub async fn healthz(&self) -> anyhow::Result<RagBackendHealthResponse> {
         self.get_json("/healthz").await
     }
 
-    pub async fn upsert(&self, record: &RagRecord) -> anyhow::Result<RagUpsertResponse> {
-        self.post_json("/records/upsert", record).await
+    pub async fn ingest(&self, req: &RagIngestRequest) -> anyhow::Result<RagIngestResponse> {
+        self.post_json("/v1/ingest", req).await
     }
 
-    pub async fn search(&self, query: &RagQuery) -> anyhow::Result<RagSearchResponse> {
-        self.post_json("/records/search", query).await
+    pub async fn retrieve(&self, req: &RagRetrieveRequest) -> anyhow::Result<RagRetrieveResponse> {
+        self.post_json("/v1/retrieve", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>
@@ -124,43 +127,28 @@ impl RagClient {
     }
 }
 
-impl From<&memd_schema::MemoryItem> for RagRecord {
-    fn from(item: &memd_schema::MemoryItem) -> Self {
+impl From<&MemoryItem> for RagIngestSource {
+    fn from(item: &MemoryItem) -> Self {
         Self {
             id: item.id,
+            kind: format!("{:?}", item.kind).to_lowercase(),
             content: item.content.clone(),
-            project: item.project.clone(),
-            namespace: item.namespace.clone(),
-            kind: item.kind,
-            scope: item.scope,
-            stage: item.stage,
-            status: item.status,
             source_quality: item.source_quality,
             source_agent: item.source_agent.clone(),
             source_path: item.source_path.clone(),
-            redundancy_key: item.redundancy_key.clone(),
-            canonical_key: None,
-            confidence: item.confidence,
-            updated_at: item.updated_at,
             tags: item.tags.clone(),
         }
     }
 }
 
-async fn decode_response<T>(response: reqwest::Response) -> anyhow::Result<T>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.context("read rag response body")?;
-        anyhow::bail!("rag request failed with {status}: {body}");
+impl From<&MemoryItem> for RagIngestRequest {
+    fn from(item: &MemoryItem) -> Self {
+        Self {
+            project: item.project.clone(),
+            namespace: item.namespace.clone(),
+            source: RagIngestSource::from(item),
+        }
     }
-
-    response
-        .json::<T>()
-        .await
-        .context("decode rag response payload")
 }
 
 fn normalize_base_url(input: &str) -> anyhow::Result<String> {
@@ -177,4 +165,20 @@ fn normalize_base_url(input: &str) -> anyhow::Result<String> {
 
     url.set_path("");
     Ok(url.to_string().trim_end_matches('/').to_string())
+}
+
+async fn decode_response<T>(response: reqwest::Response) -> anyhow::Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.context("read rag response body")?;
+        anyhow::bail!("rag request failed with {status}: {body}");
+    }
+
+    response
+        .json::<T>()
+        .await
+        .context("decode rag response payload")
 }

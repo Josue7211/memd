@@ -11,7 +11,7 @@ use memd_core::{
     build_compaction_packet, derive_compaction_spill, derive_compaction_spill_with_options,
     render_compaction_wire,
 };
-use memd_rag::{RagClient, RagQuery, RagRecord};
+use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
@@ -329,7 +329,10 @@ struct RagSearchArgs {
     namespace: Option<String>,
 
     #[arg(long)]
-    kind: Option<String>,
+    mode: Option<String>,
+
+    #[arg(long)]
+    include_cross_modal: bool,
 
     #[arg(long)]
     limit: Option<usize>,
@@ -360,18 +363,21 @@ async fn main() -> anyhow::Result<()> {
             match args.mode {
                 RagMode::Healthz => print_json(&rag.healthz().await?)?,
                 RagMode::Search(args) => {
-                    let query = RagQuery {
-                        query: Some(args.query),
+                    let mode = args
+                        .mode
+                        .as_deref()
+                        .map(parse_rag_retrieve_mode)
+                        .transpose()?
+                        .unwrap_or(RagRetrieveMode::Auto);
+                    let query = RagRetrieveRequest {
+                        query: args.query,
                         project: args.project,
                         namespace: args.namespace,
-                        kind: args
-                            .kind
-                            .map(|kind| parse_memory_kind_value(&kind))
-                            .transpose()?,
-                        scope: None,
+                        mode,
                         limit: args.limit,
+                        include_cross_modal: args.include_cross_modal,
                     };
-                    print_json(&rag.search(&query).await?)?;
+                    print_json(&rag.retrieve(&query).await?)?;
                 }
                 RagMode::Sync(args) => {
                     let summary = sync_to_rag(&client, &rag, args).await?;
@@ -676,9 +682,9 @@ async fn sync_to_rag(
     let mut pushed = 0usize;
     for item in &fetched.items {
         if !args.dry_run {
-            rag.upsert(&RagRecord::from(item))
+            rag.ingest(&RagIngestRequest::from(item))
                 .await
-                .context("upsert rag record")?;
+                .context("ingest rag record")?;
         }
         pushed += 1;
     }
@@ -698,12 +704,25 @@ async fn sync_candidate_responses_to_rag(
 ) -> anyhow::Result<usize> {
     let mut pushed = 0usize;
     for response in responses {
-        rag.upsert(&RagRecord::from(&response.item))
+        rag.ingest(&RagIngestRequest::from(&response.item))
             .await
-            .context("upsert rag record from spill")?;
+            .context("ingest rag record from spill")?;
         pushed += 1;
     }
     Ok(pushed)
+}
+
+fn parse_rag_retrieve_mode(value: &str) -> anyhow::Result<RagRetrieveMode> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "auto" => Ok(RagRetrieveMode::Auto),
+        "text" => Ok(RagRetrieveMode::Text),
+        "multimodal" => Ok(RagRetrieveMode::Multimodal),
+        "graph" => Ok(RagRetrieveMode::Graph),
+        _ => anyhow::bail!(
+            "invalid rag retrieve mode '{value}'; expected auto, text, multimodal, or graph"
+        ),
+    }
 }
 
 fn maybe_rag_client_from_env() -> anyhow::Result<Option<RagClient>> {
@@ -903,23 +922,6 @@ memd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $e
         )),
         other => anyhow::bail!(
             "unsupported shell '{other}'; expected bash, zsh, sh, powershell, or pwsh"
-        ),
-    }
-}
-
-fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "fact" => Ok(MemoryKind::Fact),
-        "decision" => Ok(MemoryKind::Decision),
-        "preference" => Ok(MemoryKind::Preference),
-        "runbook" => Ok(MemoryKind::Runbook),
-        "topology" => Ok(MemoryKind::Topology),
-        "status" => Ok(MemoryKind::Status),
-        "pattern" => Ok(MemoryKind::Pattern),
-        "constraint" => Ok(MemoryKind::Constraint),
-        _ => anyhow::bail!(
-            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, topology, status, pattern, or constraint"
         ),
     }
 }
