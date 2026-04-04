@@ -136,6 +136,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Redundancy Policy](./docs/redundancy.md)
 - [Platform Support](./docs/platforms.md)
 - [Branching Model](./docs/branching.md)
+- [Maintainer Workflow](./docs/maintainer-workflow.md)
 - [Release Process](./docs/release-process.md)
 - [Changelog](./CHANGELOG.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
