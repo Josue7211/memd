@@ -23,11 +23,14 @@ Deliver:
 - `rag-sidecar` integration path
 - adapter targets that point at the sidecar
 - bundle-level backend configuration
+- HTTP contract aligned with [Backend API Contract](./backend-api.md)
 
 Done when:
 
 - `memd rag sync` can talk to the sidecar endpoint
 - `memd status` can report backend reachability
+- the adapter only needs the documented HTTP contract to operate
+- the sidecar is the only backend endpoint `memd-rag` needs to know about
 
 ## Phase C: Extraction
 
@@ -70,6 +73,7 @@ Done when:
 
 - `memd` repo owns the control plane and adapter.
 - The external backend stack owns extraction, multimodal expansion, and long-term storage.
+- The external stack can change internally without forcing `memd` changes.
 
 ## First Integration Milestone
 

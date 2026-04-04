@@ -44,6 +44,8 @@ the boundary explicit so implementation work does not blur the contracts.
 - preserves source metadata
 - routes requests into the backend stack
 - exposes health for downstream connectivity
+- implements the HTTP contract documented in [Backend API Contract](./backend-api.md)
+- is the only backend endpoint the `memd-rag` adapter needs to know about
 
 ### `MinerU`
 
@@ -85,3 +87,5 @@ the boundary explicit so implementation work does not blur the contracts.
 - Multimodal support covers video, PDF, image, table, and equation inputs.
 - Text-only fallback still works when no multimodal signal exists.
 - The status command can distinguish local bundle health from backend health.
+- The sidecar contract is stable enough for `memd-rag` to target directly.
+- The backend can evolve underneath `rag-sidecar` without changing `memd`.

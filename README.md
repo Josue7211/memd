@@ -126,6 +126,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Routing](./docs/routing.md)
 - [RAG](./docs/rag.md)
 - [Backend Stack Contract](./docs/backend-stack.md)
+- [Backend API Contract](./docs/backend-api.md)
 - [Backend Ownership Split](./docs/backend-ownership.md)
 - [Backend Implementation Plan](./docs/backend-implementation-plan.md)
 - [Credits](./docs/credits.md)
