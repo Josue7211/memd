@@ -314,7 +314,7 @@ pub struct WorkingMemoryResponse {
     pub policy: WorkingMemoryPolicyState,
     pub records: Vec<CompactMemoryRecord>,
     pub evicted: Vec<WorkingMemoryEvictionRecord>,
-    pub rehydration_queue: Vec<WorkingMemoryRehydrationRecord>,
+    pub rehydration_queue: Vec<MemoryRehydrationRecord>,
     pub traces: Vec<WorkingMemoryTraceRecord>,
     pub semantic_consolidation: Option<MemoryConsolidationResponse>,
 }
@@ -335,10 +335,17 @@ pub struct WorkingMemoryEvictionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkingMemoryRehydrationRecord {
-    pub id: Uuid,
-    pub record: String,
-    pub reason: String,
+pub struct MemoryRehydrationRecord {
+    pub id: Option<Uuid>,
+    pub kind: String,
+    pub label: String,
+    pub summary: String,
+    pub reason: Option<String>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub source_quality: Option<SourceQuality>,
+    pub recorded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -774,7 +781,7 @@ pub struct ExplainMemoryResponse {
     pub sources: Vec<SourceMemoryRecord>,
     pub retrieval_feedback: RetrievalFeedbackSummary,
     pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
-    pub artifact_trail: Vec<ExplainArtifactRecord>,
+    pub rehydration: Vec<MemoryRehydrationRecord>,
     pub policy_hooks: Vec<String>,
 }
 
@@ -801,18 +808,6 @@ pub struct RetrievalFeedbackSummary {
 pub struct RetrievalFeedbackSurfaceCount {
     pub surface: String,
     pub count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExplainArtifactRecord {
-    pub kind: String,
-    pub label: String,
-    pub summary: String,
-    pub source_agent: Option<String>,
-    pub source_system: Option<String>,
-    pub source_path: Option<String>,
-    pub source_quality: Option<SourceQuality>,
-    pub recorded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1284,10 +1279,12 @@ mod tests {
                 confidence: 0.71,
                 updated_at: now,
             }],
-            artifact_trail: vec![ExplainArtifactRecord {
+            rehydration: vec![MemoryRehydrationRecord {
+                id: Some(Uuid::new_v4()),
                 kind: "memory_item".to_string(),
                 label: "canonical memory".to_string(),
                 summary: "prefer bundle-first config".to_string(),
+                reason: Some("rehydrate_primary_memory".to_string()),
                 source_agent: Some("codex".to_string()),
                 source_system: Some("cli".to_string()),
                 source_path: Some("/tmp/memd/docs/rag.md".to_string()),
@@ -1306,7 +1303,7 @@ mod tests {
         assert_eq!(decoded.item.belief_branch.as_deref(), Some("mainline"));
         assert_eq!(decoded.retrieval_feedback.total_retrievals, 4);
         assert_eq!(decoded.branch_siblings.len(), 1);
-        assert_eq!(decoded.artifact_trail.len(), 1);
+        assert_eq!(decoded.rehydration.len(), 1);
         assert_eq!(decoded.policy_hooks.len(), 3);
         assert_eq!(decoded.sources[0].trust_score, 0.95);
     }
@@ -1414,10 +1411,17 @@ mod tests {
                 record: "older context left the hot set".to_string(),
                 reason: "evicted_by_budget".to_string(),
             }],
-            rehydration_queue: vec![WorkingMemoryRehydrationRecord {
-                id: Uuid::new_v4(),
-                record: "older context left the hot set".to_string(),
-                reason: "evicted_by_budget".to_string(),
+            rehydration_queue: vec![MemoryRehydrationRecord {
+                id: Some(Uuid::new_v4()),
+                kind: "working_memory_record".to_string(),
+                label: "evicted working-set item".to_string(),
+                summary: "older context left the hot set".to_string(),
+                reason: Some("evicted_by_budget".to_string()),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/notes.md".to_string()),
+                source_quality: Some(SourceQuality::Derived),
+                recorded_at: Some(Utc::now()),
             }],
             traces: vec![WorkingMemoryTraceRecord {
                 item_id: Uuid::new_v4(),

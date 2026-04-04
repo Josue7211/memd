@@ -119,7 +119,7 @@ Rules:
 - returns source-memory drilldown for the item's project, namespace, and source tuple
 - returns sibling belief branches for competing records with the same redundancy lane
 - returns whether the current branch is preferred and whether contradiction state is unresolved
-- returns a compact artifact trail so raw evidence stays reachable behind the summary
+- returns a bounded rehydration lane so compact summaries can zoom back into deeper evidence
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
 - returns compact retrieval-feedback counters derived from durable retrieval events
 - returns explicit trust demotion hooks when the top source lane falls below the policy floor
@@ -242,9 +242,9 @@ Rules:
 - uses an explicit total character budget
 - applies an admission limit for the hot set
 - reports evicted records when the candidate set overflows the buffer
-- exposes a bounded rehydration queue for the next-best records
+- exposes a bounded rehydration queue using the same evidence shape as `/memory/explain`
 - can optionally trigger semantic consolidation for recent traces
-- uses source trust as a deterministic ranking input and includes trust reasons in eviction/rehydration records
+- uses source trust as a deterministic ranking input and carries bounded source metadata in rehydration records
 
 ## Runtime
 

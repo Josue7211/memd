@@ -352,7 +352,10 @@ pub(crate) fn render_working_summary(response: &WorkingMemoryResponse, follow: b
             .rehydration_queue
             .iter()
             .take(3)
-            .map(|entry| compact_inline(&entry.record, 40))
+            .map(|entry| {
+                let reason = entry.reason.as_deref().unwrap_or("rehydrate");
+                format!("{reason}:{}", compact_inline(&entry.summary, 32))
+            })
             .collect::<Vec<_>>();
         if !rehydrate_trail.is_empty() {
             output.push_str(&format!(" rehydrate_trail={}", rehydrate_trail.join(" | ")));
@@ -546,7 +549,7 @@ pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: boo
 
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "explain item={} route={} intent={} status={} confidence={:.2} preferred={} branch={} siblings={} retrievals={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
+        "explain item={} route={} intent={} status={} confidence={:.2} preferred={} branch={} siblings={} retrievals={} entity={} events={} sources={} rehydrate={} hooks={} reasons={}",
         short_uuid(response.item.id),
         route_label(response.route),
         intent_label(response.intent),
@@ -563,7 +566,7 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             .unwrap_or_else(|| "none".to_string()),
         response.events.len(),
         response.sources.len(),
-        response.artifact_trail.len(),
+        response.rehydration.len(),
         response.policy_hooks.len(),
         compact_inline(&response.reasons.join("|"), 96)
     );
@@ -631,7 +634,7 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             output.push_str(&format!(" hooks={}", hooks.join("|")));
         }
         let trail = response
-            .artifact_trail
+            .rehydration
             .iter()
             .take(3)
             .map(|artifact| {
@@ -644,7 +647,7 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             })
             .collect::<Vec<_>>();
         if !trail.is_empty() {
-            output.push_str(&format!(" artifacts={}", trail.join(" | ")));
+            output.push_str(&format!(" rehydration={}", trail.join(" | ")));
         }
     }
 

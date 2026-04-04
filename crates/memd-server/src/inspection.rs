@@ -1,10 +1,10 @@
 use axum::http::StatusCode;
 use std::collections::BTreeMap;
 use memd_schema::{
-    ExplainArtifactRecord, ExplainBranchSiblingRecord, ExplainMemoryRequest,
-    ExplainMemoryResponse, MemoryEventRecord, MemoryItem, MemoryStage, MemoryStatus,
-    RetrievalFeedbackSurfaceCount, RetrievalFeedbackSummary, RetrievalIntent, RetrievalRoute,
-    SourceMemoryRecord, SourceMemoryRequest,
+    ExplainBranchSiblingRecord, ExplainMemoryRequest, ExplainMemoryResponse,
+    MemoryEventRecord, MemoryItem, MemoryRehydrationRecord, MemoryStage, MemoryStatus,
+    RetrievalFeedbackSurfaceCount, RetrievalFeedbackSummary, RetrievalIntent,
+    RetrievalRoute, SourceMemoryRecord, SourceMemoryRequest,
 };
 
 use super::{canonical_key, internal_error, redundancy_key, AppState};
@@ -55,7 +55,7 @@ pub(crate) fn explain_memory(
         .sources;
     let retrieval_feedback = build_retrieval_feedback(&events, &item);
     let branch_siblings = build_branch_siblings(state, &item).map_err(internal_error)?;
-    let artifact_trail = build_artifact_trail(&item, &events, &sources);
+    let rehydration = build_rehydration(&item, &events, &sources);
     let policy_hooks = build_policy_hooks(&item, &plan, &sources, &branch_siblings);
 
     Ok(ExplainMemoryResponse {
@@ -70,7 +70,7 @@ pub(crate) fn explain_memory(
         sources,
         retrieval_feedback,
         branch_siblings,
-        artifact_trail,
+        rehydration,
         policy_hooks,
     })
 }
@@ -156,15 +156,17 @@ fn build_branch_siblings(
     Ok(siblings)
 }
 
-fn build_artifact_trail(
+fn build_rehydration(
     item: &MemoryItem,
     events: &[MemoryEventRecord],
     sources: &[SourceMemoryRecord],
-) -> Vec<ExplainArtifactRecord> {
-    let mut trail = vec![ExplainArtifactRecord {
+) -> Vec<MemoryRehydrationRecord> {
+    let mut trail = vec![MemoryRehydrationRecord {
+        id: Some(item.id),
         kind: "memory_item".to_string(),
         label: "canonical memory".to_string(),
         summary: item.content.clone(),
+        reason: Some("rehydrate_primary_memory".to_string()),
         source_agent: item.source_agent.clone(),
         source_system: item.source_system.clone(),
         source_path: item.source_path.clone(),
@@ -172,10 +174,12 @@ fn build_artifact_trail(
         recorded_at: Some(item.updated_at),
     }];
 
-    trail.extend(events.iter().take(3).map(|event| ExplainArtifactRecord {
+    trail.extend(events.iter().take(3).map(|event| MemoryRehydrationRecord {
+        id: None,
         kind: "event".to_string(),
         label: event.event_type.clone(),
         summary: event.summary.clone(),
+        reason: Some("rehydrate_event_context".to_string()),
         source_agent: event.source_agent.clone(),
         source_system: event.source_system.clone(),
         source_path: event.source_path.clone(),
@@ -183,7 +187,8 @@ fn build_artifact_trail(
         recorded_at: Some(event.occurred_at),
     }));
 
-    trail.extend(sources.iter().take(3).map(|source| ExplainArtifactRecord {
+    trail.extend(sources.iter().take(3).map(|source| MemoryRehydrationRecord {
+        id: None,
         kind: "source_memory".to_string(),
         label: format!(
             "{}:{}",
@@ -194,6 +199,7 @@ fn build_artifact_trail(
             "items={} trust={:.2} avg_confidence={:.2}",
             source.item_count, source.trust_score, source.avg_confidence
         ),
+        reason: Some("rehydrate_source_lane".to_string()),
         source_agent: source.source_agent.clone(),
         source_system: source.source_system.clone(),
         source_path: None,

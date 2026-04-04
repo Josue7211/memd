@@ -492,6 +492,21 @@ pub fn default_compiled_note_path(vault: &Path, query: &str) -> PathBuf {
         .join(format!("{}.md", slugify(query)))
 }
 
+pub fn default_compiled_memory_path(vault: &Path, explain: &ExplainMemoryResponse) -> PathBuf {
+    let base = explain
+        .item
+        .tags
+        .first()
+        .cloned()
+        .unwrap_or_else(|| format!("{:?}", explain.item.kind).to_lowercase());
+    let slug = slugify(&format!("{base}-{}", short_uuid(explain.item.id)));
+    vault
+        .join(".memd")
+        .join("compiled")
+        .join("memory")
+        .join(format!("{slug}.md"))
+}
+
 pub fn default_compiled_index_path(vault: &Path) -> PathBuf {
     vault.join(".memd").join("compiled").join("INDEX.md")
 }
@@ -693,15 +708,18 @@ pub fn build_writeback_markdown(
             ));
         }
     }
-    if !explain.artifact_trail.is_empty() {
-        markdown.push_str("\n## Artifact Trail\n\n");
-        for artifact in explain.artifact_trail.iter().take(8) {
+    if !explain.rehydration.is_empty() {
+        markdown.push_str("\n## Rehydration Lane\n\n");
+        for artifact in explain.rehydration.iter().take(8) {
             markdown.push_str(&format!(
                 "- **{}** {}: {}\n",
                 artifact.kind,
                 artifact.label,
                 artifact.summary
             ));
+            if let Some(reason) = artifact.reason.as_deref() {
+                markdown.push_str(&format!("  - reason: {}\n", reason));
+            }
             if artifact.source_path.is_some()
                 || artifact.source_agent.is_some()
                 || artifact.source_system.is_some()
@@ -783,8 +801,44 @@ pub fn build_compiled_note_markdown(
     (title, markdown)
 }
 
+pub fn build_compiled_memory_markdown(
+    vault: &Path,
+    explain: &ExplainMemoryResponse,
+) -> (String, String) {
+    let title = format!(
+        "{} {}",
+        explain
+            .item
+            .tags
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("{:?}", explain.item.kind).to_lowercase()),
+        short_uuid(explain.item.id)
+    );
+    let (_, body) = build_writeback_markdown(vault, explain, explain.entity.as_ref());
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str("compiled_from: explain\n");
+    markdown.push_str(&format!("memory_id: {}\n", explain.item.id));
+    markdown.push_str("---\n\n");
+    markdown.push_str("# Compiled Memory Page\n\n");
+    markdown.push_str(&format!(
+        "- memory: `{}`\n- branch: {}\n- confidence: {:.2}\n- rehydration: {}\n\n",
+        explain.item.id,
+        explain.item.belief_branch.as_deref().unwrap_or("none"),
+        explain.item.confidence,
+        explain.rehydration.len()
+    ));
+    markdown.push_str(&body);
+    (title, markdown)
+}
+
 pub fn build_compiled_index_markdown(
     existing: Option<&str>,
+    entry_kind: &str,
     title: &str,
     note_path: &Path,
     item_count: usize,
@@ -793,7 +847,10 @@ pub fn build_compiled_index_markdown(
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or(title);
-    let entry = format!("- [[{}]] | query: {} | items: {}", note_title, title, item_count);
+    let entry = format!(
+        "- [[{}]] | {}: {} | items: {}",
+        note_title, entry_kind, title, item_count
+    );
     let mut entries = existing
         .map(|content| {
             content
@@ -1757,6 +1814,7 @@ fn build_excerpt(body: &str, max_lines: usize, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memd_schema::MemoryItem;
     use std::io::Write;
 
     fn temp_file(name: &str, contents: &str) -> PathBuf {
@@ -2044,6 +2102,60 @@ mod tests {
     }
 
     #[test]
+    fn builds_compiled_memory_path() {
+        let now = Utc::now();
+        let explain = ExplainMemoryResponse {
+            route: memd_schema::RetrievalRoute::ProjectFirst,
+            intent: memd_schema::RetrievalIntent::Fact,
+            item: MemoryItem {
+                id: Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap(),
+                content: "Bundle-first memory config".to_string(),
+                redundancy_key: Some("fact:bundle-first".to_string()),
+                belief_branch: Some("mainline".to_string()),
+                preferred: true,
+                kind: MemoryKind::Fact,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/vault/wiki/bundle.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: 0.9,
+                ttl_seconds: None,
+                created_at: now,
+                updated_at: now,
+                last_verified_at: Some(now),
+                supersedes: Vec::new(),
+                tags: vec!["bundle".to_string()],
+                status: memd_schema::MemoryStatus::Active,
+                stage: memd_schema::MemoryStage::Canonical,
+            },
+            canonical_key: "fact:bundle-first".to_string(),
+            redundancy_key: "fact:bundle-first".to_string(),
+            reasons: vec!["route=project_first".to_string()],
+            entity: None,
+            events: Vec::new(),
+            sources: Vec::new(),
+            retrieval_feedback: memd_schema::RetrievalFeedbackSummary {
+                total_retrievals: 0,
+                last_retrieved_at: None,
+                by_surface: Vec::new(),
+                recent_policy_hooks: Vec::new(),
+            },
+            branch_siblings: Vec::new(),
+            rehydration: Vec::new(),
+            policy_hooks: Vec::new(),
+        };
+
+        let path = default_compiled_memory_path(Path::new("/tmp/vault"), &explain);
+        assert_eq!(
+            path,
+            Path::new("/tmp/vault/.memd/compiled/memory/bundle-12345678.md")
+        );
+    }
+
+    #[test]
     fn builds_compiled_index_path() {
         let path = default_compiled_index_path(Path::new("/tmp/vault"));
         assert_eq!(path, Path::new("/tmp/vault/.memd/compiled/INDEX.md"));
@@ -2054,12 +2166,27 @@ mod tests {
         let existing = "# Compiled Wiki Index\n\n- [[old-note]] | query: old note | items: 3\n";
         let markdown = build_compiled_index_markdown(
             Some(existing),
+            "query",
             "Rust Memory Patterns",
             Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md"),
             7,
         );
         assert!(markdown.contains("[[old-note]]"));
         assert!(markdown.contains("[[rust-memory-patterns]] | query: Rust Memory Patterns | items: 7"));
+    }
+
+    #[test]
+    fn updates_compiled_memory_index_entries() {
+        let markdown = build_compiled_index_markdown(
+            None,
+            "memory",
+            "bundle-first fact 12345678",
+            Path::new("/tmp/vault/.memd/compiled/memory/bundle-first-fact-12345678.md"),
+            1,
+        );
+        assert!(
+            markdown.contains("[[bundle-first-fact-12345678]] | memory: bundle-first fact 12345678 | items: 1")
+        );
     }
 
     #[test]

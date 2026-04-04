@@ -7,8 +7,8 @@ use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
     MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
     MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
-    MemoryPolicyWorkingMemory, MemoryScope, WorkingMemoryEvictionRecord,
-    WorkingMemoryPolicyState, WorkingMemoryRehydrationRecord, WorkingMemoryRequest,
+    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope,
+    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 
@@ -113,10 +113,11 @@ pub(crate) fn working_memory(
     let rehydration_queue = evicted
         .iter()
         .take(rehydration_limit)
-        .map(|entry| WorkingMemoryRehydrationRecord {
-            id: entry.id,
-            record: entry.record.clone(),
-            reason: entry.reason.clone(),
+        .map(|entry| {
+            let source_item = selected_items
+                .iter()
+                .find(|item| item.id == entry.id);
+            build_rehydration_record(source_item, entry.id, &entry.record, &entry.reason)
         })
         .collect::<Vec<_>>();
 
@@ -160,6 +161,28 @@ pub(crate) fn working_memory(
         traces,
         semantic_consolidation,
     })
+}
+
+fn build_rehydration_record(
+    item: Option<&memd_schema::MemoryItem>,
+    id: Uuid,
+    record: &str,
+    reason: &str,
+) -> MemoryRehydrationRecord {
+    MemoryRehydrationRecord {
+        id: Some(id),
+        kind: "working_memory_record".to_string(),
+        label: item
+            .map(|item| format!("{:?}", item.kind).to_ascii_lowercase())
+            .unwrap_or_else(|| "evicted working-set item".to_string()),
+        summary: record.to_string(),
+        reason: Some(reason.to_string()),
+        source_agent: item.and_then(|item| item.source_agent.clone()),
+        source_system: item.and_then(|item| item.source_system.clone()),
+        source_path: item.and_then(|item| item.source_path.clone()),
+        source_quality: item.and_then(|item| item.source_quality),
+        recorded_at: item.map(|item| item.updated_at),
+    }
 }
 
 fn apply_working_profile_defaults(

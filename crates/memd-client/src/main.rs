@@ -2113,41 +2113,72 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
 }
 
 async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
-    let Some(query) = args.query.as_ref() else {
-        anyhow::bail!("obsidian compile requires --query <text>");
-    };
-    let response = client
-        .search(&SearchMemoryRequest {
-            query: Some(query.clone()),
-            route: parse_retrieval_route(args.route.clone())?,
-            intent: parse_retrieval_intent(args.intent.clone())?,
-            scopes: vec![MemoryScope::Project, MemoryScope::Global, MemoryScope::Synced],
-            kinds: vec![],
-            statuses: vec![MemoryStatus::Active, MemoryStatus::Stale, MemoryStatus::Contested],
-            project: args.project.clone(),
-            namespace: args.namespace.clone(),
-            belief_branch: None,
-            source_agent: None,
-            tags: Vec::new(),
-            stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
-            limit: Some(args.limit.unwrap_or(12).clamp(1, 48)),
-            max_chars_per_item: Some(800),
-        })
-        .await?;
+    let (title, markdown, output_path, preview, index_items, index_kind) = if let Some(id) = args.id.as_ref() {
+        let id = id
+            .parse::<uuid::Uuid>()
+            .context("parse obsidian compile id")?;
+        let explain = client
+            .explain(&ExplainMemoryRequest {
+                id,
+                belief_branch: None,
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
+            })
+            .await?;
+        let output_path = args
+            .output
+            .clone()
+            .unwrap_or_else(|| obsidian::default_compiled_memory_path(&args.vault, &explain));
+        let (title, markdown) = obsidian::build_compiled_memory_markdown(&args.vault, &explain);
+        let preview = serde_json::json!({
+            "output_path": output_path.display().to_string(),
+            "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+            "title": title,
+            "id": explain.item.id,
+            "kind": format!("{:?}", explain.item.kind).to_lowercase(),
+            "rehydration": explain.rehydration.len(),
+            "apply": args.apply,
+        });
+        (title, markdown, output_path, preview, 1usize, "memory")
+    } else {
+        let Some(query) = args.query.as_ref() else {
+            anyhow::bail!("obsidian compile requires --query <text> or --id <uuid>");
+        };
+        let response = client
+            .search(&SearchMemoryRequest {
+                query: Some(query.clone()),
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
+                scopes: vec![MemoryScope::Project, MemoryScope::Global, MemoryScope::Synced],
+                kinds: vec![],
+                statuses: vec![MemoryStatus::Active, MemoryStatus::Stale, MemoryStatus::Contested],
+                project: args.project.clone(),
+                namespace: args.namespace.clone(),
+                belief_branch: None,
+                source_agent: None,
+                tags: Vec::new(),
+                stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
+                limit: Some(args.limit.unwrap_or(12).clamp(1, 48)),
+                max_chars_per_item: Some(800),
+            })
+            .await?;
 
-    let output_path = args
-        .output
-        .clone()
-        .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
-    let (title, markdown) = obsidian::build_compiled_note_markdown(&args.vault, query, &response);
-    let preview = serde_json::json!({
-        "output_path": output_path.display().to_string(),
-        "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
-        "title": title,
-        "query": query,
-        "items": response.items.len(),
-        "apply": args.apply,
-    });
+        let output_path = args
+            .output
+            .clone()
+            .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
+        let (title, markdown) =
+            obsidian::build_compiled_note_markdown(&args.vault, query, &response);
+        let preview = serde_json::json!({
+            "output_path": output_path.display().to_string(),
+            "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+            "title": title,
+            "query": query,
+            "items": response.items.len(),
+            "apply": args.apply,
+        });
+        (title, markdown, output_path, preview, response.items.len(), "query")
+    };
 
     if !args.apply {
         print_json(&preview)?;
@@ -2165,9 +2196,10 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
     let existing_index = fs::read_to_string(&index_path).ok();
     let index_markdown = obsidian::build_compiled_index_markdown(
         existing_index.as_deref(),
+        index_kind,
         &title,
         &output_path,
-        response.items.len(),
+        index_items,
     );
     obsidian::write_markdown(&index_path, &index_markdown)?;
     if args.open {

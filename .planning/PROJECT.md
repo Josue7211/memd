@@ -33,8 +33,8 @@ inspectable, and useful under real task pressure.
 - [x] Make source-trust floors affect ranking, not just inspection.
 - [x] Add contradiction resolution on top of branchable belief lanes.
 - [x] Make procedural and self-model memory explicit.
-- [ ] Add reversible compression and evidence rehydration.
-- [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
+- [x] Add reversible compression and evidence rehydration.
+- [x] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope
 
@@ -61,7 +61,8 @@ self-model memory surfaces.
 The product direction now explicitly includes an Obsidian compiled-wiki mode:
 raw sources and derived markdown pages can live in the same workspace, with
 `memd` preserving typed memory, provenance, and policy around that markdown
-surface. LightRAG stays optional for larger-scale semantic recall.
+surface. Compiled memory/evidence pages are now a first-class Obsidian lane.
+LightRAG stays optional for larger-scale semantic recall.
 
 ## Constraints
 

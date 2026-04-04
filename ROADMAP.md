@@ -60,6 +60,7 @@ What is already real in the repo:
 - the core works without RAG
 - LightRAG is the intended long-term semantic backend
 - Obsidian vault ingest already exists as a filesystem-first source lane
+- Obsidian compiled evidence pages now exist as a first-class workspace lane
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
 - graph/entity primitives exist
@@ -195,7 +196,7 @@ Deliver:
 - reversible compression with summary-first retrieval and raw evidence recovery
 - provenance-native memory where every durable belief carries source,
   freshness, trust, and verification state
-- compiled wiki material can be treated as a first-class evidence lane, not only as loose note text
+- compiled wiki material and Obsidian evidence pages can be treated as first-class evidence lanes, not only as loose note text
 - explicit working-memory admission, eviction, and rehydration policy
 - retrieval as a learned control loop instead of a fixed heuristic table
 - trust-weighted source memory across humans, agents, tools, files, and sensors

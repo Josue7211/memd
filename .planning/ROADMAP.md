@@ -120,15 +120,43 @@ Success:
 - make explain and working-memory surfaces expose deeper evidence without dumping raw transcripts
 - keep reversible compression compact, explicit, and compatible with the current artifact trail model
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - `memd` can move from compact summaries to deeper evidence without hallucinating the missing detail
 
+#### Phase 9: `v2` Obsidian Compiled Evidence Workspace
+
+- treat compiled markdown pages as a first-class evidence lane inside the vault
+- let `obsidian compile` generate durable memory/evidence pages, not only query pages
+- keep compiled wiki artifacts indexed and directly openable from the vault workspace
+- preserve typed-memory provenance and rehydration details inside compiled markdown output
+
+Status: Complete
+
+Success:
+
+- Obsidian is a real compiled memory workspace instead of only an ingest/writeback side path
+
+### Milestone 3: `v3` Federated and Collective Memory
+
+#### Phase 10: `v3` Shared Workspace Foundations
+
+- define shared workspace scopes and namespace boundaries for multi-agent memory
+- add permission-aware visibility for shared and private memory lanes
+- keep handoff memory and trust tiers explicit across projects and collaborators
+- preserve scope, provenance, and auditability when memory moves between agents
+
+Status: Ready
+
+Success:
+
+- teams can share memory without flattening private and public context
+
 ## Immediate Next Phase
 
-Phase 8: `v2` Reversible Compression and Rehydration
+Phase 10: `v3` Shared Workspace Foundations
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*
