@@ -95,7 +95,7 @@
 | INTG-04 | v1 | Complete |
 | SUPR-01 | v2 | Pending |
 | SUPR-02 | v2 | Pending |
-| SUPR-03 | v2 | Pending |
+| SUPR-03 | v2 | Complete |
 | SUPR-04 | v2 | Pending |
 | SUPR-05 | v2 | Pending |
 

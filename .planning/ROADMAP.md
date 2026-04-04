@@ -53,9 +53,34 @@ Success:
 
 - `memd` begins moving from brain-inspired memory toward machine-advantaged memory
 
+#### Phase 3: `v2` Branchable Beliefs
+
+- keep conflicting durable beliefs in explicit named branches instead of flattening them
+- make competing records inspectable through explain and search surfaces
+- preserve duplicate control by separating redundancy and canonical keys across belief branches
+- keep the first branchable-belief slice compatible with the current SQLite payload model
+
+Status: Complete
+
+Success:
+
+- conflicting beliefs can live in separate durable branches and operators can inspect sibling branches directly
+
+#### Phase 4: `v2` Retrieval Feedback
+
+- capture retrieval outcomes so future ranking can learn from use instead of only fixed heuristics
+- expose lightweight retrieval feedback events and counters through the existing explain and policy surfaces
+- keep the first feedback loop deterministic, bounded, and cheap enough for the hot path
+
+Status: Ready
+
+Success:
+
+- `memd` has an explicit retrieval-feedback substrate for future adaptive ranking
+
 ## Immediate Next Phase
 
-All current roadmap phases are complete.
+Phase 4: `v2` Retrieval Feedback
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

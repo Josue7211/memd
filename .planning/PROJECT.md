@@ -25,9 +25,10 @@ inspectable, and useful under real task pressure.
 
 ### Active
 
-- [ ] Start `v2` foundations: explicit working-memory controller semantics.
-- [ ] Add trust-weighted source memory and reversible compression.
-- [ ] Add first learned retrieval-policy hooks.
+- [x] Start `v2` foundations: explicit working-memory controller semantics.
+- [x] Add trust-weighted source memory and reversible compression.
+- [x] Keep branchable belief lanes explicit and inspectable.
+- [ ] Add retrieval feedback surfaces so ranking can learn from outcomes.
 - [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope
@@ -46,9 +47,9 @@ The repo already has strong docs under `docs/`, integration assets under
 capability versions `v1` through `v5`.
 
 Recent work tightened bundle-first backend wiring, sidecar metadata fidelity,
-policy inspection, explicit repair, provenance drilldown, and managed
-working-memory state. The repo is usable now, and `v1` is complete enough to
-move on to `v2` foundations.
+policy inspection, explicit repair, provenance drilldown, managed
+working-memory state, and branchable belief lanes. The repo is usable now, and
+`v2` is active with explicit trust, artifact, and sibling-branch surfaces.
 
 ## Constraints
 
