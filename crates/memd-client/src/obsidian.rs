@@ -579,6 +579,7 @@ pub fn open_uri(uri: &str) -> anyhow::Result<()> {
 }
 
 pub fn build_writeback_markdown(
+    vault: &Path,
     explain: &ExplainMemoryResponse,
     entity: Option<&memd_schema::MemoryEntityRecord>,
 ) -> (String, String) {
@@ -624,6 +625,15 @@ pub fn build_writeback_markdown(
     markdown.push_str(&format!("# {}\n\n", title));
     markdown.push_str("## Summary\n\n");
     markdown.push_str(&explain.item.content);
+    if let Some(source_link) = explain
+        .item
+        .source_path
+        .as_deref()
+        .and_then(|path| source_wikilink_for_path(vault, Path::new(path)))
+    {
+        markdown.push_str("\n\n## Source Note\n\n");
+        markdown.push_str(&format!("- {}\n", source_link));
+    }
     markdown.push_str("\n\n## Why This Exists\n\n");
     for reason in &explain.reasons {
         markdown.push_str(&format!("- {}\n", reason));
@@ -702,12 +712,18 @@ pub fn build_writeback_markdown(
                 }
                 markdown.push('\n');
             }
+            if let Some(path) = artifact.source_path.as_deref() {
+                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
+                    markdown.push_str(&format!("  - wiki: {}\n", link));
+                }
+            }
         }
     }
     (title, markdown)
 }
 
 pub fn build_compiled_note_markdown(
+    vault: &Path,
     query: &str,
     response: &SearchMemoryResponse,
 ) -> (String, String) {
@@ -750,11 +766,26 @@ pub fn build_compiled_note_markdown(
         if let Some(branch) = item.belief_branch.as_deref() {
             markdown.push_str(&format!("- belief_branch: {}\n", branch));
         }
+        if let Some(source_path) = item.source_path.as_deref() {
+            markdown.push_str(&format!("- source_path: {}\n", source_path));
+            if let Some(link) = source_wikilink_for_path(vault, Path::new(source_path)) {
+                markdown.push_str(&format!("- source_note: {}\n", link));
+            }
+        }
         markdown.push('\n');
         markdown.push_str(&item.content);
         markdown.push_str("\n\n");
     }
     (title, markdown)
+}
+
+fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(vault).ok()?;
+    let title = relative
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| value.replace(['[', ']'], ""))?;
+    Some(format!("[[{}]]", title))
 }
 
 pub fn build_note_mirror_markdown(
@@ -1967,6 +1998,15 @@ mod tests {
             path,
             Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md")
         );
+    }
+
+    #[test]
+    fn derives_wikilink_for_vault_path() {
+        let link = source_wikilink_for_path(
+            Path::new("/tmp/vault"),
+            Path::new("/tmp/vault/wiki/Topic Note.md"),
+        );
+        assert_eq!(link.as_deref(), Some("[[Topic Note]]"));
     }
 
     #[test]

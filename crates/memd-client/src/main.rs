@@ -2076,7 +2076,8 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
         .output
         .clone()
         .unwrap_or_else(|| obsidian::default_writeback_path(&args.vault, &explain));
-    let (title, markdown) = obsidian::build_writeback_markdown(&explain, explain.entity.as_ref());
+    let (title, markdown) =
+        obsidian::build_writeback_markdown(&args.vault, &explain, explain.entity.as_ref());
 
     let preview = serde_json::json!({
         "output_path": output_path.display().to_string(),
@@ -2138,7 +2139,7 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
         .output
         .clone()
         .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
-    let (title, markdown) = obsidian::build_compiled_note_markdown(query, &response);
+    let (title, markdown) = obsidian::build_compiled_note_markdown(&args.vault, query, &response);
     let preview = serde_json::json!({
         "output_path": output_path.display().to_string(),
         "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
