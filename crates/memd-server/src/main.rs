@@ -349,7 +349,8 @@ async fn search_memory(
     State(state): State<AppState>,
     Json(req): Json<SearchMemoryRequest>,
 ) -> Result<Json<SearchMemoryResponse>, (StatusCode, String)> {
-    let items = state.snapshot().map_err(internal_error)?;
+    let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
+        .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let items = filter_items(&items, &req, &plan);
     Ok(Json(SearchMemoryResponse {
@@ -399,34 +400,40 @@ async fn get_inbox(
 ) -> Result<Json<MemoryInboxResponse>, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(12).min(50);
-    let items = state.snapshot().map_err(internal_error)?;
+    let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
+        .map_err(internal_error)?;
     let mut inbox = items
         .into_iter()
-        .filter(|item| item.stage == MemoryStage::Candidate || item.status != MemoryStatus::Active)
-        .filter(|item| {
+        .filter(|entry| {
+            entry.item.stage == MemoryStage::Candidate || entry.item.status != MemoryStatus::Active
+        })
+        .filter(|entry| {
             req.project
                 .as_ref()
-                .is_none_or(|project| item.project.as_ref() == Some(project))
+                .is_none_or(|project| entry.item.project.as_ref() == Some(project))
         })
-        .filter(|item| {
+        .filter(|entry| {
             req.namespace
                 .as_ref()
-                .is_none_or(|namespace| item.namespace.as_ref() == Some(namespace))
+                .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
         })
-        .map(|item| InboxMemoryItem {
-            reasons: inbox_reasons(&item),
-            item,
-        })
-        .filter(|entry| !entry.reasons.is_empty())
         .collect::<Vec<_>>();
 
     inbox.sort_by(|a, b| {
-        inbox_score(&b.item, &plan)
-            .partial_cmp(&inbox_score(&a.item, &plan))
+        inbox_score(&b.item, b.entity.as_ref(), &plan)
+            .partial_cmp(&inbox_score(&a.item, a.entity.as_ref(), &plan))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
     inbox.truncate(limit);
+    let inbox = inbox
+        .into_iter()
+        .map(|entry| InboxMemoryItem {
+            reasons: inbox_reasons(&entry.item),
+            item: entry.item,
+        })
+        .filter(|entry| !entry.reasons.is_empty())
+        .collect();
 
     Ok(Json(MemoryInboxResponse {
         route: plan.route,
@@ -520,6 +527,25 @@ impl AppState {
     }
 }
 
+#[derive(Clone)]
+struct MemoryViewItem {
+    item: MemoryItem,
+    entity: Option<MemoryEntityRecord>,
+}
+
+fn enrich_with_entities(
+    state: &AppState,
+    items: Vec<MemoryItem>,
+) -> anyhow::Result<Vec<MemoryViewItem>> {
+    items
+        .into_iter()
+        .map(|item| {
+            let entity = state.store.entity_for_item(item.id)?;
+            Ok(MemoryViewItem { item, entity })
+        })
+        .collect()
+}
+
 fn build_context(
     state: &AppState,
     req: &ContextRequest,
@@ -527,17 +553,18 @@ fn build_context(
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(8).min(32);
     let max_chars = req.max_chars_per_item.unwrap_or(280).clamp(80, 2000);
-    let items = state.snapshot().map_err(internal_error)?;
+    let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
+        .map_err(internal_error)?;
     let retrieval_order = plan.scopes();
 
     let mut scoped: Vec<MemoryItem> = Vec::new();
     for scope in retrieval_order.iter().copied() {
-        let mut bucket: Vec<MemoryItem> = items
+        let mut bucket: Vec<MemoryViewItem> = items
             .iter()
-            .filter(|item| plan.allows(item.scope))
-            .filter(|item| item.scope == scope)
-            .filter(|item| item.status == MemoryStatus::Active)
-            .filter(|item| match (&req.project, &item.project, scope) {
+            .filter(|entry| plan.allows(entry.item.scope))
+            .filter(|entry| entry.item.scope == scope)
+            .filter(|entry| entry.item.status == MemoryStatus::Active)
+            .filter(|entry| match (&req.project, &entry.item.project, scope) {
                 (Some(project), Some(item_project), MemoryScope::Project) => {
                     item_project == project
                 }
@@ -549,13 +576,13 @@ fn build_context(
             .collect();
 
         bucket.sort_by(|a, b| {
-            context_score(b, req, &plan)
-                .partial_cmp(&context_score(a, req, &plan))
+            context_score(&b.item, b.entity.as_ref(), req, &plan)
+                .partial_cmp(&context_score(&a.item, a.entity.as_ref(), req, &plan))
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.updated_at.cmp(&a.updated_at))
+                .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
         });
 
-        scoped.extend(bucket);
+        scoped.extend(bucket.into_iter().map(|entry| entry.item));
         if scoped.len() >= limit {
             break;
         }
@@ -570,7 +597,7 @@ fn build_context(
 }
 
 fn filter_items(
-    items: &[MemoryItem],
+    items: &[MemoryViewItem],
     req: &SearchMemoryRequest,
     plan: &RetrievalPlan,
 ) -> Vec<MemoryItem> {
@@ -578,39 +605,40 @@ fn filter_items(
     let limit = req.limit.unwrap_or(10).min(100);
     let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
 
-    let mut filtered: Vec<MemoryItem> = items
+    let mut filtered: Vec<MemoryViewItem> = items
         .iter()
-        .filter(|item| req.scopes.is_empty() || req.scopes.contains(&item.scope))
-        .filter(|item| plan.allows(item.scope))
-        .filter(|item| req.kinds.is_empty() || req.kinds.contains(&item.kind))
-        .filter(|item| req.statuses.is_empty() || req.statuses.contains(&item.status))
-        .filter(|item| req.stages.is_empty() || req.stages.contains(&item.stage))
-        .filter(|item| {
+        .filter(|entry| req.scopes.is_empty() || req.scopes.contains(&entry.item.scope))
+        .filter(|entry| plan.allows(entry.item.scope))
+        .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
+        .filter(|entry| req.statuses.is_empty() || req.statuses.contains(&entry.item.status))
+        .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
+        .filter(|entry| {
             req.project
                 .as_ref()
-                .is_none_or(|project| item.project.as_ref() == Some(project))
+                .is_none_or(|project| entry.item.project.as_ref() == Some(project))
         })
-        .filter(|item| {
+        .filter(|entry| {
             req.namespace
                 .as_ref()
-                .is_none_or(|namespace| item.namespace.as_ref() == Some(namespace))
+                .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
         })
-        .filter(|item| {
+        .filter(|entry| {
             req.source_agent
                 .as_ref()
-                .is_none_or(|agent| item.source_agent.as_ref() == Some(agent))
+                .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
         })
-        .filter(|item| {
+        .filter(|entry| {
             req.tags.is_empty()
                 || req
                     .tags
                     .iter()
-                    .all(|tag| item.tags.iter().any(|item_tag| item_tag == tag))
+                    .all(|tag| entry.item.tags.iter().any(|item_tag| item_tag == tag))
         })
-        .filter(|item| {
+        .filter(|entry| {
             query.as_ref().is_none_or(|query| {
-                item.content.to_ascii_lowercase().contains(query)
-                    || item
+                entry.item.content.to_ascii_lowercase().contains(query)
+                    || entry
+                        .item
                         .tags
                         .iter()
                         .any(|tag| tag.to_ascii_lowercase().contains(query))
@@ -620,21 +648,22 @@ fn filter_items(
         .collect();
 
     filtered.sort_by(|a, b| {
-        search_score(b, &query, plan)
-            .partial_cmp(&search_score(a, &query, plan))
+        search_score(&b.item, b.entity.as_ref(), &query, plan)
+            .partial_cmp(&search_score(&a.item, a.entity.as_ref(), &query, plan))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
-                b.confidence
-                    .partial_cmp(&a.confidence)
+                b.item
+                    .confidence
+                    .partial_cmp(&a.item.confidence)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .then_with(|| b.updated_at.cmp(&a.updated_at))
+            .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
     for item in &mut filtered {
-        item.content = compact_content(&item.content, max_chars);
+        item.item.content = compact_content(&item.item.content, max_chars);
     }
     filtered.truncate(limit);
-    filtered
+    filtered.into_iter().map(|entry| entry.item).collect()
 }
 
 fn compact_content(content: &str, max_chars: usize) -> String {
@@ -1084,7 +1113,12 @@ fn enum_label_status(status: MemoryStatus) -> &'static str {
     }
 }
 
-fn context_score(item: &MemoryItem, req: &ContextRequest, plan: &RetrievalPlan) -> f32 {
+fn context_score(
+    item: &MemoryItem,
+    entity: Option<&MemoryEntityRecord>,
+    req: &ContextRequest,
+    plan: &RetrievalPlan,
+) -> f32 {
     let mut score = item.confidence;
 
     score += match item.stage {
@@ -1094,6 +1128,7 @@ fn context_score(item: &MemoryItem, req: &ContextRequest, plan: &RetrievalPlan) 
 
     score += plan.scope_rank_bonus(item.scope);
     score += plan.intent_scope_bonus(item.scope);
+    score += entity_attention_bonus(item, entity);
 
     if let Some(project) = &req.project {
         if item.project.as_ref() == Some(project) {
@@ -1107,6 +1142,8 @@ fn context_score(item: &MemoryItem, req: &ContextRequest, plan: &RetrievalPlan) 
         }
     }
 
+    score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
+
     if item.status == MemoryStatus::Stale {
         score -= 1.5;
     }
@@ -1119,7 +1156,12 @@ fn context_score(item: &MemoryItem, req: &ContextRequest, plan: &RetrievalPlan) 
     score
 }
 
-fn search_score(item: &MemoryItem, query: &Option<String>, plan: &RetrievalPlan) -> f32 {
+fn search_score(
+    item: &MemoryItem,
+    entity: Option<&MemoryEntityRecord>,
+    query: &Option<String>,
+    plan: &RetrievalPlan,
+) -> f32 {
     let mut score = item.confidence;
 
     score += match item.stage {
@@ -1143,6 +1185,7 @@ fn search_score(item: &MemoryItem, query: &Option<String>, plan: &RetrievalPlan)
     };
     score += plan.scope_rank_bonus(item.scope) * 0.5;
     score += plan.intent_scope_bonus(item.scope) * 0.75;
+    score += entity_attention_bonus(item, entity) * 0.75;
 
     if let Some(query) = query {
         let content = item.content.to_ascii_lowercase();
@@ -1166,7 +1209,11 @@ fn age_penalty(updated_at: chrono::DateTime<Utc>) -> f32 {
     (age_days / 14.0).min(3.0)
 }
 
-fn inbox_score(item: &MemoryItem, plan: &RetrievalPlan) -> f32 {
+fn inbox_score(
+    item: &MemoryItem,
+    entity: Option<&MemoryEntityRecord>,
+    plan: &RetrievalPlan,
+) -> f32 {
     let mut score = item.confidence;
     score += plan.scope_rank_bonus(item.scope);
     score += plan.intent_scope_bonus(item.scope);
@@ -1181,8 +1228,65 @@ fn inbox_score(item: &MemoryItem, plan: &RetrievalPlan) -> f32 {
         MemoryStatus::Expired => 1.0,
         MemoryStatus::Active => 0.0,
     };
+    score += entity_attention_bonus(item, entity);
     score -= age_penalty(item.updated_at) * 0.75;
     score
+}
+
+fn entity_attention_bonus(item: &MemoryItem, entity: Option<&MemoryEntityRecord>) -> f32 {
+    let Some(entity) = entity else {
+        return 0.0;
+    };
+
+    let salience = entity.salience_score.clamp(0.0, 1.0);
+    let rehearsal = (entity.rehearsal_count as f32 + 1.0).ln_1p();
+    let recency = entity
+        .last_accessed_at
+        .map(|at| {
+            let age_days = (Utc::now() - at).num_days().max(0) as f32;
+            (1.0 - (age_days / 30.0)).clamp(0.0, 1.0)
+        })
+        .unwrap_or(0.0);
+    let state_alignment = entity
+        .context
+        .as_ref()
+        .map(|context| {
+            let mut bonus = 0.0;
+            if context.project.as_ref() == item.project.as_ref() {
+                bonus += 0.2;
+            }
+            if context.namespace.as_ref() == item.namespace.as_ref() {
+                bonus += 0.1;
+            }
+            if context.agent.as_ref() == item.source_agent.as_ref() {
+                bonus += 0.1;
+            }
+            bonus
+        })
+        .unwrap_or(0.0);
+
+    salience * 0.9 + rehearsal * 0.25 + recency * 0.25 + state_alignment
+}
+
+fn entity_context_bonus(
+    entity: Option<&MemoryEntityRecord>,
+    project: Option<&String>,
+    agent: Option<&String>,
+) -> f32 {
+    let Some(entity) = entity else {
+        return 0.0;
+    };
+
+    let mut bonus = 0.0;
+    if let Some(context) = &entity.context {
+        if context.project.as_ref() == project {
+            bonus += 0.35;
+        }
+        if context.agent.as_ref() == agent {
+            bonus += 0.2;
+        }
+    }
+    bonus
 }
 
 fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
