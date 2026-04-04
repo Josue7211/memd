@@ -8,6 +8,7 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
+    MemoryPolicyResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
@@ -157,6 +158,10 @@ impl MemdClient {
     ) -> anyhow::Result<MemoryMaintenanceReportResponse> {
         self.get_json_with_query("/memory/maintenance/report", req)
             .await
+    }
+
+    pub async fn policy(&self) -> anyhow::Result<MemoryPolicyResponse> {
+        self.get_json("/memory/policy").await
     }
 
     pub async fn agent_profile(

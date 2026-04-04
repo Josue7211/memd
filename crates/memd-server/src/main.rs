@@ -1,6 +1,9 @@
+mod inspection;
 mod keys;
+mod repair;
 mod routing;
 mod store;
+mod working;
 
 use std::collections::{HashSet, VecDeque};
 
@@ -20,17 +23,17 @@ use memd_schema::{
     CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
     ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
-    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
+    EntitySearchRequest, EntitySearchResponse, HealthResponse, InboxMemoryItem,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
     MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
-    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
-    WorkingMemoryTraceRecord,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
+    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
+    TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
+    ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -160,48 +163,6 @@ impl AppState {
         Ok((item, None))
     }
 
-    fn expire_item(&self, req: ExpireMemoryRequest) -> anyhow::Result<MemoryItem> {
-        let mut item = self
-            .store
-            .get(req.id)?
-            .ok_or_else(|| anyhow::anyhow!("memory item not found"))?;
-
-        item.status = req.status.unwrap_or(MemoryStatus::Expired);
-        item.updated_at = Utc::now();
-        let canonical_key = canonical_key(&item);
-        let redundancy_key = redundancy_key(&item);
-        let item = MemoryItem {
-            redundancy_key: Some(redundancy_key.clone()),
-            ..item
-        };
-        self.store.update(&item, &canonical_key, &redundancy_key)?;
-        let _ = self.record_item_event(&item, "expired", "memory item marked expired".to_string());
-        Ok(item)
-    }
-
-    fn verify_item(&self, req: VerifyMemoryRequest) -> anyhow::Result<MemoryItem> {
-        let mut item = self
-            .store
-            .get(req.id)?
-            .ok_or_else(|| anyhow::anyhow!("memory item not found"))?;
-
-        item.last_verified_at = Some(Utc::now());
-        if let Some(confidence) = req.confidence {
-            item.confidence = confidence.clamp(0.0, 1.0);
-        }
-        item.status = req.status.unwrap_or(MemoryStatus::Active);
-        item.updated_at = Utc::now();
-        let canonical_key = canonical_key(&item);
-        let redundancy_key = redundancy_key(&item);
-        let item = MemoryItem {
-            redundancy_key: Some(redundancy_key.clone()),
-            ..item
-        };
-        self.store.update(&item, &canonical_key, &redundancy_key)?;
-        let _ = self.record_item_event(&item, "verified", "memory item reverified".to_string());
-        Ok(item)
-    }
-
     fn record_item_event(
         &self,
         item: &MemoryItem,
@@ -265,6 +226,7 @@ async fn main() {
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
+        .route("/memory/policy", get(get_memory_policy))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
@@ -357,7 +319,7 @@ async fn expire_memory(
     State(state): State<AppState>,
     Json(req): Json<ExpireMemoryRequest>,
 ) -> Result<Json<ExpireMemoryResponse>, (StatusCode, String)> {
-    let item = state.expire_item(req).map_err(internal_error)?;
+    let item = repair::expire_item(&state, req)?;
     Ok(Json(ExpireMemoryResponse { item }))
 }
 
@@ -365,8 +327,28 @@ async fn verify_memory(
     State(state): State<AppState>,
     Json(req): Json<VerifyMemoryRequest>,
 ) -> Result<Json<VerifyMemoryResponse>, (StatusCode, String)> {
-    let item = state.verify_item(req).map_err(internal_error)?;
+    let item = repair::verify_item(&state, req)?;
     Ok(Json(VerifyMemoryResponse { item }))
+}
+
+async fn get_working_memory(
+    State(state): State<AppState>,
+    Query(req): Query<WorkingMemoryRequest>,
+) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
+    let response = working::working_memory(&state, req)?;
+    Ok(Json(response))
+}
+
+async fn get_explain(
+    State(state): State<AppState>,
+    Query(req): Query<ExplainMemoryRequest>,
+) -> Result<Json<ExplainMemoryResponse>, (StatusCode, String)> {
+    let response = inspection::explain_memory(&state, req)?;
+    Ok(Json(response))
+}
+
+async fn get_memory_policy() -> Json<MemoryPolicyResponse> {
+    Json(working::memory_policy_snapshot())
 }
 
 async fn search_memory(
@@ -419,84 +401,6 @@ async fn get_compact_context(
         intent: plan.intent,
         retrieval_order,
         records,
-    }))
-}
-
-async fn get_working_memory(
-    State(state): State<AppState>,
-    Query(req): Query<WorkingMemoryRequest>,
-) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
-    let req = apply_working_profile_defaults(&state, req).map_err(internal_error)?;
-    let compact_req = ContextRequest {
-        project: req.project.clone(),
-        agent: req.agent.clone(),
-        route: req.route,
-        intent: req.intent,
-        limit: req.limit,
-        max_chars_per_item: req.max_chars_per_item,
-    };
-    let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
-    let selected_items = items;
-
-    let budget_chars = req.max_total_chars.unwrap_or(1600).clamp(400, 8000);
-    let max_chars_per_item = req.max_chars_per_item.unwrap_or(220).clamp(80, 2000);
-    let mut used_chars = 0usize;
-    let mut truncated = false;
-    let mut records = Vec::new();
-
-    for item in &selected_items {
-        let mut record = compact_record(item);
-        if record.chars().count() > max_chars_per_item {
-            record = record
-                .chars()
-                .take(max_chars_per_item.saturating_sub(3))
-                .collect();
-            record.push_str("...");
-        }
-        let record_chars = record.chars().count();
-        if used_chars + record_chars > budget_chars {
-            truncated = true;
-            break;
-        }
-        used_chars += record_chars;
-        records.push(CompactMemoryRecord {
-            id: item.id,
-            record,
-        });
-    }
-
-    let traces = working_traces_for_items(&state, &selected_items, 3).map_err(internal_error)?;
-    let semantic_consolidation = if req.auto_consolidate.unwrap_or(false) {
-        let auto_request = MemoryConsolidationRequest {
-            project: req.project.clone(),
-            namespace: req.agent.clone(),
-            max_groups: Some(8),
-            min_events: Some(3),
-            lookback_days: Some(14),
-            min_salience: Some(0.22),
-            record_events: Some(true),
-        };
-        Some(
-            state
-                .consolidate_semantic_memory(&auto_request)
-                .map_err(internal_error)?,
-        )
-    } else {
-        None
-    };
-
-    Ok(Json(WorkingMemoryResponse {
-        route: plan.route,
-        intent: plan.intent,
-        retrieval_order,
-        budget_chars,
-        used_chars,
-        remaining_chars: budget_chars.saturating_sub(used_chars),
-        truncated,
-        records,
-        traces,
-        semantic_consolidation,
     }))
 }
 
@@ -698,45 +602,6 @@ async fn get_timeline(
     Ok(Json(TimelineMemoryResponse {
         route: plan.route,
         intent: plan.intent,
-        entity,
-        events,
-    }))
-}
-
-async fn get_explain(
-    State(state): State<AppState>,
-    Query(req): Query<ExplainMemoryRequest>,
-) -> Result<Json<ExplainMemoryResponse>, (StatusCode, String)> {
-    let plan = RetrievalPlan::resolve(req.route, req.intent);
-    let item = state
-        .store
-        .get(req.id)
-        .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
-
-    let reasons = explain_reasons(&item, &plan);
-    let canonical = canonical_key(&item);
-    let redundancy = redundancy_key(&item);
-    state.rehearse_item(req.id, 0.06).map_err(internal_error)?;
-    let entity = state
-        .store
-        .entity_for_item(item.id)
-        .map_err(internal_error)?;
-    let events = match &entity {
-        Some(entity) => state
-            .store
-            .events_for_entity(entity.id, 8)
-            .map_err(internal_error)?,
-        None => Vec::new(),
-    };
-
-    Ok(Json(ExplainMemoryResponse {
-        route: plan.route,
-        intent: plan.intent,
-        item,
-        canonical_key: canonical,
-        redundancy_key: redundancy,
-        reasons,
         entity,
         events,
     }))
@@ -1110,29 +975,6 @@ fn enrich_with_entities(
         .collect()
 }
 
-fn working_traces_for_items(
-    state: &AppState,
-    items: &[MemoryItem],
-    limit: usize,
-) -> anyhow::Result<Vec<WorkingMemoryTraceRecord>> {
-    let mut traces = Vec::new();
-    for item in items.iter().take(limit) {
-        let (entity, events) = state.entity_view(item.id, 1)?;
-        let Some(event) = events.first() else {
-            continue;
-        };
-        traces.push(WorkingMemoryTraceRecord {
-            item_id: item.id,
-            entity_id: entity.as_ref().map(|entity| entity.id),
-            event_type: event.event_type.clone(),
-            summary: event.summary.clone(),
-            occurred_at: event.occurred_at,
-            salience_score: event.salience_score,
-        });
-    }
-    Ok(traces)
-}
-
 fn build_context(
     state: &AppState,
     req: &ContextRequest,
@@ -1205,40 +1047,6 @@ fn apply_agent_profile_defaults(
         }
         if req.max_chars_per_item.is_none() {
             req.max_chars_per_item = profile.summary_chars;
-        }
-        if req.limit.is_none() && profile.recall_depth.is_some() {
-            req.limit = profile.recall_depth;
-        }
-    }
-
-    Ok(req)
-}
-
-fn apply_working_profile_defaults(
-    state: &AppState,
-    mut req: WorkingMemoryRequest,
-) -> anyhow::Result<WorkingMemoryRequest> {
-    let Some(agent) = req.agent.clone() else {
-        return Ok(req);
-    };
-
-    let profile = state.store.agent_profile(&AgentProfileRequest {
-        agent,
-        project: req.project.clone(),
-        namespace: None,
-    })?;
-    if let Some(profile) = profile {
-        if req.route.is_none() {
-            req.route = profile.preferred_route;
-        }
-        if req.intent.is_none() {
-            req.intent = profile.preferred_intent;
-        }
-        if req.max_chars_per_item.is_none() {
-            req.max_chars_per_item = profile.summary_chars;
-        }
-        if req.max_total_chars.is_none() {
-            req.max_total_chars = profile.max_total_chars;
         }
         if req.limit.is_none() && profile.recall_depth.is_some() {
             req.limit = profile.recall_depth;
@@ -2082,92 +1890,4 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
         reasons.push("ttl".to_string());
     }
     reasons
-}
-
-fn explain_reasons(item: &MemoryItem, plan: &RetrievalPlan) -> Vec<String> {
-    let mut reasons = Vec::new();
-    reasons.push(format!("route={}", format_route(plan.route)));
-    reasons.push(format!("intent={}", format_intent(plan.intent)));
-    reasons.push(format!("scope={}", format_scope(item.scope)));
-    reasons.push(format!("stage={}", format_stage(item.stage)));
-    reasons.push(format!("status={}", format_status(item.status)));
-    if let Some(project) = &item.project {
-        reasons.push(format!("project={project}"));
-    }
-    if let Some(namespace) = &item.namespace {
-        reasons.push(format!("namespace={namespace}"));
-    }
-    if let Some(agent) = &item.source_agent {
-        reasons.push(format!("source_agent={agent}"));
-    }
-    if let Some(path) = &item.source_path {
-        reasons.push(format!("source_path={path}"));
-    }
-    if let Some(key) = &item.redundancy_key {
-        reasons.push(format!("redundancy_key={key}"));
-    }
-    if !item.supersedes.is_empty() {
-        reasons.push(format!("supersedes={}", item.supersedes.len()));
-    }
-    if item.status == MemoryStatus::Stale {
-        reasons.push("needs_verification".to_string());
-    }
-    if item.stage == MemoryStage::Candidate {
-        reasons.push("candidate_memory".to_string());
-    }
-    reasons
-}
-
-fn format_route(route: memd_schema::RetrievalRoute) -> &'static str {
-    match route {
-        memd_schema::RetrievalRoute::Auto => "auto",
-        memd_schema::RetrievalRoute::LocalOnly => "local_only",
-        memd_schema::RetrievalRoute::SyncedOnly => "synced_only",
-        memd_schema::RetrievalRoute::ProjectOnly => "project_only",
-        memd_schema::RetrievalRoute::GlobalOnly => "global_only",
-        memd_schema::RetrievalRoute::LocalFirst => "local_first",
-        memd_schema::RetrievalRoute::SyncedFirst => "synced_first",
-        memd_schema::RetrievalRoute::ProjectFirst => "project_first",
-        memd_schema::RetrievalRoute::GlobalFirst => "global_first",
-        memd_schema::RetrievalRoute::All => "all",
-    }
-}
-
-fn format_intent(intent: memd_schema::RetrievalIntent) -> &'static str {
-    match intent {
-        memd_schema::RetrievalIntent::General => "general",
-        memd_schema::RetrievalIntent::CurrentTask => "current_task",
-        memd_schema::RetrievalIntent::Decision => "decision",
-        memd_schema::RetrievalIntent::Runbook => "runbook",
-        memd_schema::RetrievalIntent::Topology => "topology",
-        memd_schema::RetrievalIntent::Preference => "preference",
-        memd_schema::RetrievalIntent::Fact => "fact",
-        memd_schema::RetrievalIntent::Pattern => "pattern",
-    }
-}
-
-fn format_scope(scope: MemoryScope) -> &'static str {
-    match scope {
-        MemoryScope::Local => "local",
-        MemoryScope::Synced => "synced",
-        MemoryScope::Project => "project",
-        MemoryScope::Global => "global",
-    }
-}
-
-fn format_stage(stage: MemoryStage) -> &'static str {
-    match stage {
-        MemoryStage::Candidate => "candidate",
-        MemoryStage::Canonical => "canonical",
-    }
-}
-
-fn format_status(status: MemoryStatus) -> &'static str {
-    match status {
-        MemoryStatus::Active => "active",
-        MemoryStatus::Stale => "stale",
-        MemoryStatus::Superseded => "superseded",
-        MemoryStatus::Contested => "contested",
-        MemoryStatus::Expired => "expired",
-    }
 }

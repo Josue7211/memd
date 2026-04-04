@@ -1,0 +1,565 @@
+use memd_schema::{
+    AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, RetrievalIntent,
+    RetrievalRoute, SourceMemoryResponse, WorkingMemoryResponse,
+};
+
+use crate::obsidian::ObsidianVaultScan;
+
+pub(crate) fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
+    let mut summary = format!(
+        "obsidian_scan vault={} notes={} sensitive={} skipped={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={}",
+        scan.vault.display(),
+        scan.note_count,
+        scan.sensitive_count,
+        scan.skipped_count,
+        scan.unchanged_count,
+        scan.backlink_count,
+        scan.attachment_count,
+        scan.attachment_sensitive_count,
+        scan.attachment_unchanged_count
+    );
+
+    if follow {
+        let trail = scan
+            .notes
+            .iter()
+            .take(3)
+            .map(|note| note.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !trail.is_empty() {
+            summary.push_str(&format!(" trail={trail}"));
+        }
+    }
+
+    summary
+}
+
+pub(crate) fn render_obsidian_import_summary(
+    output: &crate::ObsidianImportOutput,
+    follow: bool,
+) -> String {
+    let attachment_submitted = output
+        .attachments
+        .as_ref()
+        .map(|attachments| attachments.submitted)
+        .unwrap_or(0);
+    let mut summary = format!(
+        "obsidian_import vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} note_failures={} attachment_failures={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
+        output.preview.scan.vault.display(),
+        output.preview.scan.note_count,
+        output.preview.scan.sensitive_count,
+        output.preview.scan.unchanged_count,
+        output.preview.scan.backlink_count,
+        output.preview.scan.attachment_count,
+        output.preview.scan.attachment_sensitive_count,
+        output.attachment_unchanged_count,
+        output.submitted,
+        attachment_submitted,
+        output.duplicates,
+        output.attachment_duplicates,
+        output.note_failures,
+        output.attachment_failures,
+        output.links_created,
+        output.attachment_links_created,
+        output.mirrored_notes,
+        output.mirrored_attachments,
+        output.dry_run
+    );
+    if follow {
+        let trail = output
+            .preview
+            .scan
+            .notes
+            .iter()
+            .take(3)
+            .map(|note| note.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !trail.is_empty() {
+            summary.push_str(&format!(" trail={trail}"));
+        }
+    }
+    if let Some(attachments) = output.attachments.as_ref() {
+        summary.push_str(&format!(
+            " attachments_submitted={} attachments_dry_run={}",
+            attachments.submitted, attachments.dry_run
+        ));
+    }
+    summary
+}
+
+pub(crate) fn render_entity_summary(
+    response: &memd_schema::EntityMemoryResponse,
+    follow: bool,
+) -> String {
+    let Some(entity) = response.entity.as_ref() else {
+        return format!(
+            "entity=none route={} intent={}",
+            route_label(response.route),
+            intent_label(response.intent)
+        );
+    };
+
+    let state = entity
+        .current_state
+        .as_deref()
+        .map(|value| compact_inline(value, 72))
+        .unwrap_or_else(|| "no-state".to_string());
+    let last_seen = entity
+        .last_seen_at
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let mut output = format!(
+        "entity={} type={} salience={:.2} rehearsal={} state_v={} last_seen={} state=\"{}\" events={}",
+        short_uuid(entity.id),
+        entity.entity_type,
+        entity.salience_score,
+        entity.rehearsal_count,
+        entity.state_version,
+        last_seen,
+        state,
+        response.events.len()
+    );
+
+    if follow && let Some(event) = response.events.first() {
+        output.push_str(&format!(
+            " latest={}::{}",
+            event.event_type,
+            compact_inline(&event.summary, 48)
+        ));
+    }
+
+    output
+}
+
+pub(crate) fn render_entity_search_summary(response: &EntitySearchResponse, follow: bool) -> String {
+    let mut output = format!(
+        "entity-search query=\"{}\" candidates={} ambiguous={}",
+        compact_inline(&response.query, 48),
+        response.candidates.len(),
+        response.ambiguous
+    );
+
+    if let Some(best) = response.best_match.as_ref() {
+        output.push_str(&format!(
+            " best={} type={} score={:.2} reasons={}",
+            short_uuid(best.entity.id),
+            best.entity.entity_type,
+            best.score,
+            compact_inline(&best.reasons.join(","), 64)
+        ));
+    }
+
+    if follow {
+        let trail = response
+            .candidates
+            .iter()
+            .take(3)
+            .map(|candidate| {
+                format!(
+                    "{}:{}:{:.2}",
+                    short_uuid(candidate.entity.id),
+                    candidate.entity.entity_type,
+                    candidate.score
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_recall_summary(response: &AssociativeRecallResponse, follow: bool) -> String {
+    let root = response
+        .root_entity
+        .as_ref()
+        .map(|entity| format!("root={} type={}", short_uuid(entity.id), entity.entity_type))
+        .unwrap_or_else(|| "root=none".to_string());
+
+    let mut output = format!(
+        "recall {} hits={} links={} truncated={}",
+        root,
+        response.hits.len(),
+        response.links.len(),
+        response.truncated
+    );
+
+    if follow {
+        let hit_trail = response
+            .hits
+            .iter()
+            .take(3)
+            .map(|hit| {
+                format!(
+                    "d{}:{}:{:.2}:{}",
+                    hit.depth,
+                    short_uuid(hit.entity.id),
+                    hit.score,
+                    compact_inline(
+                        hit.entity
+                            .current_state
+                            .as_deref()
+                            .unwrap_or(&hit.entity.entity_type),
+                        28
+                    )
+                )
+            })
+            .collect::<Vec<_>>();
+        if !hit_trail.is_empty() {
+            output.push_str(&format!(" trail={}", hit_trail.join(" | ")));
+        }
+
+        let link_trail = response
+            .links
+            .iter()
+            .take(3)
+            .map(|link| {
+                format!(
+                    "{}:{}->{}",
+                    format!("{:?}", link.relation_kind).to_ascii_lowercase(),
+                    short_uuid(link.from_entity_id),
+                    short_uuid(link.to_entity_id)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !link_trail.is_empty() {
+            output.push_str(&format!(" links={}", link_trail.join(" | ")));
+        }
+
+        if let Some(best) = response.hits.first() {
+            output.push_str(&format!(
+                " best_score={:.2} best_reasons={}",
+                best.score,
+                compact_inline(&best.reasons.join(","), 72)
+            ));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_timeline_summary(
+    response: &memd_schema::TimelineMemoryResponse,
+    follow: bool,
+) -> String {
+    let entity = response
+        .entity
+        .as_ref()
+        .map(|entity| {
+            format!(
+                "entity={} type={}",
+                short_uuid(entity.id),
+                entity.entity_type
+            )
+        })
+        .unwrap_or_else(|| "entity=none".to_string());
+    let latest = response
+        .events
+        .first()
+        .map(|event| {
+            format!(
+                "{}:{}",
+                event.event_type,
+                compact_inline(&event.summary, 56)
+            )
+        })
+        .unwrap_or_else(|| "no-events".to_string());
+
+    let mut output = format!(
+        "timeline {} route={} intent={} events={} latest={}",
+        entity,
+        route_label(response.route),
+        intent_label(response.intent),
+        response.events.len(),
+        latest
+    );
+
+    if follow {
+        let trail = response
+            .events
+            .iter()
+            .take(3)
+            .map(|event| {
+                format!(
+                    "{}:{}",
+                    event.event_type,
+                    compact_inline(&event.summary, 40)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> String {
+    let mut output = format!(
+        "working route={} intent={} budget={} used={} remaining={} truncated={} records={} evicted={} rehydrate={} traces={} semantic={}",
+        route_label(response.route),
+        intent_label(response.intent),
+        response.budget_chars,
+        response.used_chars,
+        response.remaining_chars,
+        response.truncated,
+        response.records.len(),
+        response.evicted.len(),
+        response.rehydration_queue.len(),
+        response.traces.len(),
+        response
+            .semantic_consolidation
+            .as_ref()
+            .map(|value| value.consolidated.to_string())
+            .unwrap_or_else(|| "off".to_string())
+    );
+
+    if follow {
+        let trail = response
+            .records
+            .iter()
+            .take(3)
+            .map(|record| compact_inline(&record.record, 48))
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+
+        let trace_trail = response
+            .traces
+            .iter()
+            .take(3)
+            .map(|trace| {
+                format!(
+                    "{}:{}",
+                    trace.event_type,
+                    compact_inline(&trace.summary, 40)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trace_trail.is_empty() {
+            output.push_str(&format!(" trace_trail={}", trace_trail.join(" | ")));
+        }
+
+        let rehydrate_trail = response
+            .rehydration_queue
+            .iter()
+            .take(3)
+            .map(|entry| compact_inline(&entry.record, 40))
+            .collect::<Vec<_>>();
+        if !rehydrate_trail.is_empty() {
+            output.push_str(&format!(" rehydrate_trail={}", rehydrate_trail.join(" | ")));
+        }
+
+        if let Some(semantic) = response.semantic_consolidation.as_ref() {
+            let trail = semantic
+                .highlights
+                .iter()
+                .take(3)
+                .map(|value| compact_inline(value, 40))
+                .collect::<Vec<_>>();
+            if !trail.is_empty() {
+                output.push_str(&format!(" semantic_trail={}", trail.join(" | ")));
+            }
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_profile_summary(response: &AgentProfileResponse, follow: bool) -> String {
+    let Some(profile) = response.profile.as_ref() else {
+        return "profile=none".to_string();
+    };
+
+    let mut output = format!(
+        "profile agent={} project={} namespace={} route={} intent={} summary_chars={} max_total_chars={} recall_depth={} trust_floor={} styles={}",
+        profile.agent,
+        profile.project.as_deref().unwrap_or("none"),
+        profile.namespace.as_deref().unwrap_or("none"),
+        profile.preferred_route.map(route_label).unwrap_or("none"),
+        profile.preferred_intent.map(intent_label).unwrap_or("none"),
+        profile
+            .summary_chars
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .max_total_chars
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .recall_depth
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        profile
+            .source_trust_floor
+            .map(|value| format!("{value:.2}"))
+            .unwrap_or_else(|| "none".to_string()),
+        if profile.style_tags.is_empty() {
+            "none".to_string()
+        } else {
+            profile.style_tags.join("|")
+        }
+    );
+
+    if follow {
+        if let Some(notes) = profile.notes.as_ref() {
+            output.push_str(&format!(" notes={}", compact_inline(notes, 72)));
+        }
+        output.push_str(&format!(
+            " created={} updated={}",
+            profile.created_at.to_rfc3339(),
+            profile.updated_at.to_rfc3339()
+        ));
+    }
+
+    output
+}
+
+pub(crate) fn render_source_summary(response: &SourceMemoryResponse, follow: bool) -> String {
+    let mut output = format!("source_memory sources={}", response.sources.len());
+
+    if let Some(best) = response.sources.first() {
+        output.push_str(&format!(
+            " top={} system={} project={} namespace={} items={} trust={:.2} avg_confidence={:.2}",
+            best.source_agent.as_deref().unwrap_or("none"),
+            best.source_system.as_deref().unwrap_or("none"),
+            best.project.as_deref().unwrap_or("none"),
+            best.namespace.as_deref().unwrap_or("none"),
+            best.item_count,
+            best.trust_score,
+            best.avg_confidence
+        ));
+    }
+
+    if follow {
+        let trail = response
+            .sources
+            .iter()
+            .take(3)
+            .map(|source| {
+                format!(
+                    "{}:{}:{}:{:.2}",
+                    source.source_agent.as_deref().unwrap_or("none"),
+                    source.source_system.as_deref().unwrap_or("none"),
+                    source.item_count,
+                    source.trust_score
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+        if let Some(best) = response.sources.first()
+            && !best.tags.is_empty()
+        {
+            output.push_str(&format!(" tags={}", best.tags.join("|")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_consolidate_summary(
+    response: &memd_schema::MemoryConsolidationResponse,
+    follow: bool,
+) -> String {
+    let mut output = format!(
+        "consolidate scanned={} groups={} consolidated={} duplicates={} events={}",
+        response.scanned,
+        response.groups,
+        response.consolidated,
+        response.duplicates,
+        response.events
+    );
+
+    if follow && !response.highlights.is_empty() {
+        let highlights = response
+            .highlights
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 40))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" trail={}", highlights.join(" | ")));
+    }
+
+    output
+}
+
+pub(crate) fn render_maintenance_report_summary(
+    response: &memd_schema::MemoryMaintenanceReportResponse,
+    follow: bool,
+) -> String {
+    let mut output = format!(
+        "maintenance reinforced={} cooled={} consolidated={} stale={} skipped={}",
+        response.reinforced_candidates,
+        response.cooled_candidates,
+        response.consolidated_candidates,
+        response.stale_items,
+        response.skipped
+    );
+
+    if follow && !response.highlights.is_empty() {
+        let highlights = response
+            .highlights
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 40))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" trail={}", highlights.join(" | ")));
+    }
+
+    output
+}
+
+fn compact_inline(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+
+    let mut compact = String::with_capacity(max_chars + 3);
+    for ch in normalized.chars().take(max_chars.saturating_sub(3)) {
+        compact.push(ch);
+    }
+    compact.push_str("...");
+    compact
+}
+
+pub(crate) fn short_uuid(id: uuid::Uuid) -> String {
+    id.to_string().chars().take(8).collect()
+}
+
+fn route_label(route: RetrievalRoute) -> &'static str {
+    match route {
+        RetrievalRoute::Auto => "auto",
+        RetrievalRoute::LocalOnly => "local_only",
+        RetrievalRoute::SyncedOnly => "synced_only",
+        RetrievalRoute::ProjectOnly => "project_only",
+        RetrievalRoute::GlobalOnly => "global_only",
+        RetrievalRoute::LocalFirst => "local_first",
+        RetrievalRoute::SyncedFirst => "synced_first",
+        RetrievalRoute::ProjectFirst => "project_first",
+        RetrievalRoute::GlobalFirst => "global_first",
+        RetrievalRoute::All => "all",
+    }
+}
+
+fn intent_label(intent: RetrievalIntent) -> &'static str {
+    match intent {
+        RetrievalIntent::General => "general",
+        RetrievalIntent::CurrentTask => "current_task",
+        RetrievalIntent::Decision => "decision",
+        RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Topology => "topology",
+        RetrievalIntent::Preference => "preference",
+        RetrievalIntent::Fact => "fact",
+        RetrievalIntent::Pattern => "pattern",
+    }
+}

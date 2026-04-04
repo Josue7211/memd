@@ -255,6 +255,7 @@ pub struct WorkingMemoryRequest {
     pub limit: Option<usize>,
     pub max_chars_per_item: Option<usize>,
     pub max_total_chars: Option<usize>,
+    pub rehydration_limit: Option<usize>,
     pub auto_consolidate: Option<bool>,
 }
 
@@ -267,9 +268,34 @@ pub struct WorkingMemoryResponse {
     pub used_chars: usize,
     pub remaining_chars: usize,
     pub truncated: bool,
+    pub policy: WorkingMemoryPolicyState,
     pub records: Vec<CompactMemoryRecord>,
+    pub evicted: Vec<WorkingMemoryEvictionRecord>,
+    pub rehydration_queue: Vec<WorkingMemoryRehydrationRecord>,
     pub traces: Vec<WorkingMemoryTraceRecord>,
     pub semantic_consolidation: Option<MemoryConsolidationResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryPolicyState {
+    pub admission_limit: usize,
+    pub max_chars_per_item: usize,
+    pub budget_chars: usize,
+    pub rehydration_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryEvictionRecord {
+    pub id: Uuid,
+    pub record: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryRehydrationRecord {
+    pub id: Uuid,
+    pub record: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -634,6 +660,54 @@ pub struct MemoryMaintenanceReportResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyResponse {
+    pub retrieval_order: Vec<MemoryScope>,
+    pub route_defaults: Vec<MemoryPolicyRouteDefault>,
+    pub working_memory: MemoryPolicyWorkingMemory,
+    pub promotion: MemoryPolicyPromotion,
+    pub decay: MemoryPolicyDecay,
+    pub consolidation: MemoryPolicyConsolidation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyRouteDefault {
+    pub intent: RetrievalIntent,
+    pub route: RetrievalRoute,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyWorkingMemory {
+    pub budget_chars: usize,
+    pub max_chars_per_item: usize,
+    pub default_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyPromotion {
+    pub min_salience: f32,
+    pub min_events: usize,
+    pub lookback_days: i64,
+    pub default_ttl_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyDecay {
+    pub max_items: usize,
+    pub inactive_days: i64,
+    pub max_decay: f32,
+    pub record_events: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyConsolidation {
+    pub max_groups: usize,
+    pub min_events: usize,
+    pub lookback_days: i64,
+    pub min_salience: f32,
+    pub record_events: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,
     pub intent: RetrievalIntent,
@@ -643,6 +717,7 @@ pub struct ExplainMemoryResponse {
     pub reasons: Vec<String>,
     pub entity: Option<MemoryEntityRecord>,
     pub events: Vec<MemoryEventRecord>,
+    pub sources: Vec<SourceMemoryRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1037,6 +1112,59 @@ mod tests {
     }
 
     #[test]
+    fn policy_response_roundtrips() {
+        let response = MemoryPolicyResponse {
+            retrieval_order: vec![
+                MemoryScope::Local,
+                MemoryScope::Synced,
+                MemoryScope::Project,
+                MemoryScope::Global,
+            ],
+            route_defaults: vec![
+                MemoryPolicyRouteDefault {
+                    intent: RetrievalIntent::CurrentTask,
+                    route: RetrievalRoute::LocalFirst,
+                },
+                MemoryPolicyRouteDefault {
+                    intent: RetrievalIntent::Preference,
+                    route: RetrievalRoute::GlobalFirst,
+                },
+            ],
+            working_memory: MemoryPolicyWorkingMemory {
+                budget_chars: 1600,
+                max_chars_per_item: 220,
+                default_limit: 8,
+            },
+            promotion: MemoryPolicyPromotion {
+                min_salience: 0.22,
+                min_events: 3,
+                lookback_days: 14,
+                default_ttl_days: 90,
+            },
+            decay: MemoryPolicyDecay {
+                max_items: 128,
+                inactive_days: 21,
+                max_decay: 0.12,
+                record_events: true,
+            },
+            consolidation: MemoryPolicyConsolidation {
+                max_groups: 24,
+                min_events: 3,
+                lookback_days: 14,
+                min_salience: 0.22,
+                record_events: true,
+            },
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: MemoryPolicyResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.retrieval_order, response.retrieval_order);
+        assert_eq!(decoded.working_memory.default_limit, 8);
+        assert_eq!(decoded.decay.max_decay, 0.12);
+        assert_eq!(decoded.consolidation.max_groups, 24);
+    }
+
+    #[test]
     fn working_memory_roundtrips() {
         let request = WorkingMemoryRequest {
             project: Some("memd".to_string()),
@@ -1046,6 +1174,7 @@ mod tests {
             limit: Some(4),
             max_chars_per_item: Some(180),
             max_total_chars: Some(900),
+            rehydration_limit: Some(2),
             auto_consolidate: Some(true),
         };
 
@@ -1057,9 +1186,25 @@ mod tests {
             used_chars: 612,
             remaining_chars: 288,
             truncated: false,
+            policy: WorkingMemoryPolicyState {
+                admission_limit: 4,
+                max_chars_per_item: 180,
+                budget_chars: 900,
+                rehydration_limit: 2,
+            },
             records: vec![CompactMemoryRecord {
                 id: Uuid::new_v4(),
                 record: "focus on the working set".to_string(),
+            }],
+            evicted: vec![WorkingMemoryEvictionRecord {
+                id: Uuid::new_v4(),
+                record: "older context left the hot set".to_string(),
+                reason: "evicted_by_budget".to_string(),
+            }],
+            rehydration_queue: vec![WorkingMemoryRehydrationRecord {
+                id: Uuid::new_v4(),
+                record: "older context left the hot set".to_string(),
+                reason: "evicted_by_budget".to_string(),
             }],
             traces: vec![WorkingMemoryTraceRecord {
                 item_id: Uuid::new_v4(),
@@ -1084,8 +1229,12 @@ mod tests {
         let decoded_request: WorkingMemoryRequest = serde_json::from_str(&request_json).unwrap();
         let decoded_response: WorkingMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.limit, request.limit);
+        assert_eq!(decoded_request.rehydration_limit, request.rehydration_limit);
         assert_eq!(decoded_response.budget_chars, response.budget_chars);
+        assert_eq!(decoded_response.policy.admission_limit, 4);
         assert_eq!(decoded_response.records.len(), 1);
+        assert_eq!(decoded_response.evicted.len(), 1);
+        assert_eq!(decoded_response.rehydration_queue.len(), 1);
         assert_eq!(decoded_response.traces.len(), 1);
         assert_eq!(decoded_response.semantic_consolidation.is_some(), true);
     }

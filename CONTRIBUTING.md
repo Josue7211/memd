@@ -4,10 +4,19 @@ Thanks for helping improve `memd`.
 
 ## Local Workflow
 
+- work on a dedicated branch
 - run `cargo fmt --all`
 - run `cargo test`
 - keep changes small and scoped
 - update docs when behavior changes
+
+## Branch and Release
+
+See [Release Process](./docs/release-process.md) for branch-first workflow,
+version history, and release conventions.
+See [Branching Model](./docs/branching.md) for branch naming and commit
+discipline.
+See [Code of Conduct](./CODE_OF_CONDUCT.md) for project interaction standards.
 
 ## What We Care About
 
@@ -32,6 +41,7 @@ Please include:
 - a short summary of the change
 - tests, if behavior changed
 - doc updates for new public behavior
+- the branch name and what phase or scope it belongs to
 
 ## Design Rule
 

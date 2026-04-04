@@ -1,4 +1,6 @@
 mod obsidian;
+mod commands;
+mod render;
 
 use std::{
     fs,
@@ -19,21 +21,29 @@ use memd_multimodal::{
 };
 use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
 use memd_schema::{
-    AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
-    AssociativeRecallResponse, CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop,
-    CompactionPacket, CompactionReference, CompactionSession, CompactionSpillOptions,
-    CompactionSpillResult, ContextRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExplainMemoryRequest,
-    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
-    SourceMemoryResponse, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
-    WorkingMemoryResponse,
+    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest, CandidateMemoryRequest,
+    CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
+    CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
+    EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
+    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest, StoreMemoryRequest,
+    VerifyMemoryRequest, WorkingMemoryRequest, EntitySearchRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use obsidian::{ObsidianImportPreview, ObsidianSyncEntry, ObsidianVaultScan};
-use serde::Serialize;
+use obsidian::{ObsidianImportPreview, ObsidianSyncEntry};
+use commands::{
+    parse_entity_relation_kind, parse_memory_kind_value, parse_memory_scope_value,
+    parse_retrieval_intent, parse_retrieval_route, parse_source_quality_value, parse_uuid_list,
+};
+use render::{
+    render_consolidate_summary, render_entity_search_summary, render_entity_summary,
+    render_maintenance_report_summary, render_obsidian_import_summary,
+    render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
+    render_source_summary, render_timeline_summary, render_working_summary, short_uuid,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(name = "memd")]
@@ -74,6 +84,7 @@ enum Commands {
     Timeline(TimelineArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
+    Policy,
     Compact(CompactArgs),
     Obsidian(ObsidianArgs),
     Hook(HookArgs),
@@ -141,6 +152,9 @@ struct WorkingArgs {
 
     #[arg(long)]
     max_total_chars: Option<usize>,
+
+    #[arg(long)]
+    rehydration_limit: Option<usize>,
 
     #[arg(long)]
     route: Option<String>,
@@ -888,10 +902,8 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", render_attach_snippet(&shell, &args.output)?);
         }
         Commands::Rag(args) => {
-            let rag_url = args
-                .rag_url
-                .or_else(|| std::env::var("MEMD_RAG_URL").ok())
-                .context("provide --rag-url or set MEMD_RAG_URL")?;
+            let rag_url =
+                resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
             let rag = RagClient::new(&rag_url)?;
             match args.mode {
                 RagMode::Healthz => print_json(&rag.healthz().await?)?,
@@ -919,10 +931,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Multimodal(args) => {
-            let rag_url = args
-                .rag_url
-                .or_else(|| std::env::var("MEMD_RAG_URL").ok())
-                .context("provide --rag-url or set MEMD_RAG_URL")?;
+            let rag_url =
+                resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
             let sidecar = SidecarClient::new(&rag_url)?;
             match args.mode {
                 MultimodalMode::Healthz => print_json(&sidecar.healthz().await?)?,
@@ -1039,6 +1049,7 @@ async fn main() -> anyhow::Result<()> {
                     limit: args.limit,
                     max_chars_per_item: args.max_chars_per_item,
                     max_total_chars: args.max_total_chars,
+                    rehydration_limit: args.rehydration_limit,
                     auto_consolidate: Some(args.auto_consolidate),
                 })
                 .await?;
@@ -1253,6 +1264,9 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&response)?;
             }
         }
+        Commands::Policy => {
+            print_json(&client.policy().await?)?;
+        }
         Commands::Compact(args) => {
             if args.spill && args.wire {
                 anyhow::bail!("use either --spill or --wire, not both");
@@ -1329,7 +1343,7 @@ async fn main() -> anyhow::Result<()> {
                         .iter()
                         .filter(|response| response.duplicate_of.is_some())
                         .count();
-                    if let Some(rag) = maybe_rag_client_from_env()? {
+                    if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
                     let submitted = responses.len();
@@ -1423,7 +1437,7 @@ async fn main() -> anyhow::Result<()> {
                         .iter()
                         .filter(|response| response.duplicate_of.is_some())
                         .count();
-                    if let Some(rag) = maybe_rag_client_from_env()? {
+                    if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
                     let submitted = responses.len();
@@ -1477,7 +1491,7 @@ async fn run_obsidian_import(
         return Ok(());
     }
     let (state_path, sync_state) = obsidian::load_sync_state(&args.vault, args.state_file.clone())?;
-    let (preview, candidates, changed_notes) =
+    let (preview, _candidates, changed_notes) =
         obsidian::build_import_preview(scan, &sync_state, state_path.clone());
     let (attachment_assets, attachment_unchanged_count) = if include_attachments {
         obsidian::partition_changed_attachments(&preview.scan.attachments, &sync_state)
@@ -1486,18 +1500,52 @@ async fn run_obsidian_import(
     };
 
     if apply {
-        let responses = client.candidate_batch(&candidates).await?;
         let mut next_state = sync_state.clone();
-        for (note, response) in changed_notes.iter().zip(&responses) {
+        let mut submitted = 0usize;
+        let mut duplicates = 0usize;
+        let mut note_failures = 0usize;
+        for note in &changed_notes {
+            let request = obsidian::build_note_request(
+                note,
+                args.project.clone(),
+                args.namespace.clone(),
+                preview.scan.vault.clone(),
+                next_state
+                    .entries
+                    .get(&note.relative_path)
+                    .and_then(|entry| entry.item_id),
+            );
+            let response = match client.candidate(&request).await {
+                Ok(response) => response,
+                Err(err) => {
+                    note_failures += 1;
+                    eprintln!(
+                        "obsidian note import failed for {}: {err:#}",
+                        note.relative_path
+                    );
+                    continue;
+                }
+            };
             let stored_id = response.duplicate_of.unwrap_or(response.item.id);
-            let entity = client
+            let entity_id = match client
                 .entity(&memd_schema::EntityMemoryRequest {
                     id: stored_id,
                     route: None,
                     intent: None,
                     limit: Some(4),
                 })
-                .await?;
+                .await
+            {
+                Ok(entity) => entity.entity.as_ref().map(|entity| entity.id),
+                Err(err) => {
+                    note_failures += 1;
+                    eprintln!(
+                        "obsidian entity lookup failed for {}: {err:#}",
+                        note.relative_path
+                    );
+                    None
+                }
+            };
             next_state.entries.insert(
                 note.relative_path.clone(),
                 ObsidianSyncEntry {
@@ -1505,14 +1553,20 @@ async fn run_obsidian_import(
                     bytes: note.bytes,
                     modified_at: note.modified_at,
                     item_id: Some(stored_id),
-                    entity_id: entity.entity.as_ref().map(|entity| entity.id),
+                    entity_id,
                 },
             );
+            submitted += 1;
+            if response.duplicate_of.is_some() {
+                duplicates += 1;
+            }
+            obsidian::save_sync_state(&state_path, &next_state)?;
         }
 
         let mut attachment_multimodal = None;
         let mut attachment_submitted = 0usize;
         let mut attachment_duplicates = 0usize;
+        let mut attachment_failures = 0usize;
         if include_attachments && !attachment_assets.is_empty() {
             let attachment_paths = attachment_assets
                 .iter()
@@ -1523,61 +1577,89 @@ async fn run_obsidian_import(
                 args.namespace.clone(),
                 &attachment_paths,
             )?;
-            let rag_url = std::env::var("MEMD_RAG_URL")
-                .context("set MEMD_RAG_URL for obsidian attachments")?;
+            let rag_url = resolve_rag_url(None, resolve_default_bundle_root()?.as_deref())?;
             let sidecar = SidecarClient::new(&rag_url)?;
-            let multimodal_responses =
-                ingest_multimodal_preview(&sidecar, &multimodal_preview.requests).await?;
+            let mut multimodal_responses = Vec::with_capacity(attachment_assets.len());
+            let mut ingested_attachment_pairs = Vec::with_capacity(attachment_assets.len());
+            for (asset, request) in attachment_assets
+                .iter()
+                .zip(multimodal_preview.requests.iter())
+            {
+                let response = match sidecar.ingest(request).await {
+                    Ok(response) => response,
+                    Err(err) => {
+                        attachment_failures += 1;
+                        eprintln!(
+                            "obsidian attachment ingest failed for {}: {err:#}",
+                            asset.relative_path
+                        );
+                        continue;
+                    }
+                };
+                multimodal_responses.push(response.clone());
+                ingested_attachment_pairs.push((asset, response));
+            }
             attachment_multimodal = Some(MultimodalIngestOutput {
                 preview: multimodal_preview,
                 responses: multimodal_responses,
-                submitted: attachment_assets.len(),
+                submitted: ingested_attachment_pairs.len(),
                 dry_run: false,
             });
 
-            let attachment_candidates = attachment_assets
-                .iter()
-                .zip(
-                    attachment_multimodal
-                        .as_ref()
-                        .into_iter()
-                        .flat_map(|output| output.responses.iter()),
-                )
-                .map(|(asset, response)| {
-                    let match_ = obsidian::resolve_attachment_match(
-                        asset,
-                        &preview.scan.notes,
-                        &preview.note_index,
-                    );
-                    let linked_note = match_
-                        .as_ref()
-                        .and_then(|association| preview.scan.notes.get(association.note_index));
-                    obsidian::build_attachment_request(
-                        asset,
-                        args.project.clone(),
-                        args.namespace.clone(),
-                        preview.scan.vault.clone(),
-                        linked_note,
-                        Some(response.track_id),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let attachment_responses = client.candidate_batch(&attachment_candidates).await?;
-            attachment_submitted = attachment_responses.len();
-            attachment_duplicates = attachment_responses
-                .iter()
-                .filter(|response| response.duplicate_of.is_some())
-                .count();
-            for (asset, response) in attachment_assets.iter().zip(&attachment_responses) {
-                let stored_id = response.duplicate_of.unwrap_or(response.item.id);
-                let entity = client
+            for (asset, response) in ingested_attachment_pairs {
+                let match_ = obsidian::resolve_attachment_match(
+                    asset,
+                    &preview.scan.notes,
+                    &preview.note_index,
+                );
+                let linked_note = match_
+                    .as_ref()
+                    .and_then(|association| preview.scan.notes.get(association.note_index));
+                let attachment_candidate = obsidian::build_attachment_request(
+                    asset,
+                    args.project.clone(),
+                    args.namespace.clone(),
+                    preview.scan.vault.clone(),
+                    linked_note,
+                    Some(response.track_id),
+                );
+                let attachment_response = match client.candidate(&attachment_candidate).await {
+                    Ok(response) => response,
+                    Err(err) => {
+                        attachment_failures += 1;
+                        eprintln!(
+                            "obsidian attachment import failed for {}: {err:#}",
+                            asset.relative_path
+                        );
+                        continue;
+                    }
+                };
+                attachment_submitted += 1;
+                if attachment_response.duplicate_of.is_some() {
+                    attachment_duplicates += 1;
+                }
+                let stored_id = attachment_response
+                    .duplicate_of
+                    .unwrap_or(attachment_response.item.id);
+                let entity_id = match client
                     .entity(&memd_schema::EntityMemoryRequest {
                         id: stored_id,
                         route: None,
                         intent: None,
                         limit: Some(4),
                     })
-                    .await?;
+                    .await
+                {
+                    Ok(entity) => entity.entity.as_ref().map(|entity| entity.id),
+                    Err(err) => {
+                        attachment_failures += 1;
+                        eprintln!(
+                            "obsidian attachment entity lookup failed for {}: {err:#}",
+                            asset.relative_path
+                        );
+                        None
+                    }
+                };
                 next_state.entries.insert(
                     asset.relative_path.clone(),
                     ObsidianSyncEntry {
@@ -1585,17 +1667,10 @@ async fn run_obsidian_import(
                         bytes: asset.bytes,
                         modified_at: asset.modified_at,
                         item_id: Some(stored_id),
-                        entity_id: entity.entity.as_ref().map(|entity| entity.id),
+                        entity_id,
                     },
                 );
-            }
-        }
-
-        for note in &preview.scan.notes {
-            if let Some(entry) = next_state.entries.get_mut(&note.relative_path) {
-                entry.content_hash = note.content_hash.clone();
-                entry.bytes = note.bytes;
-                entry.modified_at = note.modified_at;
+                obsidian::save_sync_state(&state_path, &next_state)?;
             }
         }
 
@@ -1801,13 +1876,12 @@ async fn run_obsidian_import(
 
         let output = ObsidianImportOutput {
             preview,
-            submitted: responses.len(),
+            submitted,
             attachment_submitted,
-            duplicates: responses
-                .iter()
-                .filter(|response| response.duplicate_of.is_some())
-                .count(),
+            duplicates,
             attachment_duplicates,
+            note_failures,
+            attachment_failures,
             links_created,
             attachment_links_created,
             mirrored_notes,
@@ -1828,6 +1902,8 @@ async fn run_obsidian_import(
             attachment_submitted: 0,
             duplicates: 0,
             attachment_duplicates: 0,
+            note_failures: 0,
+            attachment_failures: 0,
             links_created: 0,
             attachment_links_created: 0,
             mirrored_notes: 0,
@@ -2096,6 +2172,8 @@ struct ObsidianImportOutput {
     attachment_submitted: usize,
     duplicates: usize,
     attachment_duplicates: usize,
+    note_failures: usize,
+    attachment_failures: usize,
     links_created: usize,
     attachment_links_created: usize,
     mirrored_notes: usize,
@@ -2103,540 +2181,6 @@ struct ObsidianImportOutput {
     attachments: Option<MultimodalIngestOutput>,
     attachment_unchanged_count: usize,
     dry_run: bool,
-}
-
-fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
-    let mut output = format!(
-        "vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} skipped={} project={}",
-        scan.vault.display(),
-        scan.note_count,
-        scan.sensitive_count,
-        scan.unchanged_count,
-        scan.backlink_count,
-        scan.attachment_count,
-        scan.attachment_sensitive_count,
-        scan.skipped_count,
-        scan.project.as_deref().unwrap_or("none")
-    );
-    if follow {
-        let trail = scan
-            .notes
-            .iter()
-            .take(3)
-            .map(|note| note.title.as_str())
-            .collect::<Vec<_>>()
-            .join(" | ");
-        if !trail.is_empty() {
-            output.push_str(&format!(" trail={trail}"));
-        }
-    }
-    output
-}
-
-fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -> String {
-    let attachment_submitted = output
-        .attachments
-        .as_ref()
-        .map(|attachments| attachments.submitted)
-        .unwrap_or(0);
-    let mut summary = format!(
-        "obsidian_import vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
-        output.preview.scan.vault.display(),
-        output.preview.scan.note_count,
-        output.preview.scan.sensitive_count,
-        output.preview.scan.unchanged_count,
-        output.preview.scan.backlink_count,
-        output.preview.scan.attachment_count,
-        output.preview.scan.attachment_sensitive_count,
-        output.attachment_unchanged_count,
-        output.submitted,
-        attachment_submitted,
-        output.duplicates,
-        output.attachment_duplicates,
-        output.links_created,
-        output.attachment_links_created,
-        output.mirrored_notes,
-        output.mirrored_attachments,
-        output.dry_run
-    );
-    if follow {
-        let trail = output
-            .preview
-            .scan
-            .notes
-            .iter()
-            .take(3)
-            .map(|note| note.title.as_str())
-            .collect::<Vec<_>>()
-            .join(" | ");
-        if !trail.is_empty() {
-            summary.push_str(&format!(" trail={trail}"));
-        }
-    }
-    if let Some(attachments) = output.attachments.as_ref() {
-        summary.push_str(&format!(
-            " attachments_submitted={} attachments_dry_run={}",
-            attachments.submitted, attachments.dry_run
-        ));
-    }
-    summary
-}
-
-fn render_entity_summary(response: &memd_schema::EntityMemoryResponse, follow: bool) -> String {
-    let Some(entity) = response.entity.as_ref() else {
-        return format!(
-            "entity=none route={} intent={}",
-            route_label(response.route),
-            intent_label(response.intent)
-        );
-    };
-
-    let state = entity
-        .current_state
-        .as_deref()
-        .map(|value| compact_inline(value, 72))
-        .unwrap_or_else(|| "no-state".to_string());
-    let last_seen = entity
-        .last_seen_at
-        .map(|value| value.to_rfc3339())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let mut output = format!(
-        "entity={} type={} salience={:.2} rehearsal={} state_v={} last_seen={} state=\"{}\" events={}",
-        short_uuid(entity.id),
-        entity.entity_type,
-        entity.salience_score,
-        entity.rehearsal_count,
-        entity.state_version,
-        last_seen,
-        state,
-        response.events.len()
-    );
-
-    if follow && let Some(event) = response.events.first() {
-        output.push_str(&format!(
-            " latest={}::{}",
-            event.event_type,
-            compact_inline(&event.summary, 48)
-        ));
-    }
-
-    output
-}
-
-fn render_entity_search_summary(response: &EntitySearchResponse, follow: bool) -> String {
-    let mut output = format!(
-        "entity-search query=\"{}\" candidates={} ambiguous={}",
-        compact_inline(&response.query, 48),
-        response.candidates.len(),
-        response.ambiguous
-    );
-
-    if let Some(best) = response.best_match.as_ref() {
-        output.push_str(&format!(
-            " best={} type={} score={:.2} reasons={}",
-            short_uuid(best.entity.id),
-            best.entity.entity_type,
-            best.score,
-            compact_inline(&best.reasons.join(","), 64)
-        ));
-    }
-
-    if follow {
-        let trail = response
-            .candidates
-            .iter()
-            .take(3)
-            .map(|candidate| {
-                format!(
-                    "{}:{}:{:.2}",
-                    short_uuid(candidate.entity.id),
-                    candidate.entity.entity_type,
-                    candidate.score
-                )
-            })
-            .collect::<Vec<_>>();
-        if !trail.is_empty() {
-            output.push_str(&format!(" trail={}", trail.join(" | ")));
-        }
-    }
-
-    output
-}
-
-fn render_recall_summary(response: &AssociativeRecallResponse, follow: bool) -> String {
-    let root = response
-        .root_entity
-        .as_ref()
-        .map(|entity| format!("root={} type={}", short_uuid(entity.id), entity.entity_type))
-        .unwrap_or_else(|| "root=none".to_string());
-
-    let mut output = format!(
-        "recall {} hits={} links={} truncated={}",
-        root,
-        response.hits.len(),
-        response.links.len(),
-        response.truncated
-    );
-
-    if follow {
-        let hit_trail = response
-            .hits
-            .iter()
-            .take(3)
-            .map(|hit| {
-                format!(
-                    "d{}:{}:{:.2}:{}",
-                    hit.depth,
-                    short_uuid(hit.entity.id),
-                    hit.score,
-                    compact_inline(
-                        hit.entity
-                            .current_state
-                            .as_deref()
-                            .unwrap_or(&hit.entity.entity_type),
-                        28
-                    )
-                )
-            })
-            .collect::<Vec<_>>();
-        if !hit_trail.is_empty() {
-            output.push_str(&format!(" trail={}", hit_trail.join(" | ")));
-        }
-
-        let link_trail = response
-            .links
-            .iter()
-            .take(3)
-            .map(|link| {
-                format!(
-                    "{}:{}->{}",
-                    format!("{:?}", link.relation_kind).to_ascii_lowercase(),
-                    short_uuid(link.from_entity_id),
-                    short_uuid(link.to_entity_id)
-                )
-            })
-            .collect::<Vec<_>>();
-        if !link_trail.is_empty() {
-            output.push_str(&format!(" links={}", link_trail.join(" | ")));
-        }
-
-        if let Some(best) = response.hits.first() {
-            output.push_str(&format!(
-                " best_score={:.2} best_reasons={}",
-                best.score,
-                compact_inline(&best.reasons.join(","), 72)
-            ));
-        }
-    }
-
-    output
-}
-
-fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follow: bool) -> String {
-    let entity = response
-        .entity
-        .as_ref()
-        .map(|entity| {
-            format!(
-                "entity={} type={}",
-                short_uuid(entity.id),
-                entity.entity_type
-            )
-        })
-        .unwrap_or_else(|| "entity=none".to_string());
-    let latest = response
-        .events
-        .first()
-        .map(|event| {
-            format!(
-                "{}:{}",
-                event.event_type,
-                compact_inline(&event.summary, 56)
-            )
-        })
-        .unwrap_or_else(|| "no-events".to_string());
-
-    let mut output = format!(
-        "timeline {} route={} intent={} events={} latest={}",
-        entity,
-        route_label(response.route),
-        intent_label(response.intent),
-        response.events.len(),
-        latest
-    );
-
-    if follow {
-        let trail = response
-            .events
-            .iter()
-            .take(3)
-            .map(|event| {
-                format!(
-                    "{}:{}",
-                    event.event_type,
-                    compact_inline(&event.summary, 40)
-                )
-            })
-            .collect::<Vec<_>>();
-        if !trail.is_empty() {
-            output.push_str(&format!(" trail={}", trail.join(" | ")));
-        }
-    }
-
-    output
-}
-
-fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> String {
-    let mut output = format!(
-        "working route={} intent={} budget={} used={} remaining={} truncated={} records={} traces={} semantic={}",
-        route_label(response.route),
-        intent_label(response.intent),
-        response.budget_chars,
-        response.used_chars,
-        response.remaining_chars,
-        response.truncated,
-        response.records.len(),
-        response.traces.len(),
-        response
-            .semantic_consolidation
-            .as_ref()
-            .map(|value| value.consolidated.to_string())
-            .unwrap_or_else(|| "off".to_string())
-    );
-
-    if follow {
-        let trail = response
-            .records
-            .iter()
-            .take(3)
-            .map(|record| compact_inline(&record.record, 48))
-            .collect::<Vec<_>>();
-        if !trail.is_empty() {
-            output.push_str(&format!(" trail={}", trail.join(" | ")));
-        }
-
-        let trace_trail = response
-            .traces
-            .iter()
-            .take(3)
-            .map(|trace| {
-                format!(
-                    "{}:{}",
-                    trace.event_type,
-                    compact_inline(&trace.summary, 40)
-                )
-            })
-            .collect::<Vec<_>>();
-        if !trace_trail.is_empty() {
-            output.push_str(&format!(" trace_trail={}", trace_trail.join(" | ")));
-        }
-
-        if let Some(semantic) = response.semantic_consolidation.as_ref() {
-            let trail = semantic
-                .highlights
-                .iter()
-                .take(3)
-                .map(|value| compact_inline(value, 40))
-                .collect::<Vec<_>>();
-            if !trail.is_empty() {
-                output.push_str(&format!(" semantic_trail={}", trail.join(" | ")));
-            }
-        }
-    }
-
-    output
-}
-
-fn render_profile_summary(response: &AgentProfileResponse, follow: bool) -> String {
-    let Some(profile) = response.profile.as_ref() else {
-        return "profile=none".to_string();
-    };
-
-    let mut output = format!(
-        "profile agent={} project={} namespace={} route={} intent={} summary_chars={} max_total_chars={} recall_depth={} trust_floor={} styles={}",
-        profile.agent,
-        profile.project.as_deref().unwrap_or("none"),
-        profile.namespace.as_deref().unwrap_or("none"),
-        profile.preferred_route.map(route_label).unwrap_or("none"),
-        profile.preferred_intent.map(intent_label).unwrap_or("none"),
-        profile
-            .summary_chars
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "none".to_string()),
-        profile
-            .max_total_chars
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "none".to_string()),
-        profile
-            .recall_depth
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "none".to_string()),
-        profile
-            .source_trust_floor
-            .map(|value| format!("{value:.2}"))
-            .unwrap_or_else(|| "none".to_string()),
-        if profile.style_tags.is_empty() {
-            "none".to_string()
-        } else {
-            profile.style_tags.join("|")
-        }
-    );
-
-    if follow {
-        if let Some(notes) = profile.notes.as_ref() {
-            output.push_str(&format!(" notes={}", compact_inline(notes, 72)));
-        }
-        output.push_str(&format!(
-            " created={} updated={}",
-            profile.created_at.to_rfc3339(),
-            profile.updated_at.to_rfc3339()
-        ));
-    }
-
-    output
-}
-
-fn render_source_summary(response: &SourceMemoryResponse, follow: bool) -> String {
-    let mut output = format!("source_memory sources={}", response.sources.len());
-
-    if let Some(best) = response.sources.first() {
-        output.push_str(&format!(
-            " top={} system={} project={} namespace={} items={} trust={:.2} avg_confidence={:.2}",
-            best.source_agent.as_deref().unwrap_or("none"),
-            best.source_system.as_deref().unwrap_or("none"),
-            best.project.as_deref().unwrap_or("none"),
-            best.namespace.as_deref().unwrap_or("none"),
-            best.item_count,
-            best.trust_score,
-            best.avg_confidence
-        ));
-    }
-
-    if follow {
-        let trail = response
-            .sources
-            .iter()
-            .take(3)
-            .map(|source| {
-                format!(
-                    "{}:{}:{}:{:.2}",
-                    source.source_agent.as_deref().unwrap_or("none"),
-                    source.source_system.as_deref().unwrap_or("none"),
-                    source.item_count,
-                    source.trust_score
-                )
-            })
-            .collect::<Vec<_>>();
-        if !trail.is_empty() {
-            output.push_str(&format!(" trail={}", trail.join(" | ")));
-        }
-        if let Some(best) = response.sources.first()
-            && !best.tags.is_empty()
-        {
-            output.push_str(&format!(" tags={}", best.tags.join("|")));
-        }
-    }
-
-    output
-}
-
-fn render_consolidate_summary(
-    response: &memd_schema::MemoryConsolidationResponse,
-    follow: bool,
-) -> String {
-    let mut output = format!(
-        "consolidate scanned={} groups={} consolidated={} duplicates={} events={}",
-        response.scanned,
-        response.groups,
-        response.consolidated,
-        response.duplicates,
-        response.events
-    );
-
-    if follow && !response.highlights.is_empty() {
-        let highlights = response
-            .highlights
-            .iter()
-            .take(3)
-            .map(|value| compact_inline(value, 40))
-            .collect::<Vec<_>>();
-        output.push_str(&format!(" trail={}", highlights.join(" | ")));
-    }
-
-    output
-}
-
-fn render_maintenance_report_summary(
-    response: &MemoryMaintenanceReportResponse,
-    follow: bool,
-) -> String {
-    let mut output = format!(
-        "learning report reinforced={} cooled={} consolidated={} stale_checked={} skipped={}",
-        response.reinforced_candidates,
-        response.cooled_candidates,
-        response.consolidated_candidates,
-        response.stale_items,
-        response.skipped
-    );
-
-    if follow && !response.highlights.is_empty() {
-        let highlights = response
-            .highlights
-            .iter()
-            .take(3)
-            .map(|value| compact_inline(value, 40))
-            .collect::<Vec<_>>();
-        output.push_str(&format!(" trail={}", highlights.join(" | ")));
-    }
-
-    output
-}
-
-fn compact_inline(value: &str, max_chars: usize) -> String {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.chars().count() <= max_chars {
-        return normalized;
-    }
-
-    let mut compact = String::with_capacity(max_chars + 3);
-    for ch in normalized.chars().take(max_chars.saturating_sub(3)) {
-        compact.push(ch);
-    }
-    compact.push_str("...");
-    compact
-}
-
-fn short_uuid(id: uuid::Uuid) -> String {
-    id.to_string().chars().take(8).collect()
-}
-
-fn route_label(route: RetrievalRoute) -> &'static str {
-    match route {
-        RetrievalRoute::Auto => "auto",
-        RetrievalRoute::LocalOnly => "local_only",
-        RetrievalRoute::SyncedOnly => "synced_only",
-        RetrievalRoute::ProjectOnly => "project_only",
-        RetrievalRoute::GlobalOnly => "global_only",
-        RetrievalRoute::LocalFirst => "local_first",
-        RetrievalRoute::SyncedFirst => "synced_first",
-        RetrievalRoute::ProjectFirst => "project_first",
-        RetrievalRoute::GlobalFirst => "global_first",
-        RetrievalRoute::All => "all",
-    }
-}
-
-fn intent_label(intent: RetrievalIntent) -> &'static str {
-    match intent {
-        RetrievalIntent::General => "general",
-        RetrievalIntent::CurrentTask => "current_task",
-        RetrievalIntent::Decision => "decision",
-        RetrievalIntent::Runbook => "runbook",
-        RetrievalIntent::Topology => "topology",
-        RetrievalIntent::Preference => "preference",
-        RetrievalIntent::Fact => "fact",
-        RetrievalIntent::Pattern => "pattern",
-    }
 }
 
 async fn resolve_recall_request(
@@ -2942,8 +2486,7 @@ async fn ingest_multimodal_payload(
 
     let preview = build_multimodal_preview(args.project.clone(), args.namespace.clone(), &paths)?;
     let multimodal = if args.apply {
-        let rag_url =
-            std::env::var("MEMD_RAG_URL").context("set MEMD_RAG_URL for multimodal ingest")?;
+        let rag_url = resolve_rag_url(None, resolve_default_bundle_root()?.as_deref())?;
         let sidecar = SidecarClient::new(&rag_url)?;
         let responses = ingest_multimodal_preview(&sidecar, &preview.requests).await?;
         let submitted = responses.len();
@@ -2968,67 +2511,6 @@ async fn ingest_multimodal_payload(
         candidate: None,
         multimodal: Some(multimodal),
     })
-}
-
-fn parse_uuid_list(values: &[String]) -> anyhow::Result<Vec<uuid::Uuid>> {
-    values
-        .iter()
-        .map(|value| value.parse::<uuid::Uuid>().context("parse uuid"))
-        .collect()
-}
-
-fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "fact" => Ok(MemoryKind::Fact),
-        "decision" => Ok(MemoryKind::Decision),
-        "preference" => Ok(MemoryKind::Preference),
-        "runbook" => Ok(MemoryKind::Runbook),
-        "topology" => Ok(MemoryKind::Topology),
-        "status" => Ok(MemoryKind::Status),
-        "pattern" => Ok(MemoryKind::Pattern),
-        "constraint" => Ok(MemoryKind::Constraint),
-        _ => anyhow::bail!(
-            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, topology, status, pattern, or constraint"
-        ),
-    }
-}
-
-fn parse_memory_scope_value(value: &str) -> anyhow::Result<MemoryScope> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "local" => Ok(MemoryScope::Local),
-        "synced" => Ok(MemoryScope::Synced),
-        "project" => Ok(MemoryScope::Project),
-        "global" => Ok(MemoryScope::Global),
-        _ => anyhow::bail!("invalid scope '{value}'; expected local, synced, project, or global"),
-    }
-}
-
-fn parse_source_quality_value(value: &str) -> anyhow::Result<memd_schema::SourceQuality> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "canonical" => Ok(memd_schema::SourceQuality::Canonical),
-        "derived" => Ok(memd_schema::SourceQuality::Derived),
-        "synthetic" => Ok(memd_schema::SourceQuality::Synthetic),
-        _ => anyhow::bail!(
-            "invalid source quality '{value}'; expected canonical, derived, or synthetic"
-        ),
-    }
-}
-
-fn parse_entity_relation_kind(value: &str) -> anyhow::Result<memd_schema::EntityRelationKind> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "same_as" | "same" => Ok(memd_schema::EntityRelationKind::SameAs),
-        "derived_from" | "derived" => Ok(memd_schema::EntityRelationKind::DerivedFrom),
-        "supersedes" => Ok(memd_schema::EntityRelationKind::Supersedes),
-        "contradicts" => Ok(memd_schema::EntityRelationKind::Contradicts),
-        "related" => Ok(memd_schema::EntityRelationKind::Related),
-        _ => anyhow::bail!(
-            "invalid relation kind '{value}'; expected same_as, derived_from, supersedes, contradicts, or related"
-        ),
-    }
 }
 
 fn parse_context_time(
@@ -3090,7 +2572,67 @@ async fn ingest_multimodal_preview(
     Ok(responses)
 }
 
-fn maybe_rag_client_from_env() -> anyhow::Result<Option<RagClient>> {
+fn resolve_default_bundle_root() -> anyhow::Result<Option<PathBuf>> {
+    if let Ok(value) = std::env::var("MEMD_BUNDLE_ROOT") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return Ok(Some(PathBuf::from(value)));
+        }
+    }
+
+    let cwd = std::env::current_dir().context("read current directory")?;
+    let bundle_root = cwd.join(".memd");
+    if bundle_root.join("config.json").exists() {
+        return Ok(Some(bundle_root));
+    }
+
+    Ok(None)
+}
+
+fn resolve_rag_url(explicit: Option<String>, bundle_root: Option<&Path>) -> anyhow::Result<String> {
+    if let Some(value) = explicit.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+        return Ok(value);
+    }
+
+    if let Some(bundle_root) = bundle_root {
+        if let Some(config) = read_bundle_rag_config(bundle_root)? {
+            if config.enabled {
+                if let Some(url) = config.url {
+                    return Ok(url);
+                }
+                anyhow::bail!(
+                    "rag backend is enabled in {} but no url was configured",
+                    bundle_root.display()
+                );
+            }
+        }
+    }
+
+    if let Ok(value) = std::env::var("MEMD_RAG_URL") {
+        let value = value.trim().to_string();
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    }
+
+    anyhow::bail!("provide --rag-url, configure rag_url in the bundle, or set MEMD_RAG_URL")
+}
+
+fn maybe_rag_client_from_bundle_or_env() -> anyhow::Result<Option<RagClient>> {
+    if let Some(bundle_root) = resolve_default_bundle_root()? {
+        if let Some(config) = read_bundle_rag_config(bundle_root.as_path())? {
+            if config.enabled {
+                let rag_url = config.url.with_context(|| {
+                    format!(
+                        "rag backend is enabled in {} but no url was configured",
+                        bundle_root.display()
+                    )
+                })?;
+                return Ok(Some(RagClient::new(rag_url)?));
+            }
+        }
+    }
+
     match std::env::var("MEMD_RAG_URL") {
         Ok(value) if !value.trim().is_empty() => Ok(Some(RagClient::new(value)?)),
         _ => Ok(None),
@@ -3111,25 +2653,35 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::create_dir_all(output.join("agents"))
         .with_context(|| format!("create {}", output.join("agents").display()))?;
 
-    let config = serde_json::json!({
-        "project": args.project,
-        "agent": args.agent,
-        "base_url": args.base_url,
-        "rag_url": args.rag_url,
-        "route": args.route,
-        "intent": args.intent,
-        "hook_kit": {
-            "context": "hooks/memd-context.sh",
-            "spill": "hooks/memd-spill.sh",
-            "context_ps1": "hooks/memd-context.ps1",
-            "spill_ps1": "hooks/memd-spill.ps1"
-        }
-    });
+    let config = BundleConfig {
+        schema_version: 2,
+        project: args.project.clone(),
+        agent: args.agent.clone(),
+        base_url: args.base_url.clone(),
+        route: args.route.clone(),
+        intent: args.intent.clone(),
+        backend: BundleBackendConfig {
+            rag: BundleRagConfig {
+                enabled: args.rag_url.is_some(),
+                provider: "lightrag-compatible".to_string(),
+                url: args.rag_url.clone(),
+            },
+        },
+        hooks: BundleHooksConfig {
+            context: "hooks/memd-context.sh".to_string(),
+            spill: "hooks/memd-spill.sh".to_string(),
+            context_ps1: "hooks/memd-context.ps1".to_string(),
+            spill_ps1: "hooks/memd-spill.ps1".to_string(),
+        },
+        rag_url: args.rag_url.clone(),
+    };
     fs::write(
         output.join("config.json"),
         serde_json::to_string_pretty(&config)? + "\n",
     )
     .with_context(|| format!("write {}", output.join("config.json").display()))?;
+
+    write_bundle_backend_env(output, &config)?;
 
     fs::write(
         output.join("env"),
@@ -3184,7 +2736,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     let shell_profile = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.sh"), shell_profile)
@@ -3192,7 +2744,7 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     set_executable_if_shell_script(&agents_dir.join("agent.sh"), "agent.sh")?;
 
     let ps1_profile = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
+        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.ps1"), ps1_profile)
@@ -3201,35 +2753,105 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Result<()> {
+    let backend_env = output.join("backend.env");
+    let backend_env_ps1 = output.join("backend.env.ps1");
+    let rag = &config.backend.rag;
+
+    let mut shell = String::new();
+    shell.push_str(&format!("MEMD_BUNDLE_SCHEMA_VERSION={}\n", config.schema_version));
+    shell.push_str(&format!(
+        "MEMD_BUNDLE_BACKEND_PROVIDER={}\n",
+        rag.provider
+    ));
+    shell.push_str(&format!(
+        "MEMD_BUNDLE_BACKEND_ENABLED={}\n",
+        if rag.enabled { "true" } else { "false" }
+    ));
+    if let Some(url) = rag.url.as_deref() {
+        shell.push_str(&format!("MEMD_RAG_URL={url}\n"));
+    }
+    fs::write(&backend_env, shell)
+        .with_context(|| format!("write {}", backend_env.display()))?;
+
+    let mut ps1 = String::new();
+    ps1.push_str(&format!(
+        "$env:MEMD_BUNDLE_SCHEMA_VERSION = \"{}\"\n",
+        config.schema_version
+    ));
+    ps1.push_str(&format!(
+        "$env:MEMD_BUNDLE_BACKEND_PROVIDER = \"{}\"\n",
+        escape_ps1(&rag.provider)
+    ));
+    ps1.push_str(&format!(
+        "$env:MEMD_BUNDLE_BACKEND_ENABLED = \"{}\"\n",
+        if rag.enabled { "true" } else { "false" }
+    ));
+    if let Some(url) = rag.url.as_deref() {
+        ps1.push_str(&format!(
+            "$env:MEMD_RAG_URL = \"{}\"\n",
+            escape_ps1(url)
+        ));
+    }
+    fs::write(&backend_env_ps1, ps1)
+        .with_context(|| format!("write {}", backend_env_ps1.display()))?;
+
+    Ok(())
+}
+
 async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<serde_json::Value> {
     let client = MemdClient::new(base_url)?;
     let health = client.healthz().await.ok();
-    let rag_url = read_bundle_rag_url(output)?;
-    let rag = match rag_url {
-        Some(ref url) => {
-            let client = RagClient::new(url)?;
-            Some(
-                client
-                    .healthz()
-                    .await
-                    .map(|health| {
-                        serde_json::json!({
-                            "enabled": true,
-                            "url": url,
-                            "healthy": true,
-                            "health": health,
-                        })
-                    })
-                    .unwrap_or_else(|error| {
-                        serde_json::json!({
-                            "enabled": true,
-                            "url": url,
-                            "healthy": false,
-                            "error": error.to_string(),
-                        })
-                    }),
-            )
+    let rag_config = read_bundle_rag_config(output)?;
+    let rag = match rag_config {
+        Some(config) if config.enabled => {
+            let source = config.source;
+            let Some(url) = config.url.clone() else {
+                return Ok(serde_json::json!({
+                    "bundle": output,
+                    "exists": output.exists(),
+                    "config": output.join("config.json").exists(),
+                    "env": output.join("env").exists(),
+                    "env_ps1": output.join("env.ps1").exists(),
+                    "hooks": output.join("hooks").exists(),
+                    "agents": output.join("agents").exists(),
+                    "server": health,
+                    "rag": {
+                        "configured": false,
+                        "enabled": true,
+                        "healthy": false,
+                        "error": "rag backend enabled but no url configured",
+                        "source": source,
+                    },
+                }));
+            };
+            let rag_result = RagClient::new(url.as_str())?.healthz().await;
+            Some(match rag_result {
+                Ok(health) => serde_json::json!({
+                    "configured": true,
+                    "enabled": true,
+                    "url": url,
+                    "healthy": true,
+                    "health": health,
+                    "source": source,
+                }),
+                Err(error) => serde_json::json!({
+                    "configured": true,
+                    "enabled": true,
+                    "url": url,
+                    "healthy": false,
+                    "error": error.to_string(),
+                    "source": source,
+                }),
+            })
         }
+        Some(config) => Some(serde_json::json!({
+            "configured": config.configured,
+            "enabled": false,
+            "url": config.url,
+            "healthy": null,
+            "source": config.source,
+        })),
         None => None,
     };
     Ok(serde_json::json!({
@@ -3242,13 +2864,14 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "agents": output.join("agents").exists(),
         "server": health,
         "rag": rag.unwrap_or_else(|| serde_json::json!({
+            "configured": false,
             "enabled": false,
             "healthy": null,
         })),
     }))
 }
 
-fn read_bundle_rag_url(output: &Path) -> anyhow::Result<Option<String>> {
+fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfigState>> {
     let config_path = output.join("config.json");
     if !config_path.exists() {
         return Ok(None);
@@ -3256,16 +2879,9 @@ fn read_bundle_rag_url(output: &Path) -> anyhow::Result<Option<String>> {
 
     let raw = fs::read_to_string(&config_path)
         .with_context(|| format!("read {}", config_path.display()))?;
-    let config: serde_json::Value =
+    let config: BundleConfigFile =
         serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
-
-    let rag_url = config
-        .get("rag_url")
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    Ok(rag_url)
+    Ok(resolve_bundle_rag_config(config))
 }
 
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
@@ -3331,6 +2947,101 @@ fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct BundleConfig {
+    schema_version: u32,
+    project: String,
+    agent: String,
+    base_url: String,
+    route: String,
+    intent: String,
+    backend: BundleBackendConfig,
+    hooks: BundleHooksConfig,
+    rag_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleBackendConfig {
+    rag: BundleRagConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleRagConfig {
+    enabled: bool,
+    provider: String,
+    url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleHooksConfig {
+    context: String,
+    spill: String,
+    context_ps1: String,
+    spill_ps1: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct BundleConfigFile {
+    #[serde(default)]
+    rag_url: Option<String>,
+    #[serde(default)]
+    backend: Option<BundleBackendConfigFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct BundleBackendConfigFile {
+    #[serde(default)]
+    rag: Option<BundleRagConfigFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct BundleRagConfigFile {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BundleRagConfigState {
+    configured: bool,
+    enabled: bool,
+    url: Option<String>,
+    source: String,
+}
+
+fn resolve_bundle_rag_config(config: BundleConfigFile) -> Option<BundleRagConfigState> {
+    if let Some(rag) = config.backend.and_then(|backend| backend.rag) {
+        let url = rag
+            .url
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let enabled = rag.enabled.unwrap_or(url.is_some());
+        let configured = url.is_some();
+        return Some(BundleRagConfigState {
+            configured,
+            enabled,
+            url,
+            source: "backend.rag".to_string(),
+        });
+    }
+
+    let url = config
+        .rag_url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(url) = url {
+        return Some(BundleRagConfigState {
+            configured: true,
+            enabled: true,
+            url: Some(url),
+            source: "rag_url".to_string(),
+        });
+    }
+
+    None
+}
+
 fn escape_ps1(value: &str) -> String {
     value.replace('\"', "`\"")
 }
@@ -3358,50 +3069,73 @@ fn set_executable_if_shell_script(path: &Path, file_name: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn parse_retrieval_route(value: Option<String>) -> anyhow::Result<Option<RetrievalRoute>> {
-    value
-        .map(|value| parse_retrieval_route_value(&value))
-        .transpose()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn parse_retrieval_intent(value: Option<String>) -> anyhow::Result<Option<RetrievalIntent>> {
-    value
-        .map(|value| parse_retrieval_intent_value(&value))
-        .transpose()
-}
+    #[test]
+    fn resolves_nested_bundle_rag_config() {
+        let config = BundleConfigFile {
+            rag_url: None,
+            backend: Some(BundleBackendConfigFile {
+                rag: Some(BundleRagConfigFile {
+                    enabled: Some(true),
+                    url: Some("http://127.0.0.1:9000".to_string()),
+                }),
+            }),
+        };
 
-fn parse_retrieval_route_value(value: &str) -> anyhow::Result<RetrievalRoute> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "auto" => Ok(RetrievalRoute::Auto),
-        "local_only" | "local" => Ok(RetrievalRoute::LocalOnly),
-        "synced_only" | "synced" => Ok(RetrievalRoute::SyncedOnly),
-        "project_only" | "project" => Ok(RetrievalRoute::ProjectOnly),
-        "global_only" | "global" => Ok(RetrievalRoute::GlobalOnly),
-        "local_first" => Ok(RetrievalRoute::LocalFirst),
-        "synced_first" => Ok(RetrievalRoute::SyncedFirst),
-        "project_first" => Ok(RetrievalRoute::ProjectFirst),
-        "global_first" => Ok(RetrievalRoute::GlobalFirst),
-        "all" => Ok(RetrievalRoute::All),
-        _ => anyhow::bail!(
-            "invalid retrieval route '{value}'; expected auto, local_only, synced_only, project_only, global_only, local_first, synced_first, project_first, global_first, or all"
-        ),
+        let resolved = resolve_bundle_rag_config(config).expect("bundle rag config");
+        assert!(resolved.enabled);
+        assert!(resolved.configured);
+        assert_eq!(resolved.url.as_deref(), Some("http://127.0.0.1:9000"));
+        assert_eq!(resolved.source, "backend.rag");
     }
-}
 
-fn parse_retrieval_intent_value(value: &str) -> anyhow::Result<RetrievalIntent> {
-    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-    match normalized.as_str() {
-        "general" => Ok(RetrievalIntent::General),
-        "current_task" | "task" => Ok(RetrievalIntent::CurrentTask),
-        "decision" => Ok(RetrievalIntent::Decision),
-        "runbook" => Ok(RetrievalIntent::Runbook),
-        "topology" => Ok(RetrievalIntent::Topology),
-        "preference" => Ok(RetrievalIntent::Preference),
-        "fact" => Ok(RetrievalIntent::Fact),
-        "pattern" => Ok(RetrievalIntent::Pattern),
-        _ => anyhow::bail!(
-            "invalid retrieval intent '{value}'; expected general, current_task, decision, runbook, topology, preference, fact, or pattern"
-        ),
+    #[test]
+    fn resolves_legacy_bundle_rag_url() {
+        let config = BundleConfigFile {
+            rag_url: Some("http://127.0.0.1:9000".to_string()),
+            backend: None,
+        };
+
+        let resolved = resolve_bundle_rag_config(config).expect("bundle rag config");
+        assert!(resolved.enabled);
+        assert!(resolved.configured);
+        assert_eq!(resolved.url.as_deref(), Some("http://127.0.0.1:9000"));
+        assert_eq!(resolved.source, "rag_url");
+    }
+
+    #[test]
+    fn serializes_bundle_config_with_nested_rag_state() {
+        let config = BundleConfig {
+            schema_version: 2,
+            project: "demo".to_string(),
+            agent: "codex".to_string(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            backend: BundleBackendConfig {
+                rag: BundleRagConfig {
+                    enabled: true,
+                    provider: "lightrag-compatible".to_string(),
+                    url: Some("http://127.0.0.1:9000".to_string()),
+                },
+            },
+            hooks: BundleHooksConfig {
+                context: "hooks/memd-context.sh".to_string(),
+                spill: "hooks/memd-spill.sh".to_string(),
+                context_ps1: "hooks/memd-context.ps1".to_string(),
+                spill_ps1: "hooks/memd-spill.ps1".to_string(),
+            },
+            rag_url: Some("http://127.0.0.1:9000".to_string()),
+        };
+
+        let json = serde_json::to_value(config).expect("serialize bundle config");
+        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["backend"]["rag"]["enabled"], true);
+        assert_eq!(json["backend"]["rag"]["provider"], "lightrag-compatible");
+        assert_eq!(json["backend"]["rag"]["url"], "http://127.0.0.1:9000");
+        assert_eq!(json["rag_url"], "http://127.0.0.1:9000");
     }
 }

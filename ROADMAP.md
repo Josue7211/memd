@@ -31,31 +31,46 @@ The target is not a feature. The target is an open-source platform.
 
 ## Current Status
 
-`memd` is past the core platform build. The remaining roadmap is now about
-making the platform feel inevitable to use:
+`memd` is no longer a simple phase-by-phase project. It is becoming the
+agent's own memory substrate.
 
-- the core still works without RAG
+The roadmap now starts with repository foundations so the project can be
+worked on cleanly in public before the memory stack keeps expanding.
+
+The right way to track progress now is by capability versions:
+
+- `v0`: OSS-ready project foundations
+- `v1`: human-inspired memory OS
+- `v2`: superhuman AI brain
+- `v3`: federated and collective memory
+- `v4`: self-optimizing memory
+- `v5`: memory-native cognition infrastructure
+
+Current version state:
+
+- `v0`: complete
+- `v1`: mostly built
+- `v2`: not started
+- `v3`: not started
+- `v4`: not started
+- `v5`: not started
+
+What is already real in the repo:
+
+- the core works without RAG
 - LightRAG is the intended long-term semantic backend
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
-- the next layer is human-like memory behavior under a strict token budget
-- the following layer is a brain-inspired memory stack with attention, salience,
-  association, rehearsal, and forgetting
+- graph/entity primitives exist
+- salience, rehearsal, decay, and consolidation exist
+- explain, inbox, maintenance, and policy inspection exist
 
-Phase summary:
+What is still missing before `v1` is truly complete:
 
-- Phase 0: done
-- Phase 1: done
-- Phase 2: done
-- Phase 3: mostly done
-- Phase 4: mostly done
-- Phase 5: in progress
-- Phase 6: in progress
-- Phase 7: partially seeded
-- Phase 8: in progress
-- Phase 8.1: in progress
-- Phase 8.2: not started
-- Phase 8.3: not started
+- deeper repair tooling
+- provenance drilldown from summaries to raw artifacts
+- stricter working-memory admission and eviction behavior
+- more explicit episodic, procedural, self-model, and source-trust layers
 
 ## Product Shape
 
@@ -84,209 +99,221 @@ Clients consume it through one API:
 - OpenClaw
 - generic HTTP/CLI users
 
-## Phases
+## Versions
 
-### Phase 0: Specs
+### v0: OSS-Ready Project Foundations
 
-Deliver:
+Goal:
 
-- architecture
-- schema
-- promotion policy
-- retrieval policy
-- OSS positioning
-
-Success:
-
-- storage tiers are defined
-- write authority is defined
-- retrieval order is defined
-
-### Phase 1: Rust Core
+- move the repository onto a real branch strategy before the larger memory
+  stack keeps growing
 
 Deliver:
 
-- Rust workspace
-- core schema crate
-- core policy crate
-- basic server crate
-- SQLite-backed local mode
+- a dedicated working branch strategy for active development and release cuts
+- file splitting where it improves reuse and maintenance
+- version history conventions for phased work and releases
+- branch flow for development and future public contributions
+- contribution rules, review expectations, and security guidance
+- public project documentation that is separate from internal planning
 
 Success:
 
-- structured memory can be stored, searched, and expired
+- active work happens on a branch by default
+- new contributors can find the rules, the branches, and the release shape
+- the repo stops depending on oral context for basic collaboration
+- large files are split only where the seam is real, not to chase line counts
 
-### Phase 2: Retrieval Layer
+### v1: Human-Inspired Memory OS
+
+Goal:
+
+- build a durable, brain-inspired memory substrate that already beats naive
+  chat history and basic RAG
 
 Deliver:
 
-- compact context builder
-- scope-aware ranking
-- budgeted retrieval
-- current-project first policy
+- architecture, schema, retrieval policy, and promotion policy
+- Rust core with SQLite-backed local mode
+- compact retrieval and budgeted context delivery
+- shared short-term sync
+- dream/candidate ingestion and promotion gates
+- LightRAG adapter and bundle-first backend configuration
+- backend stack contract for `rag-sidecar`, `MinerU`, and `RAGAnything`
+- one-command attach flow for Claude Code, Codex, Mission Control, and OpenClaw
+- freshness, contradiction surfacing, inbox, explain, and maintenance views
+- graph/entity primitives, salience, rehearsal, decay, and consolidation
+- working memory, timeline traces, and policy inspection
 
 Success:
 
-- context packages are small, relevant, and deterministic
+- agents can carry context across sessions and machines without drowning in
+  transcripts
+- memory remains compact, typed, inspectable, and evidence-backed
+- the substrate behaves like a brain-inspired control plane, not a bag of notes
 
-### Phase 3: Short-Term Sync
+Implementation history:
+
+- Phase 0: specs
+- Phase 1: Rust core
+- Phase 2: retrieval layer
+- Phase 3: short-term sync
+- Phase 4: dream pipeline
+- Phase 5: long-term memory backend
+- Phase 5.1: RAG adapter hardening
+- Phase 5.2: backend stack contract
+- Phase 6.1: agent attach automation
+- Phase 7.1: memory quality enforcement
+- Phase 8.1: graph and learning
+- Phase 8.2: human-like memory model
+- Phase 8.3: brain-inspired memory stack
+- Phase 8.4: memory operations and explainability
+
+Current gaps:
+
+- repair actions are still shallow
+- provenance drilldown is not deep enough
+- working-memory admission and eviction policy is not explicit enough
+- procedural, self-model, and source-trust layers are still incomplete
+
+### v2: Superhuman AI Brain
+
+Goal:
+
+- stop copying biological limits and turn memory into a machine-advantaged
+  reasoning substrate
 
 Deliver:
 
-- synced manifests for active state
-- client adapters for shared short-term state
-- TTL-based short-term memory lifecycle
+- branchable world models for unresolved contradictions and competing beliefs
+- reversible compression with summary-first retrieval and raw evidence recovery
+- provenance-native memory where every durable belief carries source,
+  freshness, trust, and verification state
+- explicit working-memory admission, eviction, and rehydration policy
+- retrieval as a learned control loop instead of a fixed heuristic table
+- trust-weighted source memory across humans, agents, tools, files, and sensors
+- parallel recall of multiple candidate explanations instead of one-thread
+  fetch
+- explicit uncertainty handling so low-confidence memories do not masquerade as
+  truth
 
 Success:
 
-- active work can move across machines without becoming long-term sludge
+- `memd` uses biology for structure without inheriting biological bottlenecks
+- the system can remember far more than it keeps hot without becoming incoherent
+- contradictions remain navigable instead of being flattened away
+- retrieval becomes part of cognition instead of an accessory to storage
 
-### Phase 4: Dream Pipeline
+### v3: Federated and Collective Memory
+
+Goal:
+
+- let many agents and humans share memory without destroying scope, privacy, or
+  trust
 
 Deliver:
 
-- candidate-memory ingest
-- project dream pass
-- cross-project dream pass
-- promotion gates
+- shared workspace and org-level namespaces
+- permission-aware memory visibility
+- trust tiers for source and agent provenance
+- handoff memory for delegation across agents and humans
+- private/local memory boundaries that do not leak into shared state
+- explicit merge and divergence handling between local and shared truth
 
 Success:
 
-- dream output becomes candidate facts, not canonical truth
+- teams can share useful memory without flattening private and public context
+- handoffs preserve reasoning state instead of forcing re-derivation
+- organizational memory stays scoped, attributable, and auditable
 
-### Phase 5: Long-Term Memory Backend
+### v4: Self-Optimizing Memory
+
+Goal:
+
+- make the memory system improve its own policies from evidence and outcomes
 
 Deliver:
 
-- LightRAG adapter
-- project namespace
-- global namespace
-- compact-summary plus raw-doc strategy
-- optional backend configuration in the project bundle
+- evaluation harnesses for routing, retrieval, promotion, and repair quality
+- adaptive policy tuning from usage feedback
+- automatic rehearsal, decay, and consolidation scheduling
+- budget enforcement for token and storage growth
+- A/B routing for competing memory strategies
+- regression detection for memory quality, not just system health
+- evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
+
+Evolution Engine:
+
+- capture repeated traces, commands, and repair loops from real work
+- mine recurring workflows that are expensive, fragile, or over-reasoned
+- promote stable patterns into skills, wrappers, dedicated CLIs, or other tools
+- keep lineage, quality metrics, and rollback history for every promoted abstraction
+- share proven improvements across agents when the scope is safe
+- retire or downgrade abstractions that stop paying for themselves
+- require measured gains in success rate, token cost, or cycle time before promotion
 
 Success:
 
-- long-term memory is searchable and evidence-backed without becoming the hot path
+- memory policy improves from usage instead of hand tuning
+- regressions are detectable before they become user pain
+- the system can self-correct under load and over time
+- repeated work gets cheaper because the system learns and promotes the right abstractions
 
-### Phase 5.1: RAG Adapter Hardening
+### v5: Memory-Native Cognition Infrastructure
+
+Goal:
+
+- make memory an active substrate for reasoning, planning, and long-horizon
+  agent identity
 
 Deliver:
 
-- stronger `memd rag` sync/search behavior
-- bundle-level RAG configuration
-- clear enabled/disabled/healthy state
-- deterministic export of canonical memory into the semantic backend
+- memory-backed long-horizon planning loops
+- branch-aware execution state tied to world-model memory
+- reflective self-model memory for strengths, weaknesses, and strategy
+- durable goal and subgoal memory with continuity across sessions
+- memory-aware tool selection and verification planning
+- simulation and replay support for counterfactual reasoning
+- skill invocation as part of planning, not just a post-hoc helper lookup
 
 Success:
 
-- RAG feels like part of the product, not a sidecar script
+- the agent does not just store context; it thinks through memory
+- identity, goals, plans, and evidence remain coherent over long horizons
+- `memd` becomes part of the cognition stack, not just a support service
+- cognition can select, compose, and learn skills as part of normal reasoning
 
-### Phase 5.2: Backend Stack Contract
+### v6: OSS-Ready Project Infrastructure
+
+Goal:
+
+- make the repo easy for other people to understand, branch, review, release,
+  and extend without inheriting the current work-in-progress sprawl
 
 Deliver:
 
-- explicit integration contract for `rag-sidecar`
-- document `MinerU` as the document extraction dependency
-- document `RAGAnything` as the multimodal retrieval dependency
-- backend capability matrix for text, video, PDF, image, table, and equation flows
+- a clean branch and version-history strategy for phased work
+- contribution guidelines that reflect the actual engineering workflow
+- review, release, and changelog conventions that support outside contributors
+- repository rules for scope, file splitting, and when refactors should happen
+- documentation that separates public project guidance from internal planning
 
 Success:
 
-- the repo clearly distinguishes `memd` core from the external LightRAG stack
-- the full stack contract is explicitly multimodal, not text-only
-
-### Phase 6.1: Agent Attach Automation
-
-Deliver:
-
-- one-command project attach flow
-- per-agent launch snippets for Claude Code, Codex, Mission Control, and OpenClaw
-- automatic bundle loading for project defaults
-
-Success:
-
-- an agent can start a task with the right memory context without manual wiring
-
-### Phase 7.1: Memory Quality Enforcement
-
-Deliver:
-
-- stronger freshness checks
-- contradiction surfacing
-- inbox triage for contested memories
-- verification-based promotion and demotion
-
-Success:
-
-- memory stops drifting into stale truth
-
-### Phase 8.1: Graph and Learning
-
-Deliver:
-
-- entity and relationship layer
-- associative recall over the entity graph
-- retrieval feedback loops
-- adaptive ranking by agent and task
-
-Success:
-
-- memory becomes graph-aware, self-improving, and association-driven
-
-### Phase 8.2: Human-Like Memory Model
-
-Deliver:
-
-- attention gating and task-aware retrieval
-- salience scoring and rehearsal counters
-- stable entity identity with changing state
-- event records with time, place, and provenance
-- contextual validity windows for facts
-- object permanence across rename/move/split/merge
-- retrieval that prefers the smallest useful slice
-- contextual validity by project, host, branch, agent, and timestamp
-- preference memory and source memory
-
-Success:
-
-- agents remember like a mind, but retrieve like a machine
-- identity persists while state changes
-- context stays compact and token efficient
-
-### Phase 8.3: Brain-Inspired Memory Stack
-
-Deliver:
-
-- working-memory buffer with explicit token budget
-- episodic traces that record what happened and when
-- semantic consolidation from repeated or verified traces
-- procedural memory for runbooks and workflows
-- associative graph recall across people, files, projects, and decisions
-- self-model memory for agent preferences and style
-- social/source memory with provenance and trust weighting
-- adaptive forgetting, decay, and rehearsal loops
-- replay-based consolidation during downtime
-- pattern-completion retrieval for partial cues
-
-Success:
-
-- memory behaves like a mind while staying token budgeted
-- repeated use strengthens the right traces
-- stale or low-value traces decay away automatically
+- the project can be picked up by someone new without needing oral context
+- phased work maps cleanly to branches and versioned releases
+- contribution and review expectations are explicit enough to run in the open
+- the repo reads like a maintained open-source project, not a private scratchpad
 
 ## Immediate Next Steps
 
-1. Finish bundle-first LightRAG defaults and adapter behavior.
-2. Wire the external multimodal backend stack contract:
-   - `rag-sidecar`
-   - `MinerU`
-   - `RAGAnything`
-   - video, PDF, image, table, equation flow validation
-3. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
-4. Tighten freshness and contradiction resolution.
-5. Add human-like entity/event memory primitives with strict token budgets.
-6. Add brain-inspired attention, salience, rehearsal, and forgetting loops.
-7. Add graph-aware memory only after the core lifecycle is stable.
+1. Start `v0` by moving active work onto a dedicated branch, then split only the large files where it improves reuse and maintenance.
+2. Add version history, contribution rules, review expectations, and security guidance under `v0`.
+3. Finish `v1` repair tooling and provenance drilldown.
+4. Start `v2` with explicit working-memory admission, eviction, and rehydration policy.
+5. Add `v2` trust-weighted source memory and reversible compression.
+6. Build `v3` federated boundaries only after local and superhuman memory semantics are stable.
+7. Add `v4` autonomic tuning only after the evaluation harness is trustworthy.
 
 ## Non-Goals
 
