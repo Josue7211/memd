@@ -323,6 +323,9 @@ struct ObsidianArgs {
     max_notes: Option<usize>,
 
     #[arg(long)]
+    max_attachments: Option<usize>,
+
+    #[arg(long)]
     state_file: Option<PathBuf>,
 
     #[arg(long)]
@@ -333,6 +336,9 @@ struct ObsidianArgs {
 
     #[arg(long)]
     review_sensitive: bool,
+
+    #[arg(long)]
+    include_attachments: bool,
 
     #[arg(long)]
     apply: bool,
@@ -1080,6 +1086,8 @@ async fn main() -> anyhow::Result<()> {
                     args.project.clone(),
                     args.namespace.clone(),
                     args.max_notes,
+                    args.include_attachments,
+                    args.max_attachments,
                 )?;
                 if args.review_sensitive {
                     println!("{}", obsidian::render_sensitive_review(&scan));
@@ -1097,6 +1105,8 @@ async fn main() -> anyhow::Result<()> {
                     args.project.clone(),
                     args.namespace.clone(),
                     args.max_notes,
+                    args.include_attachments,
+                    args.max_attachments,
                 )?;
                 if args.review_sensitive {
                     println!("{}", obsidian::render_sensitive_review(&scan));
@@ -1106,6 +1116,11 @@ async fn main() -> anyhow::Result<()> {
                     obsidian::load_sync_state(&args.vault, args.state_file.clone())?;
                 let (preview, candidates, changed_notes) =
                     obsidian::build_import_preview(scan, &sync_state, state_path.clone());
+                let (attachment_assets, attachment_unchanged_count) = if args.include_attachments {
+                    obsidian::partition_changed_attachments(&preview.scan.attachments, &sync_state)
+                } else {
+                    (Vec::new(), 0)
+                };
                 if args.apply {
                     let responses = client.candidate_batch(&candidates).await?;
                     let mut next_state = sync_state.clone();
@@ -1130,6 +1145,43 @@ async fn main() -> anyhow::Result<()> {
                             },
                         );
                     }
+
+                    let mut attachment_multimodal = None;
+                    if args.include_attachments && !attachment_assets.is_empty() {
+                        let attachment_paths = attachment_assets
+                            .iter()
+                            .map(|asset| asset.path.clone())
+                            .collect::<Vec<_>>();
+                        let preview = build_multimodal_preview(
+                            args.project.clone(),
+                            args.namespace.clone(),
+                            &attachment_paths,
+                        )?;
+                        let rag_url = std::env::var("MEMD_RAG_URL")
+                            .context("set MEMD_RAG_URL for obsidian attachments")?;
+                        let sidecar = SidecarClient::new(&rag_url)?;
+                        let responses =
+                            ingest_multimodal_preview(&sidecar, &preview.requests).await?;
+                        for (asset, response) in attachment_assets.iter().zip(responses.iter()) {
+                            next_state.entries.insert(
+                                asset.relative_path.clone(),
+                                ObsidianSyncEntry {
+                                    content_hash: asset.content_hash.clone(),
+                                    bytes: asset.bytes,
+                                    modified_at: asset.modified_at,
+                                    item_id: Some(response.track_id),
+                                    entity_id: None,
+                                },
+                            );
+                        }
+                        attachment_multimodal = Some(MultimodalIngestOutput {
+                            preview,
+                            responses,
+                            submitted: attachment_assets.len(),
+                            dry_run: false,
+                        });
+                    }
+
                     for note in &preview.scan.notes {
                         if let Some(entry) = next_state.entries.get_mut(&note.relative_path) {
                             entry.content_hash = note.content_hash.clone();
@@ -1214,6 +1266,8 @@ async fn main() -> anyhow::Result<()> {
                             .filter(|response| response.duplicate_of.is_some())
                             .count(),
                         links_created,
+                        attachments: attachment_multimodal,
+                        attachment_unchanged_count,
                         dry_run: false,
                     };
                     if args.summary {
@@ -1227,6 +1281,8 @@ async fn main() -> anyhow::Result<()> {
                         submitted: 0,
                         duplicates: 0,
                         links_created: 0,
+                        attachments: None,
+                        attachment_unchanged_count,
                         dry_run: true,
                     };
                     if args.summary {
@@ -1331,16 +1387,20 @@ struct ObsidianImportOutput {
     submitted: usize,
     duplicates: usize,
     links_created: usize,
+    attachments: Option<MultimodalIngestOutput>,
+    attachment_unchanged_count: usize,
     dry_run: bool,
 }
 
 fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut output = format!(
-        "vault={} notes={} sensitive={} unchanged={} skipped={} project={}",
+        "vault={} notes={} sensitive={} unchanged={} attachments={} attachment_sensitive={} skipped={} project={}",
         scan.vault.display(),
         scan.note_count,
         scan.sensitive_count,
         scan.unchanged_count,
+        scan.attachment_count,
+        scan.attachment_sensitive_count,
         scan.skipped_count,
         scan.project.as_deref().unwrap_or("none")
     );
@@ -1360,13 +1420,22 @@ fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> Strin
 }
 
 fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -> String {
+    let attachment_submitted = output
+        .attachments
+        .as_ref()
+        .map(|attachments| attachments.submitted)
+        .unwrap_or(0);
     let mut summary = format!(
-        "obsidian_import vault={} notes={} sensitive={} unchanged={} submitted={} duplicates={} links={} dry_run={}",
+        "obsidian_import vault={} notes={} sensitive={} unchanged={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} links={} dry_run={}",
         output.preview.scan.vault.display(),
         output.preview.scan.note_count,
         output.preview.scan.sensitive_count,
         output.preview.scan.unchanged_count,
+        output.preview.scan.attachment_count,
+        output.preview.scan.attachment_sensitive_count,
+        output.attachment_unchanged_count,
         output.submitted,
+        attachment_submitted,
         output.duplicates,
         output.links_created,
         output.dry_run
@@ -1384,6 +1453,12 @@ fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -
         if !trail.is_empty() {
             summary.push_str(&format!(" trail={trail}"));
         }
+    }
+    if let Some(attachments) = output.attachments.as_ref() {
+        summary.push_str(&format!(
+            " attachments_submitted={} attachments_dry_run={}",
+            attachments.submitted, attachments.dry_run
+        ));
     }
     summary
 }

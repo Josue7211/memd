@@ -25,7 +25,11 @@ pub struct ObsidianVaultScan {
     pub sensitive_count: usize,
     pub skipped_count: usize,
     pub unchanged_count: usize,
+    pub attachment_count: usize,
+    pub attachment_sensitive_count: usize,
+    pub attachment_unchanged_count: usize,
     pub sensitive_notes: Vec<ObsidianSensitiveNote>,
+    pub attachments: Vec<ObsidianAttachment>,
     pub notes: Vec<ObsidianNote>,
 }
 
@@ -41,6 +45,18 @@ pub struct ObsidianSensitiveNote {
     pub relative_path: String,
     pub title: String,
     pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObsidianAttachment {
+    pub path: PathBuf,
+    pub relative_path: String,
+    pub asset_kind: String,
+    pub mime: Option<String>,
+    pub bytes: u64,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub content_hash: String,
+    pub sensitivity: ObsidianSensitivity,
 }
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
@@ -89,13 +105,18 @@ pub fn scan_vault(
     project: Option<String>,
     namespace: Option<String>,
     max_notes: Option<usize>,
+    include_attachments: bool,
+    max_attachments: Option<usize>,
 ) -> anyhow::Result<ObsidianVaultScan> {
     let vault = vault.as_ref();
     let mut notes = Vec::new();
     let mut sensitive_notes = Vec::new();
+    let mut attachments = Vec::new();
     let mut skipped_count = 0usize;
     let mut sensitive_count = 0usize;
+    let mut attachment_sensitive_count = 0usize;
     let max_notes = max_notes.unwrap_or(usize::MAX);
+    let max_attachments = max_attachments.unwrap_or(usize::MAX);
 
     for entry in WalkDir::new(vault)
         .into_iter()
@@ -104,32 +125,52 @@ pub fn scan_vault(
         if !entry.file_type().is_file() {
             continue;
         }
-        if entry
-            .path()
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
-        {
-            skipped_count += 1;
-            continue;
-        }
-        if notes.len() >= max_notes {
+        let path = entry.path();
+        if should_skip_vault_path(path) {
             skipped_count += 1;
             continue;
         }
 
-        if let Some(note) = parse_markdown_note(vault, entry.path())? {
-            if note.sensitivity.sensitive {
-                sensitive_notes.push(ObsidianSensitiveNote {
-                    path: note.path.clone(),
-                    relative_path: note.relative_path.clone(),
-                    title: note.title.clone(),
-                    reasons: note.sensitivity.reasons.clone(),
-                });
-                sensitive_count += 1;
+        let is_markdown = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+        if is_markdown {
+            if notes.len() >= max_notes {
+                skipped_count += 1;
                 continue;
             }
-            notes.push(note);
+
+            if let Some(note) = parse_markdown_note(vault, path)? {
+                if note.sensitivity.sensitive {
+                    sensitive_notes.push(ObsidianSensitiveNote {
+                        path: note.path.clone(),
+                        relative_path: note.relative_path.clone(),
+                        title: note.title.clone(),
+                        reasons: note.sensitivity.reasons.clone(),
+                    });
+                    sensitive_count += 1;
+                    continue;
+                }
+                notes.push(note);
+            }
+            continue;
+        }
+
+        if !include_attachments {
+            skipped_count += 1;
+            continue;
+        }
+        if attachments.len() >= max_attachments {
+            skipped_count += 1;
+            continue;
+        }
+        if let Some(attachment) = parse_attachment(vault, path)? {
+            if attachment.sensitivity.sensitive {
+                attachment_sensitive_count += 1;
+                continue;
+            }
+            attachments.push(attachment);
         }
     }
 
@@ -141,7 +182,11 @@ pub fn scan_vault(
         sensitive_count,
         skipped_count,
         unchanged_count: 0,
+        attachment_count: attachments.len(),
+        attachment_sensitive_count,
+        attachment_unchanged_count: 0,
         sensitive_notes,
+        attachments,
         notes,
     })
 }
@@ -217,6 +262,25 @@ pub fn build_import_preview(
         candidates,
         changed_notes,
     )
+}
+
+pub fn partition_changed_attachments<'a>(
+    attachments: &'a [ObsidianAttachment],
+    sync_state: &ObsidianSyncState,
+) -> (Vec<&'a ObsidianAttachment>, usize) {
+    let mut changed = Vec::new();
+    let mut unchanged_count = 0usize;
+
+    for attachment in attachments {
+        let entry = sync_state.entries.get(&attachment.relative_path);
+        if entry.is_some_and(|entry| entry.content_hash == attachment.content_hash) {
+            unchanged_count += 1;
+            continue;
+        }
+        changed.push(attachment);
+    }
+
+    (changed, unchanged_count)
 }
 
 pub fn build_note_request(
@@ -380,6 +444,49 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
     }))
 }
 
+fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianAttachment>> {
+    let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    let relative_path = path
+        .strip_prefix(vault)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    let mime = mime_guess::from_path(path)
+        .first_raw()
+        .map(|value| value.to_string());
+    let asset_kind = classify_asset_kind(path, mime.as_deref()).to_string();
+    let bytes = metadata.len();
+    let modified_at = metadata.modified().ok().map(system_time_to_utc);
+    let raw = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let content_hash = hash_bytes(&raw);
+    let sensitivity = if is_text_like_attachment(path) {
+        let text = String::from_utf8_lossy(&raw);
+        detect_sensitivity(
+            path.file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("attachment"),
+            &text,
+            None,
+        )
+    } else {
+        ObsidianSensitivity {
+            sensitive: false,
+            reasons: Vec::new(),
+        }
+    };
+
+    Ok(Some(ObsidianAttachment {
+        path: path.to_path_buf(),
+        relative_path,
+        asset_kind,
+        mime,
+        bytes,
+        modified_at,
+        content_hash,
+        sensitivity,
+    }))
+}
+
 fn default_sync_state_path(vault: &Path) -> PathBuf {
     vault.join(".memd").join("obsidian-sync.json")
 }
@@ -390,8 +497,68 @@ fn hash_content(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn hash_bytes(content: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    format!("{:x}", hasher.finalize())
+}
+
 fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
     value.into()
+}
+
+fn classify_asset_kind(path: &Path, mime: Option<&str>) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.trim().to_ascii_lowercase());
+
+    match (ext.as_deref(), mime) {
+        (Some("pdf"), _) | (_, Some("application/pdf")) => "pdf",
+        (Some("png"), _)
+        | (Some("jpg"), _)
+        | (Some("jpeg"), _)
+        | (Some("webp"), _)
+        | (Some("heic"), _) => "image",
+        (Some("mp4"), _)
+        | (Some("mov"), _)
+        | (Some("mkv"), _)
+        | (Some("webm"), _)
+        | (_, Some("video/mp4"))
+        | (_, Some("video/webm")) => "video",
+        (Some("csv"), _) | (Some("tsv"), _) | (Some("xlsx"), _) | (_, Some("text/csv")) => "table",
+        (Some("tex"), _) | (Some("mml"), _) | (_, Some("application/mathml+xml")) => "equation",
+        (Some("txt"), _)
+        | (Some("json"), _)
+        | (Some("yaml"), _)
+        | (Some("yml"), _)
+        | (Some("log"), _)
+        | (Some("toml"), _)
+        | (_, Some("text/plain")) => "text",
+        _ => "unknown",
+    }
+}
+
+fn is_text_like_attachment(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "txt" | "json" | "yaml" | "yml" | "csv" | "tsv" | "log" | "toml" | "ini"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn should_skip_vault_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(name)
+                if name == ".memd" || name == ".obsidian" || name == ".git"
+        )
+    })
 }
 
 fn detect_sensitivity(
@@ -694,11 +861,61 @@ mod tests {
         )
         .unwrap();
 
-        let scan = scan_vault(&vault, Some("notes".to_string()), None, Some(10)).unwrap();
+        let scan = scan_vault(
+            &vault,
+            Some("notes".to_string()),
+            None,
+            Some(10),
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(scan.note_count, 1);
         assert_eq!(scan.sensitive_count, 1);
         assert_eq!(scan.notes.len(), 1);
         assert_eq!(scan.notes[0].title, "Public Note");
         assert!(!scan.notes[0].sensitivity.sensitive);
+    }
+
+    #[test]
+    fn scans_attachments_when_enabled() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+
+        let pdf = vault.join("diagram.pdf");
+        let image = vault.join("screenshot.png");
+        let note = vault.join("note.md");
+        fs::write(&pdf, b"%PDF-1.7").unwrap();
+        fs::write(&image, b"fake").unwrap();
+        fs::write(&note, "# heading\nbody").unwrap();
+
+        let scan = scan_vault(&vault, None, None, Some(10), true, Some(10)).unwrap();
+        assert_eq!(scan.note_count, 1);
+        assert_eq!(scan.attachment_count, 2);
+        assert_eq!(scan.attachments.len(), 2);
+        assert!(
+            scan.attachments
+                .iter()
+                .any(|asset| asset.relative_path == "diagram.pdf")
+        );
+        assert!(
+            scan.attachments
+                .iter()
+                .any(|asset| asset.relative_path == "screenshot.png")
+        );
+    }
+
+    #[test]
+    fn skips_sensitive_text_attachments() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+
+        let secret = vault.join("secrets.txt");
+        fs::write(&secret, "AWS_SECRET_ACCESS_KEY=shhh").unwrap();
+
+        let scan = scan_vault(&vault, None, None, Some(10), true, Some(10)).unwrap();
+        assert_eq!(scan.attachment_sensitive_count, 1);
+        assert_eq!(scan.attachment_count, 0);
+        assert!(scan.attachments.is_empty());
     }
 }

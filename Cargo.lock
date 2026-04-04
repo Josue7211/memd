@@ -916,6 +916,7 @@ dependencies = [
  "memd-rag",
  "memd-schema",
  "memd-sidecar",
+ "mime_guess",
  "reqwest",
  "serde",
  "serde_json",
