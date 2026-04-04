@@ -18,11 +18,11 @@ use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest}
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest,
-    ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
-    MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    StoreMemoryRequest, VerifyMemoryRequest,
+    ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
+    EntitySearchResponse, ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest,
+    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use serde::Serialize;
@@ -57,6 +57,8 @@ enum Commands {
     Explain(ExplainArgs),
     Entity(EntityArgs),
     EntitySearch(EntitySearchArgs),
+    EntityLink(EntityLinkArgs),
+    EntityLinks(EntityLinksArgs),
     Timeline(TimelineArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
@@ -173,6 +175,18 @@ struct EntitySearchArgs {
     namespace: Option<String>,
 
     #[arg(long)]
+    at: Option<String>,
+
+    #[arg(long)]
+    host: Option<String>,
+
+    #[arg(long)]
+    branch: Option<String>,
+
+    #[arg(long)]
+    location: Option<String>,
+
+    #[arg(long)]
     route: Option<String>,
 
     #[arg(long)]
@@ -186,6 +200,30 @@ struct EntitySearchArgs {
 
     #[arg(long)]
     follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct EntityLinkArgs {
+    #[arg(long)]
+    from_entity_id: String,
+
+    #[arg(long)]
+    to_entity_id: String,
+
+    #[arg(long)]
+    relation_kind: String,
+
+    #[arg(long)]
+    confidence: Option<f32>,
+
+    #[arg(long)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct EntityLinksArgs {
+    #[arg(long)]
+    entity_id: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -739,16 +777,16 @@ async fn main() -> anyhow::Result<()> {
         Commands::Context(args) => {
             let req = if args.json.is_some() || args.input.is_some() || args.stdin {
                 read_request::<ContextRequest>(&RequestInput {
-                    json: args.json,
-                    input: args.input,
+                    json: args.json.clone(),
+                    input: args.input.clone(),
                     stdin: args.stdin,
                 })?
             } else {
                 ContextRequest {
-                    project: args.project,
-                    agent: args.agent,
-                    route: parse_retrieval_route(args.route)?,
-                    intent: parse_retrieval_intent(args.intent)?,
+                    project: args.project.clone(),
+                    agent: args.agent.clone(),
+                    route: parse_retrieval_route(args.route.clone())?,
+                    intent: parse_retrieval_intent(args.intent.clone())?,
                     limit: args.limit,
                     max_chars_per_item: args.max_chars_per_item,
                 }
@@ -762,10 +800,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Inbox(args) => {
             let req = MemoryInboxRequest {
-                project: args.project,
-                namespace: args.namespace,
-                route: parse_retrieval_route(args.route)?,
-                intent: parse_retrieval_intent(args.intent)?,
+                project: args.project.clone(),
+                namespace: args.namespace.clone(),
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
                 limit: args.limit,
             };
             print_json(&client.inbox(&req).await?)?;
@@ -773,16 +811,16 @@ async fn main() -> anyhow::Result<()> {
         Commands::Explain(args) => {
             let req = ExplainMemoryRequest {
                 id: args.id.parse().context("parse memory id as uuid")?,
-                route: parse_retrieval_route(args.route)?,
-                intent: parse_retrieval_intent(args.intent)?,
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
             };
             print_json(&client.explain(&req).await?)?;
         }
         Commands::Entity(args) => {
             let req = memd_schema::EntityMemoryRequest {
                 id: args.id.parse().context("parse memory id as uuid")?,
-                route: parse_retrieval_route(args.route)?,
-                intent: parse_retrieval_intent(args.intent)?,
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
                 limit: args.limit,
             };
             let response = client.entity(&req).await?;
@@ -795,11 +833,15 @@ async fn main() -> anyhow::Result<()> {
         Commands::EntitySearch(args) => {
             let response = client
                 .entity_search(&EntitySearchRequest {
-                    query: args.query,
-                    project: args.project,
-                    namespace: args.namespace,
-                    route: parse_retrieval_route(args.route)?,
-                    intent: parse_retrieval_intent(args.intent)?,
+                    query: args.query.clone(),
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    at: parse_context_time(args.at.clone())?,
+                    host: args.host.clone(),
+                    branch: args.branch.clone(),
+                    location: args.location.clone(),
+                    route: parse_retrieval_route(args.route.clone())?,
+                    intent: parse_retrieval_intent(args.intent.clone())?,
                     limit: args.limit,
                 })
                 .await?;
@@ -809,11 +851,39 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&response)?;
             }
         }
+        Commands::EntityLink(args) => {
+            let response = client
+                .link_entity(&EntityLinkRequest {
+                    from_entity_id: args
+                        .from_entity_id
+                        .parse()
+                        .context("parse from_entity_id as uuid")?,
+                    to_entity_id: args
+                        .to_entity_id
+                        .parse()
+                        .context("parse to_entity_id as uuid")?,
+                    relation_kind: parse_entity_relation_kind(&args.relation_kind)?,
+                    confidence: args.confidence,
+                    note: args.note,
+                    context: None,
+                    tags: Vec::new(),
+                })
+                .await?;
+            print_json(&response)?;
+        }
+        Commands::EntityLinks(args) => {
+            let response = client
+                .entity_links(&EntityLinksRequest {
+                    entity_id: args.entity_id.parse().context("parse entity_id as uuid")?,
+                })
+                .await?;
+            print_json(&response)?;
+        }
         Commands::Timeline(args) => {
             let req = memd_schema::TimelineMemoryRequest {
                 id: args.id.parse().context("parse memory id as uuid")?,
-                route: parse_retrieval_route(args.route)?,
-                intent: parse_retrieval_intent(args.intent)?,
+                route: parse_retrieval_route(args.route.clone())?,
+                intent: parse_retrieval_intent(args.intent.clone())?,
                 limit: args.limit,
             };
             let response = client.timeline(&req).await?;
@@ -826,8 +896,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Consolidate(args) => {
             let response = client
                 .consolidate(&MemoryConsolidationRequest {
-                    project: args.project,
-                    namespace: args.namespace,
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
                     max_groups: args.max_groups,
                     min_events: args.min_events,
                     lookback_days: args.lookback_days,
@@ -844,8 +914,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::MaintenanceReport(args) => {
             let response = client
                 .maintenance_report(&MemoryMaintenanceReportRequest {
-                    project: args.project,
-                    namespace: args.namespace,
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
                     inactive_days: args.inactive_days,
                     lookback_days: args.lookback_days,
                     min_events: args.min_events,
@@ -1604,6 +1674,33 @@ fn parse_source_quality_value(value: &str) -> anyhow::Result<memd_schema::Source
         _ => anyhow::bail!(
             "invalid source quality '{value}'; expected canonical, derived, or synthetic"
         ),
+    }
+}
+
+fn parse_entity_relation_kind(value: &str) -> anyhow::Result<memd_schema::EntityRelationKind> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "same_as" | "same" => Ok(memd_schema::EntityRelationKind::SameAs),
+        "derived_from" | "derived" => Ok(memd_schema::EntityRelationKind::DerivedFrom),
+        "supersedes" => Ok(memd_schema::EntityRelationKind::Supersedes),
+        "contradicts" => Ok(memd_schema::EntityRelationKind::Contradicts),
+        "related" => Ok(memd_schema::EntityRelationKind::Related),
+        _ => anyhow::bail!(
+            "invalid relation kind '{value}'; expected same_as, derived_from, supersedes, contradicts, or related"
+        ),
+    }
+}
+
+fn parse_context_time(
+    value: Option<String>,
+) -> anyhow::Result<Option<chrono::DateTime<chrono::Utc>>> {
+    match value {
+        Some(value) => Ok(Some(
+            chrono::DateTime::parse_from_rfc3339(&value)
+                .context("parse context time as RFC3339")?
+                .with_timezone(&chrono::Utc),
+        )),
+        None => Ok(None),
     }
 }
 

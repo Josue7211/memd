@@ -1,7 +1,8 @@
 use anyhow::Context;
 use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, ContextRequest,
-    ContextResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest,
+    ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest,
     EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
     ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest, MemoryConsolidationResponse,
     MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
@@ -103,6 +104,17 @@ impl MemdClient {
         req: &EntitySearchRequest,
     ) -> anyhow::Result<EntitySearchResponse> {
         self.get_json_with_query("/memory/entity/search", req).await
+    }
+
+    pub async fn link_entity(&self, req: &EntityLinkRequest) -> anyhow::Result<EntityLinkResponse> {
+        self.post_json("/memory/entity/link", req).await
+    }
+
+    pub async fn entity_links(
+        &self,
+        req: &EntityLinksRequest,
+    ) -> anyhow::Result<EntityLinksResponse> {
+        self.get_json_with_query("/memory/entity/links", req).await
     }
 
     pub async fn timeline(

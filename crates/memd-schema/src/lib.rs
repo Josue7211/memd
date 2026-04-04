@@ -287,6 +287,8 @@ pub struct MemoryEntityRecord {
     pub updated_at: DateTime<Utc>,
     pub last_accessed_at: Option<DateTime<Utc>>,
     pub last_seen_at: Option<DateTime<Utc>>,
+    pub valid_from: Option<DateTime<Utc>>,
+    pub valid_to: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
     pub context: Option<MemoryContextFrame>,
 }
@@ -346,6 +348,10 @@ pub struct EntitySearchRequest {
     pub query: String,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub at: Option<DateTime<Utc>>,
+    pub host: Option<String>,
+    pub branch: Option<String>,
+    pub location: Option<String>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
     pub limit: Option<usize>,
@@ -366,6 +372,56 @@ pub struct EntitySearchResponse {
     pub best_match: Option<EntitySearchHit>,
     pub candidates: Vec<EntitySearchHit>,
     pub ambiguous: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityRelationKind {
+    SameAs,
+    DerivedFrom,
+    Supersedes,
+    Contradicts,
+    Related,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntityLinkRecord {
+    pub id: Uuid,
+    pub from_entity_id: Uuid,
+    pub to_entity_id: Uuid,
+    pub relation_kind: EntityRelationKind,
+    pub confidence: f32,
+    pub created_at: DateTime<Utc>,
+    pub note: Option<String>,
+    pub context: Option<MemoryContextFrame>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityLinkRequest {
+    pub from_entity_id: Uuid,
+    pub to_entity_id: Uuid,
+    pub relation_kind: EntityRelationKind,
+    pub confidence: Option<f32>,
+    pub note: Option<String>,
+    pub context: Option<MemoryContextFrame>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityLinkResponse {
+    pub link: MemoryEntityLinkRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityLinksRequest {
+    pub entity_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityLinksResponse {
+    pub entity_id: Uuid,
+    pub links: Vec<MemoryEntityLinkRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -536,6 +592,8 @@ mod tests {
             updated_at: Utc::now(),
             last_accessed_at: Some(Utc::now()),
             last_seen_at: Some(Utc::now()),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
             tags: vec!["project".to_string(), "permanent".to_string()],
             context: Some(MemoryContextFrame {
                 at: Some(Utc::now()),
@@ -606,6 +664,8 @@ mod tests {
             updated_at: Utc::now(),
             last_accessed_at: Some(Utc::now()),
             last_seen_at: Some(Utc::now()),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
             tags: vec!["project".to_string()],
             context: Some(MemoryContextFrame {
                 at: Some(Utc::now()),
@@ -622,6 +682,10 @@ mod tests {
             query: "memd repo".to_string(),
             project: Some("memd".to_string()),
             namespace: None,
+            at: Some(Utc::now()),
+            host: Some("laptop".to_string()),
+            branch: Some("main".to_string()),
+            location: Some("/tmp/memd".to_string()),
             route: Some(RetrievalRoute::ProjectFirst),
             intent: Some(RetrievalIntent::Fact),
             limit: Some(5),
@@ -645,6 +709,54 @@ mod tests {
         let decoded_response: EntitySearchResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.query, request.query);
         assert_eq!(decoded_response.best_match.unwrap().score, 0.93);
+    }
+
+    #[test]
+    fn entity_link_roundtrips() {
+        let link = MemoryEntityLinkRecord {
+            id: Uuid::new_v4(),
+            from_entity_id: Uuid::new_v4(),
+            to_entity_id: Uuid::new_v4(),
+            relation_kind: EntityRelationKind::DerivedFrom,
+            confidence: 0.84,
+            created_at: Utc::now(),
+            note: Some("rolled up from repeated traces".to_string()),
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("/tmp/memd".to_string()),
+            }),
+            tags: vec!["semantic".to_string()],
+        };
+        let request = EntityLinkRequest {
+            from_entity_id: link.from_entity_id,
+            to_entity_id: link.to_entity_id,
+            relation_kind: link.relation_kind,
+            confidence: Some(link.confidence),
+            note: link.note.clone(),
+            context: link.context.clone(),
+            tags: link.tags.clone(),
+        };
+        let response = EntityLinkResponse { link: link.clone() };
+        let links = EntityLinksResponse {
+            entity_id: link.from_entity_id,
+            links: vec![link],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let links_json = serde_json::to_string(&links).unwrap();
+        let decoded_request: EntityLinkRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: EntityLinkResponse = serde_json::from_str(&response_json).unwrap();
+        let decoded_links: EntityLinksResponse = serde_json::from_str(&links_json).unwrap();
+        assert_eq!(decoded_request.relation_kind, request.relation_kind);
+        assert_eq!(decoded_response.link.confidence, response.link.confidence);
+        assert_eq!(decoded_links.links.len(), 1);
     }
 
     #[test]

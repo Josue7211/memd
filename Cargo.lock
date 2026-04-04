@@ -861,6 +861,7 @@ name = "memd-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "memd-core",
  "memd-multimodal",

@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use memd_schema::{
-    EntitySearchHit, EntitySearchRequest, MemoryConsolidationRequest, MemoryContextFrame,
-    MemoryDecayRequest, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
-    MemoryMaintenanceReportRequest,
+    EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -97,6 +97,26 @@ impl SqliteStore {
               ON memory_events(entity_id, recorded_at DESC);
             CREATE INDEX IF NOT EXISTS idx_memory_events_memory_item_id
               ON memory_events(memory_item_id);
+
+            CREATE TABLE IF NOT EXISTS memory_entity_links (
+              id TEXT PRIMARY KEY,
+              from_entity_id TEXT NOT NULL,
+              to_entity_id TEXT NOT NULL,
+              relation_kind TEXT NOT NULL,
+              confidence REAL NOT NULL,
+              created_at TEXT NOT NULL,
+              note TEXT,
+              context_json TEXT,
+              tags_json TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_entity_links_unique
+              ON memory_entity_links(from_entity_id, to_entity_id, relation_kind);
+            CREATE INDEX IF NOT EXISTS idx_memory_entity_links_from
+              ON memory_entity_links(from_entity_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_entity_links_to
+              ON memory_entity_links(to_entity_id, created_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -598,6 +618,97 @@ impl SqliteStore {
         }
     }
 
+    pub fn upsert_entity_link(&self, link: &MemoryEntityLinkRecord) -> anyhow::Result<()> {
+        let payload_json = serde_json::to_string(link).context("serialize entity link")?;
+        let context_json =
+            serde_json::to_string(&link.context).context("serialize entity link context")?;
+        let tags_json = serde_json::to_string(&link.tags).context("serialize entity link tags")?;
+        let relation_kind =
+            serde_json::to_string(&link.relation_kind).context("serialize entity link relation")?;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO memory_entity_links (
+              id, from_entity_id, to_entity_id, relation_kind, confidence, created_at,
+              note, context_json, tags_json, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(from_entity_id, to_entity_id, relation_kind) DO UPDATE SET
+              id = excluded.id,
+              confidence = excluded.confidence,
+              created_at = excluded.created_at,
+              note = excluded.note,
+              context_json = excluded.context_json,
+              tags_json = excluded.tags_json,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                link.id.to_string(),
+                link.from_entity_id.to_string(),
+                link.to_entity_id.to_string(),
+                relation_kind,
+                link.confidence,
+                link.created_at.to_rfc3339(),
+                link.note,
+                context_json,
+                tags_json,
+                payload_json,
+            ],
+        )
+        .context("upsert entity link")?;
+        Ok(())
+    }
+
+    pub fn link_entity(
+        &self,
+        request: &EntityLinkRequest,
+    ) -> anyhow::Result<MemoryEntityLinkRecord> {
+        let now = chrono::Utc::now();
+        let link = MemoryEntityLinkRecord {
+            id: Uuid::new_v4(),
+            from_entity_id: request.from_entity_id,
+            to_entity_id: request.to_entity_id,
+            relation_kind: request.relation_kind,
+            confidence: request.confidence.unwrap_or(0.8).clamp(0.0, 1.0),
+            created_at: now,
+            note: request.note.clone(),
+            context: request.context.clone(),
+            tags: request.tags.clone(),
+        };
+        self.upsert_entity_link(&link)?;
+        Ok(link)
+    }
+
+    pub fn links_for_entity(
+        &self,
+        request: &EntityLinksRequest,
+    ) -> anyhow::Result<Vec<MemoryEntityLinkRecord>> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM memory_entity_links
+                WHERE from_entity_id = ?1 OR to_entity_id = ?1
+                ORDER BY created_at DESC
+                "#,
+            )
+            .context("prepare entity links query")?;
+        let rows = stmt
+            .query_map([request.entity_id.to_string()], |row| {
+                row.get::<_, String>(0)
+            })
+            .context("query entity links")?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            let payload = row.context("read entity link row")?;
+            let link: MemoryEntityLinkRecord =
+                serde_json::from_str(&payload).context("deserialize entity link payload")?;
+            links.push(link);
+        }
+        Ok(links)
+    }
+
     pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let mut stmt = conn
@@ -630,26 +741,11 @@ impl SqliteStore {
         let limit = request.limit.unwrap_or(5).min(20);
         let mut hits = Vec::new();
         for entity in self.list_entities()? {
-            if request.project.as_ref().is_some_and(|project| {
-                entity
-                    .context
-                    .as_ref()
-                    .and_then(|context| context.project.as_ref())
-                    != Some(project)
-            }) {
-                continue;
-            }
-            if request.namespace.as_ref().is_some_and(|namespace| {
-                entity
-                    .context
-                    .as_ref()
-                    .and_then(|context| context.namespace.as_ref())
-                    != Some(namespace)
-            }) {
+            if !entity_matches_context(&entity, request) {
                 continue;
             }
 
-            let (score, reasons) = score_entity_search(&query, &query_tokens, &entity);
+            let (score, reasons) = score_entity_search(request, &query, &query_tokens, &entity);
             if score <= 0.0 {
                 continue;
             }
@@ -1032,6 +1128,8 @@ fn new_entity_record(item: &MemoryItem) -> MemoryEntityRecord {
         updated_at: now,
         last_accessed_at: Some(now),
         last_seen_at: Some(item.updated_at),
+        valid_from: Some(item.updated_at),
+        valid_to: None,
         tags: item.tags.clone(),
         context: Some(MemoryContextFrame {
             at: Some(item.updated_at),
@@ -1072,6 +1170,10 @@ fn update_entity_record(mut record: MemoryEntityRecord, item: &MemoryItem) -> Me
     record.updated_at = now;
     record.last_accessed_at = Some(now);
     record.last_seen_at = Some(item.updated_at);
+    if record.valid_from.is_none() {
+        record.valid_from = Some(item.updated_at);
+    }
+    record.valid_to = None;
     record.tags = merge_tags(&record.tags, &item.tags);
     record.context = Some(MemoryContextFrame {
         at: Some(item.updated_at),
@@ -1153,6 +1255,7 @@ fn tokenize_search_text(value: &str) -> Vec<String> {
 }
 
 fn score_entity_search(
+    request: &EntitySearchRequest,
     query: &str,
     query_tokens: &[String],
     entity: &MemoryEntityRecord,
@@ -1194,6 +1297,64 @@ fn score_entity_search(
     }
     if entity.rehearsal_count > 0 {
         score += (entity.rehearsal_count as f32).ln_1p() * 0.03;
+    }
+    if entity.valid_from.is_some() {
+        score += 0.08;
+        reasons.push("validity window".to_string());
+    }
+    if request.project.is_some()
+        && entity
+            .context
+            .as_ref()
+            .and_then(|context| context.project.as_ref())
+            .is_some()
+    {
+        score += 0.05;
+        reasons.push("project context".to_string());
+    }
+    if request.namespace.is_some()
+        && entity
+            .context
+            .as_ref()
+            .and_then(|context| context.namespace.as_ref())
+            .is_some()
+    {
+        score += 0.05;
+        reasons.push("namespace context".to_string());
+    }
+    if request.host.is_some()
+        && entity
+            .context
+            .as_ref()
+            .and_then(|context| context.host.as_ref())
+            .is_some()
+    {
+        score += 0.05;
+        reasons.push("host context".to_string());
+    }
+    if request.branch.is_some()
+        && entity
+            .context
+            .as_ref()
+            .and_then(|context| context.branch.as_ref())
+            .is_some()
+    {
+        score += 0.05;
+        reasons.push("branch context".to_string());
+    }
+    if request.location.is_some()
+        && entity
+            .context
+            .as_ref()
+            .and_then(|context| context.location.as_ref())
+            .is_some()
+    {
+        score += 0.05;
+        reasons.push("location context".to_string());
+    }
+    if request.at.is_some() {
+        score += 0.05;
+        reasons.push("timestamp context".to_string());
     }
 
     score = score.min(1.0);
@@ -1241,6 +1402,56 @@ fn entity_search_haystacks(entity: &MemoryEntityRecord) -> Vec<String> {
     haystacks.sort();
     haystacks.dedup();
     haystacks
+}
+
+fn entity_matches_context(entity: &MemoryEntityRecord, request: &EntitySearchRequest) -> bool {
+    if let Some(at) = request.at {
+        if entity.valid_from.is_some_and(|valid_from| at < valid_from) {
+            return false;
+        }
+        if entity.valid_to.is_some_and(|valid_to| at > valid_to) {
+            return false;
+        }
+    }
+
+    let context = entity.context.as_ref();
+    if request.project.as_ref().is_some_and(|project| {
+        context
+            .and_then(|context| context.project.as_ref())
+            .is_none_or(|entity_project| entity_project != project)
+    }) {
+        return false;
+    }
+    if request.namespace.as_ref().is_some_and(|namespace| {
+        context
+            .and_then(|context| context.namespace.as_ref())
+            .is_none_or(|entity_namespace| entity_namespace != namespace)
+    }) {
+        return false;
+    }
+    if request.host.as_ref().is_some_and(|host| {
+        context
+            .and_then(|context| context.host.as_ref())
+            .is_none_or(|entity_host| entity_host != host)
+    }) {
+        return false;
+    }
+    if request.branch.as_ref().is_some_and(|branch| {
+        context
+            .and_then(|context| context.branch.as_ref())
+            .is_none_or(|entity_branch| entity_branch != branch)
+    }) {
+        return false;
+    }
+    if request.location.as_ref().is_some_and(|location| {
+        context
+            .and_then(|context| context.location.as_ref())
+            .is_none_or(|entity_location| entity_location != location)
+    }) {
+        return false;
+    }
+
+    true
 }
 
 fn compact_entity_state(item: &MemoryItem) -> String {
@@ -1301,6 +1512,8 @@ mod tests {
             updated_at: chrono::Utc::now(),
             last_accessed_at: Some(chrono::Utc::now()),
             last_seen_at: Some(chrono::Utc::now()),
+            valid_from: Some(chrono::Utc::now()),
+            valid_to: None,
             tags: vec!["project".to_string()],
             context: Some(MemoryContextFrame {
                 at: Some(chrono::Utc::now()),
@@ -1313,8 +1526,21 @@ mod tests {
                 location: Some("/tmp/memd".to_string()),
             }),
         };
+        let request = EntitySearchRequest {
+            query: "memd repo".to_string(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            at: Some(chrono::Utc::now()),
+            host: Some("laptop".to_string()),
+            branch: Some("main".to_string()),
+            location: Some("/tmp/memd".to_string()),
+            route: None,
+            intent: None,
+            limit: Some(5),
+        };
 
         let (score, reasons) = score_entity_search(
+            &request,
             &normalize_search_text("memd repo"),
             &tokenize_search_text("memd repo"),
             &entity,

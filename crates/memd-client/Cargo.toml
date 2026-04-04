@@ -6,6 +6,7 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 memd-core = { path = "../memd-core" }
 memd-multimodal = { path = "../memd-multimodal" }

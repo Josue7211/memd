@@ -14,7 +14,8 @@ use chrono::Utc;
 use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
-    ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
+    ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
@@ -244,6 +245,8 @@ async fn main() {
         .route("/memory/inbox", get(get_inbox))
         .route("/memory/entity", get(get_entity))
         .route("/memory/entity/search", get(get_entity_search))
+        .route("/memory/entity/link", post(post_entity_link))
+        .route("/memory/entity/links", get(get_entity_links))
         .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
@@ -503,6 +506,10 @@ async fn get_entity_search(
                 query: query.clone(),
                 project: req.project.clone(),
                 namespace: req.namespace.clone(),
+                at: req.at.clone(),
+                host: req.host.clone(),
+                branch: req.branch.clone(),
+                location: req.location.clone(),
                 route: req.route,
                 intent: req.intent,
                 limit: req.limit,
@@ -528,6 +535,25 @@ async fn get_entity_search(
         best_match,
         candidates: std::mem::take(&mut candidates),
         ambiguous,
+    }))
+}
+
+async fn post_entity_link(
+    State(state): State<AppState>,
+    Json(req): Json<EntityLinkRequest>,
+) -> Result<Json<EntityLinkResponse>, (StatusCode, String)> {
+    let link = state.store.link_entity(&req).map_err(internal_error)?;
+    Ok(Json(EntityLinkResponse { link }))
+}
+
+async fn get_entity_links(
+    State(state): State<AppState>,
+    Query(req): Query<EntityLinksRequest>,
+) -> Result<Json<EntityLinksResponse>, (StatusCode, String)> {
+    let links = state.store.links_for_entity(&req).map_err(internal_error)?;
+    Ok(Json(EntityLinksResponse {
+        entity_id: req.entity_id,
+        links,
     }))
 }
 
