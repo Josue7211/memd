@@ -47,20 +47,15 @@ Success:
 - reversible compression
 - first learned retrieval-policy hooks
 
+Status: Complete
+
 Success:
 
 - `memd` begins moving from brain-inspired memory toward machine-advantaged memory
 
 ## Immediate Next Phase
 
-Phase 2 is the next planning target now that phase 1 is complete.
-
-Recommended first plan slices for `v2`:
-
-1. explicit working-memory controller semantics
-2. trust-weighted source memory
-3. reversible compression
-4. first learned retrieval-policy hooks
+All current roadmap phases are complete.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*
