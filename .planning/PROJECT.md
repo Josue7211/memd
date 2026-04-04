@@ -20,6 +20,7 @@ inspectable, and useful under real task pressure.
 - ✓ Typed memory storage and retrieval exist in the Rust core and server.
 - ✓ Agents can fetch compact context and working memory through one API.
 - ✓ Optional long-term semantic backend support exists behind the control plane.
+- ✓ Obsidian vault ingest exists as a markdown-native knowledge source path.
 - ✓ Project bundles and attach flows exist for agent integrations.
 - ✓ `v1` provenance, repair, and working-memory control are complete enough to move to `v2`.
 
@@ -57,6 +58,11 @@ working-memory state, and branchable belief lanes. The repo is usable now, and
 trust-weighted ranking, contradiction resolution, and first-class procedural and
 self-model memory surfaces.
 
+The product direction now explicitly includes an Obsidian compiled-wiki mode:
+raw sources and derived markdown pages can live in the same workspace, with
+`memd` preserving typed memory, provenance, and policy around that markdown
+surface. LightRAG stays optional for larger-scale semantic recall.
+
 ## Constraints
 
 - **Architecture**: `memd` remains the memory control plane — cognition and planning stay outside this repo.
@@ -64,6 +70,7 @@ self-model memory surfaces.
 - **Evidence**: Durable memory must preserve provenance, trust, and contradiction state.
 - **Efficiency**: Retrieval stays bounded by explicit token/character budgets.
 - **Compatibility**: External backend stack changes must stay behind `rag-sidecar`.
+- **Workflow**: milestone work should land on `work/<milestone>` branches and large slices should move on scoped `feat/<area>` branches instead of one long-lived catch-all branch.
 
 ## Key Decisions
 
@@ -72,6 +79,7 @@ self-model memory surfaces.
 | Keep `memd` as the memory substrate, not the whole brain | Prevents cognition and storage concerns from smearing together | ✓ Good |
 | Organize future work by capability versions `v1`-`v5` | Better matches the architecture jump than endless phase numbering | ✓ Good |
 | Keep the external multimodal stack behind `rag-sidecar` | Preserves portability and clean backend boundaries | ✓ Good |
+| Treat Obsidian as a first-class markdown workspace, not just an import source | Supports compiled-wiki workflows without forcing semantic backend dependency at small scale | ✓ Good |
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---

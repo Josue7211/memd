@@ -8,6 +8,6 @@ being finalized.
 ## Unreleased
 
 - branch-first workflow and release process documentation
+- milestone plus scoped feature branch model for phased work
 - roadmap and planning structure for phased work
 - ongoing memory substrate and control plane improvements
-
