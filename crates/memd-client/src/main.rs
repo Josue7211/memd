@@ -11,13 +11,15 @@ use memd_core::{
     build_compaction_packet, derive_compaction_spill, derive_compaction_spill_with_options,
     render_compaction_wire,
 };
+use memd_rag::{RagClient, RagQuery, RagRecord};
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryInboxRequest,
-    PromoteMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest,
-    VerifyMemoryRequest,
+    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryInboxRequest, MemoryKind,
+    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
+use serde::Serialize;
 
 #[derive(Debug, Parser)]
 #[command(name = "memd")]
@@ -34,6 +36,8 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Attach(AttachArgs),
+    Rag(RagArgs),
     Store(RequestInput),
     Candidate(RequestInput),
     Promote(RequestInput),
@@ -254,6 +258,9 @@ struct InitArgs {
     #[arg(long, default_value = "http://127.0.0.1:8787")]
     base_url: String,
 
+    #[arg(long)]
+    rag_url: Option<String>,
+
     #[arg(long, default_value = "auto")]
     route: String,
 
@@ -270,6 +277,64 @@ struct StatusArgs {
     output: PathBuf,
 }
 
+#[derive(Debug, Clone, Args)]
+struct AttachArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    shell: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RagArgs {
+    #[arg(long)]
+    rag_url: Option<String>,
+
+    #[command(subcommand)]
+    mode: RagMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum RagMode {
+    Healthz,
+    Sync(RagSyncArgs),
+    Search(RagSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct RagSyncArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RagSearchArgs {
+    #[arg(long)]
+    query: String,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    kind: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -280,6 +345,38 @@ async fn main() -> anyhow::Result<()> {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => {
             print_json(&read_bundle_status(&args.output, &base_url).await?)?;
+        }
+        Commands::Attach(args) => {
+            let shell = args
+                .shell
+                .or_else(|| detect_shell())
+                .unwrap_or_else(|| "bash".to_string());
+            println!("{}", render_attach_snippet(&shell, &args.output)?);
+        }
+        Commands::Rag(args) => {
+            let rag_url = args
+                .rag_url
+                .or_else(|| std::env::var("MEMD_RAG_URL").ok())
+                .context("provide --rag-url or set MEMD_RAG_URL")?;
+            let rag = RagClient::new(&rag_url)?;
+            match args.mode {
+                RagMode::Healthz => print_json(&rag.healthz().await?)?,
+                RagMode::Search(args) => {
+                    let query = RagQuery {
+                        query: Some(args.query),
+                        project: args.project,
+                        namespace: args.namespace,
+                        kind: args.kind.map(|kind| parse_memory_kind_value(&kind)).transpose()?,
+                        scope: None,
+                        limit: args.limit,
+                    };
+                    print_json(&rag.search(&query).await?)?;
+                }
+                RagMode::Sync(args) => {
+                    let summary = sync_to_rag(&client, &rag, args).await?;
+                    print_json(&summary)?;
+                }
+            }
         }
         Commands::Store(input) => {
             let req = read_request::<StoreMemoryRequest>(&input)?;
@@ -527,6 +624,67 @@ where
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+struct RagSyncSummary {
+    fetched: usize,
+    pushed: usize,
+    dry_run: bool,
+    project: Option<String>,
+    namespace: Option<String>,
+}
+
+async fn sync_to_rag(
+    memd: &MemdClient,
+    rag: &RagClient,
+    args: RagSyncArgs,
+) -> anyhow::Result<RagSyncSummary> {
+    let fetched = memd
+        .search(&SearchMemoryRequest {
+            query: None,
+            route: Some(RetrievalRoute::All),
+            intent: Some(RetrievalIntent::General),
+            scopes: vec![MemoryScope::Project, MemoryScope::Global],
+            kinds: vec![
+                MemoryKind::Fact,
+                MemoryKind::Decision,
+                MemoryKind::Preference,
+                MemoryKind::Runbook,
+                MemoryKind::Topology,
+                MemoryKind::Status,
+                MemoryKind::Pattern,
+                MemoryKind::Constraint,
+            ],
+            statuses: vec![MemoryStatus::Active],
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            source_agent: None,
+            tags: Vec::new(),
+            stages: vec![MemoryStage::Canonical],
+            limit: args.limit,
+            max_chars_per_item: Some(1000),
+        })
+        .await
+        .context("load canonical memory for rag sync")?;
+
+    let mut pushed = 0usize;
+    for item in &fetched.items {
+        if !args.dry_run {
+            rag.upsert(&RagRecord::from(item))
+                .await
+                .context("upsert rag record")?;
+        }
+        pushed += 1;
+    }
+
+    Ok(RagSyncSummary {
+        fetched: fetched.items.len(),
+        pushed,
+        dry_run: args.dry_run,
+        project: args.project,
+        namespace: args.namespace,
+    })
+}
+
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let output = &args.output;
     if output.exists() && !args.force {
@@ -545,6 +703,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         "project": args.project,
         "agent": args.agent,
         "base_url": args.base_url,
+        "rag_url": args.rag_url,
         "route": args.route,
         "intent": args.intent,
         "hook_kit": {
@@ -563,8 +722,16 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n",
-            args.base_url, args.project, args.agent, args.route, args.intent
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}",
+            args.base_url,
+            args.project,
+            args.agent,
+            args.route,
+            args.intent,
+            args.rag_url
+                .as_ref()
+                .map(|value| format!("MEMD_RAG_URL={value}\n"))
+                .unwrap_or_default(),
         ),
     )
     .with_context(|| format!("write {}", output.join("env").display()))?;
@@ -572,26 +739,23 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}",
             escape_ps1(&args.base_url),
             escape_ps1(&args.project),
             escape_ps1(&args.agent),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
+            args.rag_url
+                .as_ref()
+                .map(|value| format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(value)))
+                .unwrap_or_default(),
         ),
     )
     .with_context(|| format!("write {}", output.join("env.ps1").display()))?;
 
     let hook_root = output.join("hooks");
     copy_hook_assets(Path::new(&hook_root))?;
-    write_agent_profiles(
-        output,
-        &args.project,
-        &args.agent,
-        &args.base_url,
-        &args.route,
-        &args.intent,
-    )?;
+    write_agent_profiles(output)?;
 
     fs::write(
         output.join("README.md"),
@@ -605,34 +769,19 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_agent_profiles(
-    output: &Path,
-    project: &str,
-    agent: &str,
-    base_url: &str,
-    route: &str,
-    intent: &str,
-) -> anyhow::Result<()> {
+fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     let shell_profile = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BASE_URL=\"{}\"\nexport MEMD_PROJECT=\"{}\"\nexport MEMD_AGENT=\"{}\"\nexport MEMD_ROUTE=\"{}\"\nexport MEMD_INTENT=\"{}\"\n\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
-        compact_bundle_value(base_url),
-        compact_bundle_value(project),
-        compact_bundle_value(agent),
-        compact_bundle_value(route),
-        compact_bundle_value(intent),
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
+        compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.sh"), shell_profile)
         .with_context(|| format!("write {}", agents_dir.join("agent.sh").display()))?;
     set_executable_if_shell_script(&agents_dir.join("agent.sh"), "agent.sh")?;
 
     let ps1_profile = format!(
-        "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
-        escape_ps1(base_url),
-        escape_ps1(project),
-        escape_ps1(agent),
-        escape_ps1(route),
-        escape_ps1(intent),
+        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
+        escape_ps1(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.ps1"), ps1_profile)
         .with_context(|| format!("write {}", agents_dir.join("agent.ps1").display()))?;
@@ -653,6 +802,60 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "agents": output.join("agents").exists(),
         "server": health,
     }))
+}
+
+fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
+    let shell = shell.trim().to_ascii_lowercase();
+    match shell.as_str() {
+        "bash" | "zsh" | "sh" => Ok(format!(
+            r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
+source "$MEMD_BUNDLE_ROOT/env"
+memd hook context --project "$MEMD_PROJECT" --agent "$MEMD_AGENT" --route "$MEMD_ROUTE" --intent "$MEMD_INTENT"
+"#,
+            bundle_path = bundle_path.display(),
+        )),
+        "powershell" | "pwsh" => Ok(format!(
+            r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
+. (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
+memd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT
+"#,
+            bundle_path = escape_ps1(&bundle_path.display().to_string()),
+        )),
+        other => anyhow::bail!(
+            "unsupported shell '{other}'; expected bash, zsh, sh, powershell, or pwsh"
+        ),
+    }
+}
+
+fn parse_memory_kind_value(value: &str) -> anyhow::Result<MemoryKind> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "fact" => Ok(MemoryKind::Fact),
+        "decision" => Ok(MemoryKind::Decision),
+        "preference" => Ok(MemoryKind::Preference),
+        "runbook" => Ok(MemoryKind::Runbook),
+        "topology" => Ok(MemoryKind::Topology),
+        "status" => Ok(MemoryKind::Status),
+        "pattern" => Ok(MemoryKind::Pattern),
+        "constraint" => Ok(MemoryKind::Constraint),
+        _ => anyhow::bail!(
+            "invalid memory kind '{value}'; expected fact, decision, preference, runbook, topology, status, pattern, or constraint"
+        ),
+    }
+}
+
+fn detect_shell() -> Option<String> {
+    std::env::var("SHELL")
+        .ok()
+        .and_then(|shell| {
+            let shell = shell.rsplit('/').next()?.to_string();
+            Some(shell)
+        })
+        .or_else(|| {
+            std::env::var("PSModulePath")
+                .ok()
+                .map(|_| "powershell".to_string())
+        })
 }
 
 fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {

@@ -4,6 +4,12 @@ param(
   [switch]$SpillTransient
 )
 
+$bundleRoot = if ($env:MEMD_BUNDLE_ROOT) { $env:MEMD_BUNDLE_ROOT } else { ".memd" }
+$envPath = Join-Path $bundleRoot "env.ps1"
+if (Test-Path $envPath) {
+  . $envPath
+}
+
 $args = @("--base-url", $BaseUrl, "hook", "spill")
 if ($Apply) { $args += "--apply" }
 if ($SpillTransient) { $args += "--spill-transient" }

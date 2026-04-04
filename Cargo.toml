@@ -2,6 +2,7 @@
 members = [
   "crates/memd-core",
   "crates/memd-client",
+  "crates/memd-rag",
   "crates/memd-schema",
   "crates/memd-server",
   "crates/memd-worker",

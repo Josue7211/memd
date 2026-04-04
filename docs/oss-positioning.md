@@ -11,7 +11,7 @@
 - clean HTTP API
 - optional local-only mode
 - optional LAN deployment mode
-- pluggable semantic backends
+- pluggable semantic backends, including LightRAG-compatible backends
 - open client adapters
 - reusable Rust SDKs
 - a small CLI for humans and agent runners
@@ -25,7 +25,7 @@ A single developer should be able to:
 2. store structured memories
 3. retrieve compact context
 4. sync active state across machines
-5. optionally attach a semantic backend for long-term retrieval
+5. optionally attach a semantic backend for long-term retrieval, such as LightRAG
 
 ## First-Class Supported Integrations
 

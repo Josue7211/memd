@@ -20,6 +20,7 @@ Supported platforms:
 - exposes inbox and explain views for review
 - includes a built-in dashboard for inspection
 - keeps compaction separate from durable memory
+- supports LightRAG or another semantic backend for optional long-term retrieval
 
 ## Why It Exists
 
@@ -39,6 +40,8 @@ They are either:
 - `crates/memd-server`: SQLite-backed memory manager API
 - `crates/memd-client`: Rust SDK and CLI
 - `crates/memd-worker`: background verification worker
+- `crates/memd-rag`: optional semantic backend adapter for LightRAG-compatible stores
+- LightRAG or another backend: optional long-term semantic memory layer
 
 The core binaries are cross-platform. Linux-only deploy helpers live under `deploy/systemd/`.
 
@@ -54,6 +57,7 @@ The core binaries are cross-platform. Linux-only deploy helpers live under `depl
 - verification and expiry lifecycle
 - memory inbox for review
 - explain view for provenance and key inspection
+- long-term semantic backend support via LightRAG or a compatible backend
 
 ## Quickstart
 
@@ -113,6 +117,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Compaction](./docs/compaction.md)
 - [Efficiency](./docs/efficiency.md)
 - [Routing](./docs/routing.md)
+- [RAG](./docs/rag.md)
 - [Schema](./docs/schema.md)
 - [Promotion Policy](./docs/promotion-policy.md)
 - [Source Policy](./docs/source-policy.md)
@@ -155,6 +160,7 @@ Set `MEMD_DB_PATH` to change the SQLite database location.
 - Mission Control
 - OpenClaw
 - Shared hook kit for shell integration
+- Optional LightRAG adapter
 
 ## Status
 

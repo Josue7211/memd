@@ -8,6 +8,12 @@ param(
   [int]$MaxChars = $(if ($env:MEMD_MAX_CHARS) { [int]$env:MEMD_MAX_CHARS } else { 280 })
 )
 
+$bundleRoot = if ($env:MEMD_BUNDLE_ROOT) { $env:MEMD_BUNDLE_ROOT } else { ".memd" }
+$envPath = Join-Path $bundleRoot "env.ps1"
+if (Test-Path $envPath) {
+  . $envPath
+}
+
 memd --base-url $BaseUrl hook context `
   --project $Project `
   --agent $Agent `

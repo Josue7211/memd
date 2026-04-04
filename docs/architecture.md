@@ -74,6 +74,8 @@ Backends:
 - ranking
 - retrieval shaping
 
+LightRAG is the intended long-term semantic backend path; `memd` stays the control plane in front of it.
+
 No external component should write canonical long-term memory directly.
 
 The core binaries are cross-platform. Only deploy helpers like `deploy/systemd/` are Linux-specific.

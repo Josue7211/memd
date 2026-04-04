@@ -863,6 +863,7 @@ dependencies = [
  "anyhow",
  "clap",
  "memd-core",
+ "memd-rag",
  "memd-schema",
  "reqwest",
  "serde",
@@ -880,6 +881,20 @@ dependencies = [
  "memd-schema",
  "serde",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "memd-rag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "memd-schema",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "url",
  "uuid",
 ]
 
