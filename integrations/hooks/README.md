@@ -32,6 +32,10 @@ Set:
 ./install.sh
 ```
 
+Optional:
+
+- `MEMD_BIN=/path/to/memd ./install.sh`
+
 ## Spill Hook
 
 ```bash
@@ -43,3 +47,7 @@ Set:
 ```powershell
 ./install.ps1
 ```
+
+Optional:
+
+- `$env:MEMD_BIN = "C:\\path\\to\\memd.exe"`

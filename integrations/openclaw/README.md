@@ -16,6 +16,12 @@ MEMD_AGENT=openclaw \
 ./integrations/hooks/memd-context.sh
 ```
 
+Or after installing the hook kit:
+
+```bash
+memd-context
+```
+
 ## PowerShell Hook
 
 ```powershell
@@ -24,10 +30,22 @@ $env:MEMD_AGENT = "openclaw"
 ./integrations/hooks/memd-context.ps1
 ```
 
+Or after installing the hook kit:
+
+```powershell
+memd-hook-context.ps1
+```
+
 ## Spill Hook
 
 ```bash
 ./integrations/hooks/memd-spill.sh --stdin --apply < compaction.json
+```
+
+Or after installing the hook kit:
+
+```bash
+memd-hook-spill --stdin --apply < compaction.json
 ```
 
 ## Windows Spill Hook

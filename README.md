@@ -107,6 +107,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Redundancy Policy](./docs/redundancy.md)
 - [Platform Support](./docs/platforms.md)
 - [Hook Kit](./integrations/hooks/README.md)
+- [Hook Kit Installers](./integrations/hooks/README.md)
 - [OpenClaw Integration](./integrations/openclaw/README.md)
 - [OSS Positioning](./docs/oss-positioning.md)
 - [Roadmap](./ROADMAP.md)
