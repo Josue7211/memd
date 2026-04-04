@@ -93,6 +93,18 @@ Open it in a split pane instead of replacing the current tab:
 cargo run -p memd-client --bin memd -- obsidian writeback --vault ~/vault --id <uuid> --apply --open --pane-type split
 ```
 
+Open an existing vault note directly through the Obsidian URI path:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian open --vault ~/vault --note wiki/topic.md --apply
+```
+
+Preview the URI without launching Obsidian:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian open --vault ~/vault --note wiki/topic.md
+```
+
 Round-trip a vault and annotate source notes in place:
 
 ```bash
@@ -172,6 +184,17 @@ back in the vault UI immediately.
 Writeback notes are generated under `<vault>/.memd/writeback/` by default.
 Pass `--output` to place them somewhere else and `--overwrite` to replace an
 existing note.
+
+Writeback pages are meant to be useful compiled-wiki artifacts, not only raw
+exports. They include:
+
+- the canonical memory summary
+- reasons and policy hooks
+- entity state when available
+- recent events
+- top source lanes
+- sibling belief branches
+- the compact artifact trail behind the memory
 
 `obsidian roundtrip` also writes a compact `<!-- memd:begin -->` block back
 into each synced source note so the vault keeps a local record of the imported

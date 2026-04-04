@@ -485,6 +485,14 @@ pub fn default_writeback_path(vault: &Path, explain: &ExplainMemoryResponse) -> 
         .join(format!("{kind}-{short_id}.md"))
 }
 
+pub fn resolve_open_path(vault: &Path, target: &Path) -> PathBuf {
+    if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        vault.join(target)
+    }
+}
+
 pub fn build_open_uri(path: &Path, pane_type: Option<&str>) -> anyhow::Result<String> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -597,6 +605,12 @@ pub fn build_writeback_markdown(
     for reason in &explain.reasons {
         markdown.push_str(&format!("- {}\n", reason));
     }
+    if !explain.policy_hooks.is_empty() {
+        markdown.push_str("\n## Policy Hooks\n\n");
+        for hook in &explain.policy_hooks {
+            markdown.push_str(&format!("- {}\n", hook));
+        }
+    }
     if let Some(entity) = entity {
         markdown.push_str("\n## Entity\n\n");
         markdown.push_str(&format!("- entity: {}\n", entity.id));
@@ -614,6 +628,57 @@ pub fn build_writeback_markdown(
                 event.event_type,
                 event.summary
             ));
+        }
+    }
+    if !explain.sources.is_empty() {
+        markdown.push_str("\n## Source Lanes\n\n");
+        for source in explain.sources.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {} / {} | trust {:.2} | avg confidence {:.2} | items {}\n",
+                source.source_agent.as_deref().unwrap_or("none"),
+                source.source_system.as_deref().unwrap_or("none"),
+                source.trust_score,
+                source.avg_confidence,
+                source.item_count
+            ));
+        }
+    }
+    if !explain.branch_siblings.is_empty() {
+        markdown.push_str("\n## Sibling Branches\n\n");
+        for sibling in explain.branch_siblings.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {} | {} | confidence {:.2} | status {:?} | {}\n",
+                sibling.belief_branch.as_deref().unwrap_or("none"),
+                sibling.id,
+                sibling.confidence,
+                sibling.status,
+                if sibling.preferred { "preferred" } else { "candidate" }
+            ));
+        }
+    }
+    if !explain.artifact_trail.is_empty() {
+        markdown.push_str("\n## Artifact Trail\n\n");
+        for artifact in explain.artifact_trail.iter().take(8) {
+            markdown.push_str(&format!(
+                "- **{}** {}: {}\n",
+                artifact.kind,
+                artifact.label,
+                artifact.summary
+            ));
+            if artifact.source_path.is_some()
+                || artifact.source_agent.is_some()
+                || artifact.source_system.is_some()
+            {
+                markdown.push_str("  - source: ");
+                markdown.push_str(artifact.source_agent.as_deref().unwrap_or("none"));
+                markdown.push_str(" / ");
+                markdown.push_str(artifact.source_system.as_deref().unwrap_or("none"));
+                if let Some(path) = artifact.source_path.as_deref() {
+                    markdown.push_str(" / ");
+                    markdown.push_str(path);
+                }
+                markdown.push('\n');
+            }
         }
     }
     (title, markdown)
@@ -1820,5 +1885,19 @@ mod tests {
         let uri = build_open_uri(Path::new("/tmp/vault/writeback/note.md"), Some("split")).unwrap();
         assert!(uri.starts_with("obsidian://open?path=%2Ftmp%2Fvault%2Fwriteback%2Fnote.md"));
         assert!(uri.contains("&paneType=split"));
+    }
+
+    #[test]
+    fn resolves_relative_open_paths_under_vault() {
+        let vault = PathBuf::from("/tmp/vault");
+        let resolved = resolve_open_path(&vault, Path::new("wiki/topic.md"));
+        assert_eq!(resolved, vault.join("wiki/topic.md"));
+    }
+
+    #[test]
+    fn preserves_absolute_open_paths() {
+        let absolute = PathBuf::from("/tmp/elsewhere/topic.md");
+        let resolved = resolve_open_path(Path::new("/tmp/vault"), &absolute);
+        assert_eq!(resolved, absolute);
     }
 }
