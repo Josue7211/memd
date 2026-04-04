@@ -4,8 +4,8 @@ use anyhow::Context;
 use clap::Parser;
 use memd_client::MemdClient;
 use memd_schema::{
-    ExpireMemoryRequest, MemoryDecayRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
-    SearchMemoryRequest, VerifyMemoryRequest,
+    ExpireMemoryRequest, MemoryConsolidationRequest, MemoryDecayRequest, MemoryKind, MemoryScope,
+    MemoryStage, MemoryStatus, SearchMemoryRequest, VerifyMemoryRequest,
 };
 use tokio::time::{Duration, sleep};
 
@@ -44,13 +44,21 @@ async fn main() -> anyhow::Result<()> {
         let result = run_once(&client, &args).await?;
         if args.report {
             println!(
-                "learning report: reinforced={} cooled={} stale_checked={} skipped={}",
-                result.verified, result.decayed, result.expired, result.skipped
+                "learning report: reinforced={} cooled={} consolidated={} stale_checked={} skipped={}",
+                result.verified,
+                result.decayed,
+                result.consolidated,
+                result.expired,
+                result.skipped
             );
         } else {
             println!(
-                "verification pass complete: verified={}, expired={}, decayed={}, skipped={}",
-                result.verified, result.expired, result.decayed, result.skipped
+                "verification pass complete: verified={}, expired={}, decayed={}, consolidated={}, skipped={}",
+                result.verified,
+                result.expired,
+                result.decayed,
+                result.consolidated,
+                result.skipped
             );
         }
         sleep(Duration::from_secs(args.interval_secs)).await;
@@ -61,6 +69,7 @@ struct WorkerResult {
     verified: usize,
     expired: usize,
     decayed: usize,
+    consolidated: usize,
     skipped: usize,
 }
 
@@ -118,10 +127,24 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         .await
         .context("decay memory entities")?;
 
+    let consolidation = client
+        .consolidate(&MemoryConsolidationRequest {
+            project: None,
+            namespace: None,
+            max_groups: Some(args.batch_size),
+            min_events: Some(3),
+            lookback_days: Some(14),
+            min_salience: Some(0.22),
+            record_events: Some(true),
+        })
+        .await
+        .context("consolidate semantic memory")?;
+
     Ok(WorkerResult {
         verified,
         expired,
         decayed: decay.updated,
+        consolidated: consolidation.consolidated,
         skipped: 0,
     })
 }

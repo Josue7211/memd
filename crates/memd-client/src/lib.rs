@@ -3,10 +3,11 @@ use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, ContextRequest,
     ContextResponse, EntityMemoryRequest, EntityMemoryResponse, ExpireMemoryRequest,
     ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -105,6 +106,13 @@ impl MemdClient {
 
     pub async fn decay(&self, req: &MemoryDecayRequest) -> anyhow::Result<MemoryDecayResponse> {
         self.post_json("/memory/maintenance/decay", req).await
+    }
+
+    pub async fn consolidate(
+        &self,
+        req: &MemoryConsolidationRequest,
+    ) -> anyhow::Result<MemoryConsolidationResponse> {
+        self.post_json("/memory/maintenance/consolidate", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

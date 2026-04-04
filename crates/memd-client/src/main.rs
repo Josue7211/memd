@@ -18,9 +18,9 @@ use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest}
 use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryInboxRequest, MemoryKind,
-    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
+    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest,
+    MemoryInboxRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use serde::Serialize;
@@ -55,6 +55,7 @@ enum Commands {
     Explain(ExplainArgs),
     Entity(EntityArgs),
     Timeline(TimelineArgs),
+    Consolidate(ConsolidateArgs),
     Compact(CompactArgs),
     Hook(HookArgs),
     Init(InitArgs),
@@ -175,6 +176,30 @@ struct TimelineArgs {
 
     #[arg(long)]
     follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ConsolidateArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    max_groups: Option<usize>,
+
+    #[arg(long)]
+    min_events: Option<usize>,
+
+    #[arg(long)]
+    lookback_days: Option<i64>,
+
+    #[arg(long)]
+    min_salience: Option<f32>,
+
+    #[arg(long, default_value_t = true)]
+    record_events: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -716,6 +741,20 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 print_json(&response)?;
             }
+        }
+        Commands::Consolidate(args) => {
+            let response = client
+                .consolidate(&MemoryConsolidationRequest {
+                    project: args.project,
+                    namespace: args.namespace,
+                    max_groups: args.max_groups,
+                    min_events: args.min_events,
+                    lookback_days: args.lookback_days,
+                    min_salience: args.min_salience,
+                    record_events: Some(args.record_events),
+                })
+                .await?;
+            print_json(&response)?;
         }
         Commands::Compact(args) => {
             if args.spill && args.wire {

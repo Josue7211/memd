@@ -372,6 +372,26 @@ pub struct MemoryDecayResponse {
     pub events: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryConsolidationRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub max_groups: Option<usize>,
+    pub min_events: Option<usize>,
+    pub lookback_days: Option<i64>,
+    pub min_salience: Option<f32>,
+    pub record_events: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConsolidationResponse {
+    pub scanned: usize,
+    pub groups: usize,
+    pub consolidated: usize,
+    pub duplicates: usize,
+    pub events: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,
@@ -521,5 +541,41 @@ mod tests {
         let decoded: MemoryEventRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.event_type, "rename");
         assert_eq!(decoded.tags.len(), 2);
+    }
+
+    #[test]
+    fn consolidation_request_roundtrips() {
+        let request = MemoryConsolidationRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("agent".to_string()),
+            max_groups: Some(12),
+            min_events: Some(3),
+            lookback_days: Some(14),
+            min_salience: Some(0.25),
+            record_events: Some(true),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let decoded: MemoryConsolidationRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.project, request.project);
+        assert_eq!(decoded.min_events, request.min_events);
+        assert_eq!(decoded.record_events, request.record_events);
+    }
+
+    #[test]
+    fn consolidation_response_roundtrips() {
+        let response = MemoryConsolidationResponse {
+            scanned: 42,
+            groups: 7,
+            consolidated: 3,
+            duplicates: 1,
+            events: 3,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: MemoryConsolidationResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.scanned, response.scanned);
+        assert_eq!(decoded.consolidated, response.consolidated);
+        assert_eq!(decoded.events, response.events);
     }
 }

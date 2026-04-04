@@ -2,6 +2,7 @@ mod keys;
 mod routing;
 mod store;
 
+use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -15,12 +16,13 @@ use memd_schema::{
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
     ContextRequest, ContextResponse, EntityMemoryRequest, EntityMemoryResponse,
     ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
-    HealthResponse, InboxMemoryItem, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
-    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
-    MemoryKind, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse,
+    HealthResponse, InboxMemoryItem, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityRecord,
+    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
+    SearchMemoryRequest, SearchMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -243,6 +245,7 @@ async fn main() {
         .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
+        .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
@@ -532,6 +535,16 @@ async fn decay_memory(
     }))
 }
 
+async fn consolidate_memory(
+    State(state): State<AppState>,
+    Json(req): Json<MemoryConsolidationRequest>,
+) -> Result<Json<MemoryConsolidationResponse>, (StatusCode, String)> {
+    let response = state
+        .consolidate_semantic_memory(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 impl AppState {
     fn rehearse_items(&self, items: &[MemoryItem], limit: usize) -> anyhow::Result<()> {
         for item in items.iter().take(limit) {
@@ -551,6 +564,162 @@ impl AppState {
                 .rehearse_entity_for_item(&item, &canonical_key, salience_boost)?;
         }
         Ok(())
+    }
+
+    fn consolidate_semantic_memory(
+        &self,
+        req: &MemoryConsolidationRequest,
+    ) -> anyhow::Result<MemoryConsolidationResponse> {
+        let candidates = self
+            .store
+            .consolidation_candidates(req)
+            .context("load consolidation candidates")?;
+
+        let min_salience = req.min_salience.unwrap_or(0.22).clamp(0.0, 1.0);
+        let record_events = req.record_events.unwrap_or(true);
+
+        let mut scanned = 0usize;
+        let mut groups = 0usize;
+        let mut consolidated = 0usize;
+        let mut duplicates = 0usize;
+        let mut events = 0usize;
+
+        for candidate in candidates {
+            scanned += candidate.event_count;
+            groups += 1;
+
+            if candidate.entity.salience_score < min_salience
+                && candidate.entity.rehearsal_count < candidate.event_count as u64
+            {
+                continue;
+            }
+
+            let content = consolidation_content(
+                &candidate.entity,
+                candidate.event_count,
+                candidate.first_recorded_at,
+                candidate.last_recorded_at,
+            );
+            let scope = consolidation_scope(&candidate.entity);
+            let kind = consolidation_kind(&candidate.entity.entity_type);
+            let confidence =
+                (candidate.entity.confidence + (candidate.event_count as f32 * 0.05)).min(1.0);
+            let tags = consolidation_tags(&candidate.entity, candidate.event_count);
+            let source_system = candidate
+                .entity
+                .context
+                .as_ref()
+                .and_then(|context| context.repo.clone())
+                .or_else(|| {
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.location.clone())
+                });
+
+            let (item, duplicate) = self.store_item(
+                StoreMemoryRequest {
+                    content,
+                    kind,
+                    scope,
+                    project: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone()),
+                    namespace: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.namespace.clone()),
+                    source_agent: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.agent.clone()),
+                    source_system: source_system.clone(),
+                    source_path: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.location.clone()),
+                    source_quality: Some(SourceQuality::Derived),
+                    confidence: Some(confidence),
+                    ttl_seconds: Some(60 * 60 * 24 * 90),
+                    last_verified_at: Some(candidate.last_recorded_at),
+                    supersedes: Vec::new(),
+                    tags,
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )?;
+
+            if duplicate.is_some() {
+                duplicates += 1;
+                continue;
+            }
+
+            consolidated += 1;
+            if record_events {
+                let _ = self.store.record_event(
+                    &candidate.entity,
+                    item.id,
+                    "consolidated",
+                    format!(
+                        "episodic traces consolidated after {} events into semantic memory",
+                        candidate.event_count
+                    ),
+                    candidate.last_recorded_at,
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone()),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.namespace.clone()),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.agent.clone()),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.repo.clone())
+                        .or_else(|| {
+                            candidate
+                                .entity
+                                .context
+                                .as_ref()
+                                .and_then(|context| context.location.clone())
+                        }),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.location.clone()),
+                    vec![item.id],
+                    consolidation_tags(&candidate.entity, candidate.event_count),
+                    Some(entity_context_frame(&candidate.entity, &item)),
+                    item.confidence,
+                    candidate.entity.salience_score,
+                )?;
+                events += 1;
+            }
+        }
+
+        Ok(MemoryConsolidationResponse {
+            scanned,
+            groups,
+            consolidated,
+            duplicates,
+            events,
+        })
     }
 
     fn entity_view(
@@ -738,6 +907,67 @@ fn entity_context_frame(entity: &MemoryEntityRecord, item: &MemoryItem) -> Memor
         agent: item.source_agent.clone(),
         location: item.source_path.clone(),
     })
+}
+
+fn consolidation_content(
+    entity: &MemoryEntityRecord,
+    event_count: usize,
+    first_recorded_at: chrono::DateTime<chrono::Utc>,
+    last_recorded_at: chrono::DateTime<chrono::Utc>,
+) -> String {
+    let state = compact_content(
+        entity
+            .current_state
+            .as_deref()
+            .unwrap_or("state unavailable"),
+        220,
+    );
+    let span_days = (last_recorded_at - first_recorded_at).num_days().max(0);
+    format!(
+        "stable {} state after {} events over {}d: {}",
+        entity.entity_type, event_count, span_days, state
+    )
+}
+
+fn consolidation_scope(entity: &MemoryEntityRecord) -> MemoryScope {
+    let context = entity.context.as_ref();
+    if context
+        .and_then(|context| context.project.as_ref())
+        .is_some()
+    {
+        MemoryScope::Project
+    } else if context
+        .and_then(|context| context.namespace.as_ref())
+        .is_some()
+    {
+        MemoryScope::Synced
+    } else {
+        MemoryScope::Local
+    }
+}
+
+fn consolidation_kind(entity_type: &str) -> MemoryKind {
+    match entity_type {
+        "fact" => MemoryKind::Fact,
+        "decision" => MemoryKind::Decision,
+        "preference" => MemoryKind::Preference,
+        "runbook" => MemoryKind::Runbook,
+        "topology" => MemoryKind::Topology,
+        "status" => MemoryKind::Status,
+        "pattern" => MemoryKind::Pattern,
+        "constraint" => MemoryKind::Constraint,
+        _ => MemoryKind::Pattern,
+    }
+}
+
+fn consolidation_tags(entity: &MemoryEntityRecord, event_count: usize) -> Vec<String> {
+    let mut tags = entity.tags.clone();
+    tags.push("consolidated".to_string());
+    tags.push(format!("events:{}", event_count));
+    tags.push(entity.entity_type.clone());
+    tags.sort();
+    tags.dedup();
+    tags
 }
 
 fn internal_error(error: anyhow::Error) -> (StatusCode, String) {

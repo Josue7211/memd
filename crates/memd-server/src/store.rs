@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use memd_schema::{
-    MemoryContextFrame, MemoryDecayRequest, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityRecord,
+    MemoryEventRecord, MemoryItem,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -19,6 +20,14 @@ pub struct DuplicateMatch {
 #[derive(Debug, Clone)]
 pub struct EntityMatch {
     pub record: MemoryEntityRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConsolidationCandidate {
+    pub entity: MemoryEntityRecord,
+    pub event_count: usize,
+    pub first_recorded_at: chrono::DateTime<chrono::Utc>,
+    pub last_recorded_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Clone)]
@@ -352,6 +361,95 @@ impl SqliteStore {
         Ok((scanned, updated, events))
     }
 
+    pub fn consolidation_candidates(
+        &self,
+        request: &MemoryConsolidationRequest,
+    ) -> anyhow::Result<Vec<ConsolidationCandidate>> {
+        let max_groups = request.max_groups.unwrap_or(24).min(128);
+        let min_events = request.min_events.unwrap_or(3).max(2);
+        let lookback_days = request.lookback_days.unwrap_or(14).max(1);
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(lookback_days);
+
+        let rows: Vec<(String, i64, String, String)> = {
+            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT entity_id, COUNT(*) AS event_count, MIN(recorded_at) AS first_at, MAX(recorded_at) AS last_at
+                    FROM memory_events
+                    WHERE entity_id != ''
+                      AND recorded_at >= ?1
+                    GROUP BY entity_id
+                    HAVING COUNT(*) >= ?2
+                    ORDER BY event_count DESC, last_at DESC
+                    LIMIT ?3
+                    "#,
+                )
+                .context("prepare consolidation query")?;
+            let rows = stmt
+                .query_map(
+                    params![cutoff.to_rfc3339(), min_events as i64, max_groups as i64],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                        ))
+                    },
+                )
+                .context("query consolidation candidates")?;
+
+            let mut decoded = Vec::new();
+            for row in rows {
+                decoded.push(row.context("read consolidation candidate row")?);
+            }
+            decoded
+        };
+
+        let mut candidates = Vec::new();
+        for (entity_id, event_count, first_at, last_at) in rows {
+            let entity = match self.entity_by_id(
+                Uuid::parse_str(&entity_id).context("parse consolidation entity id")?,
+            )? {
+                Some(entity) => entity,
+                None => continue,
+            };
+
+            let passes_project_filter = request.project.as_ref().is_none_or(|project| {
+                entity
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.project.as_ref())
+                    == Some(project)
+            });
+            let passes_namespace_filter = request.namespace.as_ref().is_none_or(|namespace| {
+                entity
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.namespace.as_ref())
+                    == Some(namespace)
+            });
+            if !passes_project_filter || !passes_namespace_filter {
+                continue;
+            }
+
+            let first_recorded_at =
+                chrono::DateTime::parse_from_rfc3339(&first_at)?.with_timezone(&chrono::Utc);
+            let last_recorded_at =
+                chrono::DateTime::parse_from_rfc3339(&last_at)?.with_timezone(&chrono::Utc);
+
+            candidates.push(ConsolidationCandidate {
+                entity,
+                event_count: event_count as usize,
+                first_recorded_at,
+                last_recorded_at,
+            });
+        }
+
+        Ok(candidates)
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let payload = conn.query_row(
@@ -375,6 +473,25 @@ impl SqliteStore {
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(err) => Err(err).context("fetch memory entity by item"),
+        }
+    }
+
+    pub fn entity_by_id(&self, entity_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn.query_row(
+            "SELECT payload_json FROM memory_entities WHERE id = ?1",
+            [entity_id.to_string()],
+            |row| row.get::<_, String>(0),
+        );
+
+        match payload {
+            Ok(payload) => {
+                let entity: MemoryEntityRecord =
+                    serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+                Ok(Some(entity))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err).context("fetch memory entity by id"),
         }
     }
 
