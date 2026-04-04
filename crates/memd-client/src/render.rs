@@ -546,7 +546,7 @@ pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: boo
 
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "explain item={} route={} intent={} status={} confidence={:.2} branch={} siblings={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
+        "explain item={} route={} intent={} status={} confidence={:.2} branch={} siblings={} retrievals={} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
         short_uuid(response.item.id),
         route_label(response.route),
         intent_label(response.intent),
@@ -554,6 +554,7 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
         response.item.confidence,
         response.item.belief_branch.as_deref().unwrap_or("none"),
         response.branch_siblings.len(),
+        response.retrieval_feedback.total_retrievals,
         response
             .entity
             .as_ref()
@@ -607,6 +608,16 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
                 })
                 .collect::<Vec<_>>();
             output.push_str(&format!(" sibling_branches={}", siblings.join(" | ")));
+        }
+        if !response.retrieval_feedback.by_surface.is_empty() {
+            let surfaces = response
+                .retrieval_feedback
+                .by_surface
+                .iter()
+                .take(4)
+                .map(|surface| format!("{}:{}", surface.surface, surface.count))
+                .collect::<Vec<_>>();
+            output.push_str(&format!(" retrieval_surfaces={}", surfaces.join("|")));
         }
         let hooks = response
             .policy_hooks

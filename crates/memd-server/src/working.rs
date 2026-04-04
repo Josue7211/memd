@@ -5,10 +5,11 @@ use uuid::Uuid;
 use crate::{AppState, build_context, compact_record, internal_error};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
-    MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyPromotion,
-    MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyWorkingMemory, MemoryScope,
-    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRehydrationRecord,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkingMemoryTraceRecord,
+    MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
+    MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
+    MemoryPolicyWorkingMemory, MemoryScope, WorkingMemoryEvictionRecord,
+    WorkingMemoryPolicyState, WorkingMemoryRehydrationRecord, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 
 pub(crate) fn working_memory(
@@ -29,6 +30,9 @@ pub(crate) fn working_memory(
     };
     let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_working", &plan)
+        .map_err(internal_error)?;
     let now = Utc::now();
     let mut ranked_items = Vec::with_capacity(items.len());
     for item in items {
@@ -492,6 +496,18 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             budget_chars: 1600,
             max_chars_per_item: 220,
             default_limit: 8,
+        },
+        retrieval_feedback: MemoryPolicyFeedback {
+            enabled: true,
+            tracked_surfaces: vec![
+                "search".to_string(),
+                "context".to_string(),
+                "compact_context".to_string(),
+                "working".to_string(),
+                "explain".to_string(),
+                "timeline".to_string(),
+            ],
+            max_items_per_request: 3,
         },
         source_trust_floor: 0.6,
         promotion: MemoryPolicyPromotion {

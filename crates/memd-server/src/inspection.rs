@@ -1,8 +1,10 @@
 use axum::http::StatusCode;
+use std::collections::BTreeMap;
 use memd_schema::{
     ExplainArtifactRecord, ExplainBranchSiblingRecord, ExplainMemoryRequest,
     ExplainMemoryResponse, MemoryEventRecord, MemoryItem, MemoryStage, MemoryStatus,
-    RetrievalIntent, RetrievalRoute, SourceMemoryRecord, SourceMemoryRequest,
+    RetrievalFeedbackSurfaceCount, RetrievalFeedbackSummary, RetrievalIntent, RetrievalRoute,
+    SourceMemoryRecord, SourceMemoryRequest,
 };
 
 use super::{canonical_key, internal_error, redundancy_key, AppState};
@@ -51,6 +53,7 @@ pub(crate) fn explain_memory(
         })
         .map_err(internal_error)?
         .sources;
+    let retrieval_feedback = build_retrieval_feedback(&events, &item);
     let branch_siblings = build_branch_siblings(state, &item).map_err(internal_error)?;
     let artifact_trail = build_artifact_trail(&item, &events, &sources);
     let policy_hooks = build_policy_hooks(&item, &plan, &sources);
@@ -65,10 +68,61 @@ pub(crate) fn explain_memory(
         entity,
         events,
         sources,
+        retrieval_feedback,
         branch_siblings,
         artifact_trail,
         policy_hooks,
     })
+}
+
+fn build_retrieval_feedback(
+    events: &[MemoryEventRecord],
+    item: &MemoryItem,
+) -> RetrievalFeedbackSummary {
+    let mut counts = BTreeMap::<String, usize>::new();
+    let mut last_retrieved_at = None;
+    let mut recent_policy_hooks = Vec::new();
+
+    for event in events
+        .iter()
+        .filter(|event| event.event_type.starts_with("retrieved_"))
+    {
+        let surface = event
+            .event_type
+            .strip_prefix("retrieved_")
+            .unwrap_or(event.event_type.as_str())
+            .to_string();
+        *counts.entry(surface).or_insert(0) += 1;
+        if last_retrieved_at.is_none_or(|current| event.recorded_at > current) {
+            last_retrieved_at = Some(event.recorded_at);
+        }
+        for tag in event.tags.iter().filter(|tag| {
+            tag.starts_with("route:")
+                || tag.starts_with("intent:")
+                || tag.starts_with("belief_branch:")
+        }) {
+            if !recent_policy_hooks.iter().any(|existing| existing == tag) {
+                recent_policy_hooks.push(tag.clone());
+            }
+        }
+    }
+
+    if let Some(branch) = &item.belief_branch {
+        let branch_tag = format!("belief_branch:{branch}");
+        if !recent_policy_hooks.iter().any(|existing| existing == &branch_tag) {
+            recent_policy_hooks.push(branch_tag);
+        }
+    }
+
+    RetrievalFeedbackSummary {
+        total_retrievals: counts.values().sum(),
+        last_retrieved_at,
+        by_surface: counts
+            .into_iter()
+            .map(|(surface, count)| RetrievalFeedbackSurfaceCount { surface, count })
+            .collect(),
+        recent_policy_hooks,
+    }
 }
 
 fn build_branch_siblings(

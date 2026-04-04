@@ -29,11 +29,12 @@ use memd_schema::{
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
     MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
-    RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, ExpireMemoryRequest,
-    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
+    RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
+    TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
+    ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -355,7 +356,16 @@ async fn get_explain(
     State(state): State<AppState>,
     Query(req): Query<ExplainMemoryRequest>,
 ) -> Result<Json<ExplainMemoryResponse>, (StatusCode, String)> {
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
     let response = inspection::explain_memory(&state, req)?;
+    state
+        .record_retrieval_feedback(
+            std::slice::from_ref(&response.item),
+            1,
+            "retrieved_explain",
+            &plan,
+        )
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -372,6 +382,9 @@ async fn search_memory(
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let items = filter_items(&items, &req, &plan);
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_search", &plan)
+        .map_err(internal_error)?;
     Ok(Json(SearchMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -386,6 +399,9 @@ async fn get_context(
     let req = apply_agent_profile_defaults(&state, req).map_err(internal_error)?;
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_context", &plan)
+        .map_err(internal_error)?;
     Ok(Json(ContextResponse {
         route: plan.route,
         intent: plan.intent,
@@ -400,6 +416,9 @@ async fn get_compact_context(
 ) -> Result<Json<CompactContextResponse>, (StatusCode, String)> {
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_compact_context", &plan)
+        .map_err(internal_error)?;
     let records = items
         .into_iter()
         .map(|item| CompactMemoryRecord {
@@ -613,7 +632,9 @@ async fn get_timeline(
 ) -> Result<Json<TimelineMemoryResponse>, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(12).min(32);
-    state.rehearse_item(req.id, 0.05).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback_for_item(req.id, 0.05, "retrieved_timeline", &plan)
+        .map_err(internal_error)?;
     let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
 
     Ok(Json(TimelineMemoryResponse {
@@ -671,6 +692,64 @@ impl AppState {
             let _ = self
                 .store
                 .rehearse_entity_for_item(&item, &canonical_key, salience_boost)?;
+        }
+        Ok(())
+    }
+
+    fn record_retrieval_feedback(
+        &self,
+        items: &[MemoryItem],
+        limit: usize,
+        event_type: &str,
+        plan: &RetrievalPlan,
+    ) -> anyhow::Result<()> {
+        for item in items.iter().take(limit) {
+            let canonical_key = canonical_key(item);
+            let entity = self.store.resolve_entity_for_item(item, &canonical_key)?;
+            let mut tags = vec![
+                "retrieval_feedback".to_string(),
+                format!("route:{}", enum_label_route(plan.route)),
+                format!("intent:{}", enum_label_intent(plan.intent)),
+            ];
+            if let Some(branch) = &item.belief_branch {
+                tags.push(format!("belief_branch:{branch}"));
+            }
+            self.store.record_event(
+                &entity.record,
+                item.id,
+                event_type,
+                format!(
+                    "{} route={} intent={}",
+                    event_type,
+                    enum_label_route(plan.route),
+                    enum_label_intent(plan.intent)
+                ),
+                Utc::now(),
+                item.project.clone(),
+                item.namespace.clone(),
+                item.source_agent.clone(),
+                item.source_system.clone(),
+                item.source_path.clone(),
+                vec![],
+                tags,
+                Some(entity_context_frame(&entity.record, item)),
+                item.confidence,
+                entity.record.salience_score,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn record_retrieval_feedback_for_item(
+        &self,
+        item_id: Uuid,
+        salience_boost: f32,
+        event_type: &str,
+        plan: &RetrievalPlan,
+    ) -> anyhow::Result<()> {
+        self.rehearse_item(item_id, salience_boost)?;
+        if let Some(item) = self.store.get(item_id)? {
+            self.record_retrieval_feedback(std::slice::from_ref(&item), 1, event_type, plan)?;
         }
         Ok(())
     }
@@ -1290,6 +1369,34 @@ fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("c={}", sanitize_value(&item.content)));
 
     parts.join(" | ")
+}
+
+fn enum_label_route(route: RetrievalRoute) -> &'static str {
+    match route {
+        RetrievalRoute::Auto => "auto",
+        RetrievalRoute::LocalOnly => "local_only",
+        RetrievalRoute::SyncedOnly => "synced_only",
+        RetrievalRoute::ProjectOnly => "project_only",
+        RetrievalRoute::GlobalOnly => "global_only",
+        RetrievalRoute::LocalFirst => "local_first",
+        RetrievalRoute::SyncedFirst => "synced_first",
+        RetrievalRoute::ProjectFirst => "project_first",
+        RetrievalRoute::GlobalFirst => "global_first",
+        RetrievalRoute::All => "all",
+    }
+}
+
+fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
+    match intent {
+        RetrievalIntent::General => "general",
+        RetrievalIntent::CurrentTask => "current_task",
+        RetrievalIntent::Decision => "decision",
+        RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Topology => "topology",
+        RetrievalIntent::Preference => "preference",
+        RetrievalIntent::Fact => "fact",
+        RetrievalIntent::Pattern => "pattern",
+    }
 }
 
 fn associative_recall_score(

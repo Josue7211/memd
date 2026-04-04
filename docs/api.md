@@ -117,6 +117,7 @@ Rules:
 - returns sibling belief branches for competing records with the same redundancy lane
 - returns a compact artifact trail so raw evidence stays reachable behind the summary
 - returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
+- returns compact retrieval-feedback counters derived from durable retrieval events
 - optional `belief_branch` rejects mismatched lookups instead of silently crossing branches
 - route and intent are echoed in the response
 
@@ -162,6 +163,7 @@ Rules:
 - exposes the default retrieval order
 - exposes route defaults by intent
 - exposes working-memory, promotion, decay, and consolidation thresholds
+- exposes the retrieval-feedback channels tracked by the server
 - exposes the default source-trust floor used by policy-aware ranking
 - intended for operator inspection and debugging
 

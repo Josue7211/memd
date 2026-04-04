@@ -703,6 +703,7 @@ pub struct MemoryPolicyResponse {
     pub retrieval_order: Vec<MemoryScope>,
     pub route_defaults: Vec<MemoryPolicyRouteDefault>,
     pub working_memory: MemoryPolicyWorkingMemory,
+    pub retrieval_feedback: MemoryPolicyFeedback,
     pub source_trust_floor: f32,
     pub promotion: MemoryPolicyPromotion,
     pub decay: MemoryPolicyDecay,
@@ -720,6 +721,13 @@ pub struct MemoryPolicyWorkingMemory {
     pub budget_chars: usize,
     pub max_chars_per_item: usize,
     pub default_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyFeedback {
+    pub enabled: bool,
+    pub tracked_surfaces: Vec<String>,
+    pub max_items_per_request: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -758,6 +766,7 @@ pub struct ExplainMemoryResponse {
     pub entity: Option<MemoryEntityRecord>,
     pub events: Vec<MemoryEventRecord>,
     pub sources: Vec<SourceMemoryRecord>,
+    pub retrieval_feedback: RetrievalFeedbackSummary,
     pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
     pub artifact_trail: Vec<ExplainArtifactRecord>,
     pub policy_hooks: Vec<String>,
@@ -771,6 +780,20 @@ pub struct ExplainBranchSiblingRecord {
     pub stage: MemoryStage,
     pub confidence: f32,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalFeedbackSummary {
+    pub total_retrievals: usize,
+    pub last_retrieved_at: Option<DateTime<Utc>>,
+    pub by_surface: Vec<RetrievalFeedbackSurfaceCount>,
+    pub recent_policy_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalFeedbackSurfaceCount {
+    pub surface: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1226,6 +1249,24 @@ mod tests {
                 last_seen_at: Some(now),
                 tags: vec!["docs".to_string()],
             }],
+            retrieval_feedback: RetrievalFeedbackSummary {
+                total_retrievals: 4,
+                last_retrieved_at: Some(now),
+                by_surface: vec![
+                    RetrievalFeedbackSurfaceCount {
+                        surface: "explain".to_string(),
+                        count: 2,
+                    },
+                    RetrievalFeedbackSurfaceCount {
+                        surface: "working".to_string(),
+                        count: 2,
+                    },
+                ],
+                recent_policy_hooks: vec![
+                    "route=project_first".to_string(),
+                    "intent=decision".to_string(),
+                ],
+            },
             branch_siblings: vec![ExplainBranchSiblingRecord {
                 id: Uuid::new_v4(),
                 belief_branch: Some("fallback".to_string()),
@@ -1254,6 +1295,7 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let decoded: ExplainMemoryResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.item.belief_branch.as_deref(), Some("mainline"));
+        assert_eq!(decoded.retrieval_feedback.total_retrievals, 4);
         assert_eq!(decoded.branch_siblings.len(), 1);
         assert_eq!(decoded.artifact_trail.len(), 1);
         assert_eq!(decoded.policy_hooks.len(), 3);
@@ -1284,6 +1326,16 @@ mod tests {
                 max_chars_per_item: 220,
                 default_limit: 8,
             },
+            retrieval_feedback: MemoryPolicyFeedback {
+                enabled: true,
+                tracked_surfaces: vec![
+                    "search".to_string(),
+                    "context".to_string(),
+                    "working".to_string(),
+                    "explain".to_string(),
+                ],
+                max_items_per_request: 3,
+            },
             source_trust_floor: 0.6,
             promotion: MemoryPolicyPromotion {
                 min_salience: 0.22,
@@ -1310,6 +1362,7 @@ mod tests {
         let decoded: MemoryPolicyResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.retrieval_order, response.retrieval_order);
         assert_eq!(decoded.working_memory.default_limit, 8);
+        assert!(decoded.retrieval_feedback.enabled);
         assert_eq!(decoded.source_trust_floor, 0.6);
         assert_eq!(decoded.decay.max_decay, 0.12);
         assert_eq!(decoded.consolidation.max_groups, 24);
