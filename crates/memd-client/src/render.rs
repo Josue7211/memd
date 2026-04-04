@@ -546,7 +546,7 @@ pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: boo
 
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "explain item={} route={} intent={} status={} confidence={:.2} entity={} events={} sources={} reasons={}",
+        "explain item={} route={} intent={} status={} confidence={:.2} entity={} events={} sources={} artifacts={} hooks={} reasons={}",
         short_uuid(response.item.id),
         route_label(response.route),
         intent_label(response.intent),
@@ -559,6 +559,8 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             .unwrap_or_else(|| "none".to_string()),
         response.events.len(),
         response.sources.len(),
+        response.artifact_trail.len(),
+        response.policy_hooks.len(),
         compact_inline(&response.reasons.join("|"), 96)
     );
 
@@ -587,6 +589,31 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
             if !best_source.tags.is_empty() {
                 output.push_str(&format!(" tags={}", best_source.tags.join("|")));
             }
+        }
+        let hooks = response
+            .policy_hooks
+            .iter()
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !hooks.is_empty() {
+            output.push_str(&format!(" hooks={}", hooks.join("|")));
+        }
+        let trail = response
+            .artifact_trail
+            .iter()
+            .take(3)
+            .map(|artifact| {
+                format!(
+                    "{}:{}:{}",
+                    artifact.kind,
+                    artifact.label,
+                    compact_inline(&artifact.summary, 32)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" artifacts={}", trail.join(" | ")));
         }
     }
 

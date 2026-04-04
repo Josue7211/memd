@@ -1,7 +1,8 @@
 use axum::http::StatusCode;
 use memd_schema::{
-    ExplainMemoryRequest, ExplainMemoryResponse, MemoryItem, MemoryStage, MemoryStatus,
-    RetrievalIntent, RetrievalRoute, SourceMemoryRequest,
+    ExplainArtifactRecord, ExplainMemoryRequest, ExplainMemoryResponse, MemoryEventRecord,
+    MemoryItem, MemoryStage, MemoryStatus, RetrievalIntent, RetrievalRoute, SourceMemoryRecord,
+    SourceMemoryRequest,
 };
 
 use super::{canonical_key, internal_error, redundancy_key, AppState};
@@ -43,6 +44,8 @@ pub(crate) fn explain_memory(
         })
         .map_err(internal_error)?
         .sources;
+    let artifact_trail = build_artifact_trail(&item, &events, &sources);
+    let policy_hooks = build_policy_hooks(&item, &plan, &sources);
 
     Ok(ExplainMemoryResponse {
         route: plan.route,
@@ -54,7 +57,88 @@ pub(crate) fn explain_memory(
         entity,
         events,
         sources,
+        artifact_trail,
+        policy_hooks,
     })
+}
+
+fn build_artifact_trail(
+    item: &MemoryItem,
+    events: &[MemoryEventRecord],
+    sources: &[SourceMemoryRecord],
+) -> Vec<ExplainArtifactRecord> {
+    let mut trail = vec![ExplainArtifactRecord {
+        kind: "memory_item".to_string(),
+        label: "canonical memory".to_string(),
+        summary: item.content.clone(),
+        source_agent: item.source_agent.clone(),
+        source_system: item.source_system.clone(),
+        source_path: item.source_path.clone(),
+        source_quality: item.source_quality,
+        recorded_at: Some(item.updated_at),
+    }];
+
+    trail.extend(events.iter().take(3).map(|event| ExplainArtifactRecord {
+        kind: "event".to_string(),
+        label: event.event_type.clone(),
+        summary: event.summary.clone(),
+        source_agent: event.source_agent.clone(),
+        source_system: event.source_system.clone(),
+        source_path: event.source_path.clone(),
+        source_quality: None,
+        recorded_at: Some(event.occurred_at),
+    }));
+
+    trail.extend(sources.iter().take(3).map(|source| ExplainArtifactRecord {
+        kind: "source_memory".to_string(),
+        label: format!(
+            "{}:{}",
+            source.source_agent.as_deref().unwrap_or("none"),
+            source.source_system.as_deref().unwrap_or("none")
+        ),
+        summary: format!(
+            "items={} trust={:.2} avg_confidence={:.2}",
+            source.item_count, source.trust_score, source.avg_confidence
+        ),
+        source_agent: source.source_agent.clone(),
+        source_system: source.source_system.clone(),
+        source_path: None,
+        source_quality: None,
+        recorded_at: source.last_seen_at,
+    }));
+
+    trail
+}
+
+fn build_policy_hooks(
+    item: &MemoryItem,
+    plan: &super::routing::RetrievalPlan,
+    sources: &[SourceMemoryRecord],
+) -> Vec<String> {
+    let mut hooks = vec![
+        format!("route={}", format_route(plan.route)),
+        format!("intent={}", format_intent(plan.intent)),
+        "source_trust_floor=0.60".to_string(),
+    ];
+
+    match item.stage {
+        MemoryStage::Candidate => hooks.push("promotion_review".to_string()),
+        MemoryStage::Canonical => hooks.push("canonical_retention".to_string()),
+    }
+
+    match item.status {
+        MemoryStatus::Stale => hooks.push("verification_queue".to_string()),
+        MemoryStatus::Contested => hooks.push("conflict_resolution".to_string()),
+        MemoryStatus::Superseded => hooks.push("supersession_cleanup".to_string()),
+        MemoryStatus::Expired => hooks.push("cold_storage".to_string()),
+        MemoryStatus::Active => {}
+    }
+
+    if let Some(best_source) = sources.first() {
+        hooks.push(format!("top_source_trust={:.2}", best_source.trust_score));
+    }
+
+    hooks
 }
 
 fn explain_reasons(item: &MemoryItem, plan: &super::routing::RetrievalPlan) -> Vec<String> {

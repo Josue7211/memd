@@ -751,6 +751,20 @@ pub struct ExplainMemoryResponse {
     pub entity: Option<MemoryEntityRecord>,
     pub events: Vec<MemoryEventRecord>,
     pub sources: Vec<SourceMemoryRecord>,
+    pub artifact_trail: Vec<ExplainArtifactRecord>,
+    pub policy_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainArtifactRecord {
+    pub kind: String,
+    pub label: String,
+    pub summary: String,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub source_quality: Option<SourceQuality>,
+    pub recorded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1142,6 +1156,79 @@ mod tests {
         assert_eq!(decoded_response.stale_items, response.stale_items);
         assert_eq!(decoded_response.skipped, response.skipped);
         assert_eq!(decoded_response.highlights, response.highlights);
+    }
+
+    #[test]
+    fn explain_response_roundtrips() {
+        let now = Utc::now();
+        let response = ExplainMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::Decision,
+            item: MemoryItem {
+                id: Uuid::new_v4(),
+                content: "prefer bundle-first config".to_string(),
+                redundancy_key: Some("decision:bundle-first".to_string()),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/docs/rag.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: 0.92,
+                ttl_seconds: None,
+                created_at: now,
+                updated_at: now,
+                last_verified_at: Some(now),
+                supersedes: vec![],
+                tags: vec!["decision".to_string()],
+                status: MemoryStatus::Active,
+                stage: MemoryStage::Canonical,
+            },
+            canonical_key: "decision:bundle-first".to_string(),
+            redundancy_key: "decision:bundle-first".to_string(),
+            reasons: vec!["route=project_first".to_string()],
+            entity: None,
+            events: vec![],
+            sources: vec![SourceMemoryRecord {
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                item_count: 4,
+                active_count: 4,
+                candidate_count: 0,
+                derived_count: 0,
+                synthetic_count: 0,
+                contested_count: 0,
+                avg_confidence: 0.91,
+                trust_score: 0.95,
+                last_seen_at: Some(now),
+                tags: vec!["docs".to_string()],
+            }],
+            artifact_trail: vec![ExplainArtifactRecord {
+                kind: "memory_item".to_string(),
+                label: "canonical memory".to_string(),
+                summary: "prefer bundle-first config".to_string(),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/docs/rag.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                recorded_at: Some(now),
+            }],
+            policy_hooks: vec![
+                "route=project_first".to_string(),
+                "intent=decision".to_string(),
+                "source_trust_floor=0.60".to_string(),
+            ],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: ExplainMemoryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.artifact_trail.len(), 1);
+        assert_eq!(decoded.policy_hooks.len(), 3);
+        assert_eq!(decoded.sources[0].trust_score, 0.95);
     }
 
     #[test]

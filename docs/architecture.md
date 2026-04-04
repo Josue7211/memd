@@ -130,6 +130,16 @@ The reasons should be policy-visible and deterministic, using factors such as:
 
 The output should stay compact on the hot path and move the detailed source trail into explain or source-memory drilldown.
 
+## Reversible Compression
+
+`memd` should keep the hot path compact without destroying the evidence behind it.
+
+That means:
+
+- compact summaries stay first
+- explain and source drilldown preserve the raw artifact trail
+- policy hooks stay visible so future learned retrieval can observe why the system surfaced something
+
 ## Retrieval Order
 
 1. local

@@ -110,6 +110,8 @@ Rules:
 - returns canonical and redundancy keys
 - returns source and lifecycle reasons
 - returns source-memory drilldown for the item's project, namespace, and source tuple
+- returns a compact artifact trail so raw evidence stays reachable behind the summary
+- returns explicit policy hooks for retrieval, verification, promotion, and conflict handling
 - route and intent are echoed in the response
 
 ### `GET /memory/entity`
