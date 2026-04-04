@@ -331,6 +331,18 @@ struct ObsidianArgs {
     state_file: Option<PathBuf>,
 
     #[arg(long)]
+    include_folder: Vec<String>,
+
+    #[arg(long)]
+    exclude_folder: Vec<String>,
+
+    #[arg(long)]
+    include_tag: Vec<String>,
+
+    #[arg(long)]
+    exclude_tag: Vec<String>,
+
+    #[arg(long)]
     summary: bool,
 
     #[arg(long)]
@@ -1106,6 +1118,10 @@ async fn main() -> anyhow::Result<()> {
                     args.max_notes,
                     args.include_attachments,
                     args.max_attachments,
+                    &args.include_folder,
+                    &args.exclude_folder,
+                    &args.include_tag,
+                    &args.exclude_tag,
                 )?;
                 if args.review_sensitive {
                     println!("{}", obsidian::render_sensitive_review(&scan));
@@ -1208,6 +1224,10 @@ async fn run_obsidian_import(
         args.max_notes,
         include_attachments,
         args.max_attachments,
+        &args.include_folder,
+        &args.exclude_folder,
+        &args.include_tag,
+        &args.exclude_tag,
     )?;
     if args.review_sensitive {
         println!("{}", obsidian::render_sensitive_review(&scan));

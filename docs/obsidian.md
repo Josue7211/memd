@@ -50,6 +50,13 @@ Watch a vault and keep it synced automatically:
 cargo run -p memd-client --bin memd -- obsidian watch --vault ~/vault --project notes
 ```
 
+Limit sync to specific folders or tags:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian roundtrip --vault ~/vault --project notes --include-folder work --include-tag project --apply
+cargo run -p memd-client --bin memd -- obsidian watch --vault ~/vault --project notes --include-folder work --exclude-folder archive
+```
+
 Write a memory item back into the vault as a note:
 
 ```bash
@@ -130,3 +137,6 @@ memory item and entity.
 
 `obsidian watch` starts the same round-trip sync in a file watcher loop and
 reruns it after vault changes settle.
+
+`--include-folder`, `--exclude-folder`, `--include-tag`, and `--exclude-tag`
+scope the vault bridge to a slice of the vault instead of the whole tree.

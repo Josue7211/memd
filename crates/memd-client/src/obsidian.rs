@@ -122,6 +122,10 @@ pub fn scan_vault(
     max_notes: Option<usize>,
     include_attachments: bool,
     max_attachments: Option<usize>,
+    include_folders: &[String],
+    exclude_folders: &[String],
+    include_tags: &[String],
+    exclude_tags: &[String],
 ) -> anyhow::Result<ObsidianVaultScan> {
     let vault = vault.as_ref();
     let mut notes = Vec::new();
@@ -157,6 +161,16 @@ pub fn scan_vault(
             }
 
             if let Some(note) = parse_markdown_note(vault, path)? {
+                if !note_matches_scope(
+                    &note,
+                    include_folders,
+                    exclude_folders,
+                    include_tags,
+                    exclude_tags,
+                ) {
+                    skipped_count += 1;
+                    continue;
+                }
                 if note.sensitivity.sensitive {
                     sensitive_notes.push(ObsidianSensitiveNote {
                         path: note.path.clone(),
@@ -181,6 +195,10 @@ pub fn scan_vault(
             continue;
         }
         if let Some(attachment) = parse_attachment(vault, path)? {
+            if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
+                skipped_count += 1;
+                continue;
+            }
             if attachment.sensitivity.sensitive {
                 attachment_sensitive_count += 1;
                 continue;
@@ -1024,6 +1042,64 @@ fn should_skip_vault_path(path: &Path) -> bool {
     })
 }
 
+fn note_matches_scope(
+    note: &ObsidianNote,
+    include_folders: &[String],
+    exclude_folders: &[String],
+    include_tags: &[String],
+    exclude_tags: &[String],
+) -> bool {
+    let folder = note.folder_path.as_deref().unwrap_or_default();
+    let folder_ok = if include_folders.is_empty() {
+        true
+    } else {
+        include_folders
+            .iter()
+            .any(|candidate| folder_matches(folder, candidate))
+    };
+    let folder_blocked = exclude_folders
+        .iter()
+        .any(|candidate| folder_matches(folder, candidate));
+
+    let tag_ok = if include_tags.is_empty() {
+        true
+    } else {
+        note.tags.iter().any(|tag| include_tags.contains(tag))
+    };
+    let tag_blocked = note.tags.iter().any(|tag| exclude_tags.contains(tag));
+
+    folder_ok && !folder_blocked && tag_ok && !tag_blocked
+}
+
+fn attachment_matches_scope(
+    attachment: &ObsidianAttachment,
+    include_folders: &[String],
+    exclude_folders: &[String],
+) -> bool {
+    let folder = attachment.folder_path.as_deref().unwrap_or_default();
+    let folder_ok = if include_folders.is_empty() {
+        true
+    } else {
+        include_folders
+            .iter()
+            .any(|candidate| folder_matches(folder, candidate))
+    };
+    let folder_blocked = exclude_folders
+        .iter()
+        .any(|candidate| folder_matches(folder, candidate));
+
+    folder_ok && !folder_blocked
+}
+
+fn folder_matches(folder: &str, candidate: &str) -> bool {
+    let folder = folder.trim_matches('/');
+    let candidate = candidate.trim_matches('/');
+    folder == candidate
+        || folder.starts_with(&format!("{candidate}/"))
+        || folder.ends_with(&format!("/{candidate}"))
+        || normalized_title(folder) == normalized_title(candidate)
+}
+
 fn short_uuid(id: Uuid) -> String {
     id.to_string().chars().take(8).collect()
 }
@@ -1335,6 +1411,10 @@ mod tests {
             Some(10),
             false,
             None,
+            &[],
+            &[],
+            &[],
+            &[],
         )
         .unwrap();
         assert_eq!(scan.note_count, 1);
@@ -1356,7 +1436,19 @@ mod tests {
         fs::write(&image, b"fake").unwrap();
         fs::write(&note, "# heading\nbody").unwrap();
 
-        let scan = scan_vault(&vault, None, None, Some(10), true, Some(10)).unwrap();
+        let scan = scan_vault(
+            &vault,
+            None,
+            None,
+            Some(10),
+            true,
+            Some(10),
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
         assert_eq!(scan.note_count, 1);
         assert_eq!(scan.attachment_count, 2);
         assert_eq!(scan.attachments.len(), 2);
@@ -1373,6 +1465,41 @@ mod tests {
     }
 
     #[test]
+    fn filters_notes_by_folder_and_tag_scope() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(vault.join("work")).unwrap();
+        fs::create_dir_all(vault.join("personal")).unwrap();
+
+        fs::write(
+            vault.join("work").join("project.md"),
+            "---\ntitle: Work Note\ntags: [work, project]\n---\n# Work Note\nBody\n",
+        )
+        .unwrap();
+        fs::write(
+            vault.join("personal").join("journal.md"),
+            "---\ntitle: Personal Note\ntags: [life]\n---\n# Personal Note\nBody\n",
+        )
+        .unwrap();
+
+        let scan = scan_vault(
+            &vault,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[String::from("work")],
+            &[String::from("personal")],
+            &[String::from("project")],
+            &[String::from("life")],
+        )
+        .unwrap();
+
+        assert_eq!(scan.note_count, 1);
+        assert_eq!(scan.notes[0].title, "Work Note");
+    }
+
+    #[test]
     fn skips_sensitive_text_attachments() {
         let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
         fs::create_dir_all(&vault).unwrap();
@@ -1380,7 +1507,19 @@ mod tests {
         let secret = vault.join("secrets.txt");
         fs::write(&secret, "AWS_SECRET_ACCESS_KEY=shhh").unwrap();
 
-        let scan = scan_vault(&vault, None, None, Some(10), true, Some(10)).unwrap();
+        let scan = scan_vault(
+            &vault,
+            None,
+            None,
+            Some(10),
+            true,
+            Some(10),
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
         assert_eq!(scan.attachment_sensitive_count, 1);
         assert_eq!(scan.attachment_count, 0);
         assert!(scan.attachments.is_empty());
