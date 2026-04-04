@@ -133,7 +133,9 @@ existing note.
 
 `obsidian roundtrip` also writes a compact `<!-- memd:begin -->` block back
 into each synced source note so the vault keeps a local record of the imported
-memory item and entity.
+memory item and entity. It also writes mirror notes under
+`<vault>/.memd/writeback/notes/` and attachment mirrors under
+`<vault>/.memd/writeback/attachments/`.
 
 `obsidian watch` starts the same round-trip sync in a file watcher loop and
 reruns it after vault changes settle.

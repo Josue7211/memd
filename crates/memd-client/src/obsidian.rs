@@ -554,6 +554,113 @@ pub fn build_writeback_markdown(
     (title, markdown)
 }
 
+pub fn build_note_mirror_markdown(
+    note: &ObsidianNote,
+    item_id: Option<Uuid>,
+    entity_id: Option<Uuid>,
+) -> (String, String) {
+    let title = note.title.clone();
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", note.title));
+    markdown.push_str(&format!("path: {}\n", note.relative_path));
+    markdown.push_str(&format!("kind: {:?}\n", note.kind).to_lowercase());
+    if let Some(item_id) = item_id {
+        markdown.push_str(&format!("item_id: {}\n", item_id));
+    }
+    if let Some(entity_id) = entity_id {
+        markdown.push_str(&format!("entity_id: {}\n", entity_id));
+    }
+    if let Some(folder_path) = note.folder_path.as_deref() {
+        markdown.push_str(&format!("folder: {}\n", folder_path));
+    }
+    markdown.push_str(&format!("folder_depth: {}\n", note.folder_depth));
+    markdown.push_str(&format!("content_hash: {}\n", note.content_hash));
+    markdown.push_str(&format!("bytes: {}\n", note.bytes));
+    if let Some(modified_at) = note.modified_at {
+        markdown.push_str(&format!("modified_at: {}\n", modified_at.to_rfc3339()));
+    }
+    markdown.push_str("source_system: obsidian\n");
+    markdown.push_str("source_agent: obsidian\n");
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", note.title));
+    markdown.push_str("## Excerpt\n\n");
+    markdown.push_str(&note.excerpt);
+    if !note.aliases.is_empty() {
+        markdown.push_str("\n\n## Aliases\n\n");
+        for alias in &note.aliases {
+            markdown.push_str(&format!("- {}\n", alias));
+        }
+    }
+    if !note.links.is_empty() {
+        markdown.push_str("\n\n## Links\n\n");
+        for link in &note.links {
+            markdown.push_str(&format!("- [[{}]]\n", link));
+        }
+    }
+    if !note.backlinks.is_empty() {
+        markdown.push_str("\n\n## Backlinks\n\n");
+        for backlink in &note.backlinks {
+            markdown.push_str(&format!("- {}\n", backlink));
+        }
+    }
+    (title, markdown)
+}
+
+pub fn build_attachment_mirror_markdown(
+    attachment: &ObsidianAttachment,
+    item_id: Option<Uuid>,
+    entity_id: Option<Uuid>,
+    linked_note: Option<&ObsidianNote>,
+    track_id: Option<Uuid>,
+) -> (String, String) {
+    let title = Path::new(&attachment.relative_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("attachment")
+        .to_string();
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str(&format!("path: {}\n", attachment.relative_path));
+    markdown.push_str(&format!("asset_kind: {}\n", attachment.asset_kind));
+    if let Some(mime) = attachment.mime.as_deref() {
+        markdown.push_str(&format!("mime: {}\n", mime));
+    }
+    markdown.push_str(&format!("bytes: {}\n", attachment.bytes));
+    markdown.push_str(&format!("content_hash: {}\n", attachment.content_hash));
+    if let Some(modified_at) = attachment.modified_at {
+        markdown.push_str(&format!("modified_at: {}\n", modified_at.to_rfc3339()));
+    }
+    if let Some(item_id) = item_id {
+        markdown.push_str(&format!("item_id: {}\n", item_id));
+    }
+    if let Some(entity_id) = entity_id {
+        markdown.push_str(&format!("entity_id: {}\n", entity_id));
+    }
+    if let Some(track_id) = track_id {
+        markdown.push_str(&format!("track_id: {}\n", track_id));
+    }
+    if let Some(note) = linked_note {
+        markdown.push_str(&format!("linked_note: {}\n", note.title));
+        markdown.push_str(&format!("linked_note_path: {}\n", note.relative_path));
+    }
+    markdown.push_str("source_system: obsidian\n");
+    markdown.push_str("source_agent: obsidian\n");
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Attachment\n\n");
+    markdown.push_str(&format!("- path: {}\n", attachment.relative_path));
+    markdown.push_str(&format!("- kind: {}\n", attachment.asset_kind));
+    if let Some(folder_path) = attachment.folder_path.as_deref() {
+        markdown.push_str(&format!("- folder: {}\n", folder_path));
+    }
+    if let Some(note) = linked_note {
+        markdown.push_str(&format!("- linked note: {}\n", note.title));
+    }
+    (title, markdown)
+}
+
 pub fn write_markdown(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -652,6 +759,24 @@ pub fn annotate_note(path: impl AsRef<Path>, block: &str) -> anyhow::Result<()> 
     }
     fs::write(path, updated).with_context(|| format!("write {}", path.display()))?;
     Ok(())
+}
+
+pub fn note_mirror_path(vault: &Path, note: &ObsidianNote) -> PathBuf {
+    vault
+        .join(".memd")
+        .join("writeback")
+        .join("notes")
+        .join(&note.relative_path)
+}
+
+pub fn attachment_mirror_path(vault: &Path, attachment: &ObsidianAttachment) -> PathBuf {
+    let mut mirror = vault
+        .join(".memd")
+        .join("writeback")
+        .join("attachments")
+        .join(&attachment.relative_path);
+    mirror.set_extension("md");
+    mirror
 }
 
 pub fn partition_changed_attachments<'a>(
@@ -1565,5 +1690,62 @@ mod tests {
         let stripped = strip_roundtrip_annotation(content);
         assert_eq!(stripped.trim_end(), "# Note\n\nBody.");
         assert!(!stripped.contains("memd sync"));
+    }
+
+    #[test]
+    fn builds_stable_mirror_paths() {
+        let vault = PathBuf::from("/tmp/vault");
+        let note = ObsidianNote {
+            path: PathBuf::from("work/note.md"),
+            relative_path: "work/note.md".to_string(),
+            folder_path: Some("work".to_string()),
+            folder_depth: 1,
+            title: "Note".to_string(),
+            normalized_title: normalized_title("Note"),
+            excerpt: "Body.".to_string(),
+            kind: MemoryKind::Fact,
+            tags: Vec::new(),
+            aliases: Vec::new(),
+            links: Vec::new(),
+            backlinks: Vec::new(),
+            sensitivity: ObsidianSensitivity {
+                sensitive: false,
+                reasons: Vec::new(),
+            },
+            bytes: 8,
+            modified_at: None,
+            content_hash: "abc123".to_string(),
+        };
+        let attachment = ObsidianAttachment {
+            path: PathBuf::from("assets/image.png"),
+            relative_path: "assets/image.png".to_string(),
+            folder_path: Some("assets".to_string()),
+            asset_kind: "image".to_string(),
+            mime: Some("image/png".to_string()),
+            bytes: 16,
+            modified_at: None,
+            content_hash: "def456".to_string(),
+            sensitivity: ObsidianSensitivity {
+                sensitive: false,
+                reasons: Vec::new(),
+            },
+        };
+
+        assert_eq!(
+            note_mirror_path(&vault, &note),
+            vault
+                .join(".memd")
+                .join("writeback")
+                .join("notes")
+                .join("work/note.md")
+        );
+        assert_eq!(
+            attachment_mirror_path(&vault, &attachment),
+            vault
+                .join(".memd")
+                .join("writeback")
+                .join("attachments")
+                .join("assets/image.md")
+        );
     }
 }

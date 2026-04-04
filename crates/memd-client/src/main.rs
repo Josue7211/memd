@@ -1484,6 +1484,7 @@ async fn run_obsidian_import(
         }
 
         let mut mirrored_notes = 0usize;
+        let mut mirrored_attachments = 0usize;
         if mirror_mode {
             for note in &preview.scan.notes {
                 let Some(entry) = next_state.entries.get(&note.relative_path) else {
@@ -1507,7 +1508,51 @@ async fn run_obsidian_import(
                 };
                 let block = obsidian::build_roundtrip_annotation(note, Some(item_id), entity_id);
                 obsidian::annotate_note(&note.path, &block)?;
+                let (_, mirror_markdown) =
+                    obsidian::build_note_mirror_markdown(note, Some(item_id), entity_id);
+                let mirror_path = obsidian::note_mirror_path(&preview.scan.vault, note);
+                obsidian::write_markdown(&mirror_path, &mirror_markdown)?;
                 mirrored_notes += 1;
+            }
+
+            if include_attachments {
+                for asset in &attachment_assets {
+                    let Some(entry) = next_state.entries.get(&asset.relative_path) else {
+                        continue;
+                    };
+                    let Some(item_id) = entry.item_id else {
+                        continue;
+                    };
+                    let entity_id = if let Some(entity_id) = entry.entity_id {
+                        Some(entity_id)
+                    } else {
+                        let entity = client
+                            .entity(&memd_schema::EntityMemoryRequest {
+                                id: item_id,
+                                route: None,
+                                intent: None,
+                                limit: Some(4),
+                            })
+                            .await?;
+                        entity.entity.as_ref().map(|entity| entity.id)
+                    };
+                    let linked_note = obsidian::resolve_attachment_match(
+                        asset,
+                        &preview.scan.notes,
+                        &preview.note_index,
+                    )
+                    .and_then(|association| preview.scan.notes.get(association.note_index));
+                    let (_, mirror_markdown) = obsidian::build_attachment_mirror_markdown(
+                        asset,
+                        Some(item_id),
+                        entity_id,
+                        linked_note,
+                        None,
+                    );
+                    let mirror_path = obsidian::attachment_mirror_path(&preview.scan.vault, asset);
+                    obsidian::write_markdown(&mirror_path, &mirror_markdown)?;
+                    mirrored_attachments += 1;
+                }
             }
         }
 
@@ -1523,6 +1568,7 @@ async fn run_obsidian_import(
             links_created,
             attachment_links_created,
             mirrored_notes,
+            mirrored_attachments,
             attachments: attachment_multimodal,
             attachment_unchanged_count,
             dry_run: false,
@@ -1542,6 +1588,7 @@ async fn run_obsidian_import(
             links_created: 0,
             attachment_links_created: 0,
             mirrored_notes: 0,
+            mirrored_attachments: 0,
             attachments: None,
             attachment_unchanged_count,
             dry_run: true,
@@ -1713,6 +1760,7 @@ struct ObsidianImportOutput {
     links_created: usize,
     attachment_links_created: usize,
     mirrored_notes: usize,
+    mirrored_attachments: usize,
     attachments: Option<MultimodalIngestOutput>,
     attachment_unchanged_count: usize,
     dry_run: bool,
@@ -1753,7 +1801,7 @@ fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -
         .map(|attachments| attachments.submitted)
         .unwrap_or(0);
     let mut summary = format!(
-        "obsidian_import vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} links={} attachment_links={} mirrored={} dry_run={}",
+        "obsidian_import vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
         output.preview.scan.vault.display(),
         output.preview.scan.note_count,
         output.preview.scan.sensitive_count,
@@ -1769,6 +1817,7 @@ fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -
         output.links_created,
         output.attachment_links_created,
         output.mirrored_notes,
+        output.mirrored_attachments,
         output.dry_run
     );
     if follow {
