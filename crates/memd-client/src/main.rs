@@ -2131,14 +2131,15 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follo
 
 fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "working route={} intent={} budget={} used={} remaining={} truncated={} records={}",
+        "working route={} intent={} budget={} used={} remaining={} truncated={} records={} traces={}",
         route_label(response.route),
         intent_label(response.intent),
         response.budget_chars,
         response.used_chars,
         response.remaining_chars,
         response.truncated,
-        response.records.len()
+        response.records.len(),
+        response.traces.len()
     );
 
     if follow {
@@ -2150,6 +2151,22 @@ fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> Str
             .collect::<Vec<_>>();
         if !trail.is_empty() {
             output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+
+        let trace_trail = response
+            .traces
+            .iter()
+            .take(3)
+            .map(|trace| {
+                format!(
+                    "{}:{}",
+                    trace.event_type,
+                    compact_inline(&trace.summary, 40)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trace_trail.is_empty() {
+            output.push_str(&format!(" trace_trail={}", trace_trail.join(" | ")));
         }
     }
 

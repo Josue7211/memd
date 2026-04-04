@@ -25,7 +25,7 @@ use memd_schema::{
     MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -424,6 +424,7 @@ async fn get_working_memory(
     };
     let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    let selected_items = items;
 
     let budget_chars = req.max_total_chars.unwrap_or(1600).clamp(400, 8000);
     let max_chars_per_item = req.max_chars_per_item.unwrap_or(220).clamp(80, 2000);
@@ -431,8 +432,8 @@ async fn get_working_memory(
     let mut truncated = false;
     let mut records = Vec::new();
 
-    for item in items {
-        let mut record = compact_record(&item);
+    for item in &selected_items {
+        let mut record = compact_record(item);
         if record.chars().count() > max_chars_per_item {
             record = record
                 .chars()
@@ -452,6 +453,8 @@ async fn get_working_memory(
         });
     }
 
+    let traces = working_traces_for_items(&state, &selected_items, 3).map_err(internal_error)?;
+
     Ok(Json(WorkingMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -461,6 +464,7 @@ async fn get_working_memory(
         remaining_chars: budget_chars.saturating_sub(used_chars),
         truncated,
         records,
+        traces,
     }))
 }
 
@@ -940,6 +944,29 @@ fn enrich_with_entities(
             Ok(MemoryViewItem { item, entity })
         })
         .collect()
+}
+
+fn working_traces_for_items(
+    state: &AppState,
+    items: &[MemoryItem],
+    limit: usize,
+) -> anyhow::Result<Vec<WorkingMemoryTraceRecord>> {
+    let mut traces = Vec::new();
+    for item in items.iter().take(limit) {
+        let (entity, events) = state.entity_view(item.id, 1)?;
+        let Some(event) = events.first() else {
+            continue;
+        };
+        traces.push(WorkingMemoryTraceRecord {
+            item_id: item.id,
+            entity_id: entity.as_ref().map(|entity| entity.id),
+            event_type: event.event_type.clone(),
+            summary: event.summary.clone(),
+            occurred_at: event.occurred_at,
+            salience_score: event.salience_score,
+        });
+    }
+    Ok(traces)
 }
 
 fn build_context(

@@ -267,6 +267,17 @@ pub struct WorkingMemoryResponse {
     pub remaining_chars: usize,
     pub truncated: bool,
     pub records: Vec<CompactMemoryRecord>,
+    pub traces: Vec<WorkingMemoryTraceRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryTraceRecord {
+    pub item_id: Uuid,
+    pub entity_id: Option<Uuid>,
+    pub event_type: String,
+    pub summary: String,
+    pub occurred_at: DateTime<Utc>,
+    pub salience_score: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -876,6 +887,14 @@ mod tests {
                 id: Uuid::new_v4(),
                 record: "focus on the working set".to_string(),
             }],
+            traces: vec![WorkingMemoryTraceRecord {
+                item_id: Uuid::new_v4(),
+                entity_id: Some(Uuid::new_v4()),
+                event_type: "retrieved".to_string(),
+                summary: "working set refreshed".to_string(),
+                occurred_at: Utc::now(),
+                salience_score: 0.81,
+            }],
         };
 
         let request_json = serde_json::to_string(&request).unwrap();
@@ -885,5 +904,6 @@ mod tests {
         assert_eq!(decoded_request.limit, request.limit);
         assert_eq!(decoded_response.budget_chars, response.budget_chars);
         assert_eq!(decoded_response.records.len(), 1);
+        assert_eq!(decoded_response.traces.len(), 1);
     }
 }
