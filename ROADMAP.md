@@ -14,6 +14,21 @@ It should solve memory as infrastructure:
 
 The target is not a feature. The target is an open-source platform.
 
+## Current Status
+
+`memd` is past the core platform build and is now in Phase 5 with Phase 6
+starting to land.
+
+- Phase 0: done
+- Phase 1: done
+- Phase 2: done
+- Phase 3: mostly done
+- Phase 4: mostly done
+- Phase 5: in progress
+- Phase 6: in progress
+- Phase 7: partially seeded
+- Phase 8: not started
+
 ## Product Shape
 
 `memd` is the control plane.
@@ -113,6 +128,7 @@ Deliver:
 - project namespace
 - global namespace
 - compact-summary plus raw-doc strategy
+- optional backend configuration in the project bundle
 
 Success:
 
@@ -159,11 +175,10 @@ Success:
 
 ## Immediate Next Steps
 
-1. Lock architecture and schema.
-2. Scaffold the Rust workspace.
-3. Implement `store`, `search`, and `context` APIs.
-4. Add short-term sync support.
-5. Add dream-to-candidate promotion.
+1. Finish the LightRAG adapter path and long-term namespace behavior.
+2. Finish client integrations for Claude Code, Codex, Mission Control, and OpenClaw.
+3. Tighten freshness and contradiction resolution.
+4. Add graph-aware memory only after the core lifecycle is stable.
 
 ## Non-Goals
 

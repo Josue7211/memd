@@ -85,6 +85,12 @@ Bootstrap a project bundle:
 cargo run -p memd-client --bin memd -- init --project demo --agent codex
 ```
 
+Bootstrap a project bundle with LightRAG configured:
+
+```bash
+cargo run -p memd-client --bin memd -- init --project demo --agent codex --rag-url http://127.0.0.1:9000
+```
+
 Check bundle health:
 
 ```bash
