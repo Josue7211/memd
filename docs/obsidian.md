@@ -8,6 +8,7 @@ The bridge is filesystem-first:
 
 - markdown notes become candidate memories
 - note paths are preserved as source anchors
+- unchanged notes are skipped using a local sync state file
 - wiki links can be turned into entity links
 - attachments can still go through the multimodal path separately
 - notes that look like secrets are skipped before import
@@ -59,6 +60,16 @@ or secret tokens are excluded from import by default.
 
 `--review-sensitive` prints only filenames and reasons for skipped sensitive
 notes. It does not print note bodies, excerpts, or candidate content.
+
+Incremental sync stores a small state file under the vault by default:
+
+```text
+<vault>/.memd/obsidian-sync.json
+```
+
+That file keeps a per-note hash, size, modified time, and last imported item
+ID so unchanged notes can be skipped and changed notes can be marked as
+superseding the previous import.
 
 ## Obsidian CLI
 

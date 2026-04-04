@@ -2,15 +2,17 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use memd_schema::{
     CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, MemoryContextFrame, MemoryKind,
     MemoryScope, SourceQuality,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -22,6 +24,7 @@ pub struct ObsidianVaultScan {
     pub note_count: usize,
     pub sensitive_count: usize,
     pub skipped_count: usize,
+    pub unchanged_count: usize,
     pub sensitive_notes: Vec<ObsidianSensitiveNote>,
     pub notes: Vec<ObsidianNote>,
 }
@@ -40,6 +43,21 @@ pub struct ObsidianSensitiveNote {
     pub reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
+pub struct ObsidianSyncState {
+    pub entries: HashMap<String, ObsidianSyncEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ObsidianSyncEntry {
+    pub content_hash: String,
+    pub bytes: u64,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub item_id: Option<Uuid>,
+    #[serde(default)]
+    pub entity_id: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ObsidianNote {
     pub path: PathBuf,
@@ -52,6 +70,9 @@ pub struct ObsidianNote {
     pub aliases: Vec<String>,
     pub links: Vec<String>,
     pub sensitivity: ObsidianSensitivity,
+    pub bytes: u64,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +80,8 @@ pub struct ObsidianImportPreview {
     pub scan: ObsidianVaultScan,
     pub candidates: Vec<CandidateMemoryRequest>,
     pub note_index: HashMap<String, usize>,
+    pub unchanged_count: usize,
+    pub sync_state_path: PathBuf,
 }
 
 pub fn scan_vault(
@@ -117,34 +140,82 @@ pub fn scan_vault(
         note_count: notes.len(),
         sensitive_count,
         skipped_count,
+        unchanged_count: 0,
         sensitive_notes,
         notes,
     })
 }
 
+pub fn load_sync_state(
+    vault: impl AsRef<Path>,
+    state_path: Option<PathBuf>,
+) -> anyhow::Result<(PathBuf, ObsidianSyncState)> {
+    let vault = vault.as_ref();
+    let path = state_path.unwrap_or_else(|| default_sync_state_path(vault));
+    if !path.exists() {
+        return Ok((path, ObsidianSyncState::default()));
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state: ObsidianSyncState =
+        serde_json::from_str(&raw).context("parse obsidian sync state")?;
+    Ok((path, state))
+}
+
+pub fn save_sync_state(path: impl AsRef<Path>, state: &ObsidianSyncState) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(state).context("serialize obsidian sync state")?;
+    fs::write(path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 pub fn build_import_preview(
     scan: ObsidianVaultScan,
-) -> (ObsidianImportPreview, Vec<CandidateMemoryRequest>) {
+    sync_state: &ObsidianSyncState,
+    sync_state_path: PathBuf,
+) -> (
+    ObsidianImportPreview,
+    Vec<CandidateMemoryRequest>,
+    Vec<ObsidianNote>,
+) {
     let mut candidates = Vec::with_capacity(scan.notes.len());
+    let mut changed_notes = Vec::new();
     let mut note_index = HashMap::new();
+    let mut unchanged_count = 0usize;
 
     for (idx, note) in scan.notes.iter().enumerate() {
         note_index.insert(note.normalized_title.clone(), idx);
+        let entry = sync_state.entries.get(&note.relative_path);
+        if entry.is_some_and(|entry| entry.content_hash == note.content_hash) {
+            unchanged_count += 1;
+            continue;
+        }
         candidates.push(build_note_request(
             note,
             scan.project.clone(),
             scan.namespace.clone(),
             scan.vault.clone(),
+            entry.and_then(|entry| entry.item_id),
         ));
+        changed_notes.push(note.clone());
     }
 
     (
         ObsidianImportPreview {
-            scan,
+            scan: ObsidianVaultScan {
+                unchanged_count,
+                ..scan
+            },
             candidates: candidates.clone(),
             note_index,
+            unchanged_count,
+            sync_state_path,
         },
         candidates,
+        changed_notes,
     )
 }
 
@@ -153,6 +224,7 @@ pub fn build_note_request(
     project: Option<String>,
     namespace: Option<String>,
     vault: PathBuf,
+    supersedes_item_id: Option<Uuid>,
 ) -> CandidateMemoryRequest {
     let scope = if project.is_some() {
         MemoryScope::Project
@@ -199,7 +271,7 @@ pub fn build_note_request(
         confidence: Some(0.92),
         ttl_seconds: None,
         last_verified_at: Some(Utc::now()),
-        supersedes: Vec::new(),
+        supersedes: supersedes_item_id.into_iter().collect(),
         tags,
     }
 }
@@ -247,6 +319,7 @@ pub fn normalized_title(value: &str) -> String {
 
 fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianNote>> {
     let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
     let (frontmatter, body) = split_frontmatter(&raw);
     let title = frontmatter
         .as_ref()
@@ -287,6 +360,8 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         .unwrap_or(path)
         .display()
         .to_string();
+    let content_hash = hash_content(&raw);
+    let modified_at = metadata.modified().ok().map(system_time_to_utc);
 
     Ok(Some(ObsidianNote {
         path: path.to_path_buf(),
@@ -299,7 +374,24 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         aliases,
         links,
         sensitivity: detect_sensitivity(&title, &body, frontmatter.as_ref()),
+        bytes: metadata.len(),
+        modified_at,
+        content_hash,
     }))
+}
+
+fn default_sync_state_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("obsidian-sync.json")
+}
+
+fn hash_content(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
+    value.into()
 }
 
 fn detect_sensitivity(

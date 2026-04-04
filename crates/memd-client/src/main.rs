@@ -27,7 +27,7 @@ use memd_schema::{
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
-use obsidian::{ObsidianImportPreview, ObsidianVaultScan};
+use obsidian::{ObsidianImportPreview, ObsidianSyncEntry, ObsidianVaultScan};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -321,6 +321,9 @@ struct ObsidianArgs {
 
     #[arg(long)]
     max_notes: Option<usize>,
+
+    #[arg(long)]
+    state_file: Option<PathBuf>,
 
     #[arg(long)]
     summary: bool,
@@ -1099,34 +1102,94 @@ async fn main() -> anyhow::Result<()> {
                     println!("{}", obsidian::render_sensitive_review(&scan));
                     return Ok(());
                 }
-                let (preview, candidates) = obsidian::build_import_preview(scan);
+                let (state_path, sync_state) =
+                    obsidian::load_sync_state(&args.vault, args.state_file.clone())?;
+                let (preview, candidates, changed_notes) =
+                    obsidian::build_import_preview(scan, &sync_state, state_path.clone());
                 if args.apply {
                     let responses = client.candidate_batch(&candidates).await?;
-                    let mut note_entities = std::collections::HashMap::new();
-                    for (note, response) in preview.scan.notes.iter().zip(&responses) {
+                    let mut next_state = sync_state.clone();
+                    for (note, response) in changed_notes.iter().zip(&responses) {
+                        let stored_id = response.duplicate_of.unwrap_or(response.item.id);
                         let entity = client
                             .entity(&memd_schema::EntityMemoryRequest {
-                                id: response.item.id,
+                                id: stored_id,
+                                route: None,
+                                intent: None,
+                                limit: Some(4),
+                            })
+                            .await?;
+                        next_state.entries.insert(
+                            note.relative_path.clone(),
+                            ObsidianSyncEntry {
+                                content_hash: note.content_hash.clone(),
+                                bytes: note.bytes,
+                                modified_at: note.modified_at,
+                                item_id: Some(stored_id),
+                                entity_id: entity.entity.as_ref().map(|entity| entity.id),
+                            },
+                        );
+                    }
+                    for note in &preview.scan.notes {
+                        if let Some(entry) = next_state.entries.get_mut(&note.relative_path) {
+                            entry.content_hash = note.content_hash.clone();
+                            entry.bytes = note.bytes;
+                            entry.modified_at = note.modified_at;
+                        }
+                    }
+
+                    let mut entity_ids_by_item_id = std::collections::HashMap::new();
+                    for entry in next_state.entries.values() {
+                        let Some(item_id) = entry.item_id else {
+                            continue;
+                        };
+                        if entity_ids_by_item_id.contains_key(&item_id) {
+                            continue;
+                        }
+                        if let Some(entity_id) = entry.entity_id {
+                            entity_ids_by_item_id.insert(item_id, entity_id);
+                            continue;
+                        }
+                        let entity = client
+                            .entity(&memd_schema::EntityMemoryRequest {
+                                id: item_id,
                                 route: None,
                                 intent: None,
                                 limit: Some(4),
                             })
                             .await?;
                         if let Some(entity) = entity.entity {
-                            note_entities.insert(note.normalized_title.clone(), entity.id);
+                            entity_ids_by_item_id.insert(item_id, entity.id);
                         }
                     }
+
+                    obsidian::save_sync_state(&state_path, &next_state)?;
 
                     let mut links_created = 0usize;
                     if args.link_notes {
                         for note in &preview.scan.notes {
-                            let Some(&from_entity_id) = note_entities.get(&note.normalized_title)
+                            let Some(from_entity_id) = next_state
+                                .entries
+                                .get(&note.relative_path)
+                                .and_then(|entry| entry.item_id)
+                                .and_then(|item_id| entity_ids_by_item_id.get(&item_id).copied())
                             else {
                                 continue;
                             };
                             for target in &note.links {
                                 let target_key = obsidian::normalized_title(target);
-                                let Some(&to_entity_id) = note_entities.get(&target_key) else {
+                                let Some(target_idx) = preview.note_index.get(&target_key) else {
+                                    continue;
+                                };
+                                let target_note = &preview.scan.notes[*target_idx];
+                                let Some(to_entity_id) = next_state
+                                    .entries
+                                    .get(&target_note.relative_path)
+                                    .and_then(|entry| entry.item_id)
+                                    .and_then(|item_id| {
+                                        entity_ids_by_item_id.get(&item_id).copied()
+                                    })
+                                else {
                                     continue;
                                 };
                                 if from_entity_id == to_entity_id {
@@ -1273,10 +1336,11 @@ struct ObsidianImportOutput {
 
 fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut output = format!(
-        "vault={} notes={} sensitive={} skipped={} project={}",
+        "vault={} notes={} sensitive={} unchanged={} skipped={} project={}",
         scan.vault.display(),
         scan.note_count,
         scan.sensitive_count,
+        scan.unchanged_count,
         scan.skipped_count,
         scan.project.as_deref().unwrap_or("none")
     );
@@ -1297,10 +1361,11 @@ fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> Strin
 
 fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -> String {
     let mut summary = format!(
-        "obsidian_import vault={} notes={} sensitive={} submitted={} duplicates={} links={} dry_run={}",
+        "obsidian_import vault={} notes={} sensitive={} unchanged={} submitted={} duplicates={} links={} dry_run={}",
         output.preview.scan.vault.display(),
         output.preview.scan.note_count,
         output.preview.scan.sensitive_count,
+        output.preview.scan.unchanged_count,
         output.submitted,
         output.duplicates,
         output.links_created,
