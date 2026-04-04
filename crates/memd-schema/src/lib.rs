@@ -409,6 +409,7 @@ pub struct MemoryMaintenanceReportResponse {
     pub consolidated_candidates: usize,
     pub stale_items: usize,
     pub skipped: usize,
+    pub highlights: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -615,6 +616,7 @@ mod tests {
             consolidated_candidates: 2,
             stale_items: 11,
             skipped: 2,
+            highlights: vec!["repo:3 events".to_string()],
         };
 
         let request_json = serde_json::to_string(&request).unwrap();
@@ -626,5 +628,6 @@ mod tests {
         assert_eq!(decoded_request.project, request.project);
         assert_eq!(decoded_response.stale_items, response.stale_items);
         assert_eq!(decoded_response.skipped, response.skipped);
+        assert_eq!(decoded_response.highlights, response.highlights);
     }
 }

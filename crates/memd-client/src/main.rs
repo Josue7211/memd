@@ -229,6 +229,9 @@ struct MaintenanceReportArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -801,7 +804,10 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await?;
             if args.summary {
-                println!("{}", render_maintenance_report_summary(&response));
+                println!(
+                    "{}",
+                    render_maintenance_report_summary(&response, args.follow)
+                );
             } else {
                 print_json(&response)?;
             }
@@ -1097,15 +1103,30 @@ fn render_consolidate_summary(response: &memd_schema::MemoryConsolidationRespons
     )
 }
 
-fn render_maintenance_report_summary(response: &MemoryMaintenanceReportResponse) -> String {
-    format!(
+fn render_maintenance_report_summary(
+    response: &MemoryMaintenanceReportResponse,
+    follow: bool,
+) -> String {
+    let mut output = format!(
         "learning report reinforced={} cooled={} consolidated={} stale_checked={} skipped={}",
         response.reinforced_candidates,
         response.cooled_candidates,
         response.consolidated_candidates,
         response.stale_items,
         response.skipped
-    )
+    );
+
+    if follow && !response.highlights.is_empty() {
+        let highlights = response
+            .highlights
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 40))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" trail={}", highlights.join(" | ")));
+    }
+
+    output
 }
 
 fn compact_inline(value: &str, max_chars: usize) -> String {

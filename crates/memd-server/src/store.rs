@@ -508,7 +508,7 @@ impl SqliteStore {
     pub fn maintenance_report(
         &self,
         request: &MemoryMaintenanceReportRequest,
-    ) -> anyhow::Result<(usize, usize, usize, usize, usize)> {
+    ) -> anyhow::Result<(usize, usize, usize, usize, usize, Vec<String>)> {
         let stale_items = self.stale_item_count(request)?;
         let reinforced_candidates = self.reinforced_candidate_count(request)?;
         let cooled_candidates = self.decay_candidate_count(&MemoryDecayRequest {
@@ -517,8 +517,8 @@ impl SqliteStore {
             max_decay: request.max_decay,
             record_events: Some(false),
         })?;
-        let consolidated_candidates = self
-            .consolidation_candidates(&MemoryConsolidationRequest {
+        let consolidated_candidates =
+            self.consolidation_candidates(&MemoryConsolidationRequest {
                 project: request.project.clone(),
                 namespace: request.namespace.clone(),
                 max_groups: Some(256),
@@ -526,16 +526,29 @@ impl SqliteStore {
                 lookback_days: request.lookback_days,
                 min_salience: None,
                 record_events: Some(false),
-            })?
-            .len();
+            })?;
+        let consolidated_candidates_count = consolidated_candidates.len();
+        let highlights = consolidated_candidates
+            .into_iter()
+            .take(3)
+            .map(|candidate| {
+                format!(
+                    "{}:{} events salience={:.2}",
+                    candidate.entity.entity_type,
+                    candidate.event_count,
+                    candidate.entity.salience_score
+                )
+            })
+            .collect::<Vec<_>>();
         let skipped = stale_items.saturating_sub(reinforced_candidates);
 
         Ok((
             reinforced_candidates,
             cooled_candidates,
-            consolidated_candidates,
+            consolidated_candidates_count,
             stale_items,
             skipped,
+            highlights,
         ))
     }
 

@@ -741,6 +741,7 @@ impl AppState {
             consolidated_candidates,
             stale_items,
             skipped,
+            highlights,
         ) = self.store.maintenance_report(req)?;
 
         Ok(MemoryMaintenanceReportResponse {
@@ -749,6 +750,7 @@ impl AppState {
             consolidated_candidates,
             stale_items,
             skipped,
+            highlights,
         })
     }
 
