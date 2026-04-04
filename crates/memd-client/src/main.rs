@@ -12,10 +12,11 @@ use memd_core::{
     render_compaction_wire,
 };
 use memd_schema::{
-    CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionReference,
-    CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
-    ExpireMemoryRequest, ExplainMemoryRequest, MemoryInboxRequest, PromoteMemoryRequest,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
+    CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
+    CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
+    ContextRequest, ExpireMemoryRequest, ExplainMemoryRequest, MemoryInboxRequest,
+    PromoteMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest,
+    VerifyMemoryRequest,
 };
 
 #[derive(Debug, Parser)]
@@ -42,6 +43,7 @@ enum Commands {
     Inbox(InboxArgs),
     Explain(ExplainArgs),
     Compact(CompactArgs),
+    Hook(HookArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -189,6 +191,51 @@ struct CompactArgs {
 
     #[arg(long)]
     apply: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HookArgs {
+    #[command(subcommand)]
+    mode: HookMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HookMode {
+    Context(HookContextArgs),
+    Spill(HookSpillArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct HookContextArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    max_chars_per_item: Option<usize>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HookSpillArgs {
+    #[command(flatten)]
+    input: RequestInput,
+
+    #[arg(long)]
+    apply: bool,
+
+    #[arg(long)]
+    spill_transient: bool,
 }
 
 #[tokio::main]
@@ -360,6 +407,48 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&packet)?;
             }
         }
+        Commands::Hook(args) => match args.mode {
+            HookMode::Context(args) => {
+                let req = ContextRequest {
+                    project: args.project,
+                    agent: args.agent,
+                    route: parse_retrieval_route(args.route)?,
+                    intent: parse_retrieval_intent(args.intent)?,
+                    limit: args.limit,
+                    max_chars_per_item: args.max_chars_per_item,
+                };
+                print_json(&client.context_compact(&req).await?)?;
+            }
+            HookMode::Spill(args) => {
+                let packet = read_request::<CompactionPacket>(&args.input)?;
+                let spill = if args.spill_transient {
+                    derive_compaction_spill_with_options(
+                        &packet,
+                        CompactionSpillOptions {
+                            include_transient_state: true,
+                        },
+                    )
+                } else {
+                    derive_compaction_spill(&packet)
+                };
+
+                if args.apply {
+                    let responses = client.candidate_batch(&spill.items).await?;
+                    let duplicates = responses
+                        .iter()
+                        .filter(|response| response.duplicate_of.is_some())
+                        .count();
+                    print_json(&CompactionSpillResult {
+                        submitted: responses.len(),
+                        duplicates,
+                        responses,
+                        batch: spill,
+                    })?;
+                } else {
+                    print_json(&spill)?;
+                }
+            }
+        },
     }
 
     Ok(())

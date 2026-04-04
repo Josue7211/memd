@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     http::StatusCode,
+    response::Html,
     routing::{get, post},
 };
 use chrono::Utc;
@@ -176,6 +177,7 @@ async fn main() {
         store: SqliteStore::open(&db_path).expect("open memd sqlite store"),
     };
     let app = Router::new()
+        .route("/", get(dashboard))
         .route("/healthz", get(healthz))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
@@ -200,6 +202,10 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "ok".to_string(),
         items: state.store.count().unwrap_or(0),
     })
+}
+
+async fn dashboard() -> Html<String> {
+    Html(dashboard_html())
 }
 
 async fn store_memory(
@@ -574,6 +580,329 @@ fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("c={}", sanitize_value(&item.content)));
 
     parts.join(" | ")
+}
+
+fn dashboard_html() -> String {
+    r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>memd</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --panel: #11151b;
+      --panel-2: #161b23;
+      --text: #e7eef8;
+      --muted: #93a4ba;
+      --line: #243041;
+      --accent: #69a8ff;
+      --accent-2: #7bf1c8;
+      --warn: #ffbd59;
+      --bad: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(105,168,255,0.12), transparent 32%),
+        radial-gradient(circle at top right, rgba(123,241,200,0.10), transparent 28%),
+        linear-gradient(180deg, #090b0e, var(--bg));
+      color: var(--text);
+    }
+    header {
+      padding: 28px 24px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(10, 13, 17, 0.92);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(14px);
+      z-index: 2;
+    }
+    .shell {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      margin: 0;
+    }
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 24px 32px;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .panel {
+      background: linear-gradient(180deg, rgba(17,21,27,0.95), rgba(13,17,22,0.95));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }
+    .panel h2 {
+      margin: 0;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .content {
+      padding: 16px;
+    }
+    label {
+      display: block;
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    input, select, textarea, button {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, rgba(105,168,255,0.95), rgba(76,131,245,0.95));
+      border: 0;
+      font-weight: 650;
+    }
+    button.secondary {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.02);
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #dce7f4;
+      background: #0b0f14;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      min-height: 240px;
+      max-height: 68vh;
+      overflow: auto;
+    }
+    .section {
+      display: grid;
+      gap: 12px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar button {
+      width: auto;
+      padding: 10px 14px;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 1040px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <h1>memd</h1>
+      <p class="sub">Memory manager, retrieval router, inbox, and explain surface.</p>
+    </div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Controls</h2>
+      <div class="content stack">
+        <div class="grid-2">
+          <div>
+            <label>Project</label>
+            <input id="project" placeholder="demo">
+          </div>
+          <div>
+            <label>Agent</label>
+            <input id="agent" placeholder="codex">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label>Route</label>
+            <select id="route">
+              <option value="auto">auto</option>
+              <option value="local_only">local_only</option>
+              <option value="synced_only">synced_only</option>
+              <option value="project_only">project_only</option>
+              <option value="global_only">global_only</option>
+              <option value="local_first">local_first</option>
+              <option value="synced_first">synced_first</option>
+              <option value="project_first">project_first</option>
+              <option value="global_first">global_first</option>
+              <option value="all">all</option>
+            </select>
+          </div>
+          <div>
+            <label>Intent</label>
+            <select id="intent">
+              <option value="general">general</option>
+              <option value="current_task">current_task</option>
+              <option value="decision">decision</option>
+              <option value="runbook">runbook</option>
+              <option value="topology">topology</option>
+              <option value="preference">preference</option>
+              <option value="fact">fact</option>
+              <option value="pattern">pattern</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>Search query</label>
+          <input id="query" placeholder="postgres, routing, memory, etc.">
+        </div>
+        <div>
+          <label>Explain id</label>
+          <input id="id" placeholder="UUID">
+        </div>
+        <div class="toolbar">
+          <button onclick="loadHealth()">Refresh health</button>
+          <button onclick="loadContext()">Load context</button>
+          <button onclick="loadInbox()">Load inbox</button>
+          <button onclick="loadSearch()">Search</button>
+          <button class="secondary" onclick="loadExplain()">Explain</button>
+        </div>
+        <div class="note" id="healthNote">Loading health...</div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Output</h2>
+      <div class="content section">
+        <pre id="output">{}</pre>
+      </div>
+    </section>
+  </main>
+  <script>
+    const output = document.getElementById('output');
+    const healthNote = document.getElementById('healthNote');
+    const qs = () => ({
+      project: document.getElementById('project').value.trim(),
+      agent: document.getElementById('agent').value.trim(),
+      route: document.getElementById('route').value,
+      intent: document.getElementById('intent').value,
+      query: document.getElementById('query').value.trim(),
+      id: document.getElementById('id').value.trim(),
+    });
+    function pretty(data) {
+      output.textContent = JSON.stringify(data, null, 2);
+    }
+    async function loadHealth() {
+      const res = await fetch('/healthz');
+      const data = await res.json();
+      healthNote.textContent = `status=${data.status} items=${data.items}`;
+      pretty(data);
+    }
+    async function loadContext() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.agent) params.set('agent', q.agent);
+      if (q.route !== 'auto') params.set('route', q.route);
+      if (q.intent !== 'general') params.set('intent', q.intent);
+      const res = await fetch('/memory/context/compact?' + params.toString());
+      pretty(await res.json());
+    }
+    async function loadInbox() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.agent) params.set('agent', q.agent);
+      if (q.route !== 'auto') params.set('route', q.route);
+      if (q.intent !== 'general') params.set('intent', q.intent);
+      const res = await fetch('/memory/inbox?' + params.toString());
+      pretty(await res.json());
+    }
+    async function loadSearch() {
+      const q = qs();
+      const body = {
+        query: q.query || undefined,
+        project: q.project || undefined,
+        route: q.route,
+        intent: q.intent,
+      };
+      const res = await fetch('/memory/search', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      pretty(await res.json());
+    }
+    async function loadExplain() {
+      const q = qs();
+      const params = new URLSearchParams();
+      params.set('id', q.id);
+      if (q.route !== 'auto') params.set('route', q.route);
+      if (q.intent !== 'general') params.set('intent', q.intent);
+      const res = await fetch('/memory/explain?' + params.toString());
+      pretty(await res.json());
+    }
+    loadHealth().catch(err => {
+      healthNote.textContent = `health check failed: ${err}`;
+      output.textContent = JSON.stringify({error: String(err)}, null, 2);
+    });
+    setInterval(() => { loadHealth().catch(() => {}); }, 5000);
+  </script>
+</body>
+</html>"#
+        .to_string()
 }
 
 fn sanitize_value(value: &str) -> String {

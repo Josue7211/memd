@@ -19,6 +19,10 @@ Returns:
 - current persisted item count
 - candidate and canonical items are both counted
 
+### `GET /`
+
+Serves the built-in dashboard for health, context, inbox, search, and explain.
+
 ### `POST /memory/store`
 
 Stores a typed memory item.

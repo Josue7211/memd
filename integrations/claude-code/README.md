@@ -7,11 +7,18 @@ Recommended flow:
 1. read compact context before starting work
 2. store candidate memories after notable decisions
 3. promote only stable takeaways
+4. use the hook command at compaction boundaries
 
 ## Read Context
 
 ```bash
 memd context --project <project> --agent claude-code --compact
+```
+
+## Hook Context
+
+```bash
+memd hook context --project <project> --agent claude-code
 ```
 
 ## Store Candidate Memory
@@ -49,6 +56,34 @@ cat <<'JSON' | memd promote --stdin
   "ttl_seconds": null,
   "tags": ["decision"],
   "status": "active"
+}
+JSON
+```
+
+## Spill Compaction Packet
+
+```bash
+cat <<'JSON' | memd hook spill --stdin --apply
+{
+  "session": {
+    "project": "my-project",
+    "agent": "claude-code",
+    "task": "build memory manager"
+  },
+  "goal": "Preserve memory without token waste",
+  "hard_constraints": ["compact retrieval only"],
+  "active_work": ["verification worker scans stale canonical items"],
+  "decisions": [],
+  "open_loops": [],
+  "exact_refs": [],
+  "next_actions": [],
+  "do_not_drop": [],
+  "memory": {
+    "route": "auto",
+    "intent": "general",
+    "retrieval_order": ["local", "synced", "project", "global"],
+    "records": []
+  }
 }
 JSON
 ```

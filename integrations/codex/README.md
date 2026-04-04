@@ -7,11 +7,18 @@ Recommended flow:
 1. fetch compact context at task start
 2. write candidate memories for durable findings
 3. verify or expire stale items during maintenance runs
+4. use the hook command at compaction boundaries
 
 ## Read Context
 
 ```bash
 memd context --project <project> --agent codex --compact
+```
+
+## Hook Context
+
+```bash
+memd hook context --project <project> --agent codex
 ```
 
 ## Search Memory
@@ -42,6 +49,34 @@ cat <<'JSON' | memd verify --stdin
   "id": "uuid-from-search-or-context",
   "confidence": 0.95,
   "status": "active"
+}
+JSON
+```
+
+## Spill Compaction Packet
+
+```bash
+cat <<'JSON' | memd hook spill --stdin --apply
+{
+  "session": {
+    "project": "my-project",
+    "agent": "codex",
+    "task": "fix retrieval routing"
+  },
+  "goal": "Preserve memory without token waste",
+  "hard_constraints": ["compact retrieval only"],
+  "active_work": ["verification worker scans stale canonical items"],
+  "decisions": [],
+  "open_loops": [],
+  "exact_refs": [],
+  "next_actions": [],
+  "do_not_drop": [],
+  "memory": {
+    "route": "auto",
+    "intent": "general",
+    "retrieval_order": ["local", "synced", "project", "global"],
+    "records": []
+  }
 }
 JSON
 ```

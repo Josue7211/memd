@@ -104,6 +104,8 @@ This is where:
 
 If the system cannot show you what needs attention, it turns into a black box. That dies fast in practice.
 
+The server also serves a small built-in dashboard at `/` so the inbox, explain view, search, and compact context can be inspected without needing a separate frontend.
+
 ## Retrieval Order
 
 1. local

@@ -12,6 +12,7 @@ It gives AI systems one place to store, route, compact, explain, and verify memo
 - collapses duplicate and near-duplicate facts
 - preserves source quality and provenance
 - exposes inbox and explain views for review
+- includes a built-in dashboard for inspection
 - keeps compaction separate from durable memory
 
 ## Why It Exists
@@ -40,6 +41,7 @@ They are either:
 - redundancy collapse
 - route and intent based retrieval
 - compact context output
+- hook command for agent context and spill
 - compaction spill into durable memory
 - verification and expiry lifecycle
 - memory inbox for review
@@ -63,6 +65,13 @@ Request compact context:
 
 ```bash
 cargo run -p memd-client --bin memd -- context --project demo --agent codex --compact
+```
+
+Open the built-in dashboard:
+
+```bash
+cargo run -p memd-server
+# then open http://127.0.0.1:8787/
 ```
 
 Inspect the inbox:
