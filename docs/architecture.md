@@ -110,6 +110,26 @@ If the system cannot show you what needs attention, it turns into a black box. T
 
 The server also serves a small built-in dashboard at `/` so the inbox, explain view, search, and compact context can be inspected without needing a separate frontend.
 
+## Working Memory Controller
+
+Working memory is a managed buffer, not just the top N search hits.
+
+The controller should report:
+
+- why an item was admitted
+- why an item was evicted
+- why an item should be rehydrated
+
+The reasons should be policy-visible and deterministic, using factors such as:
+
+- freshness
+- source trust
+- contradiction or contested state
+- recent use
+- verification recency
+
+The output should stay compact on the hot path and move the detailed source trail into explain or source-memory drilldown.
+
 ## Retrieval Order
 
 1. local

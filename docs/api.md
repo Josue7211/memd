@@ -75,6 +75,17 @@ Rules:
 - can optionally adjust confidence
 - can optionally reset status back to `active`
 
+### `POST /memory/repair`
+
+Runs an explicit bounded repair action for a memory item.
+
+Rules:
+
+- supports `verify`, `expire`, `supersede`, `contest`, and `correct_metadata`
+- keeps the lifecycle explicit and auditable
+- can update source metadata, tags, confidence, and supersede links when needed
+- returns the repaired item and the reasons the action was applied
+
 ### `GET /memory/inbox`
 
 Surfaces memory that needs attention.
@@ -98,6 +109,7 @@ Rules:
 - returns a bounded recent event timeline when available
 - returns canonical and redundancy keys
 - returns source and lifecycle reasons
+- returns source-memory drilldown for the item's project, namespace, and source tuple
 - route and intent are echoed in the response
 
 ### `GET /memory/entity`
@@ -132,6 +144,17 @@ Rules:
 - updates entity salience and rehearsal state
 - can emit decay events into the timeline
 - keeps unused traces from staying artificially hot forever
+
+### `GET /memory/policy`
+
+Returns the live policy snapshot that the server is currently applying.
+
+Rules:
+
+- exposes the default retrieval order
+- exposes route defaults by intent
+- exposes working-memory, promotion, decay, and consolidation thresholds
+- intended for operator inspection and debugging
 
 ### `POST /memory/search`
 
@@ -185,6 +208,18 @@ Rules:
 - flattened metadata
 - compact content payload
 - intended for agent hot-path retrieval
+
+### `GET /memory/working`
+
+Returns the managed working-memory buffer for a task.
+
+Rules:
+
+- uses an explicit total character budget
+- applies an admission limit for the hot set
+- reports evicted records when the candidate set overflows the buffer
+- exposes a bounded rehydration queue for the next-best records
+- can optionally trigger semantic consolidation for recent traces
 
 ## Runtime
 

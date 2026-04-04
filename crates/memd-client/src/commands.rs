@@ -1,5 +1,8 @@
 use anyhow::Context;
-use memd_schema::{EntityRelationKind, MemoryKind, MemoryScope, RetrievalIntent, RetrievalRoute};
+use memd_schema::{
+    EntityRelationKind, MemoryKind, MemoryRepairMode, MemoryScope, RetrievalIntent,
+    RetrievalRoute,
+};
 
 pub(crate) fn parse_uuid_list(values: &[String]) -> anyhow::Result<Vec<uuid::Uuid>> {
     values
@@ -36,6 +39,20 @@ pub(crate) fn parse_memory_scope_value(value: &str) -> anyhow::Result<MemoryScop
     }
 }
 
+pub(crate) fn parse_memory_status_value(value: &str) -> anyhow::Result<memd_schema::MemoryStatus> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "active" => Ok(memd_schema::MemoryStatus::Active),
+        "stale" => Ok(memd_schema::MemoryStatus::Stale),
+        "superseded" => Ok(memd_schema::MemoryStatus::Superseded),
+        "contested" => Ok(memd_schema::MemoryStatus::Contested),
+        "expired" => Ok(memd_schema::MemoryStatus::Expired),
+        _ => anyhow::bail!(
+            "invalid memory status '{value}'; expected active, stale, superseded, contested, or expired"
+        ),
+    }
+}
+
 pub(crate) fn parse_source_quality_value(
     value: &str,
 ) -> anyhow::Result<memd_schema::SourceQuality> {
@@ -46,6 +63,20 @@ pub(crate) fn parse_source_quality_value(
         "synthetic" => Ok(memd_schema::SourceQuality::Synthetic),
         _ => anyhow::bail!(
             "invalid source quality '{value}'; expected canonical, derived, or synthetic"
+        ),
+    }
+}
+
+pub(crate) fn parse_memory_repair_mode_value(value: &str) -> anyhow::Result<MemoryRepairMode> {
+    let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "verify" => Ok(MemoryRepairMode::Verify),
+        "expire" => Ok(MemoryRepairMode::Expire),
+        "supersede" => Ok(MemoryRepairMode::Supersede),
+        "contest" => Ok(MemoryRepairMode::Contest),
+        "correct_metadata" | "correct" | "repair" => Ok(MemoryRepairMode::CorrectMetadata),
+        _ => anyhow::bail!(
+            "invalid repair mode '{value}'; expected verify, expire, supersede, contest, or correct_metadata"
         ),
     }
 }

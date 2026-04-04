@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** `v0` is complete. `v1` remains blocked until phase 1 execution is explicitly resumed.
+**Current focus:** `v1` is complete. `v2` is the next planning target.
 
 ## Current Status
 
@@ -15,18 +15,16 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - top-level roadmap is organized around `v0` through `v5`
 - `v0` OSS-ready project foundations are complete on a dedicated branch
 - branch/version history, contribution, security, and release docs are in place
-- the next implementation work should stay disciplined around phase 1 only
+- `v1` repair, provenance, and working-memory gaps are closed enough to move on
 
 ## Open Loops
 
 - provenance drilldown is still shallow
-- repair actions are not implemented deeply enough
-- working-memory policy has started but is not final
-- source-trust and procedural/self-model structures remain incomplete
+- `v2` foundations have not started
 
 ## Next Command
 
-Run `gsd-execute-phase 1` only after explicitly resuming post-`v0` work.
+Run `gsd-plan-phase 2` next.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

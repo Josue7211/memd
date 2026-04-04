@@ -52,6 +52,8 @@ pub struct MultimodalChunk {
     pub asset_path: PathBuf,
     pub kind: MultimodalAssetKind,
     pub backend: ExtractionBackend,
+    pub mime: Option<String>,
+    pub bytes: Option<u64>,
     pub content: String,
     pub confidence: f32,
 }
@@ -96,6 +98,8 @@ pub fn to_sidecar_requests(
                 id: chunk.id,
                 kind: format!("{:?}", chunk.kind).to_lowercase(),
                 content: chunk.content.clone(),
+                mime: chunk.mime.clone(),
+                bytes: chunk.bytes,
                 source_quality: Some(memd_schema::SourceQuality::Derived),
                 source_agent: Some(match chunk.backend {
                     ExtractionBackend::Mineru => "mineru".to_string(),
@@ -154,6 +158,8 @@ fn extract_chunk(asset: &MultimodalAsset) -> anyhow::Result<MultimodalChunk> {
         asset_path: asset.path.clone(),
         kind: asset.kind,
         backend: asset.backend,
+        mime: asset.mime.clone(),
+        bytes: asset.bytes,
         content,
         confidence: match asset.kind {
             MultimodalAssetKind::Text => 0.95,
@@ -268,6 +274,8 @@ mod tests {
             requests[0].source.source_quality,
             Some(memd_schema::SourceQuality::Derived)
         );
+        assert!(requests[0].source.bytes.is_some());
+        assert_eq!(requests[0].source.mime.as_deref(), Some("text/markdown"));
         assert!(
             requests[0]
                 .source

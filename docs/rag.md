@@ -40,6 +40,10 @@ memd rag search --rag-url http://127.0.0.1:9000 --query "decision cache"
 
 If `--rag-url` is omitted, `MEMD_RAG_URL` is used.
 
+If the client is running inside a `memd` project bundle, it will prefer the
+bundle's `config.json` `backend.rag.url` setting before falling back to
+`MEMD_RAG_URL`.
+
 `memd status --output .memd` also reports whether the bundle has RAG enabled
 and whether the configured backend is reachable.
 

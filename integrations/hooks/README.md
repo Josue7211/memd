@@ -31,6 +31,7 @@ Set:
 - `MEMD_INTENT` - defaults to `general`
 - `MEMD_LIMIT` - defaults to `8`
 - `MEMD_MAX_CHARS` - defaults to `280`
+- `MEMD_RAG_URL` - optional; bundle backend config can supply this when present
 
 ## Context Hook
 

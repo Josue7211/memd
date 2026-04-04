@@ -25,10 +25,10 @@ use memd_schema::{
     CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
     CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
     EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
-    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest, StoreMemoryRequest,
-    VerifyMemoryRequest, WorkingMemoryRequest, EntitySearchRequest,
+    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
+    StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -39,9 +39,10 @@ use commands::{
 };
 use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
-    render_maintenance_report_summary, render_obsidian_import_summary,
+    render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
     render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
-    render_source_summary, render_timeline_summary, render_working_summary, short_uuid,
+    render_repair_summary, render_source_summary, render_timeline_summary, render_working_summary,
+    short_uuid,
 };
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +70,7 @@ enum Commands {
     Promote(RequestInput),
     Expire(RequestInput),
     Verify(RequestInput),
+    Repair(RepairArgs),
     Search(SearchArgs),
     Context(ContextArgs),
     Working(WorkingArgs),
@@ -101,6 +103,48 @@ struct RequestInput {
 
     #[arg(long)]
     stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RepairArgs {
+    #[arg(long)]
+    id: String,
+
+    #[arg(long)]
+    mode: String,
+
+    #[arg(long)]
+    confidence: Option<f32>,
+
+    #[arg(long)]
+    status: Option<String>,
+
+    #[arg(long)]
+    source_agent: Option<String>,
+
+    #[arg(long)]
+    source_system: Option<String>,
+
+    #[arg(long)]
+    source_path: Option<String>,
+
+    #[arg(long)]
+    source_quality: Option<String>,
+
+    #[arg(long)]
+    content: Option<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    tag: Vec<String>,
+
+    #[arg(long, value_name = "UUID")]
+    supersede: Vec<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -269,6 +313,12 @@ struct ExplainArgs {
 
     #[arg(long)]
     intent: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1007,6 +1057,42 @@ async fn main() -> anyhow::Result<()> {
             let req = read_request::<VerifyMemoryRequest>(&input)?;
             print_json(&client.verify(&req).await?)?;
         }
+        Commands::Repair(args) => {
+            let mode = commands::parse_memory_repair_mode_value(&args.mode)?;
+            let status = match args.status.as_deref() {
+                Some(value) => Some(commands::parse_memory_status_value(value)?),
+                None => None,
+            };
+            let source_quality = match args.source_quality.as_deref() {
+                Some(value) => Some(parse_source_quality_value(value)?),
+                None => None,
+            };
+            let supersedes = parse_uuid_list(&args.supersede)?;
+            let response = client
+                .repair(&RepairMemoryRequest {
+                    id: args.id.parse()?,
+                    mode,
+                    confidence: args.confidence,
+                    status,
+                    source_agent: args.source_agent.clone(),
+                    source_system: args.source_system.clone(),
+                    source_path: args.source_path.clone(),
+                    source_quality,
+                    content: args.content.clone(),
+                    tags: if args.tag.is_empty() {
+                        None
+                    } else {
+                        Some(args.tag.clone())
+                    },
+                    supersedes,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_repair_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Search(args) => {
             let mut req = read_request::<SearchMemoryRequest>(&args.input)?;
             if args.route.is_some() || args.intent.is_some() {
@@ -1138,7 +1224,12 @@ async fn main() -> anyhow::Result<()> {
                 route: parse_retrieval_route(args.route.clone())?,
                 intent: parse_retrieval_intent(args.intent.clone())?,
             };
-            print_json(&client.explain(&req).await?)?;
+            let response = client.explain(&req).await?;
+            if args.summary {
+                println!("{}", render_explain_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
         }
         Commands::Entity(args) => {
             let req = memd_schema::EntityMemoryRequest {

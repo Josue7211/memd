@@ -190,6 +190,38 @@ pub struct VerifyMemoryResponse {
     pub item: MemoryItem,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryRepairMode {
+    Verify,
+    Expire,
+    Supersede,
+    Contest,
+    CorrectMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairMemoryRequest {
+    pub id: Uuid,
+    pub mode: MemoryRepairMode,
+    pub confidence: Option<f32>,
+    pub status: Option<MemoryStatus>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub source_quality: Option<SourceQuality>,
+    pub content: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub supersedes: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairMemoryResponse {
+    pub item: MemoryItem,
+    pub mode: MemoryRepairMode,
+    pub reasons: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchMemoryRequest {
     pub query: Option<String>,
@@ -1320,5 +1352,62 @@ mod tests {
         let decoded_response: SourceMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.source_agent, request.source_agent);
         assert_eq!(decoded_response.sources[0].trust_score, 0.91);
+    }
+
+    #[test]
+    fn repair_contract_roundtrips() {
+        let request = RepairMemoryRequest {
+            id: Uuid::new_v4(),
+            mode: MemoryRepairMode::CorrectMetadata,
+            confidence: Some(0.91),
+            status: Some(MemoryStatus::Active),
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: Some("/tmp/memd".to_string()),
+            source_quality: Some(SourceQuality::Canonical),
+            content: Some("repaired memory content".to_string()),
+            tags: Some(vec!["repair".to_string(), "audit".to_string()]),
+            supersedes: vec![Uuid::new_v4(), Uuid::new_v4()],
+        };
+        let response = RepairMemoryResponse {
+            item: MemoryItem {
+                id: request.id,
+                content: "repaired memory content".to_string(),
+                redundancy_key: Some("dedupe:key".to_string()),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                source_agent: request.source_agent.clone(),
+                source_system: request.source_system.clone(),
+                source_path: request.source_path.clone(),
+                source_quality: request.source_quality,
+                confidence: 0.91,
+                ttl_seconds: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                last_verified_at: Some(Utc::now()),
+                supersedes: request.supersedes.clone(),
+                tags: vec!["repair".to_string(), "audit".to_string()],
+                status: MemoryStatus::Active,
+                stage: MemoryStage::Canonical,
+            },
+            mode: request.mode,
+            reasons: vec![
+                "mode=correct_metadata".to_string(),
+                "source_agent_updated".to_string(),
+                "content_repaired".to_string(),
+            ],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: RepairMemoryRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: RepairMemoryResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.mode, MemoryRepairMode::CorrectMetadata);
+        assert_eq!(decoded_request.tags.as_ref().unwrap().len(), 2);
+        assert_eq!(decoded_response.mode, MemoryRepairMode::CorrectMetadata);
+        assert_eq!(decoded_response.item.status, MemoryStatus::Active);
+        assert_eq!(decoded_response.reasons.len(), 3);
     }
 }

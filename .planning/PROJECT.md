@@ -21,14 +21,14 @@ inspectable, and useful under real task pressure.
 - ✓ Agents can fetch compact context and working memory through one API.
 - ✓ Optional long-term semantic backend support exists behind the control plane.
 - ✓ Project bundles and attach flows exist for agent integrations.
+- ✓ `v1` provenance, repair, and working-memory control are complete enough to move to `v2`.
 
 ### Active
 
-- [ ] Finish `v1` repair actions for stale, contested, and malformed memory.
-- [ ] Add provenance drilldown from compact summaries to raw source artifacts.
-- [ ] Strengthen working-memory admission, eviction, and rehydration behavior.
-- [ ] Make procedural, self-model, and source-trust memory more explicit.
-- [ ] Prepare `v2` superhuman-memory primitives without pretending `v1` is done.
+- [ ] Start `v2` foundations: explicit working-memory controller semantics.
+- [ ] Add trust-weighted source memory and reversible compression.
+- [ ] Add first learned retrieval-policy hooks.
+- [ ] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 
 ### Out of Scope
 
@@ -46,9 +46,9 @@ The repo already has strong docs under `docs/`, integration assets under
 capability versions `v1` through `v5`.
 
 Recent work tightened bundle-first backend wiring, sidecar metadata fidelity,
-policy inspection, and managed working-memory state. The repo is usable now,
-but the remaining `v1` gap is quality of control, repair, and provenance rather
-than raw feature count.
+policy inspection, explicit repair, provenance drilldown, and managed
+working-memory state. The repo is usable now, and `v1` is complete enough to
+move on to `v2` foundations.
 
 ## Constraints
 
@@ -68,4 +68,4 @@ than raw feature count.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-04 after GSD brownfield initialization*
+*Last updated: 2026-04-04 after GSD phase 1 completion*

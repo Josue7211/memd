@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::{AppState, build_context, compact_record, internal_error};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
-    MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyPromotion, MemoryPolicyResponse,
-    MemoryPolicyRouteDefault, MemoryPolicyWorkingMemory, MemoryScope,
+    MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyPromotion,
+    MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyWorkingMemory, MemoryScope,
     WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRehydrationRecord,
     WorkingMemoryRequest, WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
@@ -30,17 +30,16 @@ pub(crate) fn working_memory(
     let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
     let now = Utc::now();
-    let mut ranked_items = items
-        .into_iter()
-        .map(|item| {
-            let score = working_item_priority(&item, now);
-            (score, item)
-        })
-        .collect::<Vec<_>>();
+    let mut ranked_items = Vec::with_capacity(items.len());
+    for item in items {
+        let (entity, _) = state.entity_view(item.id, 1).map_err(internal_error)?;
+        let (score, reasons) = working_item_priority(&item, entity.as_ref(), now);
+        ranked_items.push((score, reasons, item));
+    }
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
     let selected_items = ranked_items
-        .into_iter()
-        .map(|(_, item)| item)
+        .iter()
+        .map(|(_, _, item)| item.clone())
         .collect::<Vec<_>>();
 
     let budget_chars = req.max_total_chars.unwrap_or(1600).clamp(400, 8000);
@@ -50,9 +49,9 @@ pub(crate) fn working_memory(
     let mut records = Vec::new();
     let mut evicted = Vec::new();
 
-    let compacted_records = selected_items
+    let compacted_records = ranked_items
         .iter()
-        .map(|item| {
+        .map(|(_, reasons, item)| {
             let mut record = compact_record(item);
             if record.chars().count() > max_chars_per_item {
                 record = record
@@ -61,18 +60,18 @@ pub(crate) fn working_memory(
                     .collect();
                 record.push_str("...");
             }
-            (item.id, record)
+            (item.id, record, reasons.join(";"))
         })
         .collect::<Vec<_>>();
 
-    for (index, (item_id, record)) in compacted_records.iter().enumerate() {
+    for (index, (item_id, record, reasons)) in compacted_records.iter().enumerate() {
         let record_chars = record.chars().count();
         if used_chars + record_chars > budget_chars {
             truncated = true;
             evicted.push(WorkingMemoryEvictionRecord {
                 id: *item_id,
                 record: record.clone(),
-                reason: "evicted_by_budget".to_string(),
+                reason: format!("evicted_by_budget;{reasons}"),
             });
             continue;
         }
@@ -88,10 +87,15 @@ pub(crate) fn working_memory(
 
     if records.len() > admission_limit {
         for record in records.drain(admission_limit..) {
+            let reason = compacted_records
+                .iter()
+                .find(|(id, _, _)| *id == record.id)
+                .map(|(_, _, reasons)| format!("evicted_by_admission_limit;{reasons}"))
+                .unwrap_or_else(|| "evicted_by_admission_limit".to_string());
             evicted.push(WorkingMemoryEvictionRecord {
                 id: record.id,
                 record: record.record,
-                reason: "evicted_by_admission_limit".to_string(),
+                reason,
             });
         }
         truncated = true;
@@ -206,7 +210,11 @@ fn working_traces_for_items(
     Ok(traces)
 }
 
-fn working_item_priority(item: &memd_schema::MemoryItem, now: chrono::DateTime<Utc>) -> f32 {
+fn working_item_priority(
+    item: &memd_schema::MemoryItem,
+    entity: Option<&MemoryEntityRecord>,
+    now: chrono::DateTime<Utc>,
+) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
     let age_days = now
         .signed_duration_since(item.updated_at)
@@ -216,6 +224,11 @@ fn working_item_priority(item: &memd_schema::MemoryItem, now: chrono::DateTime<U
         .last_verified_at
         .map(|verified| now.signed_duration_since(verified).num_days().max(0) as f32)
         .unwrap_or(45.0);
+    let recent_use_days = entity
+        .and_then(|entity| entity.last_accessed_at)
+        .map(|last_accessed_at| now.signed_duration_since(last_accessed_at).num_days().max(0) as f32)
+        .unwrap_or(45.0);
+    let rehearsal_count = entity.map(|entity| entity.rehearsal_count).unwrap_or(0);
 
     let status_score = match item.status {
         memd_schema::MemoryStatus::Active => 0.22,
@@ -254,15 +267,84 @@ fn working_item_priority(item: &memd_schema::MemoryItem, now: chrono::DateTime<U
         Some(_) => 0.0,
         None => 0.03,
     };
+    let recent_use_score = if recent_use_days <= 2.0 {
+        0.08
+    } else if recent_use_days >= 30.0 {
+        -0.06
+    } else {
+        0.0
+    };
+    let rehearsal_score = if rehearsal_count >= 5 {
+        0.06
+    } else if rehearsal_count == 0 {
+        -0.04
+    } else {
+        0.02
+    };
+    let contradiction_score = match item.status {
+        memd_schema::MemoryStatus::Contested | memd_schema::MemoryStatus::Superseded => -0.12,
+        _ => {
+            if item.source_quality == Some(memd_schema::SourceQuality::Synthetic) {
+                -0.05
+            } else {
+                0.0
+            }
+        }
+    };
 
-    (confidence * 0.48
+    let mut reasons = vec![
+        format!("status={}", format_status(item.status)),
+        format!("source={}", format_source_quality(item.source_quality)),
+        format!("freshness_days={age_days:.0}"),
+        format!("verified_days={verification_days:.0}"),
+        format!("recent_use_days={recent_use_days:.0}"),
+        format!("rehearsals={rehearsal_count}"),
+    ];
+    if contradiction_score < 0.0 {
+        reasons.push("contradiction_state".to_string());
+    }
+    if item.status == memd_schema::MemoryStatus::Contested {
+        reasons.push("contested".to_string());
+    }
+    if item.status == memd_schema::MemoryStatus::Superseded {
+        reasons.push("superseded".to_string());
+    }
+    if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
+        reasons.push("trusted_source".to_string());
+    }
+
+    ((confidence * 0.48
         + status_score
         + source_score
         + stage_score
         + freshness_score
         + verification_score
-        + ttl_score)
-        .clamp(0.0, 1.0)
+        + ttl_score
+        + recent_use_score
+        + rehearsal_score
+        + contradiction_score)
+        .clamp(0.0, 1.0),
+        reasons,
+    )
+}
+
+fn format_status(status: memd_schema::MemoryStatus) -> &'static str {
+    match status {
+        memd_schema::MemoryStatus::Active => "active",
+        memd_schema::MemoryStatus::Stale => "stale",
+        memd_schema::MemoryStatus::Superseded => "superseded",
+        memd_schema::MemoryStatus::Contested => "contested",
+        memd_schema::MemoryStatus::Expired => "expired",
+    }
+}
+
+fn format_source_quality(source_quality: Option<memd_schema::SourceQuality>) -> &'static str {
+    match source_quality {
+        Some(memd_schema::SourceQuality::Canonical) => "canonical",
+        Some(memd_schema::SourceQuality::Derived) => "derived",
+        Some(memd_schema::SourceQuality::Synthetic) => "synthetic",
+        None => "unknown",
+    }
 }
 
 #[cfg(test)]
@@ -319,7 +401,7 @@ mod tests {
             now - chrono::Duration::days(45),
         );
 
-        assert!(working_item_priority(&good, now) > working_item_priority(&weak, now));
+        assert!(working_item_priority(&good, None, now).0 > working_item_priority(&weak, None, now).0);
     }
 
     #[test]
@@ -340,7 +422,27 @@ mod tests {
             now - chrono::Duration::days(3),
         );
 
-        assert!(working_item_priority(&verified, now) > working_item_priority(&unverified, now));
+        assert!(
+            working_item_priority(&verified, None, now).0
+                > working_item_priority(&unverified, None, now).0
+        );
+    }
+
+    #[test]
+    fn contested_synthetic_items_collect_policy_reasons() {
+        let now = Utc::now();
+        let item = sample_item(
+            memd_schema::MemoryStatus::Contested,
+            Some(memd_schema::SourceQuality::Synthetic),
+            0.4,
+            Some(now - chrono::Duration::days(80)),
+            now - chrono::Duration::days(40),
+        );
+
+        let (_, reasons) = working_item_priority(&item, None, now);
+        assert!(reasons.iter().any(|reason| reason == "contested"));
+        assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
+        assert!(reasons.iter().any(|reason| reason.starts_with("recent_use_days=")));
     }
 }
 

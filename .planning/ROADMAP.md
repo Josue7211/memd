@@ -32,6 +32,8 @@ Success:
 - harden working-memory admission, eviction, and rehydration behavior
 - tighten source-trust and procedural/self-model surfaces enough to call `v1` complete
 
+Status: Complete
+
 Success:
 
 - `v1` can be described as complete without hand-waving around missing repair and provenance features
@@ -51,14 +53,14 @@ Success:
 
 ## Immediate Next Phase
 
-Phase 1 is the next planning target now that phase 0 is complete.
+Phase 2 is the next planning target now that phase 1 is complete.
 
-Recommended first plan slices:
+Recommended first plan slices for `v2`:
 
-1. complete provenance drilldown from compact memory to raw artifacts
-2. add repair actions for stale, contested, and malformed memory
-3. harden working-memory admission, eviction, and rehydration behavior
-4. tighten source-trust and procedural/self-model surfaces enough to call `v1` complete
+1. explicit working-memory controller semantics
+2. trust-weighted source memory
+3. reversible compression
+4. first learned retrieval-policy hooks
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

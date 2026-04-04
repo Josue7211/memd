@@ -9,7 +9,11 @@ param(
 )
 
 $bundleRoot = if ($env:MEMD_BUNDLE_ROOT) { $env:MEMD_BUNDLE_ROOT } else { ".memd" }
+$backendEnvPath = Join-Path $bundleRoot "backend.env.ps1"
 $envPath = Join-Path $bundleRoot "env.ps1"
+if (Test-Path $backendEnvPath) {
+  . $backendEnvPath
+}
 if (Test-Path $envPath) {
   . $envPath
 }

@@ -49,6 +49,14 @@ They still pass through:
 - scope classification
 - promotion gating
 
+If a source later needs correction, repair should stay bounded and auditable:
+
+- verify the item against the current source
+- expire stale or invalid material
+- supersede replaced material
+- contest unresolved claims
+- correct metadata without rewriting unrelated history
+
 ## Practical Standard
 
 If a source would not help answer a real future question, it does not belong in `memd`.

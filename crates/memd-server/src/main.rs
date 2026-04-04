@@ -29,11 +29,11 @@ use memd_schema::{
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
     MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
-    TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
-    ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse,
+    RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, ExpireMemoryRequest,
+    ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -206,6 +206,7 @@ async fn main() {
         .route("/memory/promote", post(promote_memory))
         .route("/memory/expire", post(expire_memory))
         .route("/memory/verify", post(verify_memory))
+        .route("/memory/repair", post(repair_memory))
         .route("/memory/search", post(search_memory))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
@@ -329,6 +330,14 @@ async fn verify_memory(
 ) -> Result<Json<VerifyMemoryResponse>, (StatusCode, String)> {
     let item = repair::verify_item(&state, req)?;
     Ok(Json(VerifyMemoryResponse { item }))
+}
+
+async fn repair_memory(
+    State(state): State<AppState>,
+    Json(req): Json<RepairMemoryRequest>,
+) -> Result<Json<RepairMemoryResponse>, (StatusCode, String)> {
+    let response = repair::repair_item(&state, req)?;
+    Ok(Json(response))
 }
 
 async fn get_working_memory(

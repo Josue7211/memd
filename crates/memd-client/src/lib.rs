@@ -8,7 +8,7 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse,
+    MemoryPolicyResponse, RepairMemoryRequest, RepairMemoryResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
@@ -69,6 +69,10 @@ impl MemdClient {
 
     pub async fn verify(&self, req: &VerifyMemoryRequest) -> anyhow::Result<VerifyMemoryResponse> {
         self.post_json("/memory/verify", req).await
+    }
+
+    pub async fn repair(&self, req: &RepairMemoryRequest) -> anyhow::Result<RepairMemoryResponse> {
+        self.post_json("/memory/repair", req).await
     }
 
     pub async fn search(&self, req: &SearchMemoryRequest) -> anyhow::Result<SearchMemoryResponse> {

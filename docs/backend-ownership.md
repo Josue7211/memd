@@ -41,7 +41,7 @@ the boundary explicit so implementation work does not blur the contracts.
 `rag-sidecar` is the boundary service that:
 
 - accepts uploads and retrieval requests
-- preserves source metadata
+- preserves source metadata, including MIME type and byte size
 - routes requests into the backend stack
 - exposes health for downstream connectivity
 - implements the HTTP contract documented in [Backend API Contract](./backend-api.md)

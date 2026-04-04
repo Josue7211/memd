@@ -1,6 +1,7 @@
 use memd_schema::{
-    AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, RetrievalIntent,
-    RetrievalRoute, SourceMemoryResponse, WorkingMemoryResponse,
+    AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, ExplainMemoryResponse,
+    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SourceMemoryResponse,
+    WorkingMemoryResponse,
 };
 
 use crate::obsidian::ObsidianVaultScan;
@@ -513,6 +514,80 @@ pub(crate) fn render_maintenance_report_summary(
             .map(|value| compact_inline(value, 40))
             .collect::<Vec<_>>();
         output.push_str(&format!(" trail={}", highlights.join(" | ")));
+    }
+
+    output
+}
+
+pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: bool) -> String {
+    let mut output = format!(
+        "repair mode={} item={} status={} confidence={:.2} reasons={}",
+        format!("{:?}", response.mode).to_ascii_lowercase(),
+        short_uuid(response.item.id),
+        format!("{:?}", response.item.status).to_ascii_lowercase(),
+        response.item.confidence,
+        response.reasons.join("|")
+    );
+
+    if follow {
+        output.push_str(&format!(
+            " source_agent={} source_system={} source_path={}",
+            response.item.source_agent.as_deref().unwrap_or("none"),
+            response.item.source_system.as_deref().unwrap_or("none"),
+            response.item.source_path.as_deref().unwrap_or("none")
+        ));
+        if !response.item.tags.is_empty() {
+            output.push_str(&format!(" tags={}", response.item.tags.join("|")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
+    let mut output = format!(
+        "explain item={} route={} intent={} status={} confidence={:.2} entity={} events={} sources={} reasons={}",
+        short_uuid(response.item.id),
+        route_label(response.route),
+        intent_label(response.intent),
+        format!("{:?}", response.item.status).to_ascii_lowercase(),
+        response.item.confidence,
+        response
+            .entity
+            .as_ref()
+            .map(|entity| format!("{}:{}", short_uuid(entity.id), entity.entity_type))
+            .unwrap_or_else(|| "none".to_string()),
+        response.events.len(),
+        response.sources.len(),
+        compact_inline(&response.reasons.join("|"), 96)
+    );
+
+    if follow {
+        if let Some(first_event) = response.events.first() {
+            output.push_str(&format!(
+                " latest_event={} trail={}",
+                first_event.event_type,
+                response
+                    .events
+                    .iter()
+                    .take(3)
+                    .map(|event| format!("{}:{}", event.event_type, compact_inline(&event.summary, 36)))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+        if let Some(best_source) = response.sources.first() {
+            output.push_str(&format!(
+                " top_source={} system={} trust={:.2} avg_confidence={:.2}",
+                best_source.source_agent.as_deref().unwrap_or("none"),
+                best_source.source_system.as_deref().unwrap_or("none"),
+                best_source.trust_score,
+                best_source.avg_confidence
+            ));
+            if !best_source.tags.is_empty() {
+                output.push_str(&format!(" tags={}", best_source.tags.join("|")));
+            }
+        }
     }
 
     output
