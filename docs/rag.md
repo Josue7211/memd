@@ -32,6 +32,9 @@ memd rag search --rag-url http://127.0.0.1:9000 --query "decision cache"
 
 If `--rag-url` is omitted, `MEMD_RAG_URL` is used.
 
+`memd status --output .memd` also reports whether the bundle has RAG enabled
+and whether the configured backend is reachable.
+
 ## Sync Behavior
 
 `memd rag sync` exports canonical project and global memory items from `memd`

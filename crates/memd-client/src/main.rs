@@ -343,9 +343,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
-        Commands::Status(args) => {
-            print_json(&read_bundle_status(&args.output, &base_url).await?)?;
-        }
+        Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
         Commands::Attach(args) => {
             let shell = args
                 .shell
@@ -819,6 +817,32 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
 async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<serde_json::Value> {
     let client = MemdClient::new(base_url)?;
     let health = client.healthz().await.ok();
+    let rag_url = read_bundle_rag_url(output)?;
+    let rag = match rag_url {
+        Some(ref url) => {
+            let client = RagClient::new(url)?;
+            Some(
+                client
+                    .healthz()
+                    .await
+                    .map(|health| serde_json::json!({
+                        "enabled": true,
+                        "url": url,
+                        "healthy": true,
+                        "health": health,
+                    }))
+                    .unwrap_or_else(|error| {
+                        serde_json::json!({
+                            "enabled": true,
+                            "url": url,
+                            "healthy": false,
+                            "error": error.to_string(),
+                        })
+                    }),
+            )
+        }
+        None => None,
+    };
     Ok(serde_json::json!({
         "bundle": output,
         "exists": output.exists(),
@@ -828,7 +852,31 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "hooks": output.join("hooks").exists(),
         "agents": output.join("agents").exists(),
         "server": health,
+        "rag": rag.unwrap_or_else(|| serde_json::json!({
+            "enabled": false,
+            "healthy": null,
+        })),
     }))
+}
+
+fn read_bundle_rag_url(output: &Path) -> anyhow::Result<Option<String>> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let config: serde_json::Value = serde_json::from_str(&raw)
+        .with_context(|| format!("parse {}", config_path.display()))?;
+
+    let rag_url = config
+        .get("rag_url")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    Ok(rag_url)
 }
 
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
