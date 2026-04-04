@@ -76,6 +76,8 @@ Backends:
 
 No external component should write canonical long-term memory directly.
 
+The core binaries are cross-platform. Only deploy helpers like `deploy/systemd/` are Linux-specific.
+
 ## Selective Router
 
 Retrieval requests are classified by:

@@ -4,6 +4,12 @@
 
 It gives AI systems one place to store, route, compact, explain, and verify memory without turning every session into a transcript dump.
 
+Supported platforms:
+
+- Linux
+- macOS
+- Windows
+
 ## What It Does
 
 - keeps short-term working context small
@@ -33,6 +39,8 @@ They are either:
 - `crates/memd-server`: SQLite-backed memory manager API
 - `crates/memd-client`: Rust SDK and CLI
 - `crates/memd-worker`: background verification worker
+
+The core binaries are cross-platform. Linux-only deploy helpers live under `deploy/systemd/`.
 
 ## Key Features
 
@@ -97,6 +105,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Promotion Policy](./docs/promotion-policy.md)
 - [Source Policy](./docs/source-policy.md)
 - [Redundancy Policy](./docs/redundancy.md)
+- [Platform Support](./docs/platforms.md)
 - [OSS Positioning](./docs/oss-positioning.md)
 - [Roadmap](./ROADMAP.md)
 

@@ -7,6 +7,7 @@
 ## Requirements
 
 - standalone repo
+- cross-platform core binaries for Linux, macOS, and Windows
 - clean HTTP API
 - optional local-only mode
 - optional LAN deployment mode
@@ -36,3 +37,5 @@ A single developer should be able to:
 ## Design Constraint
 
 The API and schema must stay generic enough that people can plug in other agents, editors, and runtimes without inheriting your personal setup.
+
+Linux-specific deploy helpers are fine, but the core product must not depend on them.
