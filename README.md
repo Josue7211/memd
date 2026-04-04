@@ -135,6 +135,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Source Policy](./docs/source-policy.md)
 - [Redundancy Policy](./docs/redundancy.md)
 - [Platform Support](./docs/platforms.md)
+- [Release Process](./docs/release-process.md)
 - [Hook Kit](./integrations/hooks/README.md)
 - [Hook Kit Installers](./integrations/hooks/README.md)
 - [OpenClaw Integration](./integrations/openclaw/README.md)
@@ -183,4 +184,4 @@ The project is usable and under active development.
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+AGPLv3. See [LICENSE](./LICENSE).
