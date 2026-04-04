@@ -460,6 +460,28 @@ pub struct EntityLinksResponse {
     pub links: Vec<MemoryEntityLinkRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AssociativeRecallRequest {
+    pub entity_id: Uuid,
+    pub depth: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssociativeRecallHit {
+    pub entity: MemoryEntityRecord,
+    pub depth: usize,
+    pub via: Option<MemoryEntityLinkRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssociativeRecallResponse {
+    pub root_entity: Option<MemoryEntityRecord>,
+    pub hits: Vec<AssociativeRecallHit>,
+    pub links: Vec<MemoryEntityLinkRecord>,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineMemoryRequest {
     pub id: Uuid,
@@ -793,6 +815,73 @@ mod tests {
         assert_eq!(decoded_request.relation_kind, request.relation_kind);
         assert_eq!(decoded_response.link.confidence, response.link.confidence);
         assert_eq!(decoded_links.links.len(), 1);
+    }
+
+    #[test]
+    fn associative_recall_roundtrips() {
+        let root = MemoryEntityRecord {
+            id: Uuid::new_v4(),
+            entity_type: "repo".to_string(),
+            aliases: vec!["memd".to_string()],
+            current_state: Some("working memory".to_string()),
+            state_version: 2,
+            confidence: 0.89,
+            salience_score: 0.77,
+            rehearsal_count: 5,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_accessed_at: Some(Utc::now()),
+            last_seen_at: Some(Utc::now()),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            tags: vec!["project".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("/tmp/memd".to_string()),
+            }),
+        };
+        let link = MemoryEntityLinkRecord {
+            id: Uuid::new_v4(),
+            from_entity_id: root.id,
+            to_entity_id: Uuid::new_v4(),
+            relation_kind: EntityRelationKind::Related,
+            confidence: 0.7,
+            created_at: Utc::now(),
+            note: Some("adjacent memory".to_string()),
+            context: root.context.clone(),
+            tags: vec!["graph".to_string()],
+        };
+        let request = AssociativeRecallRequest {
+            entity_id: root.id,
+            depth: Some(2),
+            limit: Some(6),
+        };
+        let response = AssociativeRecallResponse {
+            root_entity: Some(root.clone()),
+            hits: vec![AssociativeRecallHit {
+                entity: root,
+                depth: 0,
+                via: None,
+            }],
+            links: vec![link],
+            truncated: false,
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: AssociativeRecallRequest =
+            serde_json::from_str(&request_json).unwrap();
+        let decoded_response: AssociativeRecallResponse =
+            serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.depth, request.depth);
+        assert_eq!(decoded_response.links.len(), 1);
+        assert_eq!(decoded_response.hits.len(), 1);
     }
 
     #[test]

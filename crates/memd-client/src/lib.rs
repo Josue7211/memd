@@ -1,15 +1,16 @@
 use anyhow::Context;
 use memd_schema::{
-    CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, ContextRequest,
-    ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
-    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest,
-    EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
-    ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, PromoteMemoryRequest,
-    PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
+    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
+    CandidateMemoryResponse, CompactContextResponse, ContextRequest, ContextResponse,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
+    EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest, EntitySearchResponse,
+    ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
+    HealthResponse, MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, PromoteMemoryRequest, PromoteMemoryResponse,
+    SearchMemoryRequest, SearchMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -122,6 +123,13 @@ impl MemdClient {
         req: &EntityLinksRequest,
     ) -> anyhow::Result<EntityLinksResponse> {
         self.get_json_with_query("/memory/entity/links", req).await
+    }
+
+    pub async fn associative_recall(
+        &self,
+        req: &AssociativeRecallRequest,
+    ) -> anyhow::Result<AssociativeRecallResponse> {
+        self.get_json_with_query("/memory/entity/recall", req).await
     }
 
     pub async fn timeline(

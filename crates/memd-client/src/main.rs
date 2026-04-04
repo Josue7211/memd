@@ -19,14 +19,15 @@ use memd_multimodal::{
 };
 use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
 use memd_schema::{
-    CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
-    CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
-    EntitySearchResponse, ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
-    WorkingMemoryRequest, WorkingMemoryResponse,
+    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
+    CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
+    CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
+    EntityLinkRequest, EntityLinksRequest, EntitySearchRequest, EntitySearchResponse,
+    ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest,
+    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope,
+    MemoryStage, MemoryStatus, PromoteMemoryRequest, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    WorkingMemoryResponse,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -66,6 +67,7 @@ enum Commands {
     EntitySearch(EntitySearchArgs),
     EntityLink(EntityLinkArgs),
     EntityLinks(EntityLinksArgs),
+    Recall(RecallArgs),
     Timeline(TimelineArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
@@ -265,6 +267,45 @@ struct EntityLinkArgs {
 struct EntityLinksArgs {
     #[arg(long)]
     entity_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RecallArgs {
+    #[arg(long)]
+    entity_id: Option<String>,
+
+    #[arg(long)]
+    query: Option<String>,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    at: Option<String>,
+
+    #[arg(long)]
+    host: Option<String>,
+
+    #[arg(long)]
+    branch: Option<String>,
+
+    #[arg(long)]
+    location: Option<String>,
+
+    #[arg(long)]
+    depth: Option<usize>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1015,6 +1056,15 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await?;
             print_json(&response)?;
+        }
+        Commands::Recall(args) => {
+            let req = resolve_recall_request(&client, &args).await?;
+            let response = client.associative_recall(&req).await?;
+            if args.summary {
+                println!("{}", render_recall_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
         }
         Commands::Timeline(args) => {
             let req = memd_schema::TimelineMemoryRequest {
@@ -2079,6 +2129,66 @@ fn render_entity_search_summary(response: &EntitySearchResponse, follow: bool) -
     output
 }
 
+fn render_recall_summary(response: &AssociativeRecallResponse, follow: bool) -> String {
+    let root = response
+        .root_entity
+        .as_ref()
+        .map(|entity| format!("root={} type={}", short_uuid(entity.id), entity.entity_type))
+        .unwrap_or_else(|| "root=none".to_string());
+
+    let mut output = format!(
+        "recall {} hits={} links={} truncated={}",
+        root,
+        response.hits.len(),
+        response.links.len(),
+        response.truncated
+    );
+
+    if follow {
+        let hit_trail = response
+            .hits
+            .iter()
+            .take(3)
+            .map(|hit| {
+                format!(
+                    "d{}:{}:{}",
+                    hit.depth,
+                    short_uuid(hit.entity.id),
+                    compact_inline(
+                        hit.entity
+                            .current_state
+                            .as_deref()
+                            .unwrap_or(&hit.entity.entity_type),
+                        28
+                    )
+                )
+            })
+            .collect::<Vec<_>>();
+        if !hit_trail.is_empty() {
+            output.push_str(&format!(" trail={}", hit_trail.join(" | ")));
+        }
+
+        let link_trail = response
+            .links
+            .iter()
+            .take(3)
+            .map(|link| {
+                format!(
+                    "{}:{}->{}",
+                    format!("{:?}", link.relation_kind).to_ascii_lowercase(),
+                    short_uuid(link.from_entity_id),
+                    short_uuid(link.to_entity_id)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !link_trail.is_empty() {
+            output.push_str(&format!(" links={}", link_trail.join(" | ")));
+        }
+    }
+
+    output
+}
+
 fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follow: bool) -> String {
     let entity = response
         .entity
@@ -2290,6 +2400,56 @@ fn intent_label(intent: RetrievalIntent) -> &'static str {
         RetrievalIntent::Fact => "fact",
         RetrievalIntent::Pattern => "pattern",
     }
+}
+
+async fn resolve_recall_request(
+    client: &MemdClient,
+    args: &RecallArgs,
+) -> anyhow::Result<AssociativeRecallRequest> {
+    if let Some(entity_id) = &args.entity_id {
+        return Ok(AssociativeRecallRequest {
+            entity_id: entity_id.parse().context("parse entity id as uuid")?,
+            depth: args.depth,
+            limit: args.limit,
+        });
+    }
+
+    let query = args
+        .query
+        .clone()
+        .context("provide either --entity-id or --query")?;
+    let response = client
+        .entity_search(&EntitySearchRequest {
+            query,
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            at: parse_context_time(args.at.clone())?,
+            host: args.host.clone(),
+            branch: args.branch.clone(),
+            location: args.location.clone(),
+            route: None,
+            intent: None,
+            limit: Some(5),
+        })
+        .await
+        .context("resolve recall target")?;
+
+    let Some(best_match) = response.best_match else {
+        anyhow::bail!("no entity matched the recall query");
+    };
+    if response.ambiguous {
+        anyhow::bail!(
+            "recall query was ambiguous; use --entity-id instead (best match {}::{})",
+            short_uuid(best_match.entity.id),
+            best_match.entity.entity_type,
+        );
+    }
+
+    Ok(AssociativeRecallRequest {
+        entity_id: best_match.entity.id,
+        depth: args.depth,
+        limit: args.limit,
+    })
 }
 
 #[derive(Debug, Serialize)]

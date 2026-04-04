@@ -2,6 +2,8 @@ mod keys;
 mod routing;
 mod store;
 
+use std::collections::{HashSet, VecDeque};
+
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -13,6 +15,7 @@ use axum::{
 use chrono::Utc;
 use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
+    AssociativeRecallHit, AssociativeRecallRequest, AssociativeRecallResponse,
     CandidateMemoryRequest, CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord,
     ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
@@ -249,6 +252,7 @@ async fn main() {
         .route("/memory/entity/search", get(get_entity_search))
         .route("/memory/entity/link", post(post_entity_link))
         .route("/memory/entity/links", get(get_entity_links))
+        .route("/memory/entity/recall", get(get_entity_recall))
         .route("/memory/timeline", get(get_timeline))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
@@ -636,6 +640,14 @@ async fn get_entity_links(
     }))
 }
 
+async fn get_entity_recall(
+    State(state): State<AppState>,
+    Query(req): Query<AssociativeRecallRequest>,
+) -> Result<Json<AssociativeRecallResponse>, (StatusCode, String)> {
+    let response = state.associative_recall(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 async fn get_timeline(
     State(state): State<AppState>,
     Query(req): Query<TimelineMemoryRequest>,
@@ -943,6 +955,88 @@ impl AppState {
             None => Vec::new(),
         };
         Ok((entity, events))
+    }
+
+    fn associative_recall(
+        &self,
+        req: &AssociativeRecallRequest,
+    ) -> anyhow::Result<AssociativeRecallResponse> {
+        let depth_limit = req.depth.unwrap_or(2).clamp(1, 4);
+        let hit_limit = req.limit.unwrap_or(8).clamp(1, 24);
+        let Some(root) = self.store.entity_by_id(req.entity_id)? else {
+            return Ok(AssociativeRecallResponse {
+                root_entity: None,
+                hits: Vec::new(),
+                links: Vec::new(),
+                truncated: false,
+            });
+        };
+
+        let mut hits = vec![AssociativeRecallHit {
+            entity: root.clone(),
+            depth: 0,
+            via: None,
+        }];
+        let mut links = Vec::new();
+        let mut seen_entities = HashSet::from([root.id]);
+        let mut seen_links = HashSet::new();
+        let mut queue = VecDeque::from([(root.id, 0usize)]);
+        let mut truncated = false;
+
+        while let Some((entity_id, depth)) = queue.pop_front() {
+            if depth >= depth_limit || hits.len() >= hit_limit {
+                continue;
+            }
+
+            let entity_links = self
+                .store
+                .links_for_entity(&EntityLinksRequest { entity_id })?;
+            for link in entity_links {
+                if seen_links.insert(link.id) && links.len() < hit_limit.saturating_mul(2) {
+                    links.push(link.clone());
+                }
+
+                let next_id = if link.from_entity_id == entity_id {
+                    link.to_entity_id
+                } else {
+                    link.from_entity_id
+                };
+
+                if !seen_entities.insert(next_id) {
+                    continue;
+                }
+
+                let Some(entity) = self.store.entity_by_id(next_id)? else {
+                    continue;
+                };
+
+                let _ = self.store.rehearse_entity_by_id(entity.id, 0.04)?;
+                hits.push(AssociativeRecallHit {
+                    entity: entity.clone(),
+                    depth: depth + 1,
+                    via: Some(link.clone()),
+                });
+                queue.push_back((next_id, depth + 1));
+
+                if hits.len() >= hit_limit {
+                    truncated = true;
+                    break;
+                }
+            }
+
+            if hits.len() >= hit_limit {
+                break;
+            }
+        }
+
+        let _ = self.store.rehearse_entity_by_id(root.id, 0.05)?;
+
+        Ok(AssociativeRecallResponse {
+            root_entity: Some(root),
+            hits,
+            links,
+            truncated,
+        })
     }
 }
 

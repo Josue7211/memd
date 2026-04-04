@@ -618,6 +618,35 @@ impl SqliteStore {
         }
     }
 
+    pub fn rehearse_entity_by_id(
+        &self,
+        entity_id: Uuid,
+        salience_boost: f32,
+    ) -> anyhow::Result<Option<MemoryEntityRecord>> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let row = conn.query_row(
+            "SELECT entity_key, payload_json FROM memory_entities WHERE id = ?1",
+            [entity_id.to_string()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        );
+
+        let (entity_key, payload) = match row {
+            Ok(row) => row,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(err) => return Err(err).context("fetch memory entity by id for rehearsal"),
+        };
+
+        let mut record: MemoryEntityRecord =
+            serde_json::from_str(&payload).context("deserialize memory entity payload")?;
+        let now = chrono::Utc::now();
+        record.rehearsal_count = record.rehearsal_count.saturating_add(1);
+        record.last_accessed_at = Some(now);
+        record.salience_score = (record.salience_score + salience_boost).min(1.0);
+        record.updated_at = now;
+        self.upsert_entity(&entity_key, &record)?;
+        Ok(Some(record))
+    }
+
     pub fn upsert_entity_link(&self, link: &MemoryEntityLinkRecord) -> anyhow::Result<()> {
         let payload_json = serde_json::to_string(link).context("serialize entity link")?;
         let context_json =

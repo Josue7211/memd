@@ -52,7 +52,8 @@ Phase summary:
 - Phase 5: in progress
 - Phase 6: in progress
 - Phase 7: partially seeded
-- Phase 8: not started
+- Phase 8: in progress
+- Phase 8.1: in progress
 - Phase 8.2: not started
 - Phase 8.3: not started
 
@@ -224,12 +225,13 @@ Success:
 Deliver:
 
 - entity and relationship layer
+- associative recall over the entity graph
 - retrieval feedback loops
 - adaptive ranking by agent and task
 
 Success:
 
-- memory becomes graph-aware and self-improving
+- memory becomes graph-aware, self-improving, and association-driven
 
 ### Phase 8.2: Human-Like Memory Model
 
