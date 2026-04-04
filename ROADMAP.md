@@ -12,6 +12,20 @@ It should solve memory as infrastructure:
 - cross-project long-term knowledge
 - durable retrieval with evidence
 - lifecycle, dedupe, freshness, and contradiction handling
+- brain-inspired primitives:
+  - attention
+  - salience
+  - working memory
+  - episodic memory
+  - semantic memory
+  - procedural memory
+  - associative recall
+  - object permanence
+  - contextual validity
+  - rehearsal
+  - forgetting
+  - self-model
+  - social/source memory
 
 The target is not a feature. The target is an open-source platform.
 
@@ -25,6 +39,8 @@ making the platform feel inevitable to use:
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
 - the next layer is human-like memory behavior under a strict token budget
+- the following layer is a brain-inspired memory stack with attention, salience,
+  association, rehearsal, and forgetting
 
 Phase summary:
 
@@ -38,6 +54,7 @@ Phase summary:
 - Phase 7: partially seeded
 - Phase 8: not started
 - Phase 8.2: not started
+- Phase 8.3: not started
 
 ## Product Shape
 
@@ -53,6 +70,10 @@ Backends and producers work behind it:
 - verification workers
 - entity permanence and contextual validity
 - salience and rehearsal
+- attention and relevance gating
+- episodic traces and timeline recall
+- associative retrieval
+- adaptive forgetting and decay
 
 Clients consume it through one API:
 
@@ -214,18 +235,42 @@ Success:
 
 Deliver:
 
+- attention gating and task-aware retrieval
+- salience scoring and rehearsal counters
 - stable entity identity with changing state
 - event records with time, place, and provenance
 - contextual validity windows for facts
-- salience scoring and rehearsal counters
 - object permanence across rename/move/split/merge
 - retrieval that prefers the smallest useful slice
+- contextual validity by project, host, branch, agent, and timestamp
+- preference memory and source memory
 
 Success:
 
 - agents remember like a mind, but retrieve like a machine
 - identity persists while state changes
 - context stays compact and token efficient
+
+### Phase 8.3: Brain-Inspired Memory Stack
+
+Deliver:
+
+- working-memory buffer with explicit token budget
+- episodic traces that record what happened and when
+- semantic consolidation from repeated or verified traces
+- procedural memory for runbooks and workflows
+- associative graph recall across people, files, projects, and decisions
+- self-model memory for agent preferences and style
+- social/source memory with provenance and trust weighting
+- adaptive forgetting, decay, and rehearsal loops
+- replay-based consolidation during downtime
+- pattern-completion retrieval for partial cues
+
+Success:
+
+- memory behaves like a mind while staying token budgeted
+- repeated use strengthens the right traces
+- stale or low-value traces decay away automatically
 
 ## Immediate Next Steps
 
@@ -238,7 +283,8 @@ Success:
 3. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
 4. Tighten freshness and contradiction resolution.
 5. Add human-like entity/event memory primitives with strict token budgets.
-6. Add graph-aware memory only after the core lifecycle is stable.
+6. Add brain-inspired attention, salience, rehearsal, and forgetting loops.
+7. Add graph-aware memory only after the core lifecycle is stable.
 
 ## Non-Goals
 
