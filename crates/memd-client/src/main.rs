@@ -384,6 +384,7 @@ enum ObsidianMode {
     Writeback,
     Roundtrip,
     Watch,
+    Status,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1148,6 +1149,9 @@ async fn main() -> anyhow::Result<()> {
             ObsidianMode::Watch => {
                 run_obsidian_watch(&client, &args).await?;
             }
+            ObsidianMode::Status => {
+                run_obsidian_status(&client, &args).await?;
+            }
         },
         Commands::Hook(args) => match args.mode {
             HookMode::Context(args) => {
@@ -1652,6 +1656,85 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
     Ok(())
 }
 
+async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
+    let scan = obsidian::scan_vault(
+        &args.vault,
+        args.project.clone(),
+        args.namespace.clone(),
+        args.max_notes,
+        args.include_attachments,
+        args.max_attachments,
+        &args.include_folder,
+        &args.exclude_folder,
+        &args.include_tag,
+        &args.exclude_tag,
+    )?;
+    let (state_path, sync_state) = obsidian::load_sync_state(&args.vault, args.state_file.clone())?;
+    let (preview, _, _) = obsidian::build_import_preview(scan, &sync_state, state_path.clone());
+    let attachment_assets = if args.include_attachments {
+        obsidian::partition_changed_attachments(&preview.scan.attachments, &sync_state).0
+    } else {
+        Vec::new()
+    };
+    let mirror_notes = count_obsidian_mirrors(&args.vault, "notes")?;
+    let mirror_attachments = count_obsidian_mirrors(&args.vault, "attachments")?;
+    let sync_state_entries = sync_state.entries.len();
+    let changed_notes = preview.candidates.len();
+    let unchanged_notes = preview.unchanged_count;
+    let changed_attachments = attachment_assets.len();
+    let unchanged_attachments = preview.scan.attachment_unchanged_count;
+    let roundtrip_live = sync_state_entries > 0 || mirror_notes > 0 || mirror_attachments > 0;
+    let mut summary = format!(
+        "obsidian_status vault={} notes={} changed_notes={} unchanged_notes={} attachments={} changed_attachments={} unchanged_attachments={} sync_entries={} mirrors_notes={} mirrors_attachments={} roundtrip_live={} state={}",
+        args.vault.display(),
+        preview.scan.note_count,
+        changed_notes,
+        unchanged_notes,
+        preview.scan.attachment_count,
+        changed_attachments,
+        unchanged_attachments,
+        sync_state_entries,
+        mirror_notes,
+        mirror_attachments,
+        roundtrip_live,
+        state_path.display()
+    );
+    if args.follow {
+        let trail = preview
+            .scan
+            .notes
+            .iter()
+            .take(3)
+            .map(|note| note.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !trail.is_empty() {
+            summary.push_str(&format!(" trail={trail}"));
+        }
+    }
+    if args.summary {
+        println!("{summary}");
+    } else {
+        print_json(&serde_json::json!({
+            "vault": preview.scan.vault,
+            "project": preview.scan.project,
+            "namespace": preview.scan.namespace,
+            "notes": preview.scan.note_count,
+            "changed_notes": changed_notes,
+            "unchanged_notes": unchanged_notes,
+            "attachments": preview.scan.attachment_count,
+            "changed_attachments": changed_attachments,
+            "unchanged_attachments": unchanged_attachments,
+            "sync_state_entries": sync_state_entries,
+            "mirror_notes": mirror_notes,
+            "mirror_attachments": mirror_attachments,
+            "roundtrip_live": roundtrip_live,
+            "state_path": state_path,
+        }))?;
+    }
+    Ok(())
+}
+
 async fn run_obsidian_watch(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
     println!(
         "obsidian_watch vault={} debounce_ms={}",
@@ -1718,6 +1801,23 @@ fn obsidian_path_is_internal(path: &Path) -> bool {
                 if name == ".memd" || name == ".obsidian" || name == ".git"
         )
     })
+}
+
+fn count_obsidian_mirrors(vault: &Path, kind: &str) -> anyhow::Result<usize> {
+    let root = vault.join(".memd").join("writeback").join(kind);
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut count = 0usize;
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        if entry.file_type().is_file() {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 fn read_request<T>(input: &RequestInput) -> anyhow::Result<T>

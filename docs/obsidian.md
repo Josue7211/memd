@@ -50,6 +50,12 @@ Watch a vault and keep it synced automatically:
 cargo run -p memd-client --bin memd -- obsidian watch --vault ~/vault --project notes
 ```
 
+Inspect vault sync health:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian status --vault ~/vault --project notes --summary
+```
+
 Limit sync to specific folders or tags:
 
 ```bash
@@ -142,3 +148,6 @@ reruns it after vault changes settle.
 
 `--include-folder`, `--exclude-folder`, `--include-tag`, and `--exclude-tag`
 scope the vault bridge to a slice of the vault instead of the whole tree.
+
+`obsidian status` reports sync entry count, mirror coverage, changed vs
+unchanged items, and whether the round-trip path is already live.
