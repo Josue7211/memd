@@ -3,8 +3,8 @@
 `memd` keeps the memory control plane in Rust and treats long-term semantic
 storage as an optional backend.
 
-The intended backend is LightRAG or a LightRAG-compatible service, but the
-core product does not require it to run.
+The intended backend is LightRAG or a LightRAG-compatible service behind
+`rag-sidecar`, but the core product does not require it to run.
 
 The full backend stack, when configured, must support multimodal inputs:
 
@@ -65,4 +65,6 @@ Add RAG when you want cross-project, cross-session semantic recall.
 See also:
 
 - [Backend Stack Contract](./backend-stack.md)
+- [Backend Ownership Split](./backend-ownership.md)
+- [Backend Implementation Plan](./backend-implementation-plan.md)
 - [Credits](./credits.md)
