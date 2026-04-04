@@ -353,6 +353,7 @@ async fn search_memory(
         .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let items = filter_items(&items, &req, &plan);
+    state.rehearse_items(&items, 3).map_err(internal_error)?;
     Ok(Json(SearchMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -365,6 +366,7 @@ async fn get_context(
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<ContextResponse>, (StatusCode, String)> {
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
+    state.rehearse_items(&items, 3).map_err(internal_error)?;
     Ok(Json(ContextResponse {
         route: plan.route,
         intent: plan.intent,
@@ -378,6 +380,7 @@ async fn get_compact_context(
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<CompactContextResponse>, (StatusCode, String)> {
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
+    state.rehearse_items(&items, 3).map_err(internal_error)?;
     let records = items
         .into_iter()
         .map(|item| CompactMemoryRecord {
@@ -448,6 +451,7 @@ async fn get_entity(
 ) -> Result<Json<EntityMemoryResponse>, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(4).min(12);
+    state.rehearse_item(req.id, 0.08).map_err(internal_error)?;
     let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
 
     Ok(Json(EntityMemoryResponse {
@@ -464,6 +468,7 @@ async fn get_timeline(
 ) -> Result<Json<TimelineMemoryResponse>, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(12).min(32);
+    state.rehearse_item(req.id, 0.05).map_err(internal_error)?;
     let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
 
     Ok(Json(TimelineMemoryResponse {
@@ -488,6 +493,7 @@ async fn get_explain(
     let reasons = explain_reasons(&item, &plan);
     let canonical = canonical_key(&item);
     let redundancy = redundancy_key(&item);
+    state.rehearse_item(req.id, 0.06).map_err(internal_error)?;
     let entity = state
         .store
         .entity_for_item(item.id)
@@ -513,6 +519,26 @@ async fn get_explain(
 }
 
 impl AppState {
+    fn rehearse_items(&self, items: &[MemoryItem], limit: usize) -> anyhow::Result<()> {
+        for item in items.iter().take(limit) {
+            let canonical_key = canonical_key(item);
+            let _ = self
+                .store
+                .rehearse_entity_for_item(item, &canonical_key, 0.02)?;
+        }
+        Ok(())
+    }
+
+    fn rehearse_item(&self, item_id: Uuid, salience_boost: f32) -> anyhow::Result<()> {
+        if let Some(item) = self.store.get(item_id)? {
+            let canonical_key = canonical_key(&item);
+            let _ = self
+                .store
+                .rehearse_entity_for_item(&item, &canonical_key, salience_boost)?;
+        }
+        Ok(())
+    }
+
     fn entity_view(
         &self,
         item_id: Uuid,

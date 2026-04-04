@@ -214,6 +214,26 @@ impl SqliteStore {
         Ok(EntityMatch { record })
     }
 
+    pub fn rehearse_entity_for_item(
+        &self,
+        item: &MemoryItem,
+        canonical_key: &str,
+        salience_boost: f32,
+    ) -> anyhow::Result<Option<MemoryEntityRecord>> {
+        let entity_key = derive_entity_key(item, canonical_key);
+        let Some(mut record) = self.get_entity_by_key(&entity_key)? else {
+            return Ok(None);
+        };
+
+        let now = chrono::Utc::now();
+        record.rehearsal_count = record.rehearsal_count.saturating_add(1);
+        record.last_accessed_at = Some(now);
+        record.salience_score = (record.salience_score + salience_boost).min(1.0);
+        record.updated_at = now;
+        self.upsert_entity(&entity_key, &record)?;
+        Ok(Some(record))
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.conn.lock().expect("sqlite mutex poisoned");
         let payload = conn.query_row(
