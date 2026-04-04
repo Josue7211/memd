@@ -22,8 +22,8 @@ use memd_schema::{
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryEntityRecord, MemoryEventRecord,
-    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
+    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
     MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
@@ -976,6 +976,8 @@ impl AppState {
             entity: root.clone(),
             depth: 0,
             via: None,
+            score: 1.0,
+            reasons: vec!["root".to_string()],
         }];
         let mut links = Vec::new();
         let mut seen_entities = HashSet::from([root.id]);
@@ -1011,10 +1013,14 @@ impl AppState {
                 };
 
                 let _ = self.store.rehearse_entity_by_id(entity.id, 0.04)?;
+                let score = associative_recall_score(&entity, &link, depth + 1, &root);
+                let reasons = associative_recall_reasons(&entity, &link, depth + 1);
                 hits.push(AssociativeRecallHit {
                     entity: entity.clone(),
                     depth: depth + 1,
                     via: Some(link.clone()),
+                    score,
+                    reasons,
                 });
                 queue.push_back((next_id, depth + 1));
 
@@ -1030,6 +1036,13 @@ impl AppState {
         }
 
         let _ = self.store.rehearse_entity_by_id(root.id, 0.05)?;
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.depth.cmp(&b.depth))
+                .then_with(|| b.entity.updated_at.cmp(&a.entity.updated_at))
+        });
 
         Ok(AssociativeRecallResponse {
             root_entity: Some(root),
@@ -1338,6 +1351,61 @@ fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("c={}", sanitize_value(&item.content)));
 
     parts.join(" | ")
+}
+
+fn associative_recall_score(
+    entity: &MemoryEntityRecord,
+    link: &MemoryEntityLinkRecord,
+    depth: usize,
+    root: &MemoryEntityRecord,
+) -> f32 {
+    let relation_weight = match link.relation_kind {
+        memd_schema::EntityRelationKind::SameAs => 1.0,
+        memd_schema::EntityRelationKind::Supersedes => 0.92,
+        memd_schema::EntityRelationKind::DerivedFrom => 0.88,
+        memd_schema::EntityRelationKind::Related => 0.7,
+        memd_schema::EntityRelationKind::Contradicts => 0.62,
+    };
+    let depth_penalty = 1.0 / (depth as f32 + 1.0);
+    let salience = entity.salience_score.clamp(0.0, 1.0);
+    let rehearsal = (entity.rehearsal_count as f32).ln_1p().min(3.0) / 3.0;
+    let context_bonus = if entity
+        .context
+        .as_ref()
+        .and_then(|context| context.project.as_ref())
+        == root
+            .context
+            .as_ref()
+            .and_then(|context| context.project.as_ref())
+    {
+        0.08
+    } else {
+        0.0
+    };
+    ((relation_weight * 0.42)
+        + (salience * 0.34)
+        + (rehearsal * 0.12)
+        + (depth_penalty * 0.08)
+        + context_bonus)
+        .clamp(0.0, 1.0)
+}
+
+fn associative_recall_reasons(
+    entity: &MemoryEntityRecord,
+    link: &MemoryEntityLinkRecord,
+    depth: usize,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    reasons.push(format!("{:?}", link.relation_kind).to_lowercase());
+    reasons.push(format!("depth={depth}"));
+    reasons.push(format!("salience={:.2}", entity.salience_score));
+    if entity.rehearsal_count > 1 {
+        reasons.push(format!("rehearsal={}", entity.rehearsal_count));
+    }
+    if !entity.aliases.is_empty() {
+        reasons.push(format!("aliases={}", entity.aliases.len()));
+    }
+    reasons
 }
 
 fn dashboard_html() -> String {

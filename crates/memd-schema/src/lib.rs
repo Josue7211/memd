@@ -472,6 +472,8 @@ pub struct AssociativeRecallHit {
     pub entity: MemoryEntityRecord,
     pub depth: usize,
     pub via: Option<MemoryEntityLinkRecord>,
+    pub score: f32,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -868,6 +870,8 @@ mod tests {
                 entity: root,
                 depth: 0,
                 via: None,
+                score: 1.0,
+                reasons: vec!["root".to_string()],
             }],
             links: vec![link],
             truncated: false,
@@ -882,6 +886,7 @@ mod tests {
         assert_eq!(decoded_request.depth, request.depth);
         assert_eq!(decoded_response.links.len(), 1);
         assert_eq!(decoded_response.hits.len(), 1);
+        assert_eq!(decoded_response.hits[0].score, 1.0);
     }
 
     #[test]

@@ -2151,9 +2151,10 @@ fn render_recall_summary(response: &AssociativeRecallResponse, follow: bool) -> 
             .take(3)
             .map(|hit| {
                 format!(
-                    "d{}:{}:{}",
+                    "d{}:{}:{:.2}:{}",
                     hit.depth,
                     short_uuid(hit.entity.id),
+                    hit.score,
                     compact_inline(
                         hit.entity
                             .current_state
@@ -2183,6 +2184,14 @@ fn render_recall_summary(response: &AssociativeRecallResponse, follow: bool) -> 
             .collect::<Vec<_>>();
         if !link_trail.is_empty() {
             output.push_str(&format!(" links={}", link_trail.join(" | ")));
+        }
+
+        if let Some(best) = response.hits.first() {
+            output.push_str(&format!(
+                " best_score={:.2} best_reasons={}",
+                best.score,
+                compact_inline(&best.reasons.join(","), 72)
+            ));
         }
     }
 
