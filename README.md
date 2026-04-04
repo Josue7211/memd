@@ -138,6 +138,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Hook Kit](./integrations/hooks/README.md)
 - [Hook Kit Installers](./integrations/hooks/README.md)
 - [OpenClaw Integration](./integrations/openclaw/README.md)
+- [Obsidian Vault Bridge](./docs/obsidian.md)
 - [OSS Positioning](./docs/oss-positioning.md)
 - [Roadmap](./ROADMAP.md)
 
@@ -171,6 +172,7 @@ Set `MEMD_DB_PATH` to change the SQLite database location.
 - Codex
 - Mission Control
 - OpenClaw
+- Obsidian vault bridge
 - Shared hook kit for shell integration
 - Optional LightRAG adapter
 - External backend stack contract

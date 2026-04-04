@@ -1,3 +1,5 @@
+mod obsidian;
+
 use std::{
     fs,
     io::{self, Read},
@@ -25,6 +27,7 @@ use memd_schema::{
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
+use obsidian::{ObsidianImportPreview, ObsidianVaultScan};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -63,6 +66,7 @@ enum Commands {
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
     Compact(CompactArgs),
+    Obsidian(ObsidianArgs),
     Hook(HookArgs),
     Init(InitArgs),
 }
@@ -302,6 +306,42 @@ struct MaintenanceReportArgs {
 
     #[arg(long)]
     follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ObsidianArgs {
+    #[arg(long)]
+    vault: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    max_notes: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    follow: bool,
+
+    #[arg(long)]
+    apply: bool,
+
+    #[arg(long)]
+    link_notes: bool,
+
+    #[command(subcommand)]
+    mode: ObsidianMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum ObsidianMode {
+    Scan,
+    Import,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1027,6 +1067,102 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&packet)?;
             }
         }
+        Commands::Obsidian(args) => match args.mode {
+            ObsidianMode::Scan => {
+                let scan = obsidian::scan_vault(
+                    &args.vault,
+                    args.project.clone(),
+                    args.namespace.clone(),
+                    args.max_notes,
+                )?;
+                if args.summary {
+                    println!("{}", render_obsidian_scan_summary(&scan, args.follow));
+                } else {
+                    print_json(&scan)?;
+                }
+            }
+            ObsidianMode::Import => {
+                let scan = obsidian::scan_vault(
+                    &args.vault,
+                    args.project.clone(),
+                    args.namespace.clone(),
+                    args.max_notes,
+                )?;
+                let (preview, candidates) = obsidian::build_import_preview(scan);
+                if args.apply {
+                    let responses = client.candidate_batch(&candidates).await?;
+                    let mut note_entities = std::collections::HashMap::new();
+                    for (note, response) in preview.scan.notes.iter().zip(&responses) {
+                        let entity = client
+                            .entity(&memd_schema::EntityMemoryRequest {
+                                id: response.item.id,
+                                route: None,
+                                intent: None,
+                                limit: Some(4),
+                            })
+                            .await?;
+                        if let Some(entity) = entity.entity {
+                            note_entities.insert(note.normalized_title.clone(), entity.id);
+                        }
+                    }
+
+                    let mut links_created = 0usize;
+                    if args.link_notes {
+                        for note in &preview.scan.notes {
+                            let Some(&from_entity_id) = note_entities.get(&note.normalized_title)
+                            else {
+                                continue;
+                            };
+                            for target in &note.links {
+                                let target_key = obsidian::normalized_title(target);
+                                let Some(&to_entity_id) = note_entities.get(&target_key) else {
+                                    continue;
+                                };
+                                if from_entity_id == to_entity_id {
+                                    continue;
+                                }
+                                let request = obsidian::build_entity_link_request(
+                                    from_entity_id,
+                                    to_entity_id,
+                                    note,
+                                );
+                                let _ = client.link_entity(&request).await?;
+                                links_created += 1;
+                            }
+                        }
+                    }
+
+                    let output = ObsidianImportOutput {
+                        preview,
+                        submitted: responses.len(),
+                        duplicates: responses
+                            .iter()
+                            .filter(|response| response.duplicate_of.is_some())
+                            .count(),
+                        links_created,
+                        dry_run: false,
+                    };
+                    if args.summary {
+                        println!("{}", render_obsidian_import_summary(&output, args.follow));
+                    } else {
+                        print_json(&output)?;
+                    }
+                } else {
+                    let output = ObsidianImportOutput {
+                        preview,
+                        submitted: 0,
+                        duplicates: 0,
+                        links_created: 0,
+                        dry_run: true,
+                    };
+                    if args.summary {
+                        println!("{}", render_obsidian_import_summary(&output, args.follow));
+                    } else {
+                        print_json(&output)?;
+                    }
+                }
+            }
+        },
         Commands::Hook(args) => match args.mode {
             HookMode::Context(args) => {
                 let req = ContextRequest {
@@ -1113,6 +1249,65 @@ where
     let json = serde_json::to_string_pretty(value).context("serialize response json")?;
     println!("{json}");
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct ObsidianImportOutput {
+    preview: ObsidianImportPreview,
+    submitted: usize,
+    duplicates: usize,
+    links_created: usize,
+    dry_run: bool,
+}
+
+fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
+    let mut output = format!(
+        "vault={} notes={} skipped={} project={}",
+        scan.vault.display(),
+        scan.note_count,
+        scan.skipped_count,
+        scan.project.as_deref().unwrap_or("none")
+    );
+    if follow {
+        let trail = scan
+            .notes
+            .iter()
+            .take(3)
+            .map(|note| note.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={trail}"));
+        }
+    }
+    output
+}
+
+fn render_obsidian_import_summary(output: &ObsidianImportOutput, follow: bool) -> String {
+    let mut summary = format!(
+        "obsidian_import vault={} notes={} submitted={} duplicates={} links={} dry_run={}",
+        output.preview.scan.vault.display(),
+        output.preview.scan.note_count,
+        output.submitted,
+        output.duplicates,
+        output.links_created,
+        output.dry_run
+    );
+    if follow {
+        let trail = output
+            .preview
+            .scan
+            .notes
+            .iter()
+            .take(3)
+            .map(|note| note.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !trail.is_empty() {
+            summary.push_str(&format!(" trail={trail}"));
+        }
+    }
+    summary
 }
 
 fn render_entity_summary(response: &memd_schema::EntityMemoryResponse, follow: bool) -> String {
