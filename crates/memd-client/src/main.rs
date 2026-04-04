@@ -148,6 +148,9 @@ struct EntityArgs {
 
     #[arg(long)]
     limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -163,6 +166,9 @@ struct TimelineArgs {
 
     #[arg(long)]
     limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -684,7 +690,12 @@ async fn main() -> anyhow::Result<()> {
                 intent: parse_retrieval_intent(args.intent)?,
                 limit: args.limit,
             };
-            print_json(&client.entity(&req).await?)?;
+            let response = client.entity(&req).await?;
+            if args.summary {
+                println!("{}", render_entity_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
         }
         Commands::Timeline(args) => {
             let req = memd_schema::TimelineMemoryRequest {
@@ -693,7 +704,12 @@ async fn main() -> anyhow::Result<()> {
                 intent: parse_retrieval_intent(args.intent)?,
                 limit: args.limit,
             };
-            print_json(&client.timeline(&req).await?)?;
+            let response = client.timeline(&req).await?;
+            if args.summary {
+                println!("{}", render_timeline_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
         }
         Commands::Compact(args) => {
             if args.spill && args.wire {
@@ -877,6 +893,118 @@ where
     let json = serde_json::to_string_pretty(value).context("serialize response json")?;
     println!("{json}");
     Ok(())
+}
+
+fn render_entity_summary(response: &memd_schema::EntityMemoryResponse) -> String {
+    let Some(entity) = response.entity.as_ref() else {
+        return format!(
+            "entity=none route={} intent={}",
+            route_label(response.route),
+            intent_label(response.intent)
+        );
+    };
+
+    let state = entity
+        .current_state
+        .as_deref()
+        .map(|value| compact_inline(value, 72))
+        .unwrap_or_else(|| "no-state".to_string());
+    let last_seen = entity
+        .last_seen_at
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    format!(
+        "entity={} type={} salience={:.2} rehearsal={} state_v={} last_seen={} state=\"{}\" events={}",
+        short_uuid(entity.id),
+        entity.entity_type,
+        entity.salience_score,
+        entity.rehearsal_count,
+        entity.state_version,
+        last_seen,
+        state,
+        response.events.len()
+    )
+}
+
+fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse) -> String {
+    let entity = response
+        .entity
+        .as_ref()
+        .map(|entity| {
+            format!(
+                "entity={} type={}",
+                short_uuid(entity.id),
+                entity.entity_type
+            )
+        })
+        .unwrap_or_else(|| "entity=none".to_string());
+    let latest = response
+        .events
+        .first()
+        .map(|event| {
+            format!(
+                "{}:{}",
+                event.event_type,
+                compact_inline(&event.summary, 56)
+            )
+        })
+        .unwrap_or_else(|| "no-events".to_string());
+
+    format!(
+        "timeline {} route={} intent={} events={} latest={}",
+        entity,
+        route_label(response.route),
+        intent_label(response.intent),
+        response.events.len(),
+        latest
+    )
+}
+
+fn compact_inline(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+
+    let mut compact = String::with_capacity(max_chars + 3);
+    for ch in normalized.chars().take(max_chars.saturating_sub(3)) {
+        compact.push(ch);
+    }
+    compact.push_str("...");
+    compact
+}
+
+fn short_uuid(id: uuid::Uuid) -> String {
+    id.to_string().chars().take(8).collect()
+}
+
+fn route_label(route: RetrievalRoute) -> &'static str {
+    match route {
+        RetrievalRoute::Auto => "auto",
+        RetrievalRoute::LocalOnly => "local_only",
+        RetrievalRoute::SyncedOnly => "synced_only",
+        RetrievalRoute::ProjectOnly => "project_only",
+        RetrievalRoute::GlobalOnly => "global_only",
+        RetrievalRoute::LocalFirst => "local_first",
+        RetrievalRoute::SyncedFirst => "synced_first",
+        RetrievalRoute::ProjectFirst => "project_first",
+        RetrievalRoute::GlobalFirst => "global_first",
+        RetrievalRoute::All => "all",
+    }
+}
+
+fn intent_label(intent: RetrievalIntent) -> &'static str {
+    match intent {
+        RetrievalIntent::General => "general",
+        RetrievalIntent::CurrentTask => "current_task",
+        RetrievalIntent::Decision => "decision",
+        RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Topology => "topology",
+        RetrievalIntent::Preference => "preference",
+        RetrievalIntent::Fact => "fact",
+        RetrievalIntent::Pattern => "pattern",
+    }
 }
 
 #[derive(Debug, Serialize)]
