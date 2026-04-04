@@ -255,6 +255,7 @@ pub struct WorkingMemoryRequest {
     pub limit: Option<usize>,
     pub max_chars_per_item: Option<usize>,
     pub max_total_chars: Option<usize>,
+    pub auto_consolidate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,6 +269,7 @@ pub struct WorkingMemoryResponse {
     pub truncated: bool,
     pub records: Vec<CompactMemoryRecord>,
     pub traces: Vec<WorkingMemoryTraceRecord>,
+    pub semantic_consolidation: Option<MemoryConsolidationResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -873,6 +875,7 @@ mod tests {
             limit: Some(4),
             max_chars_per_item: Some(180),
             max_total_chars: Some(900),
+            auto_consolidate: Some(true),
         };
 
         let response = WorkingMemoryResponse {
@@ -895,6 +898,14 @@ mod tests {
                 occurred_at: Utc::now(),
                 salience_score: 0.81,
             }],
+            semantic_consolidation: Some(MemoryConsolidationResponse {
+                scanned: 3,
+                groups: 1,
+                consolidated: 1,
+                duplicates: 0,
+                events: 1,
+                highlights: vec!["working-set replay".to_string()],
+            }),
         };
 
         let request_json = serde_json::to_string(&request).unwrap();
@@ -905,5 +916,6 @@ mod tests {
         assert_eq!(decoded_response.budget_chars, response.budget_chars);
         assert_eq!(decoded_response.records.len(), 1);
         assert_eq!(decoded_response.traces.len(), 1);
+        assert_eq!(decoded_response.semantic_consolidation.is_some(), true);
     }
 }

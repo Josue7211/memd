@@ -148,6 +148,9 @@ struct WorkingArgs {
 
     #[arg(long)]
     follow: bool,
+
+    #[arg(long)]
+    auto_consolidate: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -923,6 +926,7 @@ async fn main() -> anyhow::Result<()> {
                     limit: args.limit,
                     max_chars_per_item: args.max_chars_per_item,
                     max_total_chars: args.max_total_chars,
+                    auto_consolidate: Some(args.auto_consolidate),
                 })
                 .await?;
             if args.summary {
@@ -2131,7 +2135,7 @@ fn render_timeline_summary(response: &memd_schema::TimelineMemoryResponse, follo
 
 fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> String {
     let mut output = format!(
-        "working route={} intent={} budget={} used={} remaining={} truncated={} records={} traces={}",
+        "working route={} intent={} budget={} used={} remaining={} truncated={} records={} traces={} semantic={}",
         route_label(response.route),
         intent_label(response.intent),
         response.budget_chars,
@@ -2139,7 +2143,12 @@ fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> Str
         response.remaining_chars,
         response.truncated,
         response.records.len(),
-        response.traces.len()
+        response.traces.len(),
+        response
+            .semantic_consolidation
+            .as_ref()
+            .map(|value| value.consolidated.to_string())
+            .unwrap_or_else(|| "off".to_string())
     );
 
     if follow {
@@ -2167,6 +2176,18 @@ fn render_working_summary(response: &WorkingMemoryResponse, follow: bool) -> Str
             .collect::<Vec<_>>();
         if !trace_trail.is_empty() {
             output.push_str(&format!(" trace_trail={}", trace_trail.join(" | ")));
+        }
+
+        if let Some(semantic) = response.semantic_consolidation.as_ref() {
+            let trail = semantic
+                .highlights
+                .iter()
+                .take(3)
+                .map(|value| compact_inline(value, 40))
+                .collect::<Vec<_>>();
+            if !trail.is_empty() {
+                output.push_str(&format!(" semantic_trail={}", trail.join(" | ")));
+            }
         }
     }
 

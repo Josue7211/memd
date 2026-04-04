@@ -454,6 +454,24 @@ async fn get_working_memory(
     }
 
     let traces = working_traces_for_items(&state, &selected_items, 3).map_err(internal_error)?;
+    let semantic_consolidation = if req.auto_consolidate.unwrap_or(false) {
+        let auto_request = MemoryConsolidationRequest {
+            project: req.project.clone(),
+            namespace: req.agent.clone(),
+            max_groups: Some(8),
+            min_events: Some(3),
+            lookback_days: Some(14),
+            min_salience: Some(0.22),
+            record_events: Some(true),
+        };
+        Some(
+            state
+                .consolidate_semantic_memory(&auto_request)
+                .map_err(internal_error)?,
+        )
+    } else {
+        None
+    };
 
     Ok(Json(WorkingMemoryResponse {
         route: plan.route,
@@ -465,6 +483,7 @@ async fn get_working_memory(
         truncated,
         records,
         traces,
+        semantic_consolidation,
     }))
 }
 
