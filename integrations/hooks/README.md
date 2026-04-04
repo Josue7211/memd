@@ -14,6 +14,12 @@ For per-project bootstrap, use:
 memd init --project <project> --agent <agent>
 ```
 
+Check bundle health with:
+
+```bash
+memd status --output .memd
+```
+
 ## Environment
 
 Set:

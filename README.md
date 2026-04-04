@@ -81,6 +81,12 @@ Bootstrap a project bundle:
 cargo run -p memd-client --bin memd -- init --project demo --agent codex
 ```
 
+Check bundle health:
+
+```bash
+cargo run -p memd-client --bin memd -- status --output .memd
+```
+
 Open the built-in dashboard:
 
 ```bash

@@ -33,6 +33,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Healthz,
+    Status(StatusArgs),
     Store(RequestInput),
     Candidate(RequestInput),
     Promote(RequestInput),
@@ -263,13 +264,23 @@ struct InitArgs {
     force: bool,
 }
 
+#[derive(Debug, Clone, Args)]
+struct StatusArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let client = MemdClient::new(&cli.base_url)?;
+    let base_url = cli.base_url.clone();
 
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
+        Commands::Status(args) => {
+            print_json(&read_bundle_status(&args.output, &base_url).await?)?;
+        }
         Commands::Store(input) => {
             let req = read_request::<StoreMemoryRequest>(&input)?;
             print_json(&client.store(&req).await?)?;
@@ -527,6 +538,8 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 
     fs::create_dir_all(output.join("hooks"))
         .with_context(|| format!("create {}", output.join("hooks").display()))?;
+    fs::create_dir_all(output.join("agents"))
+        .with_context(|| format!("create {}", output.join("agents").display()))?;
 
     let config = serde_json::json!({
         "project": args.project,
@@ -571,6 +584,14 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 
     let hook_root = output.join("hooks");
     copy_hook_assets(Path::new(&hook_root))?;
+    write_agent_profiles(
+        output,
+        &args.project,
+        &args.agent,
+        &args.base_url,
+        &args.route,
+        &args.intent,
+    )?;
 
     fs::write(
         output.join("README.md"),
@@ -582,6 +603,56 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     .with_context(|| format!("write {}", output.join("README.md").display()))?;
 
     Ok(())
+}
+
+fn write_agent_profiles(
+    output: &Path,
+    project: &str,
+    agent: &str,
+    base_url: &str,
+    route: &str,
+    intent: &str,
+) -> anyhow::Result<()> {
+    let agents_dir = output.join("agents");
+    let shell_profile = format!(
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BASE_URL=\"{}\"\nexport MEMD_PROJECT=\"{}\"\nexport MEMD_AGENT=\"{}\"\nexport MEMD_ROUTE=\"{}\"\nexport MEMD_INTENT=\"{}\"\n\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
+        compact_bundle_value(base_url),
+        compact_bundle_value(project),
+        compact_bundle_value(agent),
+        compact_bundle_value(route),
+        compact_bundle_value(intent),
+    );
+    fs::write(agents_dir.join("agent.sh"), shell_profile)
+        .with_context(|| format!("write {}", agents_dir.join("agent.sh").display()))?;
+    set_executable_if_shell_script(&agents_dir.join("agent.sh"), "agent.sh")?;
+
+    let ps1_profile = format!(
+        "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
+        escape_ps1(base_url),
+        escape_ps1(project),
+        escape_ps1(agent),
+        escape_ps1(route),
+        escape_ps1(intent),
+    );
+    fs::write(agents_dir.join("agent.ps1"), ps1_profile)
+        .with_context(|| format!("write {}", agents_dir.join("agent.ps1").display()))?;
+
+    Ok(())
+}
+
+async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<serde_json::Value> {
+    let client = MemdClient::new(base_url)?;
+    let health = client.healthz().await.ok();
+    Ok(serde_json::json!({
+        "bundle": output,
+        "exists": output.exists(),
+        "config": output.join("config.json").exists(),
+        "env": output.join("env").exists(),
+        "env_ps1": output.join("env.ps1").exists(),
+        "hooks": output.join("hooks").exists(),
+        "agents": output.join("agents").exists(),
+        "server": health,
+    }))
 }
 
 fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
@@ -612,6 +683,10 @@ fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
 
 fn escape_ps1(value: &str) -> String {
     value.replace('\"', "`\"")
+}
+
+fn compact_bundle_value(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn set_executable_if_shell_script(path: &Path, file_name: &str) -> anyhow::Result<()> {
