@@ -4329,7 +4329,7 @@ async fn remember_with_bundle_defaults(
             visibility,
             belief_branch: None,
             source_agent,
-            source_system: args.source_system.clone().or(Some("codex".to_string())),
+            source_system: args.source_system.clone().or(Some("memd".to_string())),
             source_path: args.source_path.clone(),
             source_quality,
             confidence: args.confidence,
