@@ -2508,6 +2508,7 @@ async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Re
         "working": snapshot.resume.working.records.len(),
         "inbox": snapshot.resume.inbox.items.len(),
         "workspaces": snapshot.resume.workspaces.workspaces.len(),
+        "semantic_hits": snapshot.resume.semantic.as_ref().map(|semantic| semantic.items.len()).unwrap_or(0),
         "sources": snapshot.sources.sources.len(),
         "apply": args.apply,
     });

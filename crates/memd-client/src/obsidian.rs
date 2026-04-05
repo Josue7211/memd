@@ -963,6 +963,14 @@ pub fn build_handoff_markdown(
     markdown.push_str(&format!("rehydration_items: {}\n", snapshot.working.rehydration_queue.len()));
     markdown.push_str(&format!("inbox_items: {}\n", snapshot.inbox.items.len()));
     markdown.push_str(&format!("workspace_lanes: {}\n", snapshot.workspaces.workspaces.len()));
+    markdown.push_str(&format!(
+        "semantic_hits: {}\n",
+        snapshot
+            .semantic
+            .as_ref()
+            .map(|semantic| semantic.items.len())
+            .unwrap_or(0)
+    ));
     markdown.push_str(&format!("source_lanes: {}\n", sources.sources.len()));
     markdown.push_str("---\n\n");
     markdown.push_str(&format!("# {}\n\n", title));
@@ -1041,6 +1049,25 @@ pub fn build_handoff_markdown(
         }
     }
 
+    if let Some(semantic) = snapshot
+        .semantic
+        .as_ref()
+        .filter(|semantic| !semantic.items.is_empty())
+    {
+        markdown.push_str("\n## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(6) {
+            markdown.push_str(&format!(
+                "- {}{}\n",
+                compact_markdown_text(&item.content, 220),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_markdown_text(source, 64)))
+                    .unwrap_or_default()
+            ));
+            markdown.push_str(&format!("  - score: {:.2}\n", item.score));
+        }
+    }
+
     if !sources.sources.is_empty() {
         markdown.push_str("\n## Source Lanes\n\n");
         for source in sources.sources.iter().take(8) {
@@ -1058,6 +1085,23 @@ pub fn build_handoff_markdown(
     }
 
     (title, markdown)
+}
+
+fn compact_markdown_text(value: &str, max_chars: usize) -> String {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+
+    let mut output = String::new();
+    for ch in collapsed.chars() {
+        if output.chars().count() >= max_chars.saturating_sub(1) {
+            break;
+        }
+        output.push(ch);
+    }
+    output.push('…');
+    output
 }
 
 fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
@@ -2522,7 +2566,15 @@ mod tests {
                     tags: vec!["handoff".to_string()],
                 }],
             },
-            semantic: None,
+            semantic: Some(memd_rag::RagRetrieveResponse {
+                status: "ok".to_string(),
+                mode: memd_rag::RagRetrieveMode::Auto,
+                items: vec![memd_rag::RagRetrieveItem {
+                    content: "Shared workspace notes mention the same handoff lane and recovery path.".to_string(),
+                    source: Some("vault/wiki/team-alpha.md".to_string()),
+                    score: 0.93,
+                }],
+            }),
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {
@@ -2549,6 +2601,7 @@ mod tests {
         assert!(markdown.contains("# Handoff"));
         assert!(markdown.contains("## Working Memory"));
         assert!(markdown.contains("## Workspace Lanes"));
+        assert!(markdown.contains("## Semantic Recall"));
         assert!(markdown.contains("## Source Lanes"));
         assert!(markdown.contains("team-alpha"));
     }
