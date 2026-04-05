@@ -1004,6 +1004,9 @@ struct MessagesArgs {
     request_review: bool,
 
     #[arg(long)]
+    assign_scope: Option<String>,
+
+    #[arg(long)]
     scope: Option<String>,
 
     #[arg(long)]
@@ -4553,6 +4556,23 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
             .or(target.base_url.clone())
             .unwrap_or_else(|| current_base_url.clone());
         let client = MemdClient::new(&target_base_url)?;
+        if let Some(assign_scope) = args
+            .assign_scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let transfer_client = MemdClient::new(&current_base_url)?;
+            transfer_client
+                .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+                    scope: assign_scope.to_string(),
+                    from_session: from_session.to_string(),
+                    to_session: target_session.to_string(),
+                    to_agent: target.agent.clone(),
+                    to_effective_agent: target.effective_agent.clone(),
+                })
+                .await?;
+        }
         let response = client
             .send_peer_message(&PeerMessageSendRequest {
                 kind,
@@ -4609,6 +4629,11 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
 }
 
 fn derive_outbound_message(args: &MessagesArgs) -> Option<(String, String)> {
+    let assign_scope = args
+        .assign_scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let scope = args
         .scope
         .as_deref()
@@ -4633,6 +4658,12 @@ fn derive_outbound_message(args: &MessagesArgs) -> Option<(String, String)> {
             scope.map(|scope| format!("Need review on {scope}. Please inspect before I hand it off."))
         })?;
         return Some(("review_request".to_string(), content));
+    }
+
+    if let Some(assign_scope) = assign_scope {
+        let content = explicit_content
+            .or_else(|| Some(format!("Assigned scope {assign_scope}. Take ownership and continue from there.")))?;
+        return Some(("assignment".to_string(), content));
     }
 
     let content = explicit_content?;
@@ -7199,6 +7230,7 @@ mod tests {
             kind: None,
             request_help: true,
             request_review: false,
+            assign_scope: None,
             scope: Some("file:src/main.rs".to_string()),
             content: None,
             summary: false,
@@ -7220,6 +7252,7 @@ mod tests {
             kind: None,
             request_help: false,
             request_review: true,
+            assign_scope: None,
             scope: Some("task:parser-refactor".to_string()),
             content: None,
             summary: false,
@@ -7227,6 +7260,28 @@ mod tests {
         .expect("derive review request");
 
         assert_eq!(message.0, "review_request");
+        assert!(message.1.contains("task:parser-refactor"));
+    }
+
+    #[test]
+    fn derives_assignment_message_from_assign_scope() {
+        let message = derive_outbound_message(&MessagesArgs {
+            output: PathBuf::from(".memd"),
+            send: true,
+            inbox: false,
+            ack: None,
+            target_session: Some("claude-b".to_string()),
+            kind: None,
+            request_help: false,
+            request_review: false,
+            assign_scope: Some("task:parser-refactor".to_string()),
+            scope: None,
+            content: None,
+            summary: false,
+        })
+        .expect("derive assignment");
+
+        assert_eq!(message.0, "assignment");
         assert!(message.1.contains("task:parser-refactor"));
     }
 
@@ -8345,6 +8400,7 @@ mod tests {
             kind: Some("handoff".to_string()),
             request_help: false,
             request_review: false,
+            assign_scope: None,
             scope: None,
             content: Some("Pick up the parser refactor".to_string()),
             summary: false,
@@ -8363,6 +8419,7 @@ mod tests {
             kind: None,
             request_help: false,
             request_review: false,
+            assign_scope: None,
             scope: None,
             content: None,
             summary: false,
@@ -8381,6 +8438,7 @@ mod tests {
             kind: None,
             request_help: false,
             request_review: false,
+            assign_scope: None,
             scope: None,
             content: None,
             summary: false,
