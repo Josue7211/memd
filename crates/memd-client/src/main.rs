@@ -66,6 +66,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Awareness(AwarenessArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -913,6 +914,21 @@ struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct AwarenessArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    #[arg(long, default_value_t = false)]
+    include_current: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1281,6 +1297,14 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
+        Commands::Awareness(args) => {
+            let response = read_project_awareness(&args)?;
+            if args.summary {
+                println!("{}", render_project_awareness_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Bundle(args) => {
             if let Some(value) = args.auto_short_term_capture {
                 set_bundle_auto_short_term_capture(&args.output, value)?;
@@ -4524,6 +4548,132 @@ fn bundle_auto_short_term_capture_enabled(output: &Path) -> anyhow::Result<bool>
         .unwrap_or(true))
 }
 
+fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
+    let current_bundle = if args.output.is_absolute() {
+        args.output.clone()
+    } else {
+        std::env::current_dir()?.join(&args.output)
+    };
+    let current_bundle = fs::canonicalize(&current_bundle).unwrap_or(current_bundle);
+    let current_project = current_bundle
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let scan_root = if let Some(root) = args.root.as_ref() {
+        if root.is_absolute() {
+            root.clone()
+        } else {
+            std::env::current_dir()?.join(root)
+        }
+    } else {
+        current_project
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| current_project.clone())
+    };
+    let scan_root = fs::canonicalize(&scan_root).unwrap_or(scan_root);
+
+    let mut entries = Vec::new();
+    for child in fs::read_dir(&scan_root)
+        .with_context(|| format!("read awareness root {}", scan_root.display()))?
+    {
+        let child = child?;
+        if !child.file_type()?.is_dir() {
+            continue;
+        }
+
+        let project_dir = child.path();
+        let bundle_root = project_dir.join(".memd");
+        let config_path = bundle_root.join("config.json");
+        if !config_path.exists() {
+            continue;
+        }
+
+        let canonical_bundle = fs::canonicalize(&bundle_root).unwrap_or(bundle_root.clone());
+        if !args.include_current && canonical_bundle == current_bundle {
+            continue;
+        }
+
+        let runtime = read_bundle_runtime_config(&bundle_root)?.unwrap_or(BundleRuntimeConfig {
+            project: None,
+            namespace: None,
+            agent: None,
+            base_url: None,
+            route: None,
+            intent: None,
+            workspace: None,
+            visibility: None,
+            auto_short_term_capture: true,
+        });
+        let state = read_bundle_resume_state(&bundle_root)?;
+        let state_path = bundle_resume_state_path(&bundle_root);
+        let last_updated = if state_path.exists() {
+            fs::metadata(&state_path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .map(DateTime::<Utc>::from)
+        } else {
+            fs::metadata(&config_path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .map(DateTime::<Utc>::from)
+        };
+
+        entries.push(ProjectAwarenessEntry {
+            project_dir: project_dir.display().to_string(),
+            bundle_root: bundle_root.display().to_string(),
+            project: runtime.project,
+            namespace: runtime.namespace,
+            agent: runtime.agent,
+            workspace: runtime.workspace,
+            visibility: runtime.visibility,
+            focus: state.as_ref().and_then(|value| value.focus.clone()),
+            pressure: state.as_ref().and_then(|value| value.pressure.clone()),
+            next_recovery: state.as_ref().and_then(|value| value.next_recovery.clone()),
+            last_updated,
+        });
+    }
+
+    entries.sort_by(|left, right| left.project_dir.cmp(&right.project_dir));
+
+    Ok(ProjectAwarenessResponse {
+        root: scan_root.display().to_string(),
+        current_bundle: current_bundle.display().to_string(),
+        entries,
+    })
+}
+
+fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> String {
+    let mut lines = vec![format!(
+        "awareness root={} bundles={}",
+        response.root,
+        response.entries.len()
+    )];
+    for entry in &response.entries {
+        let focus = entry
+            .focus
+            .as_deref()
+            .map(|value| compact_inline(value, 56))
+            .unwrap_or_else(|| "none".to_string());
+        let pressure = entry
+            .pressure
+            .as_deref()
+            .map(|value| compact_inline(value, 56))
+            .unwrap_or_else(|| "none".to_string());
+        lines.push(format!(
+            "- {} | ns={} agent={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            entry.project.as_deref().unwrap_or("unknown"),
+            entry.namespace.as_deref().unwrap_or("none"),
+            entry.agent.as_deref().unwrap_or("none"),
+            entry.workspace.as_deref().unwrap_or("none"),
+            entry.visibility.as_deref().unwrap_or("all"),
+            focus,
+            pressure,
+        ));
+    }
+    lines.join("\n")
+}
+
 async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result<ResumeSnapshot> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let project = args
@@ -5700,6 +5850,28 @@ struct BundleEvalResponse {
     recommendations: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProjectAwarenessEntry {
+    project_dir: String,
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    focus: Option<String>,
+    pressure: Option<String>,
+    next_recovery: Option<String>,
+    last_updated: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProjectAwarenessResponse {
+    root: String,
+    current_bundle: String,
+    entries: Vec<ProjectAwarenessEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BundleBackendConfigFile {
     #[serde(default)]
@@ -6364,6 +6536,100 @@ mod tests {
         assert!(env_ps1.contains("$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"false\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn project_awareness_scans_sibling_bundles_without_current() {
+        let root =
+            std::env::temp_dir().join(format!("memd-awareness-root-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let sibling_project = root.join("sibling");
+        fs::create_dir_all(current_project.join(".memd").join("state")).expect("create current");
+        fs::create_dir_all(sibling_project.join(".memd").join("state")).expect("create sibling");
+
+        fs::write(
+            current_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "current",
+  "namespace": "main",
+  "agent": "codex",
+  "workspace": "current-lane",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            sibling_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "sibling",
+  "namespace": "main",
+  "agent": "claude-code",
+  "workspace": "research",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write sibling config");
+        fs::write(
+            sibling_project.join(".memd").join("state").join("last-resume.json"),
+            r#"{
+  "focus": "Finish the sibling task",
+  "pressure": "Resolve review comments",
+  "next_recovery": "Re-open the last handoff",
+  "lane": "sibling / main / research",
+  "working_records": 2,
+  "inbox_items": 1,
+  "rehydration_items": 1
+}
+"#,
+        )
+        .expect("write sibling state");
+
+        let response = read_project_awareness(&AwarenessArgs {
+            output: current_project.join(".memd"),
+            root: Some(root.clone()),
+            include_current: false,
+            summary: false,
+        })
+        .expect("read awareness");
+
+        assert_eq!(response.entries.len(), 1);
+        let entry = &response.entries[0];
+        assert_eq!(entry.project.as_deref(), Some("sibling"));
+        assert_eq!(entry.agent.as_deref(), Some("claude-code"));
+        assert_eq!(entry.workspace.as_deref(), Some("research"));
+        assert_eq!(entry.focus.as_deref(), Some("Finish the sibling task"));
+        assert_eq!(entry.pressure.as_deref(), Some("Resolve review comments"));
+
+        fs::remove_dir_all(root).expect("cleanup awareness root");
+    }
+
+    #[test]
+    fn project_awareness_summary_compacts_focus_and_pressure() {
+        let response = ProjectAwarenessResponse {
+            root: "/tmp/projects".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            entries: vec![ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/sibling".to_string(),
+                bundle_root: "/tmp/projects/sibling/.memd".to_string(),
+                project: Some("sibling".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("claude-code".to_string()),
+                workspace: Some("research".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: Some("Investigate whether the recall lane is still stale".to_string()),
+                pressure: Some("Repair the shared lane before the next resume".to_string()),
+                next_recovery: None,
+                last_updated: None,
+            }],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("awareness root=/tmp/projects bundles=1"));
+        assert!(summary.contains("sibling | ns=main agent=claude-code workspace=research"));
+        assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
+        assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
     }
 
     #[test]
