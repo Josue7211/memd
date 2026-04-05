@@ -938,6 +938,15 @@ struct HeartbeatArgs {
     output: PathBuf,
 
     #[arg(long)]
+    watch: bool,
+
+    #[arg(long, default_value_t = 30)]
+    interval_secs: u64,
+
+    #[arg(long)]
+    probe_base_url: bool,
+
+    #[arg(long)]
     summary: bool,
 }
 
@@ -1325,11 +1334,24 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Heartbeat(args) => {
-            let response = refresh_bundle_heartbeat(&args.output, None)?;
-            if args.summary {
-                println!("{}", render_bundle_heartbeat_summary(&response));
+            if args.watch {
+                let interval = Duration::from_secs(args.interval_secs.max(1));
+                loop {
+                    let response = refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
+                    if args.summary {
+                        println!("{}", render_bundle_heartbeat_summary(&response));
+                    } else {
+                        print_json(&response)?;
+                    }
+                    tokio::time::sleep(interval).await;
+                }
             } else {
-                print_json(&response)?;
+                let response = refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
+                if args.summary {
+                    println!("{}", render_bundle_heartbeat_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
             }
         }
         Commands::Bundle(args) => {
@@ -1403,7 +1425,7 @@ async fn main() -> anyhow::Result<()> {
                     &base_url,
                 )
                 .await?;
-                write_bundle_memory_files(&args.output, &snapshot, None)?;
+                write_bundle_memory_files(&args.output, &snapshot, None).await?;
             } else if let Some(session) = args.session.as_deref() {
                 set_bundle_session(&args.output, session)?;
             }
@@ -1427,7 +1449,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Resume(args) => {
             let snapshot = read_bundle_resume(&args, &base_url).await?;
-            write_bundle_memory_files(&args.output, &snapshot, None)?;
+            write_bundle_memory_files(&args.output, &snapshot, None).await?;
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else if args.summary {
@@ -1464,7 +1486,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Handoff(args) => {
             let snapshot = read_bundle_handoff(&args, &base_url).await?;
-            write_bundle_memory_files(&args.output, &snapshot.resume, Some(&snapshot))?;
+            write_bundle_memory_files(&args.output, &snapshot.resume, Some(&snapshot)).await?;
             if args.prompt {
                 println!("{}", render_handoff_prompt(&snapshot));
             } else if args.summary {
@@ -1506,7 +1528,7 @@ async fn main() -> anyhow::Result<()> {
                 &base_url,
             )
             .await?;
-            write_bundle_memory_files(&args.output, &snapshot, None)?;
+            write_bundle_memory_files(&args.output, &snapshot, None).await?;
             print_json(&response)?;
         }
         Commands::Remember(args) => {
@@ -1530,7 +1552,7 @@ async fn main() -> anyhow::Result<()> {
                 &base_url,
             )
             .await?;
-            write_bundle_memory_files(&args.output, &snapshot, None)?;
+            write_bundle_memory_files(&args.output, &snapshot, None).await?;
             print_json(&response)?;
         }
         Commands::Rag(args) => {
@@ -3976,7 +3998,7 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     write_memory_markdown_files(output, &markdown)
 }
 
-fn write_bundle_memory_files(
+async fn write_bundle_memory_files(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
@@ -3984,7 +4006,7 @@ fn write_bundle_memory_files(
     let markdown = render_bundle_memory_markdown(snapshot, handoff);
     write_memory_markdown_files(output, &markdown)?;
     write_bundle_resume_state(output, snapshot)?;
-    write_bundle_heartbeat(output, Some(snapshot))
+    write_bundle_heartbeat(output, Some(snapshot), false).await
 }
 
 fn bundle_resume_state_path(output: &Path) -> PathBuf {
@@ -4101,6 +4123,7 @@ fn build_bundle_heartbeat(
             .and_then(|value| value.visibility.clone())
             .or(runtime.visibility),
         base_url: runtime.base_url,
+        base_url_healthy: None,
         host: detect_host_name(),
         pid: Some(std::process::id()),
         focus,
@@ -4111,22 +4134,30 @@ fn build_bundle_heartbeat(
     })
 }
 
-fn write_bundle_heartbeat(output: &Path, snapshot: Option<&ResumeSnapshot>) -> anyhow::Result<()> {
+async fn write_bundle_heartbeat(
+    output: &Path,
+    snapshot: Option<&ResumeSnapshot>,
+    probe_base_url: bool,
+) -> anyhow::Result<()> {
     let path = bundle_heartbeat_state_path(output);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    let state = build_bundle_heartbeat(output, snapshot)?;
+    let mut state = build_bundle_heartbeat(output, snapshot)?;
+    if probe_base_url && let Some(url) = state.base_url.as_deref() {
+        state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
+    }
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
-fn refresh_bundle_heartbeat(
+async fn refresh_bundle_heartbeat(
     output: &Path,
     snapshot: Option<&ResumeSnapshot>,
+    probe_base_url: bool,
 ) -> anyhow::Result<BundleHeartbeatState> {
-    write_bundle_heartbeat(output, snapshot)?;
+    write_bundle_heartbeat(output, snapshot, probe_base_url).await?;
     read_bundle_heartbeat(output)?.context("reload bundle heartbeat after write")
 }
 
@@ -5605,7 +5636,7 @@ async fn auto_checkpoint_compaction_packet(
         base_url,
     )
     .await?;
-    write_bundle_memory_files(&snapshot_bundle_root(&response, &snapshot), &snapshot, None)?;
+    write_bundle_memory_files(&snapshot_bundle_root(&response, &snapshot), &snapshot, None).await?;
     Ok(())
 }
 
@@ -6274,6 +6305,7 @@ struct BundleHeartbeatState {
     workspace: Option<String>,
     visibility: Option<String>,
     base_url: Option<String>,
+    base_url_healthy: Option<bool>,
     host: Option<String>,
     pid: Option<u32>,
     focus: Option<String>,
@@ -7140,6 +7172,7 @@ mod tests {
             workspace: Some("team-alpha".to_string()),
             visibility: Some("workspace".to_string()),
             base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
             host: Some("workstation".to_string()),
             pid: Some(4242),
             focus: Some("Finish the live heartbeat lane".to_string()),
