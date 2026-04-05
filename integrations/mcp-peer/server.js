@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +29,10 @@ function resolveBundleRoot() {
   const explicit = process.env.MEMD_BUNDLE_ROOT?.trim();
   if (explicit) return path.resolve(explicit);
   return path.resolve(process.cwd(), ".memd");
+}
+
+function resolveMemdBin() {
+  return (process.env.MEMD_BIN || "memd").trim();
 }
 
 function readRuntime(bundleRoot) {
@@ -249,6 +254,20 @@ const tools = [
   {
     name: "coordination_dashboard",
     description: "Render a compact dashboard-style view of current coordination pressure and recent history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view: {
+          type: "string",
+          description: "all, inbox, requests, recovery, policy, or history",
+          default: "all",
+        },
+      },
+    },
+  },
+  {
+    name: "coordination_changes",
+    description: "Read a compact reusable coordination delta feed for hooks or richer operator surfaces.",
     inputSchema: {
       type: "object",
       properties: {
@@ -598,6 +617,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
       return textResult(lines);
+    }
+
+    case "coordination_changes": {
+      const view = args.view || "all";
+      const stdout = execFileSync(
+        resolveMemdBin(),
+        [
+          "coordination",
+          "--output",
+          bundleRoot,
+          "--changes-only",
+          "--summary",
+          "--view",
+          view,
+        ],
+        {
+          encoding: "utf8",
+          env: process.env,
+        }
+      );
+      return textResult(stdout.trim().split("\n"));
     }
 
     case "recover_stale_session": {

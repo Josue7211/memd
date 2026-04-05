@@ -20,6 +20,8 @@ It does not create a second coordination store.
 - `coordination_inbox`
 - `coordination_dashboard`
   - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
+- `coordination_changes`
+  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
 - `recover_stale_session`
 - `recommend_boundaries`
 - `send_message`
@@ -39,6 +41,9 @@ It does not create a second coordination store.
 
 - `MEMD_BUNDLE_ROOT`
   Path to the active bundle root. Defaults to `./.memd`.
+- `MEMD_BIN`
+  Optional path to the `memd` CLI binary when `coordination_changes` should
+  use a non-default executable.
 
 The server reads the current bundle identity from `config.json` and uses the
 bundle's configured `base_url` for coordination calls.

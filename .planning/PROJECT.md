@@ -81,7 +81,8 @@ real memory:
 - [x] Add coordination drilldown and filter views so operators can isolate the right sessions, requests, and receipts faster under load.
 - [x] Add live coordination watch and alert views so operators can keep pressure visible during active coworking instead of polling manually.
 - [x] Add coordination subscriptions and hook-friendly change feeds so other agent and operator surfaces can react to pressure without reimplementing polling.
-- [ ] Add UI-friendly coordination feed surfaces so richer operator tools can consume the same bounded change model without custom reshaping.
+- [x] Add UI-friendly coordination feed surfaces so richer operator tools can consume the same bounded change model without custom reshaping.
+- [ ] Add coordination action surfaces so richer operator tools can act on bounded coordination signals through the same model.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.

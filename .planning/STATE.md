@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` UI-friendly coordination feed surfaces on top of the reusable change-feed substrate.
+**Current focus:** Start `v5` coordination action surfaces on top of the reusable UI-friendly feed substrate.
 
 ## Current Status
 
@@ -52,11 +52,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 ## Open Loops
 
-- planning roadmap now needs phase 44 execution so reusable coordination deltas can feed richer UI and operator surfaces cleanly
+- planning roadmap now needs phase 45 execution so richer operator surfaces can act on bounded coordination signals, not just read them
 
 ## Next Command
 
-Execute phase 44 so coordination deltas can be consumed by richer UI and operator surfaces without reshaping the feed again.
+Execute phase 45 so richer operator surfaces can trigger bounded coordination actions from the same shared model.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

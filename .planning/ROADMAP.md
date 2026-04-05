@@ -574,11 +574,24 @@ Success:
 - preserve compactness so richer operator surfaces can consume the feed without transcript bloat
 - avoid inventing a second coordination event taxonomy for UI consumers
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - richer operator surfaces can consume the same bounded coordination delta model without custom adapter glue
+
+#### Phase 45: `v5` Coordination Action Surfaces
+
+- expose bounded coordination actions that richer operator surfaces can trigger directly
+- keep the first slice aligned with the current inbox, requests, recovery, policy, and history categories
+- preserve explicit operator control over assignment, recovery, and acknowledgement actions
+- avoid inventing a separate UI-only coordination contract
+
+Status: Planned
+
+Success:
+
+- richer operator surfaces can act on bounded coordination pressure through the same shared model they use for inspection
 
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*
