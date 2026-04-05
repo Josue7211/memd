@@ -314,5 +314,17 @@ Success:
 
 - `memd status` reports the same current-task hot path that default launches use
 
+#### Phase 24: `v4` Hook Context Current-Task Defaults
+
+- make the installed hook context flow default to current-task intent
+- align CLI hook behavior with the generated shell and bundle launch surfaces
+- keep hook-based short-term retrieval on the same fast local path
+
+Status: Complete
+
+Success:
+
+- the default hook context path now resumes short-term memory with current-task intent
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

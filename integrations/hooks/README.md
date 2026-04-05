@@ -63,7 +63,7 @@ Set:
 - `MEMD_NAMESPACE` - optional namespace lane inside the project
 - `MEMD_AGENT` - required for context fetches
 - `MEMD_ROUTE` - defaults to `auto`
-- `MEMD_INTENT` - defaults to `general`
+- `MEMD_INTENT` - defaults to `current_task`
 - `MEMD_WORKSPACE` - optional shared workspace lane
 - `MEMD_VISIBILITY` - optional `private|workspace|public`
 - `MEMD_LIMIT` - defaults to `8`
@@ -76,8 +76,9 @@ Set:
 ./memd-context.sh
 ```
 
-This now calls `memd resume --prompt` under the bundle defaults instead of only
-the older compact-context surface.
+This now calls `memd resume --prompt` under the bundle defaults and defaults the
+intent to `current_task` instead of only the older generic compact-context
+surface.
 
 The installed `memd-hook-context` shim now routes through this script, so the
 default installed hook path also gets the richer resume snapshot.

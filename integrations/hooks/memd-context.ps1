@@ -4,7 +4,7 @@ param(
   [string]$Namespace = $(if ($env:MEMD_NAMESPACE) { $env:MEMD_NAMESPACE } else { "" }),
   [Parameter(Mandatory = $true)][string]$Agent = $(if ($env:MEMD_AGENT) { $env:MEMD_AGENT } else { throw "MEMD_AGENT is required" }),
   [string]$Route = $(if ($env:MEMD_ROUTE) { $env:MEMD_ROUTE } else { "auto" }),
-  [string]$Intent = $(if ($env:MEMD_INTENT) { $env:MEMD_INTENT } else { "general" }),
+  [string]$Intent = $(if ($env:MEMD_INTENT) { $env:MEMD_INTENT } else { "current_task" }),
   [int]$Limit = $(if ($env:MEMD_LIMIT) { [int]$env:MEMD_LIMIT } else { 8 }),
   [int]$RehydrationLimit = $(if ($env:MEMD_REHYDRATION_LIMIT) { [int]$env:MEMD_REHYDRATION_LIMIT } else { 4 }),
   [string]$Workspace = $(if ($env:MEMD_WORKSPACE) { $env:MEMD_WORKSPACE } else { "" }),

@@ -2033,7 +2033,9 @@ async fn main() -> anyhow::Result<()> {
                     workspace: None,
                     visibility: None,
                     route: parse_retrieval_route(args.route)?,
-                    intent: parse_retrieval_intent(args.intent)?,
+                    intent: parse_retrieval_intent(
+                        args.intent.or(Some("current_task".to_string())),
+                    )?,
                     limit: args.limit,
                     max_chars_per_item: args.max_chars_per_item,
                 };

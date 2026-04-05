@@ -50,6 +50,7 @@ evidence, and inspect its own working memory across sessions.
 - [x] Refresh bundle memory files automatically after short-term checkpoints.
 - [x] Bias default bundle launch flows toward current-task memory.
 - [x] Align bundle status preview with the current-task hot path.
+- [x] Align hook-context defaults with the current-task hot path.
 
 ### Out of Scope
 
@@ -89,7 +90,8 @@ checkpoint flow instead of forcing operators to handcraft full memory writes,
 and those short-term writes now refresh the visible bundle memory files
 immediately. The default attach and agent launch surfaces now also resume with
 `current_task` intent so the short-term lane is the default starting point, and
-bundle status now previews that same lane.
+bundle status now previews that same lane. The installed hook-context flow now
+uses that same current-task default.
 The deployment shape is now explicitly tiered:
 
 - Tier 1: Obsidian-only
@@ -118,4 +120,4 @@ LightRAG stays optional for larger-scale semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-05 after GSD phase 23 completion*
+*Last updated: 2026-04-05 after GSD phase 24 completion*
