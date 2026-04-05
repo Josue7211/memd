@@ -47,6 +47,7 @@ evidence, and inspect its own working memory across sessions.
 - [x] Turn evaluation findings into concrete operator recommendations.
 - [x] Keep short-term resume and handoff fast by making semantic fallback opt-in.
 - [x] Add a dedicated short-term checkpoint command for current-task memory.
+- [x] Refresh bundle memory files automatically after short-term checkpoints.
 
 ### Out of Scope
 
@@ -82,7 +83,9 @@ state, so weak memory signals can map directly to next actions.
 Short-term memory is now also protected as the default hot path: bundle-backed
 resume and handoff stay local and fast unless semantic fallback is explicitly
 requested. Current-task state can also be captured through a dedicated
-checkpoint flow instead of forcing operators to handcraft full memory writes.
+checkpoint flow instead of forcing operators to handcraft full memory writes,
+and those short-term writes now refresh the visible bundle memory files
+immediately.
 The deployment shape is now explicitly tiered:
 
 - Tier 1: Obsidian-only
@@ -111,4 +114,4 @@ LightRAG stays optional for larger-scale semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-05 after GSD phase 20 completion*
+*Last updated: 2026-04-05 after GSD phase 21 completion*

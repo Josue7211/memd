@@ -278,5 +278,17 @@ Success:
 
 - operators can capture short-term task state quickly without shaping full `remember` requests by hand
 
+#### Phase 21: `v4` Checkpoint Refresh Writeback
+
+- refresh bundle memory files immediately after short-term checkpoint writes
+- keep checkpoint writeback on the fast local path without semantic fallback
+- make short-term state visible to agents without waiting for a separate resume step
+
+Status: Complete
+
+Success:
+
+- short-term checkpoint writes update the visible bundle memory surface immediately
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next short-term memory slice after short-term checkpoints.
+**Current focus:** Queue the next short-term memory slice after checkpoint refresh writeback.
 
 ## Current Status
 
@@ -31,6 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - bundle evaluation now emits concrete corrective recommendations from live resume state
 - bundle resume and handoff now keep semantic recall off the hot path unless explicitly requested
 - bundle workflows now have a dedicated short-term checkpoint command for current-task state
+- short-term checkpoints now refresh visible bundle memory files immediately after writeback
 
 ## Open Loops
 

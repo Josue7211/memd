@@ -148,7 +148,8 @@ cargo run -p memd-client --bin memd -- checkpoint --output .memd --content "Curr
 ```
 
 `checkpoint` stores short-lived `status` memory with current-task tags and a
-default one-day TTL so short-term state is easy to keep fresh.
+default one-day TTL so short-term state is easy to keep fresh. It also refreshes
+the bundle memory files immediately after the write.
 
 Resume with a shared workspace lane:
 
