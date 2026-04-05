@@ -660,5 +660,18 @@ Success:
 
 - `memd` can improve itself through measured overnight loops without unsafe drift or silent truth changes
 
+#### Phase 51: `v6` Harness-Aware Learning Registry
+
+- add a registry for promoted skills, CLIs, harnesses, and procedures that records harness-specific strengths, weaknesses, compatibility, and portability class
+- keep the first slice focused on metadata and promotion evidence, not fully automatic cross-harness execution yet
+- preserve portability by keeping learning in the substrate while still allowing harness-native and adapter-required abstractions
+- make rollback and deprecation explicit when a learned abstraction stops fitting a given harness
+
+Status: Planned
+
+Success:
+
+- learned abstractions can move across agents and harnesses without pretending every shell exposes the same native capabilities
+
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*

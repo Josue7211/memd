@@ -25,6 +25,7 @@ real memory:
 - native multi-agent interoperability
 - inspectable memory
 - measured self-improvement
+- harness-aware portable learning
 
 ## Requirements
 
@@ -90,6 +91,7 @@ real memory:
 - [ ] Add a composite scorer for correctness, memory quality, coordination quality, latency, and bloat.
 - [ ] Add a bounded experiment runner that accepts only winning changes and discards regressions.
 - [ ] Consolidate accepted experiment learnings into durable memory and autodream inputs.
+- [ ] Track strengths, weaknesses, compatibility, and portability class per harness when promoting learned skills, CLIs, and procedures.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
@@ -156,6 +158,7 @@ The product direction is now explicit:
 - native agent memory surfaces should bridge cleanly into `memd` without ownership collisions
 - the eventual UX should make memory inspectable enough to trust
 - autoresearch should find quality gaps, run bounded experiments, and only keep measured wins
+- promoted learning should live in the substrate, but each abstraction must be marked portable, harness-native, or adapter-required so harness-specific capabilities stay honest
 
 ## Constraints
 

@@ -313,6 +313,7 @@ Deliver:
 - regression detection for memory quality, not just system health
 - evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
 - tier-aware policy evolution so Obsidian-only, shared sync, and LightRAG setups can tune differently
+- harness-aware promotion so learned skills, CLIs, and harnesses carry compatibility, strengths, weaknesses, and portability class across agents
 - automatic short-term memory management:
   - capture meaningful task-state changes without transcript dumping
   - keep the hot lane fresh with minimal manual effort
@@ -326,6 +327,7 @@ Evolution Engine:
 - capture repeated traces, commands, and repair loops from real work
 - mine recurring workflows that are expensive, fragile, or over-reasoned
 - promote stable patterns into skills, wrappers, dedicated CLIs, or other tools
+- record which harnesses and agents each promoted abstraction helps, hurts, only partially fits, or is native to
 - keep lineage, quality metrics, and rollback history for every promoted abstraction
 - share proven improvements across agents when the scope is safe
 - retire or downgrade abstractions that stop paying for themselves
@@ -399,6 +401,17 @@ Deliver:
   - safe auto-accept changes
   - eval-gated behavioral changes
   - human-review-only trust/provenance changes
+- a promotion registry for learned abstractions that stores:
+  - strengths
+  - weaknesses
+  - portability class:
+    - portable
+    - harness-native
+    - adapter-required
+  - compatible harnesses
+  - risky harnesses
+  - promotion evidence
+  - rollback history
 - accepted-learning consolidation into durable project memory and autodream inputs
 
 Success:
@@ -406,6 +419,7 @@ Success:
 - `memd` learns by winning measured experiments, not by silently changing truth
 - repeated quality improvements become cheaper and more reliable over time
 - the system can improve hot-path memory and coordination behavior overnight without unsafe drift
+- learning lives in the substrate, while promoted abstractions can be marked portable, harness-native, or adapter-required instead of being forced into false universality
 
 Core loop:
 
@@ -413,6 +427,7 @@ Core loop:
 - replay stable memory and coordination scenarios
 - score baseline vs candidate on correctness, quality, latency, and bloat
 - accept only bounded winning changes
+- promote only the abstractions whose strengths and weaknesses are understood per harness
 - consolidate accepted learnings back into durable project memory
 
 ### v7: OSS-Ready Project Infrastructure
