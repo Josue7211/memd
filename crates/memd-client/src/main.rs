@@ -66,6 +66,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
@@ -912,6 +913,18 @@ struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct BundleArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    auto_short_term_capture: Option<bool>,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct EvalArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1268,6 +1281,26 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
+        Commands::Bundle(args) => {
+            if let Some(value) = args.auto_short_term_capture {
+                set_bundle_auto_short_term_capture(&args.output, value)?;
+            }
+            let status = read_bundle_status(&args.output, &base_url).await?;
+            if args.summary {
+                let enabled = status
+                    .get("defaults")
+                    .and_then(|value| value.get("auto_short_term_capture"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
+                println!(
+                    "bundle={} auto_short_term_capture={}",
+                    args.output.display(),
+                    if enabled { "true" } else { "false" }
+                );
+            } else {
+                print_json(&status)?;
+            }
+        }
         Commands::Eval(args) => {
             let response = eval_bundle_memory(&args, &base_url).await?;
             if args.write {
@@ -5281,6 +5314,43 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn set_bundle_auto_short_term_capture(output: &Path, enabled: bool) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.auto_short_term_capture = enabled;
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AUTO_SHORT_TERM_CAPTURE=",
+        &format!(
+            "MEMD_AUTO_SHORT_TERM_CAPTURE={}\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AUTO_SHORT_TERM_CAPTURE = ",
+        &format!(
+            "$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+
+    Ok(())
+}
+
 fn rewrite_env_assignment(path: &Path, prefix: &str, replacement: &str) -> anyhow::Result<()> {
     let mut lines = if path.exists() {
         fs::read_to_string(path)
@@ -6251,6 +6321,47 @@ mod tests {
         assert!(config.contains(r#""agent": "openclaw""#));
         assert!(env.contains("MEMD_AGENT=openclaw"));
         assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn set_bundle_auto_short_term_capture_updates_config_and_env_files() {
+        let dir = std::env::temp_dir().join(format!("memd-bundle-policy-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general",
+  "auto_short_term_capture": true
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            dir.join("env"),
+            "MEMD_AGENT=codex\nMEMD_AUTO_SHORT_TERM_CAPTURE=true\n",
+        )
+        .expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_AGENT = \"codex\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"true\"\n",
+        )
+        .expect("write env.ps1");
+
+        set_bundle_auto_short_term_capture(&dir, false).expect("set bundle policy");
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""auto_short_term_capture": false"#));
+        assert!(env.contains("MEMD_AUTO_SHORT_TERM_CAPTURE=false"));
+        assert!(env_ps1.contains("$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"false\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
