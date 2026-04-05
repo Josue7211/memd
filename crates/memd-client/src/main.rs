@@ -4436,6 +4436,7 @@ struct BundleAgentProfile {
 struct BundleAgentProfilesResponse {
     bundle_root: String,
     shell: String,
+    current: Option<String>,
     selected: Option<String>,
     agents: Vec<BundleAgentProfile>,
 }
@@ -4445,6 +4446,7 @@ fn build_bundle_agent_profiles(
     name: Option<&str>,
     shell: Option<&str>,
 ) -> anyhow::Result<BundleAgentProfilesResponse> {
+    let current = read_bundle_runtime_config(output)?.and_then(|config| config.agent);
     let shell = shell
         .map(|value| value.trim().to_ascii_lowercase())
         .or_else(detect_shell)
@@ -4496,6 +4498,7 @@ fn build_bundle_agent_profiles(
     Ok(BundleAgentProfilesResponse {
         bundle_root: output.display().to_string(),
         shell,
+        current,
         selected,
         agents,
     })
@@ -4504,13 +4507,22 @@ fn build_bundle_agent_profiles(
 fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) -> String {
     let mut output = String::new();
     output.push_str(&format!(
-        "bundle={} shell={}\n",
-        response.bundle_root, response.shell
+        "bundle={} shell={} current={}\n",
+        response.bundle_root,
+        response.shell,
+        response.current.as_deref().unwrap_or("none")
     ));
     for agent in &response.agents {
         output.push_str(&format!(
-            "- {} | memory {} | launch {}\n",
-            agent.name, agent.memory_file, agent.launch_hint
+            "- {}{} | memory {} | launch {}\n",
+            agent.name,
+            if response.current.as_deref() == Some(agent.name.as_str()) {
+                " [active]"
+            } else {
+                ""
+            },
+            agent.memory_file,
+            agent.launch_hint
         ));
     }
     output.trim_end().to_string()
@@ -4834,27 +4846,57 @@ mod tests {
 
     #[test]
     fn builds_bundle_agent_profiles_for_known_agents() {
-        let response = build_bundle_agent_profiles(Path::new("/tmp/.memd"), None, Some("bash"))
-            .expect("agent profiles");
+        let dir = std::env::temp_dir().join(format!("memd-agent-profiles-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "codex",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        let response = build_bundle_agent_profiles(&dir, None, Some("bash")).expect("agent profiles");
         assert_eq!(response.agents.len(), 4);
         assert_eq!(response.shell, "bash");
+        assert_eq!(response.current.as_deref(), Some("codex"));
         assert_eq!(response.agents[0].name, "codex");
         assert!(response.agents[0].memory_file.ends_with("agents/CODEX_MEMORY.md"));
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
     fn filters_bundle_agent_profiles_by_name() {
-        let response = build_bundle_agent_profiles(
-            Path::new("/tmp/.memd"),
-            Some("claude-code"),
-            Some("pwsh"),
+        let dir = std::env::temp_dir().join(format!("memd-agent-selected-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "claude-code",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
         )
-        .expect("agent profiles");
+        .expect("write config");
+        let response =
+            build_bundle_agent_profiles(&dir, Some("claude-code"), Some("pwsh")).expect("agent profiles");
         assert_eq!(response.agents.len(), 1);
+        assert_eq!(response.current.as_deref(), Some("claude-code"));
         assert_eq!(response.selected.as_deref(), Some("claude-code"));
         assert_eq!(response.agents[0].name, "claude-code");
         assert!(response.agents[0].launch_hint.contains("claude-code.ps1"));
+        let summary = render_bundle_agent_profiles_summary(&response);
+        assert!(summary.contains("current=claude-code"));
+        assert!(summary.contains("claude-code [active]"));
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
