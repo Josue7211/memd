@@ -141,6 +141,15 @@ Persist a durable memory into the same bundle defaults:
 cargo run -p memd-client --bin memd -- remember --output .memd --kind decision --content "Prefer memd resume for Codex startup."
 ```
 
+Capture short-term current-task memory with hot defaults:
+
+```bash
+cargo run -p memd-client --bin memd -- checkpoint --output .memd --content "Current blocker: workspace handoff still needs better ranking."
+```
+
+`checkpoint` stores short-lived `status` memory with current-task tags and a
+default one-day TTL so short-term state is easy to keep fresh.
+
 Resume with a shared workspace lane:
 
 ```bash

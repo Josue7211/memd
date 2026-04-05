@@ -71,6 +71,7 @@ enum Commands {
     Attach(AttachArgs),
     Resume(ResumeArgs),
     Handoff(HandoffArgs),
+    Checkpoint(CheckpointArgs),
     Remember(RememberArgs),
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
@@ -1103,6 +1104,45 @@ struct RememberArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct CheckpointArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    source_path: Option<String>,
+
+    #[arg(long)]
+    confidence: Option<f32>,
+
+    #[arg(long)]
+    ttl_seconds: Option<u64>,
+
+    #[arg(long, value_name = "TEXT")]
+    tag: Vec<String>,
+
+    #[arg(long)]
+    content: Option<String>,
+
+    #[arg(long)]
+    input: Option<PathBuf>,
+
+    #[arg(long)]
+    stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct RagArgs {
     #[arg(long)]
     rag_url: Option<String>,
@@ -1331,6 +1371,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 print_json(&snapshot)?;
             }
+        }
+        Commands::Checkpoint(args) => {
+            let response = checkpoint_with_bundle_defaults(&args, &base_url).await?;
+            print_json(&response)?;
         }
         Commands::Remember(args) => {
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
@@ -4744,6 +4788,43 @@ async fn remember_with_bundle_defaults(
         .await
 }
 
+async fn checkpoint_with_bundle_defaults(
+    args: &CheckpointArgs,
+    base_url: &str,
+) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
+    let translated = checkpoint_as_remember_args(args);
+    remember_with_bundle_defaults(&translated, base_url).await
+}
+
+fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs {
+    let mut tags = vec!["checkpoint".to_string(), "current-task".to_string()];
+    for tag in &args.tag {
+        if !tags.iter().any(|existing| existing == tag) {
+            tags.push(tag.clone());
+        }
+    }
+
+    RememberArgs {
+        output: args.output.clone(),
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
+        kind: Some("status".to_string()),
+        scope: Some("project".to_string()),
+        source_agent: None,
+        source_system: Some("memd-short-term".to_string()),
+        source_path: args.source_path.clone(),
+        source_quality: Some("derived".to_string()),
+        confidence: args.confidence.or(Some(0.8)),
+        ttl_seconds: args.ttl_seconds.or(Some(86_400)),
+        tag: tags,
+        content: args.content.clone(),
+        input: args.input.clone(),
+        stdin: args.stdin,
+    }
+}
+
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
     let shell = shell.trim().to_ascii_lowercase();
     match shell.as_str() {
@@ -5309,6 +5390,35 @@ mod tests {
         assert!(markdown.contains("slower deep recall"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn checkpoint_translation_sets_short_term_defaults() {
+        let args = CheckpointArgs {
+            output: PathBuf::from(".memd"),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            source_path: Some("notes/today.md".to_string()),
+            confidence: None,
+            ttl_seconds: None,
+            tag: vec!["urgent".to_string()],
+            content: Some("remember current blocker".to_string()),
+            input: None,
+            stdin: false,
+        };
+
+        let translated = checkpoint_as_remember_args(&args);
+        assert_eq!(translated.kind.as_deref(), Some("status"));
+        assert_eq!(translated.scope.as_deref(), Some("project"));
+        assert_eq!(translated.source_system.as_deref(), Some("memd-short-term"));
+        assert_eq!(translated.source_quality.as_deref(), Some("derived"));
+        assert_eq!(translated.confidence, Some(0.8));
+        assert_eq!(translated.ttl_seconds, Some(86_400));
+        assert!(translated.tag.iter().any(|value| value == "checkpoint"));
+        assert!(translated.tag.iter().any(|value| value == "current-task"));
+        assert!(translated.tag.iter().any(|value| value == "urgent"));
     }
 
     #[test]

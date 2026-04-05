@@ -266,5 +266,17 @@ Success:
 
 - default resume and handoff stay fast and local while deeper semantic recall remains available on demand
 
+#### Phase 20: `v4` Short-Term Checkpoints
+
+- add a lightweight command for current-task memory capture
+- keep checkpoint writes compatible with the existing typed memory pipeline
+- default checkpoints to short-term status memory instead of permanent lore
+
+Status: Complete
+
+Success:
+
+- operators can capture short-term task state quickly without shaping full `remember` requests by hand
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*
