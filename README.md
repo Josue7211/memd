@@ -99,6 +99,19 @@ Bootstrap a project bundle:
 cargo run -p memd-client --bin memd -- init --project demo --agent codex
 ```
 
+Resume the default memory snapshot from that bundle:
+
+```bash
+cargo run -p memd-client --bin memd -- resume --output .memd
+```
+
+Resume with a shared workspace lane:
+
+```bash
+cargo run -p memd-client --bin memd -- init --project demo --agent codex --workspace team-alpha --visibility workspace
+cargo run -p memd-client --bin memd -- resume --output .memd
+```
+
 Bootstrap a project bundle with LightRAG configured:
 
 ```bash
@@ -113,6 +126,12 @@ Check bundle health:
 
 ```bash
 cargo run -p memd-client --bin memd -- status --output .memd
+```
+
+Print the attach snippet that points agents at the bundle-backed resume flow:
+
+```bash
+cargo run -p memd-client --bin memd -- attach --output .memd
 ```
 
 Open the built-in dashboard:

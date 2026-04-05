@@ -20,6 +20,12 @@ Check bundle health with:
 memd status --output .memd
 ```
 
+Resume the default memory snapshot from the bundle:
+
+```bash
+memd resume --output .memd
+```
+
 ## Environment
 
 Set:
@@ -29,6 +35,8 @@ Set:
 - `MEMD_AGENT` - required for context fetches
 - `MEMD_ROUTE` - defaults to `auto`
 - `MEMD_INTENT` - defaults to `general`
+- `MEMD_WORKSPACE` - optional shared workspace lane
+- `MEMD_VISIBILITY` - optional `private|workspace|public`
 - `MEMD_LIMIT` - defaults to `8`
 - `MEMD_MAX_CHARS` - defaults to `280`
 - `MEMD_RAG_URL` - optional; bundle backend config can supply this when present

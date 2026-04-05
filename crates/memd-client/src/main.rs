@@ -63,6 +63,7 @@ enum Commands {
     Healthz,
     Status(StatusArgs),
     Attach(AttachArgs),
+    Resume(ResumeArgs),
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
     Ingest(IngestArgs),
@@ -876,6 +877,12 @@ struct InitArgs {
     intent: String,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     force: bool,
 }
 
@@ -892,6 +899,39 @@ struct AttachArgs {
 
     #[arg(long)]
     shell: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ResumeArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    rehydration_limit: Option<usize>,
+
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1026,6 +1066,24 @@ async fn main() -> anyhow::Result<()> {
                 .or_else(|| detect_shell())
                 .unwrap_or_else(|| "bash".to_string());
             println!("{}", render_attach_snippet(&shell, &args.output)?);
+        }
+        Commands::Resume(args) => {
+            let snapshot = read_bundle_resume(&args, &base_url).await?;
+            if args.summary {
+                println!(
+                    "resume project={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={}",
+                    snapshot.project.as_deref().unwrap_or("none"),
+                    snapshot.agent.as_deref().unwrap_or("none"),
+                    snapshot.workspace.as_deref().unwrap_or("none"),
+                    snapshot.visibility.as_deref().unwrap_or("all"),
+                    snapshot.context.records.len(),
+                    snapshot.working.records.len(),
+                    snapshot.inbox.items.len(),
+                    snapshot.workspaces.workspaces.len()
+                );
+            } else {
+                print_json(&snapshot)?;
+            }
         }
         Commands::Rag(args) => {
             let rag_url =
@@ -3107,6 +3165,8 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         base_url: args.base_url.clone(),
         route: args.route.clone(),
         intent: args.intent.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
         backend: BundleBackendConfig {
             rag: BundleRagConfig {
                 enabled: args.rag_url.is_some(),
@@ -3133,12 +3193,20 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}{}{}",
             args.base_url,
             args.project,
             args.agent,
             args.route,
             args.intent,
+            args.workspace
+                .as_ref()
+                .map(|value| format!("MEMD_WORKSPACE={value}\n"))
+                .unwrap_or_default(),
+            args.visibility
+                .as_ref()
+                .map(|value| format!("MEMD_VISIBILITY={value}\n"))
+                .unwrap_or_default(),
             args.rag_url
                 .as_ref()
                 .map(|value| format!("MEMD_RAG_URL={value}\n"))
@@ -3150,12 +3218,20 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&args.project),
             escape_ps1(&args.agent),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
+            args.workspace
+                .as_ref()
+                .map(|value| format!("$env:MEMD_WORKSPACE = \"{}\"\n", escape_ps1(value)))
+                .unwrap_or_default(),
+            args.visibility
+                .as_ref()
+                .map(|value| format!("$env:MEMD_VISIBILITY = \"{}\"\n", escape_ps1(value)))
+                .unwrap_or_default(),
             args.rag_url
                 .as_ref()
                 .map(|value| format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(value)))
@@ -3183,7 +3259,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     let shell_profile = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd hook context --project \"$MEMD_PROJECT\" --agent \"$MEMD_AGENT\" --route \"$MEMD_ROUTE\" --intent \"$MEMD_INTENT\" \"$@\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd resume --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.sh"), shell_profile)
@@ -3191,7 +3267,7 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     set_executable_if_shell_script(&agents_dir.join("agent.sh"), "agent.sh")?;
 
     let ps1_profile = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT\n",
+        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd resume --output $env:MEMD_BUNDLE_ROOT\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
     fs::write(agents_dir.join("agent.ps1"), ps1_profile)
@@ -3249,6 +3325,7 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
 async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<serde_json::Value> {
     let client = MemdClient::new(base_url)?;
     let health = client.healthz().await.ok();
+    let runtime = read_bundle_runtime_config(output)?;
     let rag_config = read_bundle_rag_config(output)?;
     let rag = match rag_config {
         Some(config) if config.enabled => {
@@ -3309,6 +3386,15 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "env_ps1": output.join("env.ps1").exists(),
         "hooks": output.join("hooks").exists(),
         "agents": output.join("agents").exists(),
+        "defaults": runtime.as_ref().map(|config| serde_json::json!({
+            "project": config.project,
+            "agent": config.agent,
+            "base_url": config.base_url,
+            "route": config.route,
+            "intent": config.intent,
+            "workspace": config.workspace,
+            "visibility": config.visibility,
+        })),
         "server": health,
         "rag": rag.unwrap_or_else(|| serde_json::json!({
             "configured": false,
@@ -3331,20 +3417,149 @@ fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfi
     Ok(resolve_bundle_rag_config(config))
 }
 
+fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRuntimeConfig>> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    Ok(Some(BundleRuntimeConfig {
+        project: config.project,
+        agent: config.agent,
+        base_url: config.base_url,
+        route: config.route,
+        intent: config.intent,
+        workspace: config.workspace,
+        visibility: config.visibility,
+    }))
+}
+
+async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result<ResumeSnapshot> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let project = args
+        .project
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+    let agent = args
+        .agent
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()));
+    let workspace = args
+        .workspace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone()));
+    let visibility_raw = args
+        .visibility
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.visibility.clone()));
+    let route_raw = args
+        .route
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.route.clone()))
+        .unwrap_or_else(|| "auto".to_string());
+    let intent_raw = args
+        .intent
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.intent.clone()))
+        .unwrap_or_else(|| "general".to_string());
+    let base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+
+    let visibility = visibility_raw
+        .as_deref()
+        .map(parse_memory_visibility_value)
+        .transpose()?;
+    let route = parse_retrieval_route(Some(route_raw.clone()))?;
+    let intent = parse_retrieval_intent(Some(intent_raw.clone()))?;
+    let limit = args.limit.or(Some(8));
+    let rehydration_limit = args.rehydration_limit.or(Some(4));
+
+    let client = MemdClient::new(&base_url)?;
+    let context = client
+        .context_compact(&memd_schema::ContextRequest {
+            project: project.clone(),
+            agent: agent.clone(),
+            workspace: workspace.clone(),
+            visibility,
+            route,
+            intent,
+            limit,
+            max_chars_per_item: Some(220),
+        })
+        .await?;
+    let working = client
+        .working(&WorkingMemoryRequest {
+            project: project.clone(),
+            agent: agent.clone(),
+            workspace: workspace.clone(),
+            visibility,
+            route,
+            intent,
+            limit,
+            max_chars_per_item: Some(220),
+            max_total_chars: Some(1600),
+            rehydration_limit,
+            auto_consolidate: Some(false),
+        })
+        .await?;
+    let inbox = client
+        .inbox(&memd_schema::MemoryInboxRequest {
+            project: project.clone(),
+            namespace: None,
+            workspace: workspace.clone(),
+            visibility,
+            belief_branch: None,
+            route,
+            intent,
+            limit: Some(6),
+        })
+        .await?;
+    let workspaces = client
+        .workspace_memory(&memd_schema::WorkspaceMemoryRequest {
+            project: project.clone(),
+            namespace: None,
+            workspace: workspace.clone(),
+            visibility,
+            source_agent: None,
+            source_system: None,
+            limit: Some(6),
+        })
+        .await?;
+
+    Ok(ResumeSnapshot {
+        project,
+        agent,
+        workspace,
+        visibility: visibility_raw,
+        route: route_raw,
+        intent: intent_raw,
+        context,
+        working,
+        inbox,
+        workspaces,
+    })
+}
+
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
     let shell = shell.trim().to_ascii_lowercase();
     match shell.as_str() {
         "bash" | "zsh" | "sh" => Ok(format!(
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
 source "$MEMD_BUNDLE_ROOT/env"
-memd hook context --project "$MEMD_PROJECT" --agent "$MEMD_AGENT" --route "$MEMD_ROUTE" --intent "$MEMD_INTENT"
+memd resume --output "$MEMD_BUNDLE_ROOT"
 "#,
             bundle_path = bundle_path.display(),
         )),
         "powershell" | "pwsh" => Ok(format!(
             r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
 . (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
-memd hook context --project $env:MEMD_PROJECT --agent $env:MEMD_AGENT --route $env:MEMD_ROUTE --intent $env:MEMD_INTENT
+memd resume --output $env:MEMD_BUNDLE_ROOT
 "#,
             bundle_path = escape_ps1(&bundle_path.display().to_string()),
         )),
@@ -3402,6 +3617,8 @@ struct BundleConfig {
     base_url: String,
     route: String,
     intent: String,
+    workspace: Option<String>,
+    visibility: Option<String>,
     backend: BundleBackendConfig,
     hooks: BundleHooksConfig,
     rag_url: Option<String>,
@@ -3430,9 +3647,48 @@ struct BundleHooksConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 struct BundleConfigFile {
     #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    route: Option<String>,
+    #[serde(default)]
+    intent: Option<String>,
+    #[serde(default)]
+    workspace: Option<String>,
+    #[serde(default)]
+    visibility: Option<String>,
+    #[serde(default)]
     rag_url: Option<String>,
     #[serde(default)]
     backend: Option<BundleBackendConfigFile>,
+}
+
+#[derive(Debug, Clone)]
+struct BundleRuntimeConfig {
+    project: Option<String>,
+    agent: Option<String>,
+    base_url: Option<String>,
+    route: Option<String>,
+    intent: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ResumeSnapshot {
+    project: Option<String>,
+    agent: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    route: String,
+    intent: String,
+    context: memd_schema::CompactContextResponse,
+    working: memd_schema::WorkingMemoryResponse,
+    inbox: memd_schema::MemoryInboxResponse,
+    workspaces: memd_schema::WorkspaceMemoryResponse,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -3523,6 +3779,13 @@ mod tests {
     #[test]
     fn resolves_nested_bundle_rag_config() {
         let config = BundleConfigFile {
+            project: None,
+            agent: None,
+            base_url: None,
+            route: None,
+            intent: None,
+            workspace: None,
+            visibility: None,
             rag_url: None,
             backend: Some(BundleBackendConfigFile {
                 rag: Some(BundleRagConfigFile {
@@ -3542,6 +3805,13 @@ mod tests {
     #[test]
     fn resolves_legacy_bundle_rag_url() {
         let config = BundleConfigFile {
+            project: None,
+            agent: None,
+            base_url: None,
+            route: None,
+            intent: None,
+            workspace: None,
+            visibility: None,
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: None,
         };
@@ -3562,6 +3832,8 @@ mod tests {
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
             intent: "general".to_string(),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
                     enabled: true,
@@ -3583,6 +3855,8 @@ mod tests {
         assert_eq!(json["backend"]["rag"]["enabled"], true);
         assert_eq!(json["backend"]["rag"]["provider"], "lightrag-compatible");
         assert_eq!(json["backend"]["rag"]["url"], "http://127.0.0.1:9000");
+        assert_eq!(json["workspace"], "team-alpha");
+        assert_eq!(json["visibility"], "workspace");
         assert_eq!(json["rag_url"], "http://127.0.0.1:9000");
     }
 }
