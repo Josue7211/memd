@@ -1789,6 +1789,12 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
+            if let Some(mode) = request.coordination_mode.as_deref() {
+                let trimmed = mode.trim();
+                if !trimmed.is_empty() {
+                    task.coordination_mode = trimmed.to_string();
+                }
+            }
             if let Some(status) = request.status.as_deref() {
                 let trimmed = status.trim();
                 if !trimmed.is_empty() {
@@ -1833,6 +1839,13 @@ impl SqliteStore {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .unwrap_or("active")
+                    .to_string(),
+                coordination_mode: request
+                    .coordination_mode
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("exclusive_write")
                     .to_string(),
                 session: request.session.clone(),
                 agent: request.agent.clone(),

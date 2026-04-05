@@ -310,6 +310,7 @@ const tools = [
         title: { type: "string" },
         description: { type: "string" },
         status: { type: "string", default: "active" },
+        coordination_mode: { type: "string", default: "exclusive_write" },
         claim_scopes: {
           type: "array",
           items: { type: "string" },
@@ -615,6 +616,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         title: args.title,
         description: args.description ?? null,
         status: args.status ?? "active",
+        coordination_mode: args.coordination_mode ?? "exclusive_write",
         session: identity.session,
         agent: identity.agent,
         effective_agent: identity.effectiveAgent,
@@ -629,6 +631,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return textResult([
         `task=${task?.task_id ?? args.task_id}`,
         `status=${task?.status ?? (args.status ?? "active")}`,
+        `mode=${task?.coordination_mode ?? (args.coordination_mode ?? "exclusive_write")}`,
       ]);
     }
 

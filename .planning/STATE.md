@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` coordination policy and ownership guards on top of the recovery-capable coworking substrate.
+**Current focus:** Start `v5` branch and scope recommendations on top of the policy-aware coworking substrate.
 
 ## Current Status
 
@@ -46,14 +46,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - shared-task orchestration now exists across backend, CLI, and MCP surfaces
 - coordination inbox and task presence now exist as a compact coworking surface
 - stale-session recovery now exists across backend, CLI, and MCP surfaces
+- coordination policy and ownership guards now distinguish exclusive-write and collaborative lanes
 
 ## Open Loops
 
-- planning roadmap now needs phase 37 execution so ownership policy becomes explicit before overlap turns into conflict
+- planning roadmap now needs phase 38 execution so peer sessions get cleaner branch and scope guidance before overlap starts
 
 ## Next Command
 
-Execute phase 37 so sessions can distinguish exclusive ownership from collaborative work lanes before conflict occurs.
+Execute phase 38 so peer sessions can choose cleaner branch and scope boundaries before overlap starts.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

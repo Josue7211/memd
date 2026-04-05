@@ -74,7 +74,8 @@ real memory:
 - [x] Expand peer coordination from MCP primitives into richer shared-task orchestration.
 - [x] Add a compact coordination inbox that merges peer messages, task ownership, and session pressure.
 - [x] Add safe stale-session recovery so blocked coworking lanes can be reclaimed without ownership drift.
-- [ ] Add explicit coordination policy so exclusive-write and collaborative lanes are distinguishable before conflict.
+- [x] Add explicit coordination policy so exclusive-write and collaborative lanes are distinguishable before conflict.
+- [ ] Add advisory branch and scope recommendations so simultaneous sessions split work more cleanly.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.

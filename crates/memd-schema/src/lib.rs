@@ -611,6 +611,8 @@ pub struct PeerTaskRecord {
     pub title: String,
     pub description: Option<String>,
     pub status: String,
+    #[serde(default = "default_coordination_mode")]
+    pub coordination_mode: String,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -630,6 +632,7 @@ pub struct PeerTaskUpsertRequest {
     pub title: String,
     pub description: Option<String>,
     pub status: Option<String>,
+    pub coordination_mode: Option<String>,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -664,6 +667,10 @@ pub struct PeerTasksRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerTasksResponse {
     pub tasks: Vec<PeerTaskRecord>,
+}
+
+fn default_coordination_mode() -> String {
+    "exclusive_write".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

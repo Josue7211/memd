@@ -483,11 +483,24 @@ Success:
 - keep the first policy slice compatible with existing claims, tasks, inbox, and recovery flows
 - preserve explicit operator-visible ownership rules instead of hidden heuristics
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - simultaneous sessions can distinguish exclusive ownership from collaborative support lanes before conflict occurs
 
+#### Phase 38: `v5` Branch and Scope Recommendations
+
+- recommend cleaner branches and scopes for active shared tasks
+- derive suggestions from coordination modes, claims, and active ownership
+- keep the first slice advisory instead of mutating git state automatically
+- preserve explicit operator control over final work-boundary decisions
+
+Status: Planned
+
+Success:
+
+- simultaneous sessions can split work more cleanly before implementation overlap begins
+
 ---
-*Last updated: 2026-04-05 after shipping `v5` stale-session recovery*
+*Last updated: 2026-04-05 after shipping `v5` coordination policy guards*

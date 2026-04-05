@@ -1046,6 +1046,9 @@ struct TasksArgs {
     #[arg(long)]
     status: Option<String>,
 
+    #[arg(long)]
+    mode: Option<String>,
+
     #[arg(long, value_name = "SCOPE")]
     scope: Vec<String>,
 
@@ -4871,6 +4874,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
                 title: title.to_string(),
                 description: args.description.clone(),
                 status: args.status.clone(),
+                coordination_mode: args.mode.clone(),
                 session: current_session.clone(),
                 agent: current_agent.clone(),
                 effective_agent: current_effective_agent.clone(),
@@ -5009,6 +5013,11 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
                 } else {
                     "needs_review".to_string()
                 }),
+                coordination_mode: Some(if args.request_help {
+                    "help_only".to_string()
+                } else {
+                    "shared_review".to_string()
+                }),
                 session: current_session.clone(),
                 agent: current_agent.clone(),
                 effective_agent: current_effective_agent.clone(),
@@ -5095,9 +5104,10 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
     )];
     for task in &response.tasks {
         lines.push(format!(
-            "- {} [{}] owner={} scopes={} help={} review={} | {}",
+            "- {} [{}:{}] owner={} scopes={} help={} review={} | {}",
             task.task_id,
             task.status,
+            task.coordination_mode,
             task.effective_agent
                 .as_deref()
                 .or(task.session.as_deref())
@@ -5301,6 +5311,35 @@ async fn run_coordination_command(
         })
         .await?
         .tasks;
+    let policy_conflicts = tasks
+        .iter()
+        .filter(|task| task.coordination_mode == "exclusive_write")
+        .flat_map(|task| {
+            task.claim_scopes.iter().filter_map(|scope| {
+                claims
+                    .iter()
+                    .find(|claim| claim.scope == *scope)
+                    .and_then(|claim| {
+                        let claim_owner = claim.session.as_deref();
+                        let task_owner = task.session.as_deref();
+                        if claim_owner.is_some() && claim_owner != task_owner {
+                            Some(format!(
+                                "task {} requires exclusive_write but scope {} is held by {}",
+                                task.task_id,
+                                scope,
+                                claim
+                                    .effective_agent
+                                    .as_deref()
+                                    .or(claim.session.as_deref())
+                                    .unwrap_or("none")
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(CoordinationResponse {
         bundle_root: args.output.display().to_string(),
         current_session,
@@ -5328,12 +5367,13 @@ async fn run_coordination_command(
                 })
                 .collect(),
         },
+        policy_conflicts,
     })
 }
 
 fn render_coordination_summary(response: &CoordinationResponse) -> String {
     let mut lines = vec![format!(
-        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={}",
+        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={}",
         response.bundle_root,
         response.current_session,
         response.inbox.messages.len(),
@@ -5343,6 +5383,7 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
         response.recovery.stale_peers.len(),
         response.recovery.reclaimable_claims.len(),
         response.recovery.stalled_tasks.len(),
+        response.policy_conflicts.len(),
     )];
     for message in response.inbox.messages.iter().take(6) {
         lines.push(format!(
@@ -5416,6 +5457,9 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
                 .or(task.session.as_deref())
                 .unwrap_or("none")
         ));
+    }
+    for conflict in response.policy_conflicts.iter().take(6) {
+        lines.push(format!("- policy {}", compact_inline(conflict, 96)));
     }
     lines.join("\n")
 }
@@ -7715,6 +7759,7 @@ struct CoordinationResponse {
     current_session: String,
     inbox: PeerCoordinationInboxResponse,
     recovery: CoordinationRecoverySummary,
+    policy_conflicts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
