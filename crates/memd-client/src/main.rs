@@ -1398,6 +1398,26 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Remember(args) => {
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
+            let snapshot = read_bundle_resume(
+                &ResumeArgs {
+                    output: args.output.clone(),
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    agent: None,
+                    workspace: args.workspace.clone(),
+                    visibility: args.visibility.clone(),
+                    route: None,
+                    intent: Some("current_task".to_string()),
+                    limit: Some(8),
+                    rehydration_limit: Some(4),
+                    semantic: false,
+                    prompt: false,
+                    summary: false,
+                },
+                &base_url,
+            )
+            .await?;
+            write_bundle_memory_files(&args.output, &snapshot, None)?;
             print_json(&response)?;
         }
         Commands::Rag(args) => {
