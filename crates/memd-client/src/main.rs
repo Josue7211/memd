@@ -3739,11 +3739,12 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     copy_hook_assets(Path::new(&hook_root))?;
     write_agent_profiles(output)?;
     write_bundle_memory_placeholder(output, &config)?;
+    write_native_agent_bridge_files(output)?;
 
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/CLAUDE_IMPORTS.md`\n- `agents/CLAUDE.md.example`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle. For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3816,6 +3817,30 @@ fn write_bundle_memory_files(
 ) -> anyhow::Result<()> {
     let markdown = render_bundle_memory_markdown(snapshot, handoff);
     write_memory_markdown_files(output, &markdown)
+}
+
+fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
+    let agents_dir = output.join("agents");
+    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
+
+    let claude_imports = agents_dir.join("CLAUDE_IMPORTS.md");
+    fs::write(
+        &claude_imports,
+        format!(
+            "# memd imports for Claude Code\n\nUse this file as the single import target from your project `CLAUDE.md`.\n\nAdd this line to the root `CLAUDE.md` for the workspace:\n\n`@.memd/agents/CLAUDE_IMPORTS.md`\n\nThen run `/memory` inside Claude Code to verify the imported memd files are loaded.\n\n## Imported memd memory files\n\n@../MEMD_MEMORY.md\n@CLAUDE_CODE_MEMORY.md\n\n## Notes\n\n- `memd resume --output {bundle} --intent current_task` refreshes the hot short-term lane.\n- `memd checkpoint --output {bundle} --content \"...\"` writes short-term state back into the same lane.\n- `memd handoff --output {bundle} --prompt` refreshes the shared handoff view.\n- dream and autodream output should flow back through `memd`, then Claude should pick it up through this import chain.\n- keep `memd` as the source of truth; treat this Claude import surface as a generated bridge.\n",
+            bundle = output.display(),
+        ),
+    )
+    .with_context(|| format!("write {}", claude_imports.display()))?;
+
+    let claude_example = agents_dir.join("CLAUDE.md.example");
+    fs::write(
+        &claude_example,
+        "# Claude Code project memory\n\n@.memd/agents/CLAUDE_IMPORTS.md\n",
+    )
+    .with_context(|| format!("write {}", claude_example.display()))?;
+
+    Ok(())
 }
 
 fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
@@ -5061,6 +5086,7 @@ struct BundleAgentProfile {
     shell_entrypoint: String,
     powershell_entrypoint: String,
     launch_hint: String,
+    native_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5108,6 +5134,7 @@ fn build_bundle_agent_profiles(
             .display()
             .to_string(),
         launch_hint: String::new(),
+        native_hint: None,
     })
     .collect::<Vec<_>>();
 
@@ -5116,6 +5143,11 @@ fn build_bundle_agent_profiles(
             "powershell" | "pwsh" => format!(". \"{}\"", agent.powershell_entrypoint),
             _ => format!("\"{}\"", agent.shell_entrypoint),
         };
+        if agent.name == "claude-code" {
+            agent.native_hint = Some(format!(
+                "import @.memd/agents/CLAUDE_IMPORTS.md into CLAUDE.md, then verify with /memory"
+            ));
+        }
     }
 
     let selected = name.map(|value| value.trim().to_ascii_lowercase());
@@ -5155,6 +5187,9 @@ fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) 
             agent.memory_file,
             agent.launch_hint
         ));
+        if let Some(native_hint) = agent.native_hint.as_deref() {
+            output.push_str(&format!("  native {}\n", native_hint));
+        }
     }
     output.trim_end().to_string()
 }
@@ -5530,12 +5565,18 @@ mod tests {
         };
 
         write_bundle_memory_placeholder(&dir, &config).expect("write placeholder");
+        write_native_agent_bridge_files(&dir).expect("write native bridge");
 
         let markdown = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
         assert!(markdown.contains("memd resume --output"));
         assert!(markdown.contains("--semantic"));
         assert!(markdown.contains("fast local hot path"));
         assert!(markdown.contains("slower deep recall"));
+        let claude_imports =
+            fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md")).expect("read claude imports");
+        assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
+        assert!(claude_imports.contains("@CLAUDE_CODE_MEMORY.md"));
+        assert!(claude_imports.contains("/memory"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -5629,9 +5670,17 @@ mod tests {
         assert_eq!(response.selected.as_deref(), Some("claude-code"));
         assert_eq!(response.agents[0].name, "claude-code");
         assert!(response.agents[0].launch_hint.contains("claude-code.ps1"));
+        assert!(
+            response.agents[0]
+                .native_hint
+                .as_deref()
+                .unwrap_or_default()
+                .contains("CLAUDE_IMPORTS.md")
+        );
         let summary = render_bundle_agent_profiles_summary(&response);
         assert!(summary.contains("current=claude-code"));
         assert!(summary.contains("claude-code [active]"));
+        assert!(summary.contains("/memory"));
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 

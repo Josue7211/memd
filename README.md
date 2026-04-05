@@ -132,8 +132,18 @@ That also refreshes:
 - `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/CLAUDE_IMPORTS.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
+
+For Claude Code, import the generated bridge from your project `CLAUDE.md`:
+
+```md
+@.memd/agents/CLAUDE_IMPORTS.md
+```
+
+Then run `/memory` in Claude Code to confirm the memd files are loaded through
+Claude's native memory system.
 
 Persist a durable memory into the same bundle defaults:
 
@@ -191,6 +201,10 @@ Or ask the CLI for the exact bundle-backed entrypoints and memory files:
 cargo run -p memd-client --bin memd -- agent --output .memd --summary
 ```
 
+The Claude profile now also reports the native import hint so the bundle can be
+loaded through `CLAUDE.md` instead of treating memd as an unrelated markdown
+scratch file.
+
 Switch the active bundle agent and refresh the bundle memory files in one step:
 
 ```bash
@@ -237,6 +251,9 @@ cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-on-r
 
 Eval summaries and markdown snapshots now include concrete recommendations based
 on the live resume lane, not just raw findings.
+
+Dream and autodream should feed the same bundle-backed memory surfaces after
+consolidation so short-term, durable, and imported native memory stay aligned.
 
 That writes:
 

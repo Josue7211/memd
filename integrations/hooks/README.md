@@ -31,6 +31,7 @@ That also refreshes:
 - `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/CLAUDE_IMPORTS.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
 
@@ -53,6 +54,9 @@ Agent-specific bundle entrypoints are generated under `.memd/agents/`:
 - `claude-code.sh`
 - `openclaw.sh`
 - `opencode.sh`
+
+For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from project
+`CLAUDE.md` and verify it with `/memory`.
 
 ## Environment
 
