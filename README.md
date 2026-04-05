@@ -214,6 +214,9 @@ cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-belo
 cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-on-regression
 ```
 
+Eval summaries and markdown snapshots now include concrete recommendations based
+on the live resume lane, not just raw findings.
+
 That writes:
 
 - `.memd/evals/latest.json`

@@ -3831,6 +3831,15 @@ fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
         }
     }
 
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for recommendation in &response.recommendations {
+            markdown.push_str(&format!("- {}\n", recommendation));
+        }
+    }
+
     markdown
 }
 
@@ -4431,6 +4440,7 @@ async fn eval_bundle_memory(
         .as_ref()
         .map(|baseline| describe_eval_changes(baseline, score, &snapshot))
         .unwrap_or_default();
+    let recommendations = build_eval_recommendations(&snapshot, score);
 
     Ok(BundleEvalResponse {
         bundle_root: args.output.display().to_string(),
@@ -4458,6 +4468,7 @@ async fn eval_bundle_memory(
         baseline_score,
         score_delta,
         changes,
+        recommendations,
     })
 }
 
@@ -4563,6 +4574,58 @@ fn eval_failure_reason(
     }
 
     None
+}
+
+fn build_eval_recommendations(snapshot: &ResumeSnapshot, score: u8) -> Vec<String> {
+    let mut recommendations = Vec::new();
+
+    if snapshot.working.records.is_empty() {
+        recommendations.push(
+            "capture durable memory with `memd remember --output .memd ...` before relying on resume"
+                .to_string(),
+        );
+    }
+    if snapshot.context.records.is_empty() {
+        recommendations.push(
+            "review bundle route/intent defaults and verify compact context retrieval for the active lane"
+                .to_string(),
+        );
+    }
+    if snapshot.working.rehydration_queue.is_empty() {
+        recommendations.push(
+            "promote richer evidence or inspect key items with `memd explain --follow` so resume can rehydrate deeper context"
+                .to_string(),
+        );
+    }
+    if snapshot.workspace.is_some() && snapshot.workspaces.workspaces.is_empty() {
+        recommendations.push(
+            "repair workspace or visibility lanes so shared memory is visible to the active bundle"
+                .to_string(),
+        );
+    }
+    if snapshot.inbox.items.len() >= 6 {
+        recommendations.push(
+            "drain inbox pressure with repair or promotion passes before the next handoff or resume"
+                .to_string(),
+        );
+    }
+    if snapshot
+        .semantic
+        .as_ref()
+        .is_some_and(|semantic| semantic.items.is_empty())
+    {
+        recommendations.push(
+            "check the LightRAG index or sync path before depending on semantic fallback".to_string(),
+        );
+    }
+    if score < 85 {
+        recommendations.push(
+            "write a fresh baseline with `memd eval --output .memd --write --summary` after corrective changes"
+                .to_string(),
+        );
+    }
+
+    recommendations
 }
 
 async fn remember_with_bundle_defaults(
@@ -5004,6 +5067,7 @@ struct BundleEvalResponse {
     baseline_score: Option<u8>,
     score_delta: Option<i32>,
     changes: Vec<String>,
+    recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -5295,6 +5359,7 @@ mod tests {
             baseline_score: None,
             score_delta: None,
             changes: Vec::new(),
+            recommendations: Vec::new(),
         };
         let snapshot = ResumeSnapshot {
             project: Some("demo".to_string()),
@@ -5451,6 +5516,7 @@ mod tests {
             baseline_score: Some(70),
             score_delta: Some(-8),
             changes: vec!["score 70 -> 62".to_string()],
+            recommendations: vec!["capture durable memory".to_string()],
         };
 
         let reason = eval_failure_reason(&response, Some(70), false).expect("threshold failure");
@@ -5479,6 +5545,7 @@ mod tests {
             baseline_score: Some(83),
             score_delta: Some(-4),
             changes: vec!["score 83 -> 79".to_string()],
+            recommendations: vec!["write a fresh baseline".to_string()],
         };
 
         let reason = eval_failure_reason(&response, None, true).expect("regression failure");
@@ -5508,8 +5575,99 @@ mod tests {
             baseline_score: Some(89),
             score_delta: Some(2),
             changes: vec!["score 89 -> 91".to_string()],
+            recommendations: Vec::new(),
         };
 
         assert!(eval_failure_reason(&response, Some(80), true).is_none());
+    }
+
+    #[test]
+    fn build_eval_recommendations_surfaces_actionable_followups() {
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 0,
+                remaining_chars: 1600,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: vec![
+                    memd_schema::InboxMemoryItem {
+                        item: memd_schema::MemoryItem {
+                            id: uuid::Uuid::new_v4(),
+                            content: "one".to_string(),
+                            redundancy_key: None,
+                            belief_branch: None,
+                            preferred: true,
+                            kind: memd_schema::MemoryKind::Decision,
+                            scope: memd_schema::MemoryScope::Project,
+                            project: Some("demo".to_string()),
+                            namespace: Some("main".to_string()),
+                            workspace: Some("team-alpha".to_string()),
+                            visibility: memd_schema::MemoryVisibility::Workspace,
+                            source_agent: None,
+                            source_system: None,
+                            source_path: None,
+                            source_quality: None,
+                            confidence: 0.6,
+                            ttl_seconds: None,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                            last_verified_at: None,
+                            supersedes: Vec::new(),
+                            tags: Vec::new(),
+                            status: memd_schema::MemoryStatus::Active,
+                            stage: memd_schema::MemoryStage::Candidate,
+                        },
+                        reasons: Vec::new(),
+                    };
+                    6
+                ],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse { workspaces: Vec::new() },
+            semantic: Some(memd_rag::RagRetrieveResponse {
+                status: "ok".to_string(),
+                mode: memd_rag::RagRetrieveMode::Auto,
+                items: Vec::new(),
+            }),
+        };
+
+        let recommendations = build_eval_recommendations(&snapshot, 62);
+        assert!(recommendations.iter().any(|value| value.contains("memd remember")));
+        assert!(recommendations.iter().any(|value| value.contains("compact context")));
+        assert!(recommendations.iter().any(|value| value.contains("rehydrate deeper context")));
+        assert!(recommendations.iter().any(|value| value.contains("workspace or visibility")));
+        assert!(recommendations.iter().any(|value| value.contains("inbox pressure")));
+        assert!(recommendations.iter().any(|value| value.contains("LightRAG")));
+        assert!(recommendations.iter().any(|value| value.contains("write a fresh baseline")));
     }
 }

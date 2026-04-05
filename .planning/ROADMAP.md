@@ -242,5 +242,17 @@ Success:
 
 - `memd eval` can fail fast when memory quality drops below a required floor or regresses from baseline
 
+#### Phase 18: `v4` Evaluation Recommendations
+
+- turn raw evaluation findings into concrete corrective actions
+- keep recommendations tied to the real resume snapshot instead of generic advice
+- preserve a compact operator summary while adding richer markdown guidance in saved artifacts
+
+Status: Complete
+
+Success:
+
+- bundle evaluation tells operators what to do next, not only what is broken
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

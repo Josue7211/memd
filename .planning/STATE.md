@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation failure gates.
+**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation recommendations.
 
 ## Current Status
 
@@ -28,6 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - bundle evaluation snapshots can now be written for future comparison
 - bundle evaluation now compares against the latest baseline and reports drift
 - bundle evaluation can now fail on score thresholds or regressions for automation use
+- bundle evaluation now emits concrete corrective recommendations from live resume state
 
 ## Open Loops
 

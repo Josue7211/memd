@@ -817,6 +817,16 @@ pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> Strin
         output.push_str(&format!(" changes={}", changes.join(" | ")));
     }
 
+    if !response.recommendations.is_empty() {
+        let recommendations = response
+            .recommendations
+            .iter()
+            .take(2)
+            .map(|value| compact_inline(value, 44))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" next={}", recommendations.join(" | ")));
+    }
+
     output
 }
 
