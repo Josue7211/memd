@@ -43,6 +43,7 @@ use commands::{
 };
 use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
+    render_eval_summary,
     render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
     render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
     render_repair_summary, render_resume_prompt, render_source_summary, render_timeline_summary,
@@ -65,6 +66,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Eval(EvalArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
@@ -909,6 +911,24 @@ struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct EvalArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    rehydration_limit: Option<usize>,
+
+    #[arg(long)]
+    write: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct AttachArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1196,6 +1216,17 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
+        Commands::Eval(args) => {
+            let response = eval_bundle_memory(&args, &base_url).await?;
+            if args.write {
+                write_bundle_eval_artifacts(&args.output, &response)?;
+            }
+            if args.summary {
+                println!("{}", render_eval_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Agent(args) => {
             if args.apply {
                 let Some(name) = args.name.as_deref() else {
@@ -3720,6 +3751,63 @@ fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
     Ok(())
 }
 
+fn write_bundle_eval_artifacts(output: &Path, response: &BundleEvalResponse) -> anyhow::Result<()> {
+    let evals_dir = output.join("evals");
+    fs::create_dir_all(&evals_dir).with_context(|| format!("create {}", evals_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let json = serde_json::to_string_pretty(response)? + "\n";
+    let markdown = render_bundle_eval_markdown(response);
+
+    let latest_json = evals_dir.join("latest.json");
+    let latest_md = evals_dir.join("latest.md");
+    let timestamped_json = evals_dir.join(format!("{timestamp}.json"));
+    let timestamped_md = evals_dir.join(format!("{timestamp}.md"));
+
+    fs::write(&latest_json, &json).with_context(|| format!("write {}", latest_json.display()))?;
+    fs::write(&latest_md, &markdown).with_context(|| format!("write {}", latest_md.display()))?;
+    fs::write(&timestamped_json, &json)
+        .with_context(|| format!("write {}", timestamped_json.display()))?;
+    fs::write(&timestamped_md, &markdown)
+        .with_context(|| format!("write {}", timestamped_md.display()))?;
+
+    Ok(())
+}
+
+fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd bundle evaluation\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- status: {}\n- score: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n",
+        response.bundle_root,
+        response.status,
+        response.score,
+        response.agent.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("none"),
+    ));
+    markdown.push_str(&format!(
+        "- working_records: {}\n- context_records: {}\n- rehydration_items: {}\n- inbox_items: {}\n- workspace_lanes: {}\n- semantic_hits: {}\n",
+        response.working_records,
+        response.context_records,
+        response.rehydration_items,
+        response.inbox_items,
+        response.workspace_lanes,
+        response.semantic_hits,
+    ));
+
+    markdown.push_str("\n## Findings\n\n");
+    if response.findings.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for finding in &response.findings {
+            markdown.push_str(&format!("- {}\n", finding));
+        }
+    }
+
+    markdown
+}
+
 fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String {
     let mut script = format!(
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
@@ -4245,6 +4333,97 @@ async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Resu
     })
 }
 
+async fn eval_bundle_memory(
+    args: &EvalArgs,
+    base_url: &str,
+) -> anyhow::Result<BundleEvalResponse> {
+    let snapshot = read_bundle_resume(
+        &ResumeArgs {
+            output: args.output.clone(),
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: args.limit.or(Some(8)),
+            rehydration_limit: args.rehydration_limit.or(Some(4)),
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let mut score = 100i32;
+    let mut findings = Vec::new();
+
+    if snapshot.working.records.is_empty() {
+        score -= 30;
+        findings.push("no working memory records returned from bundle resume".to_string());
+    }
+    if snapshot.context.records.is_empty() {
+        score -= 15;
+        findings.push("no compact context records returned from bundle resume".to_string());
+    }
+    if snapshot.working.rehydration_queue.is_empty() {
+        score -= 10;
+        findings.push("rehydration queue is empty; deeper evidence recovery is weak".to_string());
+    }
+    if snapshot.workspace.is_some() && snapshot.workspaces.workspaces.is_empty() {
+        score -= 15;
+        findings.push("active workspace is set but no workspace lanes were returned".to_string());
+    }
+    if snapshot
+        .semantic
+        .as_ref()
+        .is_some_and(|semantic| semantic.items.is_empty())
+    {
+        score -= 5;
+        findings.push("semantic recall is configured but returned no items".to_string());
+    }
+    if snapshot.inbox.items.len() >= 6 {
+        score -= 10;
+        findings.push("inbox pressure is high; resume lane may need maintenance".to_string());
+    }
+
+    let score = score.clamp(0, 100) as u8;
+    let status = if score >= 85 {
+        "strong"
+    } else if score >= 65 {
+        "usable"
+    } else {
+        "weak"
+    };
+
+    Ok(BundleEvalResponse {
+        bundle_root: args.output.display().to_string(),
+        project: snapshot.project.clone(),
+        namespace: snapshot.namespace.clone(),
+        agent: snapshot
+            .agent
+            .clone()
+            .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone())),
+        workspace: snapshot.workspace.clone(),
+        visibility: snapshot.visibility.clone(),
+        status: status.to_string(),
+        score,
+        working_records: snapshot.working.records.len(),
+        context_records: snapshot.context.records.len(),
+        rehydration_items: snapshot.working.rehydration_queue.len(),
+        inbox_items: snapshot.inbox.items.len(),
+        workspace_lanes: snapshot.workspaces.workspaces.len(),
+        semantic_hits: snapshot
+            .semantic
+            .as_ref()
+            .map(|semantic| semantic.items.len())
+            .unwrap_or(0),
+        findings,
+    })
+}
+
 async fn remember_with_bundle_defaults(
     args: &RememberArgs,
     base_url: &str,
@@ -4662,6 +4841,25 @@ struct HandoffSnapshot {
     generated_at: DateTime<Utc>,
     resume: ResumeSnapshot,
     sources: memd_schema::SourceMemoryResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleEvalResponse {
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    status: String,
+    score: u8,
+    working_records: usize,
+    context_records: usize,
+    rehydration_items: usize,
+    inbox_items: usize,
+    workspace_lanes: usize,
+    semantic_hits: usize,
+    findings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -185,15 +185,38 @@ Success:
 - keep cross-workspace recall available, but demoted behind the active lane for resume and handoff flows
 - make the ranking behavior deterministic and explainable before any learned policy layer
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - shared-memory retrieval respects the active workspace instead of flattening all shared state together
 
-## Immediate Next Phase
+### Milestone 4: `v4` Self-Optimizing Memory
 
-Phase 13: `v3` Workspace-Aware Retrieval Priorities
+#### Phase 14: `v4` Memory Evaluation Foundations
+
+- add a first deterministic evaluation harness for the bundle-backed memory loop
+- score the actual resume path instead of relying on ad hoc operator intuition
+- surface weak working-memory, rehydration, workspace-lane, inbox, and semantic-fallback signals in one operator-facing report
+- keep the first evaluation slice cheap, local, and explainable before any adaptive policy tuning starts
+
+Status: Complete
+
+Success:
+
+- operators can evaluate bundle memory health from the same control plane that drives resume and handoff
+
+#### Phase 15: `v4` Evaluation Snapshot Persistence
+
+- let evaluation output persist as bundle artifacts instead of only terminal text
+- write latest and timestamped evaluation snapshots under the bundle for future comparison
+- keep the first persistence slice simple and local before adding automatic regression diffs
+
+Status: Complete
+
+Success:
+
+- bundle memory quality can be recorded over time instead of only observed once
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

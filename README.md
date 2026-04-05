@@ -195,6 +195,24 @@ Check bundle health:
 cargo run -p memd-client --bin memd -- status --output .memd
 ```
 
+Evaluate the quality of the current bundle-backed memory lane:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --summary
+```
+
+Persist the evaluation as bundle artifacts for later comparison:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --write --summary
+```
+
+That writes:
+
+- `.memd/evals/latest.json`
+- `.memd/evals/latest.md`
+- timestamped snapshots under `.memd/evals/`
+
 When the server is reachable, `status` also includes a lightweight resume
 preview so you can see whether the default memory lane is actually returning
 working records, inbox items, workspace lanes, and semantic hit count.

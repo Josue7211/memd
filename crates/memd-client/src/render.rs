@@ -774,6 +774,34 @@ pub(crate) fn render_maintenance_report_summary(
     output
 }
 
+pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> String {
+    let mut output = format!(
+        "eval status={} score={} agent={} workspace={} working={} context={} rehydration={} inbox={} lanes={} semantic={}",
+        response.status,
+        response.score,
+        response.agent.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.working_records,
+        response.context_records,
+        response.rehydration_items,
+        response.inbox_items,
+        response.workspace_lanes,
+        response.semantic_hits
+    );
+
+    if !response.findings.is_empty() {
+        let findings = response
+            .findings
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 56))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" findings={}", findings.join(" | ")));
+    }
+
+    output
+}
+
 pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: bool) -> String {
     let mut output = format!(
         "repair mode={} item={} status={} confidence={:.2} reasons={}",

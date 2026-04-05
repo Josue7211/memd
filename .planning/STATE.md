@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 13 `v3` Workspace-Aware Retrieval Priorities.
+**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation snapshot persistence.
 
 ## Current Status
 
@@ -21,14 +21,19 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - `v2` retrieval feedback is in place with durable retrieval events and compact explain counters
 - `v2` trust-weighted ranking is in place across search and working memory
 - `v2` contradiction resolution is in place with preferred branch state
+- `v2` reversible compression and rehydration are closed in the planning record
+- `v2` Obsidian compiled evidence workspace is closed in the planning record
+- `v3` workspace-aware retrieval priorities are closed in the planning record
+- the first `v4` memory evaluation harness is in place for bundle-backed resume quality
+- bundle evaluation snapshots can now be written for future comparison
 
 ## Open Loops
 
-- phase 13 workspace-aware retrieval priorities are ready on top of shared handoff and lane correction work
+- planning roadmap needs the next `v4` phase queued from the strategic roadmap
 
 ## Next Command
 
-Run `gsd-execute-phase 13`.
+Queue the next `v4` self-optimizing memory phase, then continue execution.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*
