@@ -126,6 +126,12 @@ struct RepairArgs {
     status: Option<String>,
 
     #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
     source_agent: Option<String>,
 
     #[arg(long)]
@@ -1346,6 +1352,12 @@ async fn main() -> anyhow::Result<()> {
                     mode,
                     confidence: args.confidence,
                     status,
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
                     source_agent: args.source_agent.clone(),
                     source_system: args.source_system.clone(),
                     source_path: args.source_path.clone(),

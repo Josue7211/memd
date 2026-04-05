@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 11 `v3` Workspace Handoff Bundles.
+**Current focus:** Phase 13 `v3` Workspace-Aware Retrieval Priorities.
 
 ## Current Status
 
@@ -24,11 +24,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 ## Open Loops
 
-- phase 11 workspace handoff bundles are ready to implement on top of shared workspace lanes
+- phase 13 workspace-aware retrieval priorities are ready on top of shared handoff and lane correction work
 
 ## Next Command
 
-Run `gsd-execute-phase 11`.
+Run `gsd-execute-phase 13`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

@@ -39,7 +39,9 @@ evidence, and inspect its own working memory across sessions.
 - [x] Add reversible compression and evidence rehydration.
 - [x] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
 - [x] Establish shared workspace and visibility lanes for `v3`.
-- [ ] Add resumable workspace handoff bundles for shared memory.
+- [x] Add resumable workspace handoff bundles for shared memory.
+- [x] Add audited workspace and visibility lane correction support.
+- [ ] Prefer active workspace lanes during shared-memory retrieval.
 
 ### Out of Scope
 
@@ -66,9 +68,9 @@ The product direction now explicitly includes an Obsidian compiled-wiki mode:
 raw sources and derived markdown pages can live in the same workspace, with
 `memd` preserving typed memory, provenance, and policy around that markdown
 surface. Compiled memory/evidence pages are now a first-class Obsidian lane.
-Workspace handoff pages are the next step so shared memory can be resumed
-inside both the CLI and the vault. LightRAG stays optional for larger-scale
-semantic recall.
+Workspace handoff pages and lane-correction repair are now in place so shared
+memory can be resumed and corrected inside both the CLI and the vault.
+LightRAG stays optional for larger-scale semantic recall.
 
 ## Constraints
 
@@ -90,4 +92,4 @@ semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-04 after GSD phase 11 kickoff*
+*Last updated: 2026-04-04 after GSD phase 12 completion*

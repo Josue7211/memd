@@ -161,15 +161,39 @@ Success:
 - add a shared handoff surface that can be emitted as both CLI output and compiled Obsidian pages
 - keep handoff retrieval bounded so delegation does not become a transcript dump
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - shared work can be resumed from a compact handoff bundle instead of rebuilding state from scratch
 
+#### Phase 12: `v3` Workspace Policy Corrections
+
+- let operators correct workspace and visibility lanes through the audited repair path
+- keep shared-lane corrections explicit instead of relying on raw re-store operations
+- preserve reasons and lifecycle events when memory moves between private and shared lanes
+
+Status: Complete
+
+Success:
+
+- workspace and visibility mistakes can be fixed without bypassing the normal memory audit trail
+
+#### Phase 13: `v3` Workspace-Aware Retrieval Priorities
+
+- prefer the active workspace lane before unrelated shared memory when retrieval has no explicit override
+- keep cross-workspace recall available, but demoted behind the active lane for resume and handoff flows
+- make the ranking behavior deterministic and explainable before any learned policy layer
+
+Status: Ready
+
+Success:
+
+- shared-memory retrieval respects the active workspace instead of flattening all shared state together
+
 ## Immediate Next Phase
 
-Phase 11: `v3` Workspace Handoff Bundles
+Phase 13: `v3` Workspace-Aware Retrieval Priorities
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

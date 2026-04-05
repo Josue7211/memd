@@ -88,6 +88,7 @@ Rules:
 - supports `verify`, `expire`, `supersede`, `contest`, and `correct_metadata`
 - supports `prefer_branch` to mark one belief branch as the current preferred contradiction lane
 - keeps the lifecycle explicit and auditable
+- can update workspace and visibility lanes through the same audited repair path
 - can update source metadata, tags, confidence, and supersede links when needed
 - returns the repaired item and the reasons the action was applied
 

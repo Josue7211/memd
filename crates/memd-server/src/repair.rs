@@ -44,6 +44,8 @@ pub(crate) fn verify_item(
             mode: MemoryRepairMode::Verify,
             confidence: req.confidence,
             status: req.status,
+            workspace: None,
+            visibility: None,
             source_agent: None,
             source_system: None,
             source_path: None,
@@ -152,6 +154,19 @@ pub(crate) fn repair_item(
             "preferred_branch"
         }
         MemoryRepairMode::CorrectMetadata => {
+            if let Some(workspace) = req.workspace {
+                let workspace = workspace.trim().to_string();
+                item.workspace = if workspace.is_empty() {
+                    None
+                } else {
+                    Some(workspace)
+                };
+                reasons.push("workspace_updated".to_string());
+            }
+            if let Some(visibility) = req.visibility {
+                item.visibility = visibility;
+                reasons.push("visibility_updated".to_string());
+            }
             if let Some(source_agent) = req.source_agent {
                 item.source_agent = Some(source_agent);
                 reasons.push("source_agent_updated".to_string());
