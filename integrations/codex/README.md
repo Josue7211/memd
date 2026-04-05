@@ -2,6 +2,17 @@
 
 Codex should use the same `memd` surface as every other agent.
 
+Because Codex does not have a built-in durable `memory.md` surface here,
+`memd` now maintains bundle-local markdown memory files for it:
+
+- `.memd/MEMORY.md`
+- `.memd/agents/CODEX_MEMORY.md`
+
+Those files are refreshed by:
+
+- `memd resume --output .memd`
+- `memd handoff --output .memd`
+
 Recommended flow:
 
 1. fetch compact context at task start
@@ -16,6 +27,18 @@ If you want a shell-level integration, reuse the shared hook kit in
 
 ```bash
 memd context --project <project> --agent codex --compact
+```
+
+## Read The Bundle Memory File
+
+```bash
+cat .memd/MEMORY.md
+```
+
+Or use the Codex-specific copy:
+
+```bash
+cat .memd/agents/CODEX_MEMORY.md
 ```
 
 ## Hook Context

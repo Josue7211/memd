@@ -26,10 +26,22 @@ Resume the default memory snapshot from the bundle:
 memd resume --output .memd
 ```
 
+That also refreshes:
+
+- `.memd/MEMORY.md`
+- `.memd/agents/CODEX_MEMORY.md`
+
 Persist a memory into the same bundle lane:
 
 ```bash
 memd remember --output .memd --kind decision --content "Store the outcome worth keeping."
+```
+
+Emit a shared handoff and refresh the same markdown memory files with shared
+lane/source information:
+
+```bash
+memd handoff --output .memd
 ```
 
 ## Environment

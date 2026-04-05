@@ -1184,6 +1184,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Resume(args) => {
             let snapshot = read_bundle_resume(&args, &base_url).await?;
+            write_bundle_memory_files(&args.output, &snapshot, None)?;
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else if args.summary {
@@ -1205,6 +1206,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Handoff(args) => {
             let snapshot = read_bundle_handoff(&args, &base_url).await?;
+            write_bundle_memory_files(&args.output, &snapshot.resume, Some(&snapshot))?;
             if args.prompt {
                 println!("{}", render_handoff_prompt(&snapshot));
             } else if args.summary {
@@ -3467,12 +3469,14 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let hook_root = output.join("hooks");
     copy_hook_assets(Path::new(&hook_root))?;
     write_agent_profiles(output)?;
+    write_bundle_memory_placeholder(output, &config)?;
 
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly.\n",
-            project = args.project
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` to refresh the markdown memory files for Codex and other agents.\n",
+            project = args.project,
+            bundle = output.display(),
         ),
     )
     .with_context(|| format!("write {}", output.join("README.md").display()))?;
@@ -3498,6 +3502,147 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("write {}", agents_dir.join("agent.ps1").display()))?;
 
     Ok(())
+}
+
+fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyhow::Result<()> {
+    let mut markdown = String::new();
+    markdown.push_str("# memd memory\n\n");
+    markdown.push_str("This file is maintained by `memd` for agents that do not have built-in durable memory.\n\n");
+    markdown.push_str("Refresh it with:\n\n");
+    markdown.push_str(&format!(
+        "- `memd resume --output {}`\n- `memd handoff --output {}`\n\n",
+        output.display(),
+        output.display()
+    ));
+    markdown.push_str("## Bundle Defaults\n\n");
+    markdown.push_str(&format!(
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        config.project,
+        config.namespace.as_deref().unwrap_or("none"),
+        config.agent,
+        config.workspace.as_deref().unwrap_or("none"),
+        config.visibility.as_deref().unwrap_or("all"),
+        config.route,
+        config.intent,
+    ));
+    markdown.push_str("\n## Notes\n\n");
+    markdown.push_str("- `resume` keeps the active working memory fresh.\n");
+    markdown.push_str("- `handoff` adds shared workspace, source-lane, and delegation state.\n");
+    markdown.push_str("- future dream/consolidation output should flow back into this same memory surface.\n");
+    write_memory_markdown_files(output, &markdown)
+}
+
+fn write_bundle_memory_files(
+    output: &Path,
+    snapshot: &ResumeSnapshot,
+    handoff: Option<&HandoffSnapshot>,
+) -> anyhow::Result<()> {
+    let markdown = render_bundle_memory_markdown(snapshot, handoff);
+    write_memory_markdown_files(output, &markdown)
+}
+
+fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
+    let root_memory = output.join("MEMORY.md");
+    fs::write(&root_memory, markdown).with_context(|| format!("write {}", root_memory.display()))?;
+
+    let codex_memory = output.join("agents").join("CODEX_MEMORY.md");
+    if let Some(parent) = codex_memory.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&codex_memory, markdown)
+        .with_context(|| format!("write {}", codex_memory.display()))?;
+    Ok(())
+}
+
+fn render_bundle_memory_markdown(
+    snapshot: &ResumeSnapshot,
+    handoff: Option<&HandoffSnapshot>,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd memory\n\n");
+    markdown.push_str(&format!(
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        snapshot.route,
+        snapshot.intent,
+    ));
+
+    markdown.push_str("\n## Working Memory\n\n");
+    if snapshot.working.records.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for record in snapshot.working.records.iter().take(10) {
+            markdown.push_str("- ");
+            markdown.push_str(record.record.trim());
+            markdown.push('\n');
+        }
+    }
+
+    if !snapshot.working.rehydration_queue.is_empty() {
+        markdown.push_str("\n## Rehydration Queue\n\n");
+        for artifact in snapshot.working.rehydration_queue.iter().take(6) {
+            markdown.push_str(&format!("- {}: {}\n", artifact.label, artifact.summary.trim()));
+        }
+    }
+
+    if !snapshot.inbox.items.is_empty() {
+        markdown.push_str("\n## Inbox\n\n");
+        for item in snapshot.inbox.items.iter().take(6) {
+            markdown.push_str(&format!(
+                "- {:?} {:?}: {}\n",
+                item.item.kind,
+                item.item.status,
+                item.item.content.trim()
+            ));
+            if !item.reasons.is_empty() {
+                markdown.push_str(&format!("  - reasons: {}\n", item.reasons.join(", ")));
+            }
+        }
+    }
+
+    if !snapshot.workspaces.workspaces.is_empty() {
+        markdown.push_str("\n## Workspace Lanes\n\n");
+        for workspace in snapshot.workspaces.workspaces.iter().take(6) {
+            markdown.push_str(&format!(
+                "- {} / {} / {} | visibility {} | items {} | trust {:.2}\n",
+                workspace.project.as_deref().unwrap_or("none"),
+                workspace.namespace.as_deref().unwrap_or("none"),
+                workspace.workspace.as_deref().unwrap_or("none"),
+                memory_visibility_label(workspace.visibility),
+                workspace.item_count,
+                workspace.trust_score
+            ));
+        }
+    }
+
+    if let Some(handoff) = handoff {
+        markdown.push_str("\n## Source Lanes\n\n");
+        if handoff.sources.sources.is_empty() {
+            markdown.push_str("- none\n");
+        } else {
+            for source in handoff.sources.sources.iter().take(6) {
+                markdown.push_str(&format!(
+                    "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
+                    source.source_agent.as_deref().unwrap_or("none"),
+                    source.source_system.as_deref().unwrap_or("none"),
+                    source.workspace.as_deref().unwrap_or("none"),
+                    memory_visibility_label(source.visibility),
+                    source.item_count,
+                    source.trust_score,
+                    source.avg_confidence
+                ));
+            }
+        }
+        markdown.push_str("\n## Handoff Notes\n\n");
+        markdown.push_str("- this file was refreshed from a shared handoff bundle\n");
+        markdown.push_str("- dream/consolidation output should feed this same file so durable memory and distilled memory stay aligned\n");
+    }
+
+    markdown
 }
 
 fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Result<()> {
@@ -4181,6 +4326,14 @@ fn escape_ps1(value: &str) -> String {
 
 fn compact_bundle_value(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn memory_visibility_label(value: memd_schema::MemoryVisibility) -> &'static str {
+    match value {
+        memd_schema::MemoryVisibility::Private => "private",
+        memd_schema::MemoryVisibility::Workspace => "workspace",
+        memd_schema::MemoryVisibility::Public => "public",
+    }
 }
 
 fn set_executable_if_shell_script(path: &Path, file_name: &str) -> anyhow::Result<()> {

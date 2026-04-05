@@ -14,6 +14,7 @@ The shortest default loop is:
 - `memd resume --output .memd`
 - `memd remember --output .memd --kind <kind> --content <text>`
 - `memd handoff --output .memd --prompt`
+- read `.memd/MEMORY.md` or `.memd/agents/CODEX_MEMORY.md`
 
 Supported platforms:
 
@@ -110,6 +111,11 @@ Resume the default memory snapshot from that bundle:
 ```bash
 cargo run -p memd-client --bin memd -- resume --output .memd
 ```
+
+That also refreshes:
+
+- `.memd/MEMORY.md`
+- `.memd/agents/CODEX_MEMORY.md`
 
 Persist a durable memory into the same bundle defaults:
 
