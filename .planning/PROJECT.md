@@ -26,6 +26,7 @@ real memory:
 - inspectable memory
 - measured self-improvement
 - harness-aware portable learning
+- native dream/autodream lifecycle
 
 ## Requirements
 
@@ -87,6 +88,7 @@ real memory:
 - [x] Add coordination action surfaces so richer operator tools can act on bounded coordination signals through the same model.
 - [ ] Add policy-aware coordination action suggestions so richer operator tools can see the best bounded next move under current pressure.
 - [ ] Add a measured research loop that can detect memory and coordination gaps on its own.
+- [ ] Move dream, autodream, and autoresearch into native `memd` subsystems instead of leaving them as wrapper-only skills.
 - [ ] Add scenario harnesses for real memory workflows so self-improvement has stable targets.
 - [ ] Add a composite scorer for correctness, memory quality, coordination quality, latency, and bloat.
 - [ ] Add a bounded experiment runner that accepts only winning changes and discards regressions.
@@ -160,6 +162,7 @@ The product direction is now explicit:
 - the eventual UX should make memory inspectable enough to trust
 - autoresearch should find quality gaps, run bounded experiments, and only keep measured wins
 - autodream should consolidate accepted autoresearch outputs into durable memory instead of mixing wins with discarded experiments
+- dream, autodream, and autoresearch should live in the `memd` lifecycle, with skills and wrappers acting only as entrypoints
 - promoted learning should live in the substrate, but each abstraction must be marked portable, harness-native, or adapter-required so harness-specific capabilities stay honest
 
 ## Constraints

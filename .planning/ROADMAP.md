@@ -621,6 +621,19 @@ Success:
 
 - `memd` can identify its own highest-value quality gaps from live project evidence instead of relying only on manual triage
 
+#### Phase 47.1: `v6` Native Dream and Autodream Foundations
+
+- move dream and autodream from wrapper-only behavior into native `memd` lifecycle concepts
+- add first-class consolidation queues, accepted-signal intake, and durable promotion handoff points
+- keep the first slice focused on subsystem boundaries and data flow, not UI polish
+- preserve compatibility with skills, CLI, MCP, and future app surfaces as thin entrypoints
+
+Status: Planned
+
+Success:
+
+- dream and autodream become native `memd` capabilities instead of external-only orchestration
+
 #### Phase 48: `v6` Scenario Harness for Memory and Coordination
 
 - add stable scenario benches for resume, handoff, workspace retrieval, stale-session recovery, and coworking flows

@@ -302,12 +302,18 @@ Success:
 Goal:
 
 - make the memory system improve its own policies from evidence and outcomes
+- make dream, autodream, and autoresearch native parts of the memory lifecycle rather than external wrappers
 
 Deliver:
 
 - evaluation harnesses for routing, retrieval, promotion, and repair quality
 - adaptive policy tuning from usage feedback
 - automatic rehearsal, decay, and consolidation scheduling
+- native dream and autodream subsystems for:
+  - consolidation queue management
+  - promotion candidate handling
+  - pruning and decay
+  - accepted-research intake
 - budget enforcement for token and storage growth
 - A/B routing for competing memory strategies
 - regression detection for memory quality, not just system health
@@ -340,6 +346,7 @@ Success:
 - the system can self-correct under load and over time
 - repeated work gets cheaper because the system learns and promotes the right abstractions
 - the memory loop feels alive: capture, resume, inspect, consolidate, repeat
+- dream/autodream/autoresearch live inside `memd`, with skills, CLI, MCP, and UI acting as surfaces over the same subsystem
 
 ### v5: Memory-Native Cognition Infrastructure
 
