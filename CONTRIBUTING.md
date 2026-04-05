@@ -59,7 +59,12 @@ Useful commands while developing:
 cargo run -p memd-server
 cargo run -p memd-client --bin memd -- healthz
 cargo run -p memd-client --bin memd -- status --output .memd
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
 ```
+
+When working on bundle setup or agent integration, use `status --output .memd`
+first. It now reports `setup_ready` and any missing bundle files so setup issues
+are visible before deeper debugging.
 
 ## Local Workflow
 
@@ -135,6 +140,10 @@ Update docs when you change:
 Relevant docs usually live under `docs/`, but roadmap and maintainer workflow
 changes may also require updates to `README.md`, `CHANGELOG.md`, and
 `.planning/` artifacts.
+
+If you change bundle bootstrap, Obsidian workflow, or token-efficiency behavior,
+also update the release-facing quickstart text so new users can discover the
+current happy path without reading source.
 
 ## Infra Claims
 

@@ -36,11 +36,20 @@ Before tagging a release:
 
 1. verify the intended milestone branch is coherent
 2. ensure public docs match shipped behavior
-3. update `CHANGELOG.md`
-4. confirm CI is green
-5. merge the release-ready state to `main`
-6. create and push the release tag
-7. only then announce the release
+3. verify bundle bootstrap still works from the README quickstart:
+   - `memd init`
+   - `memd status --output .memd`
+   - one agent launch surface
+4. verify user-facing status/setup signals are accurate:
+   - `setup_ready`
+   - `missing`
+   - backend reachability
+   - resume preview for the hot lane
+5. update `CHANGELOG.md`
+6. confirm CI is green
+7. merge the release-ready state to `main`
+8. create and push the release tag
+9. only then announce the release
 
 ## Review Expectations
 
