@@ -69,6 +69,7 @@ enum Commands {
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
     Claims(ClaimsArgs),
+    Messages(MessagesArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -973,6 +974,33 @@ struct ClaimsArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct MessagesArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    send: bool,
+
+    #[arg(long)]
+    inbox: bool,
+
+    #[arg(long)]
+    ack: Option<String>,
+
+    #[arg(long)]
+    target_session: Option<String>,
+
+    #[arg(long)]
+    kind: Option<String>,
+
+    #[arg(long)]
+    content: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1383,6 +1411,14 @@ async fn main() -> anyhow::Result<()> {
             let response = run_claims_command(&args)?;
             if args.summary {
                 println!("{}", render_claims_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Messages(args) => {
+            let response = run_messages_command(&args)?;
+            if args.summary {
+                println!("{}", render_messages_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -4057,6 +4093,10 @@ fn bundle_claims_state_path(output: &Path) -> PathBuf {
     output.join("state").join("claims.json")
 }
 
+fn bundle_messages_state_path(output: &Path) -> PathBuf {
+    output.join("state").join("messages.json")
+}
+
 fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
     let path = bundle_resume_state_path(output);
     if !path.exists() {
@@ -4116,6 +4156,27 @@ fn write_bundle_claims(output: &Path, state: &SessionClaimsState) -> anyhow::Res
 fn prune_expired_claims(state: &mut SessionClaimsState) {
     let now = Utc::now();
     state.claims.retain(|claim| claim.expires_at > now);
+}
+
+fn read_bundle_messages(output: &Path) -> anyhow::Result<SessionMessagesState> {
+    let path = bundle_messages_state_path(output);
+    if !path.exists() {
+        return Ok(SessionMessagesState::default());
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state = serde_json::from_str::<SessionMessagesState>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(state)
+}
+
+fn write_bundle_messages(output: &Path, state: &SessionMessagesState) -> anyhow::Result<()> {
+    let path = bundle_messages_state_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
 }
 
 fn detect_host_name() -> Option<String> {
@@ -4344,6 +4405,99 @@ fn render_claims_summary(response: &ClaimsResponse) -> String {
                 .unwrap_or("none"),
             claim.workspace.as_deref().unwrap_or("none"),
             claim.expires_at.to_rfc3339(),
+        ));
+    }
+    lines.join("\n")
+}
+
+fn run_messages_command(args: &MessagesArgs) -> anyhow::Result<MessagesResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let current_session = runtime.as_ref().and_then(|config| config.session.clone());
+    let mut state = read_bundle_messages(&args.output)?;
+
+    if args.send {
+        let target_session = args
+            .target_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("messages --send requires --target-session")?;
+        let content = args
+            .content
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("messages --send requires --content")?;
+        state.messages.push(SessionMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: args
+                .kind
+                .clone()
+                .unwrap_or_else(|| "handoff".to_string()),
+            from_session: current_session.clone(),
+            from_agent: runtime.as_ref().and_then(|config| {
+                config
+                    .agent
+                    .as_deref()
+                    .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+            }),
+            to_session: target_session.to_string(),
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            content: content.to_string(),
+            created_at: Utc::now(),
+            acknowledged_at: None,
+        });
+        write_bundle_messages(&args.output, &state)?;
+    }
+
+    if let Some(ack) = args.ack.as_deref() {
+        for message in &mut state.messages {
+            if message.id == ack && message.to_session == current_session.clone().unwrap_or_default() {
+                message.acknowledged_at = Some(Utc::now());
+            }
+        }
+        write_bundle_messages(&args.output, &state)?;
+    }
+
+    let messages = if args.inbox || !args.send {
+        state.messages
+            .into_iter()
+            .filter(|message| {
+                if let Some(current_session) = current_session.as_deref() {
+                    message.to_session == current_session
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>()
+    } else {
+        state.messages
+    };
+
+    Ok(MessagesResponse {
+        bundle_root: args.output.display().to_string(),
+        current_session,
+        messages,
+    })
+}
+
+fn render_messages_summary(response: &MessagesResponse) -> String {
+    let mut lines = vec![format!(
+        "messages bundle={} current_session={} count={}",
+        response.bundle_root,
+        response.current_session.as_deref().unwrap_or("none"),
+        response.messages.len()
+    )];
+    for message in &response.messages {
+        lines.push(format!(
+            "- {} [{}] {} -> {} | acked={} | {}",
+            &message.id[..8.min(message.id.len())],
+            message.kind,
+            message.from_agent.as_deref().unwrap_or("unknown"),
+            message.to_session,
+            if message.acknowledged_at.is_some() { "yes" } else { "no" },
+            compact_inline(&message.content, 80)
         ));
     }
     lines.join("\n")
@@ -6549,6 +6703,32 @@ struct ClaimsResponse {
     claims: Vec<SessionClaim>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionMessage {
+    id: String,
+    kind: String,
+    from_session: Option<String>,
+    from_agent: Option<String>,
+    to_session: String,
+    project: Option<String>,
+    workspace: Option<String>,
+    content: String,
+    created_at: DateTime<Utc>,
+    acknowledged_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct SessionMessagesState {
+    messages: Vec<SessionMessage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MessagesResponse {
+    bundle_root: String,
+    current_session: Option<String>,
+    messages: Vec<SessionMessage>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BundleBackendConfigFile {
     #[serde(default)]
@@ -7563,6 +7743,84 @@ mod tests {
         assert!(released.claims.is_empty());
 
         fs::remove_dir_all(dir).expect("cleanup claims dir");
+    }
+
+    #[test]
+    fn messages_send_and_ack_for_target_session() {
+        let dir = std::env::temp_dir().join(format!("memd-messages-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create messages dir");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+
+        let sent = run_messages_command(&MessagesArgs {
+            output: dir.clone(),
+            send: true,
+            inbox: false,
+            ack: None,
+            target_session: Some("claude-b".to_string()),
+            kind: Some("handoff".to_string()),
+            content: Some("Pick up the parser refactor".to_string()),
+            summary: false,
+        })
+        .expect("send message");
+        assert_eq!(sent.messages.len(), 1);
+        assert_eq!(sent.messages[0].to_session, "claude-b");
+
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "base_url": "http://127.0.0.1:9797",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("rewrite config");
+
+        let inbox = run_messages_command(&MessagesArgs {
+            output: dir.clone(),
+            send: false,
+            inbox: true,
+            ack: None,
+            target_session: None,
+            kind: None,
+            content: None,
+            summary: false,
+        })
+        .expect("read inbox");
+        assert_eq!(inbox.messages.len(), 1);
+        let message_id = inbox.messages[0].id.clone();
+
+        let acked = run_messages_command(&MessagesArgs {
+            output: dir.clone(),
+            send: false,
+            inbox: true,
+            ack: Some(message_id),
+            target_session: None,
+            kind: None,
+            content: None,
+            summary: false,
+        })
+        .expect("ack message");
+        assert!(acked.messages[0].acknowledged_at.is_some());
+
+        fs::remove_dir_all(dir).expect("cleanup messages dir");
     }
 
     #[test]
