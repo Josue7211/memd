@@ -53,6 +53,25 @@ Reviewers should check:
 - whether the branch should have been split further
 - whether the change weakens provenance, retrieval compactness, or control-plane boundaries
 
+## Infra Verification Policy
+
+Infrastructure claims are evidence-bound.
+
+Maintainers should not state or approve claims about:
+
+- tunnels
+- DNS
+- domains or subdomains
+- public accessibility
+- LAN or Tailscale reachability
+- VM ownership or service location
+
+unless they were verified locally first. Use [Infrastructure Facts](./infra-facts.md)
+as the repo truth source for environment-specific facts.
+
+If a fact was not checked, call it `unverified`. Do not let review comments,
+docs, or assistant output invent URLs or accessibility claims from context.
+
 ## Release Policy
 
 1. land verified scoped work into the active `work/<milestone>` branch

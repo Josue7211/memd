@@ -11,6 +11,7 @@ Read these first:
 - [Branching Model](./docs/branching.md)
 - [Release Process](./docs/release-process.md)
 - [Maintainer Workflow](./docs/maintainer-workflow.md)
+- [Infrastructure Facts](./docs/infra-facts.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Security Policy](./SECURITY.md)
 
@@ -134,6 +135,22 @@ Update docs when you change:
 Relevant docs usually live under `docs/`, but roadmap and maintainer workflow
 changes may also require updates to `README.md`, `CHANGELOG.md`, and
 `.planning/` artifacts.
+
+## Infra Claims
+
+Do not guess deployment or networking facts.
+
+Before stating anything about:
+
+- Cloudflare tunnels
+- domains or subdomains
+- VM ownership
+- public reachability
+- LAN vs Tailscale accessibility
+
+verify locally first and use [Infrastructure Facts](./docs/infra-facts.md) as
+the repo truth source. If you cannot verify a claim, mark it `unverified`
+instead of filling in the gap from context.
 
 ## Pull Requests
 

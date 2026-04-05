@@ -59,6 +59,12 @@ They are either:
 
 The core binaries are cross-platform. Linux-only deploy helpers live under `deploy/systemd/`.
 
+## Environment Facts
+
+If you are making claims about tunnels, domains, VMs, or public reachability,
+use [Infrastructure Facts](./docs/infra-facts.md) as the local truth source and
+verify locally before stating anything as true.
+
 ## Key Features
 
 - typed memory records
