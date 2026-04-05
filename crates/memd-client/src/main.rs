@@ -68,6 +68,7 @@ enum Commands {
     Status(StatusArgs),
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
+    Claims(ClaimsArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -951,6 +952,27 @@ struct HeartbeatArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct ClaimsArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    acquire: bool,
+
+    #[arg(long)]
+    release: bool,
+
+    #[arg(long)]
+    scope: Option<String>,
+
+    #[arg(long, default_value_t = 900)]
+    ttl_secs: u64,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1355,6 +1377,14 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     print_json(&response)?;
                 }
+            }
+        }
+        Commands::Claims(args) => {
+            let response = run_claims_command(&args)?;
+            if args.summary {
+                println!("{}", render_claims_summary(&response));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Bundle(args) => {
@@ -4023,6 +4053,10 @@ fn bundle_heartbeat_state_path(output: &Path) -> PathBuf {
     output.join("state").join("heartbeat.json")
 }
 
+fn bundle_claims_state_path(output: &Path) -> PathBuf {
+    output.join("state").join("claims.json")
+}
+
 fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
     let path = bundle_resume_state_path(output);
     if !path.exists() {
@@ -4056,6 +4090,32 @@ fn read_bundle_heartbeat(output: &Path) -> anyhow::Result<Option<BundleHeartbeat
     let state = serde_json::from_str::<BundleHeartbeatState>(&raw)
         .with_context(|| format!("parse {}", path.display()))?;
     Ok(Some(state))
+}
+
+fn read_bundle_claims(output: &Path) -> anyhow::Result<SessionClaimsState> {
+    let path = bundle_claims_state_path(output);
+    if !path.exists() {
+        return Ok(SessionClaimsState::default());
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state = serde_json::from_str::<SessionClaimsState>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(state)
+}
+
+fn write_bundle_claims(output: &Path, state: &SessionClaimsState) -> anyhow::Result<()> {
+    let path = bundle_claims_state_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn prune_expired_claims(state: &mut SessionClaimsState) {
+    let now = Utc::now();
+    state.claims.retain(|claim| claim.expires_at > now);
 }
 
 fn detect_host_name() -> Option<String> {
@@ -4189,6 +4249,104 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
             .map(|value| compact_inline(value, 72))
             .unwrap_or_else(|| "none".to_string())
     )
+}
+
+fn run_claims_command(args: &ClaimsArgs) -> anyhow::Result<ClaimsResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let heartbeat = read_bundle_heartbeat(&args.output)?;
+    let mut state = read_bundle_claims(&args.output)?;
+    prune_expired_claims(&mut state);
+
+    if args.acquire {
+        let scope = args
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("claims --acquire requires --scope")?;
+        let current_session = runtime.as_ref().and_then(|config| config.session.clone());
+        if let Some(existing) = state.claims.iter().find(|claim| {
+            claim.scope == scope
+                && claim.session != current_session
+                && claim.expires_at > Utc::now()
+        }) {
+            anyhow::bail!(
+                "scope '{}' already claimed by {}",
+                scope,
+                existing
+                    .effective_agent
+                    .as_deref()
+                    .or(existing.session.as_deref())
+                    .unwrap_or("another session")
+            );
+        }
+
+        state.claims.retain(|claim| {
+            !(claim.scope == scope && claim.session == current_session)
+        });
+        state.claims.push(SessionClaim {
+            scope: scope.to_string(),
+            session: runtime.as_ref().and_then(|config| config.session.clone()),
+            agent: runtime.as_ref().and_then(|config| config.agent.clone()),
+            effective_agent: runtime.as_ref().and_then(|config| {
+                config
+                    .agent
+                    .as_deref()
+                    .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+            }),
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            host: heartbeat.as_ref().and_then(|value| value.host.clone()),
+            pid: heartbeat.as_ref().and_then(|value| value.pid),
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::seconds(args.ttl_secs as i64),
+        });
+        state.claims.sort_by(|left, right| left.scope.cmp(&right.scope));
+        write_bundle_claims(&args.output, &state)?;
+    } else if args.release {
+        let scope = args
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("claims --release requires --scope")?;
+        let current_session = runtime.as_ref().and_then(|config| config.session.clone());
+        state.claims.retain(|claim| {
+            !(claim.scope == scope && claim.session == current_session)
+        });
+        write_bundle_claims(&args.output, &state)?;
+    } else {
+        write_bundle_claims(&args.output, &state)?;
+    }
+
+    Ok(ClaimsResponse {
+        bundle_root: args.output.display().to_string(),
+        current_session: runtime.and_then(|config| config.session),
+        claims: state.claims,
+    })
+}
+
+fn render_claims_summary(response: &ClaimsResponse) -> String {
+    let mut lines = vec![format!(
+        "claims bundle={} current_session={} active={}",
+        response.bundle_root,
+        response.current_session.as_deref().unwrap_or("none"),
+        response.claims.len()
+    )];
+    for claim in &response.claims {
+        lines.push(format!(
+            "- {} | holder={} | workspace={} | expires_at={}",
+            claim.scope,
+            claim
+                .effective_agent
+                .as_deref()
+                .or(claim.session.as_deref())
+                .unwrap_or("none"),
+            claim.workspace.as_deref().unwrap_or("none"),
+            claim.expires_at.to_rfc3339(),
+        ));
+    }
+    lines.join("\n")
 }
 
 fn describe_resume_state_changes(
@@ -4870,6 +5028,7 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
         });
         let state = read_bundle_resume_state(&bundle_root)?;
         let heartbeat = read_bundle_heartbeat(&bundle_root)?;
+        let claims = read_bundle_claims(&bundle_root)?;
         let state_path = bundle_resume_state_path(&bundle_root);
         let heartbeat_path = bundle_heartbeat_state_path(&bundle_root);
         let last_updated = if heartbeat_path.exists() {
@@ -4907,6 +5066,11 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
                 .unwrap_or_else(|| "unknown".to_string()),
             host: heartbeat.as_ref().and_then(|value| value.host.clone()),
             pid: heartbeat.as_ref().and_then(|value| value.pid),
+            active_claims: claims
+                .claims
+                .iter()
+                .filter(|claim| claim.expires_at > Utc::now())
+                .count(),
             workspace: heartbeat
                 .as_ref()
                 .and_then(|value| value.workspace.clone())
@@ -4976,9 +5140,10 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | presence={} ns={} agent={} session={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} | presence={} claims={} ns={} agent={} session={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
             entry.presence,
+            entry.active_claims,
             entry.namespace.as_deref().unwrap_or("none"),
             entry.effective_agent
                 .as_deref()
@@ -6321,6 +6486,7 @@ struct ProjectAwarenessEntry {
     presence: String,
     host: Option<String>,
     pid: Option<u32>,
+    active_claims: usize,
     workspace: Option<String>,
     visibility: Option<String>,
     focus: Option<String>,
@@ -6355,6 +6521,32 @@ struct BundleHeartbeatState {
     next_recovery: Option<String>,
     status: String,
     last_seen: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionClaim {
+    scope: String,
+    session: Option<String>,
+    agent: Option<String>,
+    effective_agent: Option<String>,
+    project: Option<String>,
+    workspace: Option<String>,
+    host: Option<String>,
+    pid: Option<u32>,
+    acquired_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct SessionClaimsState {
+    claims: Vec<SessionClaim>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ClaimsResponse {
+    bundle_root: String,
+    current_session: Option<String>,
+    claims: Vec<SessionClaim>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -7120,6 +7312,7 @@ mod tests {
                 presence: "active".to_string(),
                 host: None,
                 pid: None,
+                active_claims: 0,
                 workspace: Some("research".to_string()),
                 visibility: Some("workspace".to_string()),
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
@@ -7132,7 +7325,7 @@ mod tests {
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("awareness root=/tmp/projects bundles=1 collisions=0"));
         assert!(summary.contains(
-            "sibling | presence=active ns=main agent=claude-code@claude-a session=claude-a base_url=none workspace=research"
+            "sibling | presence=active claims=0 ns=main agent=claude-code@claude-a session=claude-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -7157,6 +7350,7 @@ mod tests {
                     presence: "active".to_string(),
                     host: None,
                     pid: None,
+                    active_claims: 1,
                     workspace: Some("a".to_string()),
                     visibility: Some("workspace".to_string()),
                     focus: None,
@@ -7176,6 +7370,7 @@ mod tests {
                     presence: "active".to_string(),
                     host: None,
                     pid: None,
+                    active_claims: 1,
                     workspace: Some("b".to_string()),
                     visibility: Some("workspace".to_string()),
                     focus: None,
@@ -7300,6 +7495,74 @@ mod tests {
         assert_eq!(resolved.bundle_root, target_project.join(".memd").display().to_string());
 
         fs::remove_dir_all(root).expect("cleanup target-session root");
+    }
+
+    #[test]
+    fn claims_acquire_and_release_scope() {
+        let dir = std::env::temp_dir().join(format!("memd-claims-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("state")).expect("create claims dir");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            dir.join("state").join("heartbeat.json"),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(1111),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            })
+            .expect("serialize heartbeat"),
+        )
+        .expect("write heartbeat");
+
+        let acquired = run_claims_command(&ClaimsArgs {
+            output: dir.clone(),
+            acquire: true,
+            release: false,
+            scope: Some("file:src/main.rs".to_string()),
+            ttl_secs: 900,
+            summary: false,
+        })
+        .expect("acquire claim");
+        assert_eq!(acquired.claims.len(), 1);
+        assert_eq!(acquired.claims[0].scope, "file:src/main.rs");
+
+        let released = run_claims_command(&ClaimsArgs {
+            output: dir.clone(),
+            acquire: false,
+            release: true,
+            scope: Some("file:src/main.rs".to_string()),
+            ttl_secs: 900,
+            summary: false,
+        })
+        .expect("release claim");
+        assert!(released.claims.is_empty());
+
+        fs::remove_dir_all(dir).expect("cleanup claims dir");
     }
 
     #[test]
