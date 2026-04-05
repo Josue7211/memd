@@ -6,14 +6,14 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerCoordinationInboxRequest,
-    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
-    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
-    PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerClaimAcquireRequest,
     PeerClaimRecord, PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest,
-    PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord,
-    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
-    SourceMemoryRequest, SourceMemoryResponse,
+    PeerClaimsRequest, PeerClaimsResponse, PeerCoordinationInboxRequest,
+    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+    PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest,
+    PeerTasksResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -976,7 +976,10 @@ impl SqliteStore {
         let mut sources = grouped
             .into_iter()
             .map(
-                |((source_agent, source_system, project, namespace, workspace, visibility), aggregate)| {
+                |(
+                    (source_agent, source_system, project, namespace, workspace, visibility),
+                    aggregate,
+                )| {
                     SourceMemoryRecord {
                         source_agent,
                         source_system,
@@ -1502,7 +1505,9 @@ impl SqliteStore {
             .context("fetch peer message for ack")?;
 
         let Some(payload) = payload else {
-            return Ok(PeerMessagesResponse { messages: Vec::new() });
+            return Ok(PeerMessagesResponse {
+                messages: Vec::new(),
+            });
         };
 
         let mut message: PeerMessageRecord =
@@ -1563,7 +1568,8 @@ impl SqliteStore {
         if let Some(payload) = existing {
             let existing_claim: PeerClaimRecord =
                 serde_json::from_str(&payload).context("deserialize existing peer claim")?;
-            if existing_claim.session != claim.session && existing_claim.expires_at > chrono::Utc::now()
+            if existing_claim.session != claim.session
+                && existing_claim.expires_at > chrono::Utc::now()
             {
                 anyhow::bail!(
                     "scope '{}' already claimed by {}",
@@ -1601,7 +1607,9 @@ impl SqliteStore {
         )
         .context("upsert peer claim")?;
 
-        Ok(PeerClaimsResponse { claims: vec![claim] })
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
     }
 
     pub fn release_peer_claim(
@@ -1627,7 +1635,9 @@ impl SqliteStore {
             params![request.scope.trim(), request.session.trim()],
         )
         .context("release peer claim")?;
-        Ok(PeerClaimsResponse { claims: vec![claim] })
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
     }
 
     pub fn transfer_peer_claim(
@@ -1670,7 +1680,9 @@ impl SqliteStore {
             ],
         )
         .context("transfer peer claim")?;
-        Ok(PeerClaimsResponse { claims: vec![claim] })
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
     }
 
     pub fn recover_peer_claim(
@@ -1720,14 +1732,18 @@ impl SqliteStore {
                 ],
             )
             .context("recover peer claim into new owner")?;
-            Ok(PeerClaimsResponse { claims: vec![claim] })
+            Ok(PeerClaimsResponse {
+                claims: vec![claim],
+            })
         } else {
             conn.execute(
                 "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
                 params![request.scope.trim(), request.from_session.trim()],
             )
             .context("delete peer claim during recovery")?;
-            Ok(PeerClaimsResponse { claims: vec![claim] })
+            Ok(PeerClaimsResponse {
+                claims: vec![claim],
+            })
         }
     }
 
@@ -1949,8 +1965,7 @@ impl SqliteStore {
         task.effective_agent = request.to_effective_agent.clone();
         task.status = "assigned".to_string();
         task.updated_at = chrono::Utc::now();
-        let payload_json =
-            serde_json::to_string(&task).context("serialize assigned peer task")?;
+        let payload_json = serde_json::to_string(&task).context("serialize assigned peer task")?;
         conn.execute(
             r#"
             UPDATE peer_tasks
@@ -2379,7 +2394,10 @@ fn update_entity_record(mut record: MemoryEntityRecord, item: &MemoryItem) -> Me
         at: Some(item.updated_at),
         project: item.project.clone().or(previous_project),
         namespace: item.namespace.clone().or(previous_namespace),
-        workspace: item.workspace.clone().or(previous.and_then(|context| context.workspace)),
+        workspace: item
+            .workspace
+            .clone()
+            .or(previous.and_then(|context| context.workspace)),
         repo: item.source_system.clone().or(previous_repo),
         host: previous_host,
         branch: previous_branch,

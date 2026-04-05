@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` policy-aware coordination action suggestions on top of the bounded action substrate.
+**Current focus:** `v6` token optimization foundations across gap/improve, transcript observability, and compiled-first knowledge retrieval.
 
 ## Current Status
 
@@ -49,14 +49,19 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - coordination policy and ownership guards now distinguish exclusive-write and collaborative lanes
 - advisory branch and scope recommendations now exist across coordination views
 - compact coordination receipts now record recent coworking transitions
+- phase 46 policy-aware coordination suggestions now generate bounded action hints from current inbox, recovery, policy, and pressure signals
+- MCP peer coordination now exposes a `coordination_suggestions` surface that returns those suggested actions for richer operator tools
+- phase 47 gap-finding foundations now emit evidence-driven candidates from eval, resume, and coordination state plus baseline delta summaries
+- the roadmap now explicitly treats token optimization as a primary `memd` capability, not an incidental benefit
+- the roadmap now includes transcript/context observability, compiled raw-to-graph knowledge retrieval, universal design memory, and large-context workflow compression as planned capabilities
 
 ## Open Loops
 
-- planning roadmap now needs phase 46 execution so richer operator surfaces can move from available actions to the most appropriate bounded action under current pressure
+- phase 47 refinement is next, focused on turning gap output into bounded improvement actions while expanding toward token observability and compiled-first retrieval.
 
 ## Next Command
 
-Execute phase 46 so richer operator surfaces can get policy-aware bounded action suggestions from current coordination pressure.
+Execute phase 47 refinement to turn gap findings into a bounded improvement loop, then prioritize token observability and compiled-first retrieval work.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

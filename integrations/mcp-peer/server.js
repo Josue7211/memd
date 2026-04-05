@@ -259,7 +259,7 @@ const tools = [
       properties: {
         view: {
           type: "string",
-          description: "all, inbox, requests, recovery, policy, or history",
+          description: "all, inbox, requests, recovery, policy, suggestions, or history",
           default: "all",
         },
       },
@@ -273,8 +273,22 @@ const tools = [
       properties: {
         view: {
           type: "string",
-          description: "all, inbox, requests, recovery, policy, or history",
+          description: "all, inbox, requests, recovery, policy, suggestions, or history",
           default: "all",
+        },
+      },
+    },
+  },
+  {
+    name: "coordination_suggestions",
+    description: "Read policy-aware bounded coordination suggestions derived from current pressure and policy signals.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view: {
+          type: "string",
+          description: "all, policy, suggestions, or history",
+          default: "suggestions",
         },
       },
     },
@@ -657,6 +671,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       );
       return textResult(stdout.trim().split("\n"));
+    }
+    case "coordination_suggestions": {
+      const view = args.view || "suggestions";
+      const stdout = execFileSync(
+        resolveMemdBin(),
+        ["coordination", "--output", bundleRoot, "--summary", "--view", view],
+        {
+          encoding: "utf8",
+          env: process.env,
+        }
+      );
+      const lines = stdout.trim().split("\n");
+      const suggestions = [];
+      let inSuggestions = false;
+      for (const line of lines) {
+        if (line.startsWith("## Suggestions")) {
+          inSuggestions = true;
+          continue;
+        }
+        if (line.startsWith("## ")) {
+          inSuggestions = false;
+          continue;
+        }
+        if (inSuggestions && line.trim().startsWith("- ")) {
+          suggestions.push(line.trim());
+        }
+      }
+      if (suggestions.length === 0) {
+        suggestions.push("suggestions=0");
+      }
+      return textResult(suggestions);
     }
 
     case "coordination_action": {

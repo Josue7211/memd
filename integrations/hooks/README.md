@@ -87,6 +87,10 @@ surface.
 The installed `memd-hook-context` shim now routes through this script, so the
 default installed hook path also gets the richer resume snapshot.
 
+The prompt output now also includes a lightweight context-budget estimate and
+pressure signal so the default hook path can warn when bundle resume is getting
+too bloated for an efficient fresh session.
+
 ## Install on Unix
 
 ```bash

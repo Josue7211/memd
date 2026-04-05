@@ -1,17 +1,23 @@
-mod obsidian;
 mod commands;
+mod obsidian;
 mod render;
 
 use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
+    process::Command,
     time::Duration,
 };
 
 use anyhow::Context;
-use clap::{Args, Parser, Subcommand};
 use chrono::{DateTime, Utc};
+use clap::{Args, Parser, Subcommand};
+use commands::{
+    parse_entity_relation_kind, parse_memory_kind_value, parse_memory_scope_value,
+    parse_memory_visibility_value, parse_retrieval_intent, parse_retrieval_route,
+    parse_source_quality_value, parse_uuid_list,
+};
 use memd_client::MemdClient;
 use memd_core::{
     build_compaction_packet, derive_compaction_spill, derive_compaction_spill_with_options,
@@ -24,34 +30,30 @@ use memd_rag::{
     RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest, RagRetrieveResponse,
 };
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest, CandidateMemoryRequest,
-    CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
-    CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
-    EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
-    EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus,
-    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerMessageAckRequest,
-    PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerClaimRecoverRequest,
-    PeerClaimsRequest, PeerTaskAssignRequest, PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest,
-    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
+    CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
+    CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
+    ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
+    ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest,
+    MemoryKind, MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus,
+    PeerClaimRecoverRequest, PeerClaimsRequest, PeerCoordinationInboxRequest,
+    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerMessageAckRequest, PeerMessageInboxRequest,
+    PeerMessageRecord, PeerMessageSendRequest, PeerTaskAssignRequest, PeerTaskRecord,
+    PeerTaskUpsertRequest, PeerTasksRequest, PromoteMemoryRequest, RepairMemoryRequest,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest, StoreMemoryRequest,
+    VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use obsidian::{ObsidianImportPreview, ObsidianSyncEntry};
-use commands::{
-    parse_entity_relation_kind, parse_memory_kind_value, parse_memory_scope_value,
-    parse_memory_visibility_value, parse_retrieval_intent, parse_retrieval_route,
-    parse_source_quality_value, parse_uuid_list,
-};
 use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
-    render_eval_summary,
-    render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
-    render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
-    render_repair_summary, render_resume_prompt, render_source_summary, render_timeline_summary,
-    render_working_summary, render_workspace_summary, render_handoff_prompt, short_uuid,
+    render_eval_summary, render_explain_summary, render_gap_summary, render_handoff_prompt,
+    render_improvement_markdown, render_improvement_summary, render_maintenance_report_summary,
+    render_obsidian_import_summary, render_obsidian_scan_summary, render_profile_summary,
+    render_recall_summary, render_repair_summary, render_resume_prompt, render_source_summary,
+    render_timeline_summary, render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +80,8 @@ enum Commands {
     Coordination(CoordinationArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
+    Gap(GapArgs),
+    Improve(ImproveArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
@@ -1133,6 +1137,48 @@ struct EvalArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct GapArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    recent_commits: Option<usize>,
+
+    #[arg(long, default_value_t = false)]
+    write: bool,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ImproveArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = 3)]
+    max_iterations: usize,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    recent_commits: Option<usize>,
+
+    #[arg(long, default_value_t = false)]
+    write: bool,
+
+    #[arg(long, default_value_t = false)]
+    apply: bool,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct AttachArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1483,7 +1529,8 @@ async fn main() -> anyhow::Result<()> {
             if args.watch {
                 let interval = Duration::from_secs(args.interval_secs.max(1));
                 loop {
-                    let response = refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
+                    let response =
+                        refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
                     if args.summary {
                         println!("{}", render_bundle_heartbeat_summary(&response));
                     } else {
@@ -1492,7 +1539,8 @@ async fn main() -> anyhow::Result<()> {
                     tokio::time::sleep(interval).await;
                 }
             } else {
-                let response = refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
+                let response =
+                    refresh_bundle_heartbeat(&args.output, None, args.probe_base_url).await?;
                 if args.summary {
                     println!("{}", render_bundle_heartbeat_summary(&response));
                 } else {
@@ -1537,10 +1585,7 @@ async fn main() -> anyhow::Result<()> {
                             args.view.as_deref(),
                         );
                         if previous.is_none() || !alerts.is_empty() {
-                            println!(
-                                "[{}]",
-                                Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-                            );
+                            println!("[{}]", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
                             for line in alerts {
                                 println!("{line}");
                             }
@@ -1558,8 +1603,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             } else if args.changes_only {
                 let response = run_coordination_command(&args, &base_url).await?;
-                let changes =
-                    build_coordination_change_response(&args.output, &response, args.view.as_deref())?;
+                let changes = build_coordination_change_response(
+                    &args.output,
+                    &response,
+                    args.view.as_deref(),
+                )?;
                 if args.summary {
                     println!("{}", render_coordination_change_summary(&changes));
                 } else {
@@ -1616,8 +1664,32 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 print_json(&response)?;
             }
-            if let Some(reason) = eval_failure_reason(&response, args.fail_below, args.fail_on_regression) {
+            if let Some(reason) =
+                eval_failure_reason(&response, args.fail_below, args.fail_on_regression)
+            {
                 anyhow::bail!(reason);
+            }
+        }
+        Commands::Gap(args) => {
+            let response = gap_report(&args).await?;
+            if args.write {
+                write_gap_artifacts(&args.output, &response)?;
+            }
+            if args.summary {
+                println!("{}", render_gap_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Improve(args) => {
+            let response = run_improvement_loop(&args, &base_url).await?;
+            if args.write {
+                write_improvement_artifacts(&args.output, &response)?;
+            }
+            if args.summary {
+                println!("{}", render_improvement_summary(&response));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Agent(args) => {
@@ -1689,7 +1761,7 @@ async fn main() -> anyhow::Result<()> {
                     .map(|item| compact_inline(&item.item.content, 72))
                     .unwrap_or_else(|| "none".to_string());
                 println!(
-                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} focus=\"{}\" pressure=\"{}\"",
+                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
                     snapshot.project.as_deref().unwrap_or("none"),
                     snapshot.namespace.as_deref().unwrap_or("none"),
                     snapshot.agent.as_deref().unwrap_or("none"),
@@ -1700,6 +1772,9 @@ async fn main() -> anyhow::Result<()> {
                     snapshot.inbox.items.len(),
                     snapshot.workspaces.workspaces.len(),
                     snapshot.change_summary.len(),
+                    snapshot.estimated_prompt_tokens(),
+                    snapshot.context_pressure(),
+                    snapshot.refresh_recommended,
                     focus,
                     pressure,
                 );
@@ -1781,8 +1856,7 @@ async fn main() -> anyhow::Result<()> {
             print_json(&response)?;
         }
         Commands::Rag(args) => {
-            let rag_url =
-                resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
+            let rag_url = resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
             let rag = RagClient::new(&rag_url)?;
             match args.mode {
                 RagMode::Healthz => print_json(&rag.healthz().await?)?,
@@ -1810,8 +1884,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Multimodal(args) => {
-            let rag_url =
-                resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
+            let rag_url = resolve_rag_url(args.rag_url, resolve_default_bundle_root()?.as_deref())?;
             let sidecar = SidecarClient::new(&rag_url)?;
             match args.mode {
                 MultimodalMode::Healthz => print_json(&sidecar.healthz().await?)?,
@@ -3087,7 +3160,9 @@ async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Re
 }
 
 async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
-    let (title, markdown, output_path, preview, index_items, index_kind) = if let Some(id) = args.id.as_ref() {
+    let (title, markdown, output_path, preview, index_items, index_kind) = if let Some(id) =
+        args.id.as_ref()
+    {
         let id = id
             .parse::<uuid::Uuid>()
             .context("parse obsidian compile id")?;
@@ -3125,9 +3200,17 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
                 query: Some(query.clone()),
                 route,
                 intent,
-                scopes: vec![MemoryScope::Project, MemoryScope::Global, MemoryScope::Synced],
+                scopes: vec![
+                    MemoryScope::Project,
+                    MemoryScope::Global,
+                    MemoryScope::Synced,
+                ],
                 kinds: vec![],
-                statuses: vec![MemoryStatus::Active, MemoryStatus::Stale, MemoryStatus::Contested],
+                statuses: vec![
+                    MemoryStatus::Active,
+                    MemoryStatus::Stale,
+                    MemoryStatus::Contested,
+                ],
                 project: args.project.clone(),
                 namespace: args.namespace.clone(),
                 workspace: args.workspace.clone(),
@@ -3179,7 +3262,14 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
             "semantic_hits": semantic.as_ref().map(|response| response.items.len()).unwrap_or(0),
             "apply": args.apply,
         });
-        (title, markdown, output_path, preview, response.items.len(), "query")
+        (
+            title,
+            markdown,
+            output_path,
+            preview,
+            response.items.len(),
+            "query",
+        )
     };
 
     if !args.apply {
@@ -3216,9 +3306,7 @@ async fn run_obsidian_open(client: &MemdClient, args: &ObsidianArgs) -> anyhow::
     let target_path = if let Some(note) = args.note.as_ref() {
         obsidian::resolve_open_path(&args.vault, note)
     } else if let Some(id) = args.id.as_ref() {
-        let id = id
-            .parse::<uuid::Uuid>()
-            .context("parse obsidian open id")?;
+        let id = id.parse::<uuid::Uuid>().context("parse obsidian open id")?;
         let explain = client
             .explain(&ExplainMemoryRequest {
                 id,
@@ -3890,7 +3978,10 @@ fn resolve_default_bundle_root() -> anyhow::Result<Option<PathBuf>> {
 }
 
 fn resolve_rag_url(explicit: Option<String>, bundle_root: Option<&Path>) -> anyhow::Result<String> {
-    if let Some(value) = explicit.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+    if let Some(value) = explicit
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
         return Ok(value);
     }
 
@@ -4016,14 +4107,15 @@ fn default_auto_short_term_capture() -> bool {
 }
 
 fn default_bundle_session() -> String {
-    format!("session-{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+    format!(
+        "session-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    )
 }
 
 fn compose_agent_identity(agent: &str, session: Option<&str>) -> String {
     let agent = agent.trim();
-    let session = session
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let session = session.map(str::trim).filter(|value| !value.is_empty());
     match session {
         Some(session) => format!("{agent}@{session}"),
         None => agent.to_string(),
@@ -4180,7 +4272,13 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
         let shell_path = agents_dir.join(format!("{slug}.sh"));
         fs::write(&shell_path, shell_profile)
             .with_context(|| format!("write {}", shell_path.display()))?;
-        set_executable_if_shell_script(&shell_path, shell_path.file_name().and_then(|v| v.to_str()).unwrap_or("agent.sh"))?;
+        set_executable_if_shell_script(
+            &shell_path,
+            shell_path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or("agent.sh"),
+        )?;
 
         let ps1_profile = render_agent_ps1_profile(output, env_agent);
         let ps1_path = agents_dir.join(format!("{slug}.ps1"));
@@ -4216,11 +4314,16 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
         if config.auto_short_term_capture { "true" } else { "false" },
     ));
     markdown.push_str("\n## Notes\n\n");
-    markdown.push_str("- `resume` keeps the active working memory fresh on the fast local hot path.\n");
+    markdown
+        .push_str("- `resume` keeps the active working memory fresh on the fast local hot path.\n");
     markdown.push_str("- `handoff` adds shared workspace, source-lane, and delegation state.\n");
     markdown.push_str("- automatic short-term capture runs on compaction spill boundaries unless disabled in the bundle env/config.\n");
-    markdown.push_str("- add `--semantic` only when you want slower deep recall from the semantic backend.\n");
-    markdown.push_str("- future dream/consolidation output should flow back into this same memory surface.\n");
+    markdown.push_str(
+        "- add `--semantic` only when you want slower deep recall from the semantic backend.\n",
+    );
+    markdown.push_str(
+        "- future dream/consolidation output should flow back into this same memory surface.\n",
+    );
     write_memory_markdown_files(output, &markdown)
 }
 
@@ -4343,11 +4446,33 @@ fn build_bundle_heartbeat(
         .as_deref()
         .map(|value| compose_agent_identity(value, session.as_deref()));
     let focus = snapshot
-        .and_then(|value| value.working.records.first().map(|record| record.record.clone()))
-        .or_else(|| read_bundle_resume_state(output).ok().flatten().and_then(|value| value.focus));
+        .and_then(|value| {
+            value
+                .working
+                .records
+                .first()
+                .map(|record| record.record.clone())
+        })
+        .or_else(|| {
+            read_bundle_resume_state(output)
+                .ok()
+                .flatten()
+                .and_then(|value| value.focus)
+        });
     let pressure = snapshot
-        .and_then(|value| value.inbox.items.first().map(|item| item.item.content.clone()))
-        .or_else(|| read_bundle_resume_state(output).ok().flatten().and_then(|value| value.pressure));
+        .and_then(|value| {
+            value
+                .inbox
+                .items
+                .first()
+                .map(|item| item.item.content.clone())
+        })
+        .or_else(|| {
+            read_bundle_resume_state(output)
+                .ok()
+                .flatten()
+                .and_then(|value| value.pressure)
+        });
     let next_recovery = snapshot
         .and_then(|value| {
             value
@@ -4367,9 +4492,15 @@ fn build_bundle_heartbeat(
         session,
         agent,
         effective_agent,
-        project: snapshot.and_then(|value| value.project.clone()).or(runtime.project),
-        namespace: snapshot.and_then(|value| value.namespace.clone()).or(runtime.namespace),
-        workspace: snapshot.and_then(|value| value.workspace.clone()).or(runtime.workspace),
+        project: snapshot
+            .and_then(|value| value.project.clone())
+            .or(runtime.project),
+        namespace: snapshot
+            .and_then(|value| value.namespace.clone())
+            .or(runtime.namespace),
+        workspace: snapshot
+            .and_then(|value| value.workspace.clone())
+            .or(runtime.workspace),
         visibility: snapshot
             .and_then(|value| value.visibility.clone())
             .or(runtime.visibility),
@@ -4416,7 +4547,8 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
     format!(
         "heartbeat project={} agent={} session={} presence={} base_url={} focus=\"{}\" pressure=\"{}\"",
         state.project.as_deref().unwrap_or("none"),
-        state.effective_agent
+        state
+            .effective_agent
             .as_deref()
             .or(state.agent.as_deref())
             .unwrap_or("none"),
@@ -4537,7 +4669,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
                 from_session: session.to_string(),
                 to_session: target_session.to_string(),
                 to_agent: target.as_ref().and_then(|entry| entry.agent.clone()),
-                to_effective_agent: target.as_ref().and_then(|entry| entry.effective_agent.clone()),
+                to_effective_agent: target
+                    .as_ref()
+                    .and_then(|entry| entry.effective_agent.clone()),
             })
             .await?;
         auto_checkpoint_bundle_event(
@@ -4684,7 +4818,10 @@ fn render_claims_summary(response: &ClaimsResponse) -> String {
     lines.join("\n")
 }
 
-async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Result<MessagesResponse> {
+async fn run_messages_command(
+    args: &MessagesArgs,
+    base_url: &str,
+) -> anyhow::Result<MessagesResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let current_session = runtime
         .as_ref()
@@ -4766,7 +4903,10 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         } else if args.request_review {
             format!("Requested review from session {target_session}.")
         } else {
-            format!("Sent {} message to session {target_session}.", response.messages[0].kind)
+            format!(
+                "Sent {} message to session {target_session}.",
+                response.messages[0].kind
+            )
         };
         let mut tags = vec!["messages".to_string(), "auto-checkpoint".to_string()];
         if args.request_help {
@@ -4778,8 +4918,15 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         if args.assign_scope.is_some() {
             tags.push("assignment".to_string());
         }
-        auto_checkpoint_bundle_event(&args.output, &current_base_url, "messages", summary, tags, 0.8)
-            .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "messages",
+            summary,
+            tags,
+            0.8,
+        )
+        .await?;
         emit_coordination_receipt(
             &client,
             if args.assign_scope.is_some() {
@@ -4869,29 +5016,33 @@ fn derive_outbound_message(args: &MessagesArgs) -> Option<(String, String)> {
 
     if args.request_help {
         let content = explicit_content.or_else(|| {
-            scope.map(|scope| format!("Need help on {scope}. Please coordinate before changing it."))
+            scope
+                .map(|scope| format!("Need help on {scope}. Please coordinate before changing it."))
         })?;
         return Some(("help_request".to_string(), content));
     }
 
     if args.request_review {
         let content = explicit_content.or_else(|| {
-            scope.map(|scope| format!("Need review on {scope}. Please inspect before I hand it off."))
+            scope.map(|scope| {
+                format!("Need review on {scope}. Please inspect before I hand it off.")
+            })
         })?;
         return Some(("review_request".to_string(), content));
     }
 
     if let Some(assign_scope) = assign_scope {
-        let content = explicit_content
-            .or_else(|| Some(format!("Assigned scope {assign_scope}. Take ownership and continue from there.")))?;
+        let content = explicit_content.or_else(|| {
+            Some(format!(
+                "Assigned scope {assign_scope}. Take ownership and continue from there."
+            ))
+        })?;
         return Some(("assignment".to_string(), content));
     }
 
     let content = explicit_content?;
     Some((
-        args.kind
-            .clone()
-            .unwrap_or_else(|| "handoff".to_string()),
+        args.kind.clone().unwrap_or_else(|| "handoff".to_string()),
         content,
     ))
 }
@@ -4910,7 +5061,11 @@ fn render_messages_summary(response: &MessagesResponse) -> String {
             message.kind,
             message.from_agent.as_deref().unwrap_or("unknown"),
             message.to_session,
-            if message.acknowledged_at.is_some() { "yes" } else { "no" },
+            if message.acknowledged_at.is_some() {
+                "yes"
+            } else {
+                "no"
+            },
             compact_inline(&message.content, 80)
         ));
     }
@@ -5177,7 +5332,9 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             "review_request"
         };
         let content = if args.request_help {
-            format!("Need help on shared task {task_id}. Please coordinate before changing overlapping work.")
+            format!(
+                "Need help on shared task {task_id}. Please coordinate before changing overlapping work."
+            )
         } else {
             format!("Need review on shared task {task_id}. Please inspect the task before handoff.")
         };
@@ -5419,8 +5576,7 @@ async fn run_coordination_command(
                     to_effective_agent: destination.effective_agent.clone(),
                     note: Some(format!(
                         "Recovered from {} session {}",
-                        stale_entry.presence,
-                        recover_session
+                        stale_entry.presence, recover_session
                     )),
                 })
                 .await?;
@@ -5539,6 +5695,26 @@ async fn run_coordination_command(
             })
         })
         .collect::<Vec<_>>();
+    let stale_sessions = stale_peers
+        .iter()
+        .filter_map(|entry| entry.session.as_deref())
+        .collect::<Vec<_>>();
+    let active_peers = awareness
+        .entries
+        .iter()
+        .filter(|entry| entry.session.as_deref() != Some(current_session.as_str()))
+        .filter(|entry| entry.presence == "active")
+        .filter_map(|entry| entry.session.as_deref())
+        .collect::<Vec<_>>();
+    let suggestions = suggest_coordination_actions(
+        &response,
+        &stale_sessions,
+        &active_peers,
+        &claims,
+        &tasks,
+        &current_session,
+        &policy_conflicts,
+    );
     Ok(CoordinationResponse {
         bundle_root: args.output.display().to_string(),
         current_session: current_session.clone(),
@@ -5569,7 +5745,12 @@ async fn run_coordination_command(
                 .collect(),
         },
         policy_conflicts,
-        boundary_recommendations: suggest_boundary_recommendations(&tasks, &claims, &current_session),
+        suggestions,
+        boundary_recommendations: suggest_boundary_recommendations(
+            &tasks,
+            &claims,
+            &current_session,
+        ),
         receipts,
     })
 }
@@ -5595,9 +5776,10 @@ fn render_coordination_summary(response: &CoordinationResponse, view: Option<&st
             response.recovery.stalled_tasks.len(),
         ),
         format!(
-            "policy conflicts={} recommendations={} receipts={}",
+            "policy conflicts={} recommendations={} suggestions={} receipts={}",
             response.policy_conflicts.len(),
             response.boundary_recommendations.len(),
+            response.suggestions.len(),
             response.receipts.len(),
         ),
     ];
@@ -5609,12 +5791,214 @@ fn render_coordination_summary(response: &CoordinationResponse, view: Option<&st
     lines.join("\n")
 }
 
-fn append_coordination_sections(lines: &mut Vec<String>, response: &CoordinationResponse, view: &str) {
+fn suggest_coordination_actions(
+    inbox: &PeerCoordinationInboxResponse,
+    stale_sessions: &[&str],
+    active_peer_sessions: &[&str],
+    claims: &[SessionClaim],
+    tasks: &[PeerTaskRecord],
+    current_session: &str,
+    policy_conflicts: &[String],
+) -> Vec<CoordinationSuggestion> {
+    let mut suggestions = Vec::new();
+    let mut emitted = Vec::<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>::new();
+
+    let is_stale_session = |session: &str, stale_sessions: &[&str]| {
+        stale_sessions.iter().any(|entry| entry == &session)
+    };
+    let has_scope_conflict = |task_id: &str,
+                              scope: &str,
+                              list: &Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>| {
+        list.iter()
+            .any(|item| item.0 == "assign_scope" && item.1 == task_id && item.2 == scope)
+    };
+    let push_unique = |suggestion: CoordinationSuggestion,
+                       seen: &mut Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
+                       out: &mut Vec<CoordinationSuggestion>| {
+        let key = (
+            suggestion.action.clone(),
+            suggestion.task_id.clone().unwrap_or_else(String::new),
+            suggestion.scope.clone().unwrap_or_else(String::new),
+            suggestion.target_session.clone(),
+            suggestion.message_id.clone(),
+            suggestion.stale_session.clone(),
+        );
+        if !seen.contains(&key) {
+            seen.push(key);
+            out.push(suggestion);
+        }
+    };
+
+    if !inbox.messages.is_empty() {
+        for message in inbox.messages.iter().take(3) {
+            let suggestion = CoordinationSuggestion {
+                action: "ack_message".to_string(),
+                priority: "high".to_string(),
+                target_session: None,
+                task_id: None,
+                scope: None,
+                message_id: Some(message.id.clone()),
+                reason: format!(
+                    "Acknowledge {} message from {}.",
+                    message.kind,
+                    message
+                        .from_agent
+                        .clone()
+                        .unwrap_or_else(|| message.from_session.clone())
+                ),
+                stale_session: None,
+            };
+            push_unique(suggestion, &mut emitted, &mut suggestions);
+        }
+    }
+
+    if !stale_sessions.is_empty() {
+        for stale_session in stale_sessions.iter().copied() {
+            let reclaimable_claims = claims
+                .iter()
+                .filter(|claim| claim.session.as_deref() == Some(stale_session))
+                .count();
+            let stalled_tasks = tasks
+                .iter()
+                .filter(|task| task.session.as_deref() == Some(stale_session))
+                .count();
+            if reclaimable_claims == 0 && stalled_tasks == 0 {
+                continue;
+            }
+            let suggestion = CoordinationSuggestion {
+                action: "recover_session".to_string(),
+                priority: "high".to_string(),
+                target_session: None,
+                task_id: None,
+                scope: None,
+                message_id: None,
+                reason: format!(
+                    "Recover {} claim(s) and {} stalled task(s) from stale session {}.",
+                    reclaimable_claims, stalled_tasks, stale_session
+                ),
+                stale_session: Some(stale_session.to_string()),
+            };
+            push_unique(suggestion, &mut emitted, &mut suggestions);
+        }
+    }
+
+    for task in tasks
+        .iter()
+        .filter(|task| task.coordination_mode == "exclusive_write")
+    {
+        for scope in &task.claim_scopes {
+            let Some(task_owner) = task.session.as_deref() else {
+                continue;
+            };
+            let Some(claim) = claims.iter().find(|claim| {
+                claim.scope.as_str() == scope.as_str()
+                    && claim
+                        .session
+                        .as_deref()
+                        .is_some_and(|claim_owner| !is_stale_session(claim_owner, stale_sessions))
+            }) else {
+                continue;
+            };
+            let Some(claim_owner) = claim.session.as_deref() else {
+                continue;
+            };
+            if claim_owner == task_owner {
+                continue;
+            }
+            if has_scope_conflict(&task.task_id, scope, &emitted) {
+                continue;
+            }
+            let suggestion = CoordinationSuggestion {
+                action: "assign_scope".to_string(),
+                priority: "medium".to_string(),
+                target_session: Some(task_owner.to_string()),
+                task_id: Some(task.task_id.clone()),
+                scope: Some(scope.clone()),
+                message_id: None,
+                reason: format!(
+                    "Resolve exclusivity conflict for {scope} by moving it to task owner {}.",
+                    task_owner
+                ),
+                stale_session: None,
+            };
+            push_unique(suggestion, &mut emitted, &mut suggestions);
+        }
+    }
+
+    if !policy_conflicts.is_empty() && suggestions.len() < 6 && !tasks.is_empty() {
+        let Some(peer_session) = active_peer_sessions.first().copied() else {
+            return suggestions;
+        };
+        for task in tasks
+            .iter()
+            .filter(|task| task.session.as_deref() == Some(current_session))
+            .take(2)
+        {
+            let action = if task.coordination_mode == "shared_review" {
+                "request_review"
+            } else if task.coordination_mode == "help_only" {
+                "request_help"
+            } else {
+                continue;
+            };
+            if action == "request_review" && task.review_requested {
+                continue;
+            }
+            if action == "request_help" && task.help_requested {
+                continue;
+            }
+            let suggestion = CoordinationSuggestion {
+                action: action.to_string(),
+                priority: "low".to_string(),
+                target_session: Some(peer_session.to_string()),
+                task_id: Some(task.task_id.clone()),
+                scope: None,
+                message_id: None,
+                reason: format!(
+                    "Ask {} for collaboration support on task {} before heavy overlap grows.",
+                    peer_session, task.task_id
+                ),
+                stale_session: None,
+            };
+            push_unique(suggestion, &mut emitted, &mut suggestions);
+        }
+    }
+
+    suggestions
+}
+
+fn append_coordination_sections(
+    lines: &mut Vec<String>,
+    response: &CoordinationResponse,
+    view: &str,
+) {
     let show_all = matches!(view, "all" | "overview");
     let show_inbox = show_all || view == "inbox";
     let show_requests = show_all || view == "requests";
     let show_recovery = show_all || view == "recovery";
     let show_policy = show_all || view == "policy";
+    let show_suggestions = show_all || view == "suggestions";
     let show_history = show_all || view == "history";
 
     if show_inbox {
@@ -5635,7 +6019,9 @@ fn append_coordination_sections(lines: &mut Vec<String>, response: &Coordination
             ));
         }
     }
-    if show_requests && (!response.inbox.help_tasks.is_empty() || !response.inbox.review_tasks.is_empty()) {
+    if show_requests
+        && (!response.inbox.help_tasks.is_empty() || !response.inbox.review_tasks.is_empty())
+    {
         lines.push("".to_string());
         lines.push("## Requests".to_string());
         for task in response.inbox.help_tasks.iter().take(6) {
@@ -5704,14 +6090,31 @@ fn append_coordination_sections(lines: &mut Vec<String>, response: &Coordination
             ));
         }
     }
-    if show_policy && (!response.policy_conflicts.is_empty() || !response.boundary_recommendations.is_empty()) {
+    if show_policy
+        && (!response.policy_conflicts.is_empty() || !response.boundary_recommendations.is_empty())
+    {
         lines.push("".to_string());
         lines.push("## Policy".to_string());
         for conflict in response.policy_conflicts.iter().take(6) {
             lines.push(format!("- policy {}", compact_inline(conflict, 96)));
         }
         for recommendation in response.boundary_recommendations.iter().take(6) {
-            lines.push(format!("- recommend {}", compact_inline(recommendation, 96)));
+            lines.push(format!(
+                "- recommend {}",
+                compact_inline(recommendation, 96)
+            ));
+        }
+    }
+    if show_suggestions && !response.suggestions.is_empty() {
+        lines.push("".to_string());
+        lines.push("## Suggestions".to_string());
+        for suggestion in response.suggestions.iter().take(6) {
+            lines.push(format!(
+                "- {} [{}] {}",
+                suggestion.priority,
+                suggestion.action,
+                compact_inline(&suggestion.reason, 110),
+            ));
         }
     }
     if show_history && !response.receipts.is_empty() {
@@ -5739,6 +6142,7 @@ fn render_coordination_alerts(
 
     let view = view.unwrap_or("all");
     let show_all = matches!(view, "all" | "overview");
+    let show_suggestions = matches!(view, "all" | "overview" | "suggestions");
     let mut alerts = Vec::new();
 
     if show_all || view == "inbox" {
@@ -5784,10 +6188,30 @@ fn render_coordination_alerts(
         let curr_conflicts = current.policy_conflicts.len();
         let prev_recs = previous.boundary_recommendations.len();
         let curr_recs = current.boundary_recommendations.len();
-        if prev_conflicts != curr_conflicts || prev_recs != curr_recs {
+        let prev_suggestions = previous.suggestions.len();
+        let curr_suggestions = current.suggestions.len();
+        if prev_conflicts != curr_conflicts
+            || prev_recs != curr_recs
+            || prev_suggestions != curr_suggestions
+        {
             alerts.push(format!(
-                "alert policy conflicts {}->{} recommendations {}->{}",
-                prev_conflicts, curr_conflicts, prev_recs, curr_recs
+                "alert policy conflicts {}->{} recommendations {}->{} suggestions {}->{}",
+                prev_conflicts,
+                curr_conflicts,
+                prev_recs,
+                curr_recs,
+                prev_suggestions,
+                curr_suggestions
+            ));
+        }
+    }
+    if show_suggestions && !show_all {
+        let prev_suggestions = previous.suggestions.len();
+        let curr_suggestions = current.suggestions.len();
+        if prev_suggestions != curr_suggestions {
+            alerts.push(format!(
+                "alert suggestions {}->{}",
+                prev_suggestions, curr_suggestions
             ));
         }
     }
@@ -5815,8 +6239,8 @@ fn read_coordination_snapshot(output: &Path) -> anyhow::Result<Option<Coordinati
         return Ok(None);
     }
     let content = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let state = serde_json::from_str(&content)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let state =
+        serde_json::from_str(&content).with_context(|| format!("parse {}", path.display()))?;
     Ok(Some(state))
 }
 
@@ -5843,6 +6267,7 @@ fn build_coordination_alert_snapshot(response: &CoordinationResponse) -> Coordin
         stalled_task_count: response.recovery.stalled_tasks.len(),
         policy_conflict_count: response.policy_conflicts.len(),
         recommendation_count: response.boundary_recommendations.len(),
+        suggestion_count: response.suggestions.len(),
         latest_receipt_id: response.receipts.first().map(|receipt| receipt.id.clone()),
     }
 }
@@ -5904,13 +6329,16 @@ fn render_coordination_snapshot_alerts(
     if show_all || view == "policy" {
         if previous.policy_conflict_count != current.policy_conflict_count
             || previous.recommendation_count != current.recommendation_count
+            || previous.suggestion_count != current.suggestion_count
         {
             alerts.push(format!(
-                "alert policy conflicts {}->{} recommendations {}->{}",
+                "alert policy conflicts {}->{} recommendations {}->{} suggestions {}->{}",
                 previous.policy_conflict_count,
                 current.policy_conflict_count,
                 previous.recommendation_count,
-                current.recommendation_count
+                current.recommendation_count,
+                previous.suggestion_count,
+                current.suggestion_count
             ));
         }
     }
@@ -5934,8 +6362,11 @@ fn build_coordination_change_response(
     let view = view.unwrap_or("all").to_string();
     let previous = read_coordination_snapshot(output)?;
     let snapshot = build_coordination_alert_snapshot(response);
-    let alerts =
-        render_coordination_snapshot_alerts(previous.as_ref().map(|state| &state.snapshot), &snapshot, &view);
+    let alerts = render_coordination_snapshot_alerts(
+        previous.as_ref().map(|state| &state.snapshot),
+        &snapshot,
+        &view,
+    );
     let change = CoordinationChangeResponse {
         bundle_root: response.bundle_root.clone(),
         current_session: response.current_session.clone(),
@@ -5964,7 +6395,7 @@ fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> 
             response.bundle_root, response.current_session, response.view, response.changed
         ),
         format!(
-            "snapshot messages={} owned={} help={} review={} stale={} reclaimable={} stalled={} conflicts={} recommendations={} latest_receipt={}",
+            "snapshot messages={} owned={} help={} review={} stale={} reclaimable={} stalled={} conflicts={} recommendations={} suggestions={} latest_receipt={}",
             response.snapshot.message_count,
             response.snapshot.owned_count,
             response.snapshot.help_count,
@@ -5974,7 +6405,12 @@ fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> 
             response.snapshot.stalled_task_count,
             response.snapshot.policy_conflict_count,
             response.snapshot.recommendation_count,
-            response.snapshot.latest_receipt_id.as_deref().unwrap_or("none"),
+            response.snapshot.suggestion_count,
+            response
+                .snapshot
+                .latest_receipt_id
+                .as_deref()
+                .unwrap_or("none"),
         ),
     ];
     for alert in &response.alerts {
@@ -5988,7 +6424,8 @@ fn suggest_boundary_recommendations(
     claims: &[SessionClaim],
     current_session: &str,
 ) -> Vec<String> {
-    tasks.iter()
+    tasks
+        .iter()
         .map(|task| {
             let branch_prefix = match task.coordination_mode.as_str() {
                 "shared_review" => "review",
@@ -5998,7 +6435,13 @@ fn suggest_boundary_recommendations(
             let branch_suffix = task
                 .task_id
                 .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
                 .collect::<String>()
                 .split('-')
                 .filter(|part| !part.is_empty())
@@ -6007,7 +6450,9 @@ fn suggest_boundary_recommendations(
             let owned_scopes = claims
                 .iter()
                 .filter(|claim| claim.session.as_deref() == task.session.as_deref())
-                .filter(|claim| task.claim_scopes.is_empty() || task.claim_scopes.contains(&claim.scope))
+                .filter(|claim| {
+                    task.claim_scopes.is_empty() || task.claim_scopes.contains(&claim.scope)
+                })
                 .map(|claim| claim.scope.clone())
                 .collect::<Vec<_>>();
             let scope_hint = if !task.claim_scopes.is_empty() {
@@ -6027,7 +6472,11 @@ fn suggest_boundary_recommendations(
                 task.task_id,
                 task.coordination_mode,
                 branch_prefix,
-                if branch_suffix.is_empty() { "task" } else { &branch_suffix },
+                if branch_suffix.is_empty() {
+                    "task"
+                } else {
+                    &branch_suffix
+                },
                 ownership_hint,
                 scope_hint
             )
@@ -6045,10 +6494,14 @@ fn describe_resume_state_changes(
 
     let mut changes = Vec::new();
 
-    if previous.focus != current.focus && let Some(focus) = current.focus.as_deref() {
+    if previous.focus != current.focus
+        && let Some(focus) = current.focus.as_deref()
+    {
         changes.push(format!("focus -> {}", compact_inline(focus, 120)));
     }
-    if previous.pressure != current.pressure && let Some(pressure) = current.pressure.as_deref() {
+    if previous.pressure != current.pressure
+        && let Some(pressure) = current.pressure.as_deref()
+    {
         changes.push(format!("pressure -> {}", compact_inline(pressure, 120)));
     }
     if previous.next_recovery != current.next_recovery
@@ -6059,7 +6512,9 @@ fn describe_resume_state_changes(
             compact_inline(next_recovery, 120)
         ));
     }
-    if previous.lane != current.lane && let Some(lane) = current.lane.as_deref() {
+    if previous.lane != current.lane
+        && let Some(lane) = current.lane.as_deref()
+    {
         changes.push(format!("lane -> {}", compact_inline(lane, 120)));
     }
     if previous.working_records != current.working_records {
@@ -6124,7 +6579,8 @@ fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
 
 fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
     let root_memory = output.join("MEMD_MEMORY.md");
-    fs::write(&root_memory, markdown).with_context(|| format!("write {}", root_memory.display()))?;
+    fs::write(&root_memory, markdown)
+        .with_context(|| format!("write {}", root_memory.display()))?;
 
     let agents_dir = output.join("agents");
     if let Some(parent) = agents_dir.parent() {
@@ -6164,6 +6620,1266 @@ fn write_bundle_eval_artifacts(output: &Path, response: &BundleEvalResponse) -> 
         .with_context(|| format!("write {}", timestamped_md.display()))?;
 
     Ok(())
+}
+
+fn gap_reports_dir(output: &Path) -> PathBuf {
+    output.join("gaps")
+}
+
+fn improvement_reports_dir(output: &Path) -> PathBuf {
+    output.join("improvements")
+}
+
+fn project_root_from_bundle(output: &Path) -> &Path {
+    output.parent().unwrap_or_else(|| Path::new("."))
+}
+
+fn read_text_file(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn read_recent_commits(root: &Path, limit: usize) -> Vec<String> {
+    let limit = limit.max(1).min(64);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("log")
+        .arg(format!("-n{limit}"))
+        .arg("--oneline")
+        .output();
+
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let raw = String::from_utf8_lossy(&output.stdout);
+    raw.lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .take(limit)
+        .collect()
+}
+
+fn gap_to_improvement_snapshot(response: &GapReport) -> ImprovementGapSnapshot {
+    ImprovementGapSnapshot {
+        candidate_count: response.candidate_count,
+        high_priority_count: response.high_priority_count,
+        eval_status: response.eval_status.clone(),
+        eval_score: response.eval_score,
+        eval_score_delta: response.eval_score_delta,
+        top_priorities: response.top_priorities.clone(),
+        generated_at: response.generated_at,
+    }
+}
+
+fn improvement_progress(previous: &GapReport, current: &GapReport) -> bool {
+    if current.candidate_count < previous.candidate_count {
+        return true;
+    }
+    if current.high_priority_count < previous.high_priority_count {
+        return true;
+    }
+    if let (Some(previous_score), Some(current_score)) = (previous.eval_score, current.eval_score) {
+        if current_score > previous_score {
+            return true;
+        }
+    } else if current.eval_score.is_some() && previous.eval_score.is_none() {
+        return true;
+    }
+    previous.top_priorities != current.top_priorities
+}
+
+fn build_improvement_actions(
+    gap: &GapReport,
+    coordination: Option<&CoordinationResponse>,
+) -> Vec<ImprovementAction> {
+    let mut actions = Vec::new();
+    let mut seen = std::collections::HashSet::<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>::new();
+
+    let add = |actions: &mut Vec<ImprovementAction>,
+               seen: &mut std::collections::HashSet<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
+               action: &str,
+               priority: &str,
+               target_session: Option<String>,
+               scope: Option<String>,
+               task_id: Option<String>,
+               message_id: Option<String>,
+               reason: &str| {
+        let key = (
+            action.to_string(),
+            target_session.clone(),
+            scope.clone(),
+            task_id.clone(),
+            message_id.clone(),
+            Some(reason.to_string()),
+        );
+        if seen.insert(key) {
+            actions.push(ImprovementAction {
+                action: action.to_string(),
+                priority: priority.to_string(),
+                target_session,
+                scope,
+                task_id,
+                message_id,
+                reason: reason.to_string(),
+            });
+        }
+    };
+
+    for candidate in &gap.candidates {
+        match candidate.id.as_str() {
+            "memory:low_eval_score"
+            | "memory:below_target_eval_score"
+            | "memory:no_eval_snapshot" => {
+                add(
+                    &mut actions,
+                    &mut seen,
+                    "refresh_eval",
+                    "high",
+                    None,
+                    None,
+                    None,
+                    None,
+                    &candidate.recommendation,
+                );
+            }
+            "memory:weak_working_lane"
+            | "memory:empty_context_lane"
+            | "memory:empty_rehydration_queue"
+            | "memory:missing_active_workspace_lane"
+            | "memory:inbox_growth"
+            | "memory:resume_state_weak"
+            | "memory:resume_state_inbox_backlog"
+            | "memory:missing_resume_state" => {
+                add(
+                    &mut actions,
+                    &mut seen,
+                    "refresh_resume",
+                    "high",
+                    None,
+                    None,
+                    None,
+                    None,
+                    &candidate.recommendation,
+                );
+            }
+            "coordination:message_backlog" => {
+                add(
+                    &mut actions,
+                    &mut seen,
+                    "refresh_resume",
+                    "medium",
+                    None,
+                    None,
+                    None,
+                    None,
+                    &candidate.recommendation,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(coordination) = coordination {
+        for suggestion in &coordination.suggestions {
+            match suggestion.action.as_str() {
+                "ack_message" => {
+                    if let Some(message_id) = suggestion.message_id.clone() {
+                        add(
+                            &mut actions,
+                            &mut seen,
+                            "ack_message",
+                            &suggestion.priority,
+                            None,
+                            None,
+                            None,
+                            Some(message_id),
+                            &suggestion.reason,
+                        );
+                    }
+                }
+                "recover_session" => {
+                    if let Some(session) = suggestion.stale_session.clone() {
+                        add(
+                            &mut actions,
+                            &mut seen,
+                            "recover_session",
+                            &suggestion.priority,
+                            Some(session),
+                            None,
+                            None,
+                            None,
+                            &suggestion.reason,
+                        );
+                    }
+                }
+                "assign_scope" => {
+                    if suggestion.task_id.is_some() && suggestion.scope.is_some() {
+                        add(
+                            &mut actions,
+                            &mut seen,
+                            "assign_scope",
+                            &suggestion.priority,
+                            suggestion.target_session.clone(),
+                            suggestion.scope.clone(),
+                            suggestion.task_id.clone(),
+                            None,
+                            &suggestion.reason,
+                        );
+                    }
+                }
+                "request_help" | "request_review" => {
+                    if suggestion.task_id.is_some() && suggestion.target_session.is_some() {
+                        add(
+                            &mut actions,
+                            &mut seen,
+                            &suggestion.action,
+                            &suggestion.priority,
+                            suggestion.target_session.clone(),
+                            None,
+                            suggestion.task_id.clone(),
+                            None,
+                            &suggestion.reason,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if actions.len() > 8 {
+        actions.truncate(8);
+    }
+    actions
+}
+
+async fn apply_improvement_action(
+    action: &ImprovementAction,
+    output: &Path,
+    base_url: &str,
+) -> anyhow::Result<String> {
+    match action.action.as_str() {
+        "refresh_eval" => {
+            let response = eval_bundle_memory(
+                &EvalArgs {
+                    output: output.to_path_buf(),
+                    limit: None,
+                    rehydration_limit: None,
+                    write: false,
+                    fail_below: None,
+                    fail_on_regression: false,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!(
+                "status={} score={}",
+                response.status, response.score
+            ))
+        }
+        "refresh_resume" => {
+            let runtime = read_bundle_runtime_config(output)?;
+            let snapshot = read_bundle_resume(
+                &ResumeArgs {
+                    output: output.to_path_buf(),
+                    project: runtime.as_ref().and_then(|value| value.project.clone()),
+                    namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+                    agent: runtime.as_ref().and_then(|value| value.agent.clone()),
+                    workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
+                    visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
+                    route: runtime
+                        .as_ref()
+                        .and_then(|value| value.route.clone())
+                        .or(Some("auto".to_string())),
+                    intent: runtime
+                        .as_ref()
+                        .and_then(|value| value.intent.clone())
+                        .or(Some("current_task".to_string())),
+                    limit: Some(8),
+                    rehydration_limit: Some(4),
+                    semantic: false,
+                    prompt: false,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            write_bundle_memory_files(output, &snapshot, None).await?;
+            Ok(format!(
+                "working={} inbox={} rehydration={}",
+                snapshot.working.records.len(),
+                snapshot.inbox.items.len(),
+                snapshot.working.rehydration_queue.len(),
+            ))
+        }
+        "ack_message" => {
+            let response = run_messages_command(
+                &MessagesArgs {
+                    output: output.to_path_buf(),
+                    send: false,
+                    inbox: true,
+                    ack: action.message_id.clone(),
+                    target_session: None,
+                    kind: None,
+                    request_help: false,
+                    request_review: false,
+                    assign_scope: None,
+                    scope: None,
+                    content: None,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!("acked {} message(s)", response.messages.len()))
+        }
+        "recover_session" => {
+            let response = run_coordination_command(
+                &CoordinationArgs {
+                    output: output.to_path_buf(),
+                    view: Some("all".to_string()),
+                    changes_only: false,
+                    watch: false,
+                    interval_secs: 30,
+                    recover_session: action.target_session.clone(),
+                    to_session: None,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!(
+                "recovered stale session pressure (stale_peers={})",
+                response.recovery.stale_peers.len()
+            ))
+        }
+        "assign_scope" => {
+            let response = run_tasks_command(
+                &TasksArgs {
+                    output: output.to_path_buf(),
+                    upsert: false,
+                    assign_to_session: action.target_session.clone(),
+                    target_session: None,
+                    task_id: action.task_id.clone(),
+                    title: None,
+                    description: None,
+                    status: None,
+                    mode: None,
+                    scope: Vec::new(),
+                    request_help: false,
+                    request_review: false,
+                    all: false,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!("assigned task count={}", response.tasks.len()))
+        }
+        "request_help" => {
+            let response = run_tasks_command(
+                &TasksArgs {
+                    output: output.to_path_buf(),
+                    upsert: false,
+                    assign_to_session: None,
+                    target_session: action.target_session.clone(),
+                    task_id: action.task_id.clone(),
+                    title: None,
+                    description: None,
+                    status: None,
+                    mode: None,
+                    scope: Vec::new(),
+                    request_help: true,
+                    request_review: false,
+                    all: false,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!(
+                "requested help on {} task(s)",
+                response.tasks.len()
+            ))
+        }
+        "request_review" => {
+            let response = run_tasks_command(
+                &TasksArgs {
+                    output: output.to_path_buf(),
+                    upsert: false,
+                    assign_to_session: None,
+                    target_session: action.target_session.clone(),
+                    task_id: action.task_id.clone(),
+                    title: None,
+                    description: None,
+                    status: None,
+                    mode: None,
+                    scope: Vec::new(),
+                    request_help: false,
+                    request_review: true,
+                    all: false,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!(
+                "requested review on {} task(s)",
+                response.tasks.len()
+            ))
+        }
+        _ => anyhow::bail!("unknown improvement action: {}", action.action),
+    }
+}
+
+fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
+    let planning_root = project_root.join(".planning");
+    let mut evidence = Vec::new();
+    let roadmap = read_text_file(&planning_root.join("ROADMAP.md"));
+    let state = read_text_file(&planning_root.join("STATE.md"));
+    let project = read_text_file(&planning_root.join("PROJECT.md"));
+
+    if let Some(roadmap) = roadmap {
+        let lines = roadmap
+            .lines()
+            .filter(|value| value.contains("Phase") && value.contains("v6"))
+            .take(4)
+            .collect::<Vec<_>>();
+        if !lines.is_empty() {
+            evidence.push(format!("roadmap phases: {}", lines.join(" | ")));
+        }
+    }
+    if let Some(state) = state {
+        if let Some(open_loops) = state
+            .lines()
+            .filter(|line| line.starts_with("- ") && line.contains("phase"))
+            .next()
+        {
+            evidence.push(format!("state signal: {open_loops}"));
+        }
+        if let Some(open_block) = state.split("## Open Loops").nth(1) {
+            let next = open_block
+                .lines()
+                .take(3)
+                .filter(|value| value.starts_with("- "))
+                .collect::<Vec<_>>();
+            if !next.is_empty() {
+                evidence.push(format!("state open loops: {}", next.join(" | ")));
+            }
+        }
+    }
+    if let Some(project) = project {
+        if let Some(core) = project
+            .lines()
+            .find(|line| line.starts_with("##") && line.contains("Core"))
+        {
+            evidence.push(format!("project: {core}"));
+        }
+    }
+
+    evidence
+}
+
+async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let project_root = project_root_from_bundle(&args.output);
+    let base_url = runtime
+        .as_ref()
+        .and_then(|value| value.base_url.clone())
+        .unwrap_or_else(|| "http://127.0.0.1:8787".to_string());
+    let limit = args.limit.unwrap_or(8);
+    let recent_commits = read_recent_commits(project_root, args.recent_commits.unwrap_or(8));
+    let mut evidence = collect_gap_plan_evidence(project_root);
+
+    if evidence.is_empty() {
+        evidence.push("planning evidence unavailable in .planning".to_string());
+    }
+
+    let baseline = read_latest_gap_report(&args.output).ok().flatten();
+    let eval = read_latest_bundle_eval(&args.output).ok().flatten();
+    if let Some(eval) = &eval {
+        evidence.push(format!(
+            "eval baseline score: {} ({})",
+            eval.score, eval.status
+        ));
+    } else {
+        evidence.push("no previous memd eval snapshot in .memd/evals/latest.json".to_string());
+    }
+
+    let resume = read_bundle_resume(
+        &ResumeArgs {
+            output: args.output.clone(),
+            project: runtime.as_ref().and_then(|value| value.project.clone()),
+            namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+            agent: runtime.as_ref().and_then(|value| value.agent.clone()),
+            workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
+            visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
+            route: runtime
+                .as_ref()
+                .and_then(|value| value.route.clone())
+                .or(Some("auto".to_string())),
+            intent: runtime
+                .as_ref()
+                .and_then(|value| value.intent.clone())
+                .or(Some("current_task".to_string())),
+            limit: Some(limit),
+            rehydration_limit: Some(4),
+            semantic: false,
+            prompt: false,
+            summary: false,
+        },
+        &base_url,
+    )
+    .await
+    .ok();
+
+    let snapshot_state = read_bundle_resume_state(&args.output).ok().flatten();
+
+    let runtime_session = runtime.as_ref().and_then(|value| value.session.clone());
+    let coordination = if runtime_session.is_some() {
+        run_coordination_command(
+            &CoordinationArgs {
+                output: args.output.clone(),
+                view: None,
+                changes_only: false,
+                watch: false,
+                interval_secs: 30,
+                recover_session: None,
+                to_session: None,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .ok()
+    } else {
+        None
+    };
+
+    let candidates = build_gap_candidates(
+        &args.output,
+        &runtime,
+        &resume,
+        snapshot_state.as_ref(),
+        eval.as_ref(),
+        coordination.as_ref(),
+        &recent_commits,
+        &mut evidence,
+    );
+    let candidates = prioritize_gap_candidates(candidates, limit);
+
+    let mut recommendations = candidates
+        .iter()
+        .take(3)
+        .map(|candidate| candidate.recommendation.clone())
+        .collect::<Vec<_>>();
+    if recommendations.is_empty() {
+        recommendations
+            .push("run memd gap after collecting 12+ recent commits and a fresh eval".to_string());
+    }
+
+    if !recent_commits.is_empty() {
+        evidence.push(format!("recent_commits={} checked", recent_commits.len()));
+    }
+
+    let high_priorities = candidates
+        .iter()
+        .filter(|candidate| candidate.severity == "high")
+        .map(|candidate| candidate.id.clone())
+        .collect::<Vec<_>>();
+    let mut response = GapReport {
+        bundle_root: args.output.display().to_string(),
+        project: runtime.as_ref().and_then(|value| value.project.clone()),
+        namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+        agent: runtime.as_ref().and_then(|value| value.agent.clone()),
+        session: runtime_session,
+        workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
+        visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
+        limit,
+        commits_checked: recent_commits.len(),
+        eval_status: eval.as_ref().map(|value| value.status.clone()),
+        eval_score: eval.as_ref().map(|value| value.score),
+        eval_score_delta: baseline
+            .as_ref()
+            .and_then(|value| value.eval_score)
+            .and_then(|value| eval_score_delta(value, eval.as_ref())),
+        candidate_count: candidates.len(),
+        high_priority_count: high_priorities.len(),
+        candidates,
+        top_priorities: high_priorities,
+        recommendations,
+        changes: Vec::new(),
+        evidence,
+        generated_at: Utc::now(),
+        previous_candidate_count: baseline.as_ref().map(|value| value.candidate_count),
+    };
+    response.changes = evaluate_gap_changes(&response, baseline.as_ref());
+    Ok(response)
+}
+
+async fn run_improvement_loop(
+    args: &ImproveArgs,
+    base_url: &str,
+) -> anyhow::Result<ImprovementReport> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let started_at = Utc::now();
+    let mut iterations = Vec::new();
+    let mut converged = false;
+
+    let initial_report = gap_report(&GapArgs {
+        output: args.output.clone(),
+        limit: args.limit,
+        recent_commits: args.recent_commits,
+        write: false,
+        summary: false,
+    })
+    .await?;
+
+    let initial_snapshot = gap_to_improvement_snapshot(&initial_report);
+    let mut current_gap = initial_report.clone();
+    let mut final_changes = initial_report.changes.clone();
+    let mut previous_gap: Option<GapReport> = Some(initial_report.clone());
+    let mut final_gap: Option<GapReport> = Some(initial_report);
+
+    for iteration in 0..args.max_iterations {
+        let coordination = if runtime
+            .as_ref()
+            .and_then(|value| value.session.as_ref())
+            .is_some()
+        {
+            run_coordination_command(
+                &CoordinationArgs {
+                    output: args.output.clone(),
+                    view: Some("all".to_string()),
+                    changes_only: false,
+                    watch: false,
+                    interval_secs: 30,
+                    recover_session: None,
+                    to_session: None,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await
+            .ok()
+        } else {
+            None
+        };
+
+        let mut planned_actions = build_improvement_actions(&current_gap, coordination.as_ref());
+        planned_actions.truncate(6);
+
+        let pre_gap = gap_to_improvement_snapshot(&current_gap);
+        let mut executed_actions = Vec::new();
+
+        if !args.apply || planned_actions.is_empty() {
+            final_gap = Some(current_gap.clone());
+            final_changes = current_gap.changes.clone();
+            converged = true;
+            iterations.push(ImprovementIteration {
+                iteration,
+                pre_gap,
+                planned_actions,
+                executed_actions,
+                post_gap: None,
+                generated_at: Utc::now(),
+            });
+            break;
+        }
+
+        let mut stop_due_to_failure = false;
+        for action in &planned_actions {
+            let result = match apply_improvement_action(action, &args.output, base_url).await {
+                Ok(detail) => ImprovementActionResult {
+                    action: action.action.clone(),
+                    status: "applied".to_string(),
+                    detail,
+                },
+                Err(error) => {
+                    stop_due_to_failure = true;
+                    ImprovementActionResult {
+                        action: action.action.clone(),
+                        status: "failed".to_string(),
+                        detail: error.to_string(),
+                    }
+                }
+            };
+            executed_actions.push(result);
+        }
+
+        if stop_due_to_failure {
+            final_gap = Some(current_gap.clone());
+            final_changes = current_gap.changes.clone();
+            iterations.push(ImprovementIteration {
+                iteration,
+                pre_gap,
+                planned_actions,
+                executed_actions,
+                post_gap: None,
+                generated_at: Utc::now(),
+            });
+            break;
+        }
+
+        current_gap = gap_report(&GapArgs {
+            output: args.output.clone(),
+            limit: args.limit,
+            recent_commits: args.recent_commits,
+            write: false,
+            summary: false,
+        })
+        .await?;
+        final_changes = current_gap.changes.clone();
+        let post_gap = gap_to_improvement_snapshot(&current_gap);
+        final_gap = Some(current_gap.clone());
+
+        iterations.push(ImprovementIteration {
+            iteration,
+            pre_gap,
+            planned_actions,
+            executed_actions,
+            post_gap: Some(post_gap),
+            generated_at: Utc::now(),
+        });
+
+        if let Some(previous_gap) = previous_gap.as_ref() {
+            if !improvement_progress(previous_gap, &current_gap) {
+                converged = true;
+                break;
+            }
+        }
+        previous_gap = Some(current_gap.clone());
+
+        if iteration + 1 >= args.max_iterations {
+            break;
+        }
+    }
+
+    let final_snapshot = final_gap
+        .as_ref()
+        .map(gap_to_improvement_snapshot)
+        .or_else(|| Some(initial_snapshot.clone()));
+
+    if iterations.is_empty() {
+        iterations.push(ImprovementIteration {
+            iteration: 0,
+            pre_gap: initial_snapshot.clone(),
+            planned_actions: Vec::new(),
+            executed_actions: Vec::new(),
+            post_gap: Some(initial_snapshot.clone()),
+            generated_at: Utc::now(),
+        });
+        final_gap = Some(current_gap);
+        final_changes = final_gap
+            .as_ref()
+            .map_or_else(Vec::new, |gap| gap.changes.clone());
+    }
+    if final_changes.is_empty()
+        && let Some(gap) = final_gap.as_ref()
+    {
+        final_changes = gap.changes.clone();
+    }
+
+    Ok(ImprovementReport {
+        bundle_root: args.output.display().to_string(),
+        project: runtime.as_ref().and_then(|value| value.project.clone()),
+        namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+        agent: runtime.as_ref().and_then(|value| value.agent.clone()),
+        session: runtime.as_ref().and_then(|value| value.session.clone()),
+        workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
+        visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
+        max_iterations: args.max_iterations,
+        apply: args.apply,
+        started_at,
+        completed_at: Utc::now(),
+        converged,
+        initial_gap: Some(initial_snapshot),
+        final_gap: final_snapshot,
+        final_changes,
+        iterations,
+    })
+}
+
+fn write_improvement_artifacts(output: &Path, response: &ImprovementReport) -> anyhow::Result<()> {
+    let improvement_dir = improvement_reports_dir(output);
+    fs::create_dir_all(&improvement_dir)
+        .with_context(|| format!("create {}", improvement_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let baseline_json = improvement_dir.join("latest.json");
+    let baseline_md = improvement_dir.join("latest.md");
+    let timestamp_json = improvement_dir.join(format!("{timestamp}.json"));
+    let timestamp_md = improvement_dir.join(format!("{timestamp}.md"));
+    let json = serde_json::to_string_pretty(response)? + "\n";
+    let markdown = render_improvement_markdown(response);
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&baseline_md, &markdown)
+        .with_context(|| format!("write {}", baseline_md.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    fs::write(&timestamp_md, &markdown)
+        .with_context(|| format!("write {}", timestamp_md.display()))?;
+    Ok(())
+}
+
+fn build_gap_candidates(
+    output: &Path,
+    runtime: &Option<BundleRuntimeConfig>,
+    resume: &Option<ResumeSnapshot>,
+    state: Option<&BundleResumeState>,
+    eval: Option<&BundleEvalResponse>,
+    coordination: Option<&CoordinationResponse>,
+    recent_commits: &[String],
+    evidence: &mut Vec<String>,
+) -> Vec<GapCandidate> {
+    let mut candidates = Vec::new();
+    let add = |candidates: &mut Vec<GapCandidate>,
+               area: &str,
+               signal: &str,
+               priority: u8,
+               evidence: Vec<String>,
+               recommendation: &str| {
+        candidates.push(GapCandidate {
+            id: format!("{}:{signal}", area),
+            area: area.to_string(),
+            priority,
+            severity: if priority >= 85 {
+                "high".to_string()
+            } else if priority >= 65 {
+                "medium".to_string()
+            } else {
+                "low".to_string()
+            },
+            signal: signal.to_string(),
+            evidence,
+            recommendation: recommendation.to_string(),
+        });
+    };
+
+    if let Some(eval) = eval {
+        if eval.score < 70 {
+            add(
+                &mut candidates,
+                "memory",
+                "low_eval_score",
+                95,
+                vec![format!(
+                    "memd eval score {} with status {}",
+                    eval.score, eval.status
+                )],
+                "run `memd eval --write --summary` and address top recommendations before the next context switch",
+            );
+        } else if eval.score < 82 {
+            add(
+                &mut candidates,
+                "memory",
+                "below_target_eval_score",
+                76,
+                vec![format!(
+                    "eval score {} indicates medium risk, status {}",
+                    eval.score, eval.status
+                )],
+                "close immediate resume-pressure gaps (context, rehydration, inbox pressure) and rerun `memd eval`",
+            );
+        }
+        if eval.inbox_items >= 6 {
+            add(
+                &mut candidates,
+                "memory",
+                "inbox_pressure",
+                72,
+                vec![format!(
+                    "eval inbox_items={} indicates pressure",
+                    eval.inbox_items
+                )],
+                "triage/ack backlog with `memd coordination` then rerun resume",
+            );
+        }
+    } else {
+        add(
+            &mut candidates,
+            "memory",
+            "no_eval_snapshot",
+            82,
+            vec!["no .memd/evals/latest.json was available".to_string()],
+            "run `memd eval --write --summary` to establish a baseline before gap scoring",
+        );
+    }
+
+    if let Some(snapshot) = resume {
+        if snapshot.working.records.len() <= 1 {
+            add(
+                &mut candidates,
+                "memory",
+                "weak_working_lane",
+                86,
+                vec![format!(
+                    "working.records={}",
+                    snapshot.working.records.len()
+                )],
+                "capture durable and short-term lane before resuming high-cost tasks",
+            );
+        }
+        if snapshot.context.records.is_empty() {
+            add(
+                &mut candidates,
+                "memory",
+                "empty_context_lane",
+                84,
+                vec!["compact context returned no records for current route/intent".to_string()],
+                "verify active project/namespace and reset route/intent defaults",
+            );
+        }
+        if snapshot.working.rehydration_queue.is_empty() {
+            add(
+                &mut candidates,
+                "memory",
+                "empty_rehydration_queue",
+                66,
+                vec!["working.rehydration_queue empty".to_string()],
+                "write a checkpointable deep-context item and rerun handoff/resume",
+            );
+        }
+        if snapshot.workspace.is_some() && snapshot.workspaces.workspaces.is_empty() {
+            add(
+                &mut candidates,
+                "memory",
+                "missing_active_workspace_lane",
+                70,
+                vec!["active workspace had no workspace lane visibility".to_string()],
+                "repair workspace visibility and rehydrate shared lane state",
+            );
+        }
+        if snapshot.inbox.items.len() >= 7 {
+            add(
+                &mut candidates,
+                "memory",
+                "inbox_growth",
+                68,
+                vec![format!("inbox items={}", snapshot.inbox.items.len())],
+                "drain high-urgency items and clear stale messages before the next decision",
+            );
+        }
+    } else if let Some(state) = state {
+        if state.working_records <= 1 {
+            add(
+                &mut candidates,
+                "memory",
+                "resume_state_weak",
+                80,
+                vec![
+                    "resume snapshot unavailable; using last saved state".to_string(),
+                    format!("working_records={}", state.working_records),
+                ],
+                "resume the bundle and immediately run `memd eval --write --summary`",
+            );
+        }
+        if state.inbox_items >= 7 {
+            add(
+                &mut candidates,
+                "memory",
+                "resume_state_inbox_backlog",
+                64,
+                vec![format!("saved inbox_items={}", state.inbox_items)],
+                "refresh resume and inspect backlog with `memd coordination --summary`",
+            );
+        }
+    } else {
+        add(
+            &mut candidates,
+            "memory",
+            "missing_resume_state",
+            74,
+            vec!["resume state was not available locally".to_string()],
+            "run `memd resume` once so gap reports get live lane evidence",
+        );
+    }
+
+    if let Some(coordination) = coordination {
+        if !coordination.recovery.stale_peers.is_empty() {
+            add(
+                &mut candidates,
+                "coordination",
+                "stale_peers_recovery",
+                90,
+                vec![format!(
+                    "stale peers={}",
+                    coordination.recovery.stale_peers.len()
+                )],
+                "recover stale sessions before assigning new claims",
+            );
+        }
+        if !coordination.policy_conflicts.is_empty() {
+            add(
+                &mut candidates,
+                "coordination",
+                "policy_conflicts",
+                84,
+                vec![format!(
+                    "policy_conflicts={}",
+                    coordination.policy_conflicts.len()
+                )],
+                "resolve conflicts by explicit assign/recover actions",
+            );
+        }
+        if coordination.inbox.messages.len() >= 6 {
+            add(
+                &mut candidates,
+                "coordination",
+                "message_backlog",
+                76,
+                vec![format!(
+                    "inbox messages={}",
+                    coordination.inbox.messages.len()
+                )],
+                "ack now and reduce queue churn before adding new tasks",
+            );
+        }
+        if coordination.suggestions.len() >= 3 {
+            add(
+                &mut candidates,
+                "coordination",
+                "stale_action_pressure",
+                62,
+                vec![format!(
+                    "coordination suggestions={} pending",
+                    coordination.suggestions.len()
+                )],
+                "execute highest-priority coordination suggestion via bounded actions",
+            );
+        }
+    } else if !coordination_exists(output) {
+        add(
+            &mut candidates,
+            "coordination",
+            "coordination_unreachable",
+            60,
+            vec!["coordination snapshot was unavailable".to_string()],
+            "configure bundle session/base_url and rerun `memd gap`",
+        );
+    }
+
+    if let Some(runtime) = runtime {
+        if let Some(agent) = runtime.agent.as_ref() {
+            let mut session_hint = String::new();
+            if let Some(session) = runtime.session.as_ref() {
+                session_hint.push_str(session);
+            }
+            if !recent_commits.is_empty() {
+                evidence.push(format!("agent={agent} session={session_hint}"));
+            }
+        }
+    }
+
+    if recent_commits.is_empty() {
+        add(
+            &mut candidates,
+            "research_loop",
+            "no_recent_commits",
+            58,
+            vec!["no local commits discovered for configured limit".to_string()],
+            "run `git log` with commits available and compare gap deltas across windows",
+        );
+    } else {
+        evidence.push(format!(
+            "recent commits: {}",
+            recent_commits.first().map_or("none", |value| value)
+        ));
+    }
+
+    candidates
+}
+
+fn evaluate_gap_changes(current: &GapReport, baseline: Option<&GapReport>) -> Vec<String> {
+    let mut changes = Vec::new();
+    let current_top = current.candidate_count;
+    if let Some(baseline) = baseline {
+        if baseline.candidate_count != current_top {
+            changes.push(format!(
+                "candidate_count {} -> {}",
+                baseline.candidate_count, current_top
+            ));
+        }
+        if baseline.eval_score != current.eval_score {
+            changes.push(format!(
+                "eval_score {:?} -> {:?}",
+                baseline.eval_score, current.eval_score
+            ));
+        }
+    }
+    if current.eval_status.is_some() {
+        changes.push(format!(
+            "eval_status={}",
+            current.eval_status.as_deref().unwrap_or("none")
+        ));
+    }
+    changes
+}
+
+fn eval_score_delta(previous: u8, current: Option<&BundleEvalResponse>) -> Option<i32> {
+    current.map(|value| i32::from(value.score) - i32::from(previous))
+}
+
+fn prioritize_gap_candidates(mut candidates: Vec<GapCandidate>, limit: usize) -> Vec<GapCandidate> {
+    candidates.sort_by(|left, right| {
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| left.area.cmp(&right.area))
+    });
+    candidates.into_iter().take(limit).collect()
+}
+
+fn coordination_exists(output: &Path) -> bool {
+    output
+        .join("state")
+        .join("coordination-snapshot.json")
+        .exists()
+}
+
+fn gap_artifact_paths(output: &Path, name: &str) -> PathBuf {
+    gap_reports_dir(output).join(name)
+}
+
+fn write_gap_artifacts(output: &Path, response: &GapReport) -> anyhow::Result<()> {
+    let gap_dir = gap_reports_dir(output);
+    fs::create_dir_all(&gap_dir).with_context(|| format!("create {}", gap_dir.display()))?;
+
+    let baseline_json = gap_artifact_paths(output, "latest.json");
+    let baseline_md = gap_artifact_paths(output, "latest.md");
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let timestamp_json = gap_artifact_paths(output, &format!("{timestamp}.json"));
+    let timestamp_md = gap_artifact_paths(output, &format!("{timestamp}.md"));
+    let markdown = render_gap_markdown(response);
+    let json = serde_json::to_string_pretty(response)? + "\n";
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&baseline_md, &markdown)
+        .with_context(|| format!("write {}", baseline_md.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    fs::write(&timestamp_md, &markdown)
+        .with_context(|| format!("write {}", timestamp_md.display()))?;
+
+    Ok(())
+}
+
+fn read_latest_gap_report(output: &Path) -> anyhow::Result<Option<GapReport>> {
+    let path = gap_artifact_paths(output, "latest.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let report = serde_json::from_str::<GapReport>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(report))
+}
+
+fn render_gap_markdown(response: &GapReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd gap report\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- eval_status: {}\n- eval_score: {}\n- eval_score_delta: {}\n- candidate_count: {}\n- high_priority_count: {}\n- previous_candidate_count: {}\n- commits_checked: {}\n- generated_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.eval_status.clone().unwrap_or_else(|| "none".to_string()),
+        response
+            .eval_score
+            .map(|value: u8| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        response.eval_score_delta
+            .map(|value: i32| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        response.candidate_count,
+        response.high_priority_count,
+        response.previous_candidate_count.unwrap_or(0),
+        response.commits_checked,
+        response.generated_at,
+    ));
+
+    markdown.push_str("\n## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {}\n", item));
+        }
+    }
+
+    markdown.push_str("\n## Candidates\n\n");
+    if response.candidates.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for candidate in &response.candidates {
+            markdown.push_str(&format!(
+                "- [{}] {} {} (priority={})\n",
+                candidate.severity, candidate.area, candidate.signal, candidate.priority
+            ));
+            markdown.push_str(&format!("  - action: {}\n", candidate.recommendation));
+            for entry in &candidate.evidence {
+                markdown.push_str(&format!("  - evidence: {}\n", entry));
+            }
+        }
+    }
+
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for recommendation in &response.recommendations {
+            markdown.push_str(&format!("- {}\n", recommendation));
+        }
+    }
+
+    markdown.push_str("\n## Priorities\n\n");
+    if response.top_priorities.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.top_priorities {
+            markdown.push_str(&format!("- {}\n", item));
+        }
+    }
+
+    markdown.push_str("\n## Changes\n\n");
+    if response.changes.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for change in &response.changes {
+            markdown.push_str(&format!("- {}\n", change));
+        }
+    }
+
+    markdown
 }
 
 fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
@@ -6232,9 +7948,13 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     if let Some(env_agent) = env_agent {
-        script.push_str(&format!("export MEMD_AGENT=\"{}\"\n", compact_bundle_value(env_agent)));
+        script.push_str(&format!(
+            "export MEMD_AGENT=\"{}\"\n",
+            compact_bundle_value(env_agent)
+        ));
     }
-    script.push_str("exec memd resume --output \"$MEMD_BUNDLE_ROOT\" --intent current_task \"$@\"\n");
+    script
+        .push_str("exec memd resume --output \"$MEMD_BUNDLE_ROOT\" --intent current_task \"$@\"\n");
     script
 }
 
@@ -6244,7 +7964,10 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         escape_ps1(output.to_string_lossy().as_ref()),
     );
     if let Some(env_agent) = env_agent {
-        script.push_str(&format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(env_agent)));
+        script.push_str(&format!(
+            "$env:MEMD_AGENT = \"{}\"\n",
+            escape_ps1(env_agent)
+        ));
     }
     script.push_str("memd resume --output $env:MEMD_BUNDLE_ROOT --intent current_task\n");
     script
@@ -6296,7 +8019,11 @@ fn render_bundle_memory_markdown(
     if !snapshot.working.rehydration_queue.is_empty() {
         markdown.push_str("\n## Rehydration Queue\n\n");
         for artifact in snapshot.working.rehydration_queue.iter().take(6) {
-            markdown.push_str(&format!("- {}: {}\n", artifact.label, artifact.summary.trim()));
+            markdown.push_str(&format!(
+                "- {}: {}\n",
+                artifact.label,
+                artifact.summary.trim()
+            ));
         }
     }
 
@@ -6330,7 +8057,11 @@ fn render_bundle_memory_markdown(
         }
     }
 
-    if let Some(semantic) = snapshot.semantic.as_ref().filter(|semantic| !semantic.items.is_empty()) {
+    if let Some(semantic) = snapshot
+        .semantic
+        .as_ref()
+        .filter(|semantic| !semantic.items.is_empty())
+    {
         markdown.push_str("\n## Semantic Recall\n\n");
         for item in semantic.items.iter().take(5) {
             markdown.push_str(&format!(
@@ -6417,11 +8148,11 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
     let rag = &config.backend.rag;
 
     let mut shell = String::new();
-    shell.push_str(&format!("MEMD_BUNDLE_SCHEMA_VERSION={}\n", config.schema_version));
     shell.push_str(&format!(
-        "MEMD_BUNDLE_BACKEND_PROVIDER={}\n",
-        rag.provider
+        "MEMD_BUNDLE_SCHEMA_VERSION={}\n",
+        config.schema_version
     ));
+    shell.push_str(&format!("MEMD_BUNDLE_BACKEND_PROVIDER={}\n", rag.provider));
     shell.push_str(&format!(
         "MEMD_BUNDLE_BACKEND_ENABLED={}\n",
         if rag.enabled { "true" } else { "false" }
@@ -6429,8 +8160,7 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
     if let Some(url) = rag.url.as_deref() {
         shell.push_str(&format!("MEMD_RAG_URL={url}\n"));
     }
-    fs::write(&backend_env, shell)
-        .with_context(|| format!("write {}", backend_env.display()))?;
+    fs::write(&backend_env, shell).with_context(|| format!("write {}", backend_env.display()))?;
 
     let mut ps1 = String::new();
     ps1.push_str(&format!(
@@ -6446,10 +8176,7 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
         if rag.enabled { "true" } else { "false" }
     ));
     if let Some(url) = rag.url.as_deref() {
-        ps1.push_str(&format!(
-            "$env:MEMD_RAG_URL = \"{}\"\n",
-            escape_ps1(url)
-        ));
+        ps1.push_str(&format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(url)));
     }
     fs::write(&backend_env_ps1, ps1)
         .with_context(|| format!("write {}", backend_env_ps1.display()))?;
@@ -6463,7 +8190,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let runtime = read_bundle_runtime_config(output)?;
     let heartbeat = read_bundle_heartbeat(output)?;
     let resume_preview = if output.join("config.json").exists() && health.is_some() {
-            let preview = read_bundle_resume(
+        let preview = read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,
@@ -6890,10 +8617,11 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         .workspace
         .clone()
         .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone()));
-    let visibility_raw = args
-        .visibility
-        .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.visibility.clone()));
+    let visibility_raw = args.visibility.clone().or_else(|| {
+        runtime
+            .as_ref()
+            .and_then(|config| config.visibility.clone())
+    });
     let route_raw = args
         .route
         .clone()
@@ -7018,9 +8746,17 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         working_records: working.records.len(),
         inbox_items: inbox.items.len(),
         rehydration_items: working.rehydration_queue.len(),
+        recorded_at: Utc::now(),
     };
     let previous_state = read_bundle_resume_state(&args.output)?;
     let change_summary = describe_resume_state_changes(previous_state.as_ref(), &current_state);
+    let resume_state_age_minutes = previous_state.as_ref().map(BundleResumeState::age_minutes);
+    let refresh_recommended = resume_state_age_minutes.is_some_and(|age_minutes| age_minutes >= 15)
+        || working.truncated
+        || working.remaining_chars <= 200
+        || working.records.len() >= 8
+        || inbox.items.len() >= 5
+        || working.rehydration_queue.len() >= 4;
 
     Ok(ResumeSnapshot {
         project,
@@ -7036,10 +8772,15 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         workspaces,
         semantic,
         change_summary,
+        resume_state_age_minutes,
+        refresh_recommended,
     })
 }
 
-async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Result<HandoffSnapshot> {
+async fn read_bundle_handoff(
+    args: &HandoffArgs,
+    base_url: &str,
+) -> anyhow::Result<HandoffSnapshot> {
     let target = if let Some(target_session) = args.target_session.as_deref() {
         resolve_target_session_bundle(&args.output, target_session)?
     } else {
@@ -7101,10 +8842,7 @@ async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Resu
     })
 }
 
-async fn eval_bundle_memory(
-    args: &EvalArgs,
-    base_url: &str,
-) -> anyhow::Result<BundleEvalResponse> {
+async fn eval_bundle_memory(args: &EvalArgs, base_url: &str) -> anyhow::Result<BundleEvalResponse> {
     let baseline = read_latest_bundle_eval(&args.output)?;
     let snapshot = read_bundle_resume(
         &ResumeArgs {
@@ -7349,7 +9087,8 @@ fn build_eval_recommendations(snapshot: &ResumeSnapshot, score: u8) -> Vec<Strin
         .is_some_and(|semantic| semantic.items.is_empty())
     {
         recommendations.push(
-            "check the LightRAG index or sync path before depending on semantic fallback".to_string(),
+            "check the LightRAG index or sync path before depending on semantic fallback"
+                .to_string(),
         );
     }
     if score < 85 {
@@ -7380,10 +9119,11 @@ async fn remember_with_bundle_defaults(
         .workspace
         .clone()
         .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone()));
-    let visibility_raw = args
-        .visibility
-        .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.visibility.clone()));
+    let visibility_raw = args.visibility.clone().or_else(|| {
+        runtime
+            .as_ref()
+            .and_then(|config| config.visibility.clone())
+    });
     let base_url = runtime
         .as_ref()
         .and_then(|config| config.base_url.clone())
@@ -8139,12 +9879,18 @@ struct BundleResumeState {
     working_records: usize,
     inbox_items: usize,
     rehydration_items: usize,
+    #[serde(default = "Utc::now")]
+    recorded_at: DateTime<Utc>,
 }
 
 impl BundleResumeState {
     fn from_snapshot(snapshot: &ResumeSnapshot) -> Self {
         Self {
-            focus: snapshot.working.records.first().map(|record| record.record.clone()),
+            focus: snapshot
+                .working
+                .records
+                .first()
+                .map(|record| record.record.clone()),
             pressure: snapshot
                 .inbox
                 .items
@@ -8166,7 +9912,12 @@ impl BundleResumeState {
             working_records: snapshot.working.records.len(),
             inbox_items: snapshot.inbox.items.len(),
             rehydration_items: snapshot.working.rehydration_queue.len(),
+            recorded_at: Utc::now(),
         }
+    }
+
+    fn age_minutes(&self) -> i64 {
+        (Utc::now() - self.recorded_at).num_minutes()
     }
 }
 
@@ -8185,6 +9936,135 @@ struct ResumeSnapshot {
     workspaces: memd_schema::WorkspaceMemoryResponse,
     semantic: Option<RagRetrieveResponse>,
     change_summary: Vec<String>,
+    resume_state_age_minutes: Option<i64>,
+    refresh_recommended: bool,
+}
+
+impl ResumeSnapshot {
+    fn estimated_prompt_chars(&self) -> usize {
+        let header_chars = self.project.as_deref().map_or(0, str::len)
+            + self.namespace.as_deref().map_or(0, str::len)
+            + self.agent.as_deref().map_or(0, str::len)
+            + self.workspace.as_deref().map_or(0, str::len)
+            + self.visibility.as_deref().map_or(0, str::len)
+            + self.route.len()
+            + self.intent.len();
+        let context_chars: usize = self
+            .context
+            .records
+            .iter()
+            .map(|record| record.record.len())
+            .sum();
+        let working_chars: usize = self
+            .working
+            .records
+            .iter()
+            .map(|record| record.record.len())
+            .sum();
+        let rehydration_chars: usize = self
+            .working
+            .rehydration_queue
+            .iter()
+            .map(|item| item.label.len() + item.summary.len())
+            .sum();
+        let inbox_chars: usize = self
+            .inbox
+            .items
+            .iter()
+            .map(|item| {
+                let reasons_len: usize = item.reasons.iter().map(|reason| reason.len()).sum();
+                item.item.content.len() + reasons_len
+            })
+            .sum();
+        let workspace_chars: usize = self
+            .workspaces
+            .workspaces
+            .iter()
+            .map(|lane| {
+                lane.project.as_deref().map_or(0, str::len)
+                    + lane.namespace.as_deref().map_or(0, str::len)
+                    + lane.workspace.as_deref().map_or(0, str::len)
+                    + lane.tags.iter().map(|tag| tag.len()).sum::<usize>()
+            })
+            .sum();
+        let semantic_chars: usize = self.semantic.as_ref().map_or(0, |semantic| {
+            semantic
+                .items
+                .iter()
+                .map(|item| item.content.len() + item.source.as_deref().map_or(0, str::len))
+                .sum()
+        });
+        let change_chars: usize = self.change_summary.iter().map(|change| change.len()).sum();
+        header_chars
+            + context_chars
+            + working_chars
+            + rehydration_chars
+            + inbox_chars
+            + workspace_chars
+            + semantic_chars
+            + change_chars
+    }
+
+    fn estimated_prompt_tokens(&self) -> usize {
+        self.estimated_prompt_chars().div_ceil(4)
+    }
+
+    fn context_pressure(&self) -> &'static str {
+        let tokens = self.estimated_prompt_tokens();
+        if self.working.truncated
+            || tokens >= 1_800
+            || self.inbox.items.len() >= 5
+            || self
+                .semantic
+                .as_ref()
+                .is_some_and(|semantic| semantic.items.len() >= 4)
+        {
+            "high"
+        } else if tokens >= 1_000
+            || self.working.remaining_chars <= 200
+            || self.inbox.items.len() >= 3
+            || self.working.rehydration_queue.len() >= 4
+        {
+            "medium"
+        } else {
+            "low"
+        }
+    }
+
+    fn optimization_hints(&self) -> Vec<String> {
+        let mut hints = Vec::new();
+        if self.refresh_recommended {
+            hints.push(
+                "prefer a fresh session resumed from the bundle instead of carrying a stale long transcript"
+                    .to_string(),
+            );
+        }
+        if self.inbox.items.len() >= 3 {
+            hints.push("triage inbox pressure before pulling in more context".to_string());
+        }
+        if self
+            .semantic
+            .as_ref()
+            .is_some_and(|semantic| !semantic.items.is_empty())
+        {
+            hints.push(
+                "keep semantic recall off unless deep context is actually required".to_string(),
+            );
+        }
+        if self.estimated_prompt_tokens() >= 1_200 || self.context.records.len() >= 6 {
+            hints.push(
+                "promote stable facts into compiled or typed artifacts before rereading raw files"
+                    .to_string(),
+            );
+        }
+        if self.working.rehydration_queue.len() >= 3 {
+            hints.push(
+                "resolve the top rehydration items instead of loading every deferred artifact"
+                    .to_string(),
+            );
+        }
+        hints
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -8217,6 +10097,101 @@ struct BundleEvalResponse {
     score_delta: Option<i32>,
     changes: Vec<String>,
     recommendations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GapCandidate {
+    id: String,
+    area: String,
+    priority: u8,
+    severity: String,
+    signal: String,
+    evidence: Vec<String>,
+    recommendation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImprovementGapSnapshot {
+    candidate_count: usize,
+    high_priority_count: usize,
+    eval_status: Option<String>,
+    eval_score: Option<u8>,
+    eval_score_delta: Option<i32>,
+    top_priorities: Vec<String>,
+    generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImprovementAction {
+    action: String,
+    priority: String,
+    target_session: Option<String>,
+    scope: Option<String>,
+    task_id: Option<String>,
+    message_id: Option<String>,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImprovementActionResult {
+    action: String,
+    status: String,
+    detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImprovementIteration {
+    iteration: usize,
+    pre_gap: ImprovementGapSnapshot,
+    planned_actions: Vec<ImprovementAction>,
+    executed_actions: Vec<ImprovementActionResult>,
+    post_gap: Option<ImprovementGapSnapshot>,
+    generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImprovementReport {
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    max_iterations: usize,
+    apply: bool,
+    started_at: DateTime<Utc>,
+    completed_at: DateTime<Utc>,
+    converged: bool,
+    initial_gap: Option<ImprovementGapSnapshot>,
+    final_gap: Option<ImprovementGapSnapshot>,
+    final_changes: Vec<String>,
+    iterations: Vec<ImprovementIteration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GapReport {
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    limit: usize,
+    commits_checked: usize,
+    eval_status: Option<String>,
+    eval_score: Option<u8>,
+    eval_score_delta: Option<i32>,
+    candidate_count: usize,
+    high_priority_count: usize,
+    top_priorities: Vec<String>,
+    candidates: Vec<GapCandidate>,
+    recommendations: Vec<String>,
+    changes: Vec<String>,
+    evidence: Vec<String>,
+    generated_at: DateTime<Utc>,
+    previous_candidate_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8331,6 +10306,7 @@ struct CoordinationResponse {
     inbox: PeerCoordinationInboxResponse,
     recovery: CoordinationRecoverySummary,
     policy_conflicts: Vec<String>,
+    suggestions: Vec<CoordinationSuggestion>,
     boundary_recommendations: Vec<String>,
     receipts: Vec<PeerCoordinationReceiptRecord>,
 }
@@ -8372,7 +10348,20 @@ struct CoordinationAlertSnapshot {
     stalled_task_count: usize,
     policy_conflict_count: usize,
     recommendation_count: usize,
+    suggestion_count: usize,
     latest_receipt_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CoordinationSuggestion {
+    action: String,
+    priority: String,
+    target_session: Option<String>,
+    task_id: Option<String>,
+    scope: Option<String>,
+    message_id: Option<String>,
+    reason: String,
+    stale_session: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -8475,11 +10464,12 @@ mod tests {
         routing::{get, post},
     };
     use memd_schema::{
-        PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
-        PeerCoordinationReceiptsResponse,
-        PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
-        PeerClaimsRequest, PeerClaimsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
-        PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+        PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest,
+        PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
+        PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord,
+        PeerCoordinationReceiptRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
+        PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+        PeerTaskRecord,
     };
 
     #[derive(Clone, Default)]
@@ -8506,7 +10496,11 @@ mod tests {
             created_at: Utc::now(),
             acknowledged_at: None,
         };
-        state.messages.lock().expect("lock messages").push(message.clone());
+        state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .push(message.clone());
         Json(PeerMessagesResponse {
             messages: vec![message],
         })
@@ -8588,7 +10582,9 @@ mod tests {
             expires_at: Utc::now() + chrono::TimeDelta::seconds(req.ttl_seconds as i64),
         };
         claims.push(claim.clone());
-        Json(PeerClaimsResponse { claims: vec![claim] })
+        Json(PeerClaimsResponse {
+            claims: vec![claim],
+        })
     }
 
     async fn mock_claim_release(
@@ -8703,7 +10699,9 @@ mod tests {
             .expect("bind mock peer server");
         let addr = listener.local_addr().expect("mock peer server addr");
         tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("serve mock peer server");
+            axum::serve(listener, app)
+                .await
+                .expect("serve mock peer server");
         });
         tokio::time::sleep(Duration::from_millis(25)).await;
         format!("http://{}", addr)
@@ -8910,8 +10908,8 @@ mod tests {
         assert!(markdown.contains("--semantic"));
         assert!(markdown.contains("fast local hot path"));
         assert!(markdown.contains("slower deep recall"));
-        let claude_imports =
-            fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md")).expect("read claude imports");
+        let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
+            .expect("read claude imports");
         assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
         assert!(claude_imports.contains("@CLAUDE_CODE_MEMORY.md"));
         assert!(claude_imports.contains("/memory"));
@@ -9050,6 +11048,8 @@ mod tests {
             },
             semantic: None,
             change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
 
         let markdown = render_bundle_memory_markdown(&snapshot, None);
@@ -9174,9 +11174,14 @@ mod tests {
             },
             semantic: None,
             change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
 
         let prompt = crate::render::render_resume_prompt(&snapshot);
+        assert!(prompt.contains("## Context Budget"));
+        assert!(prompt.contains("estimated_tokens"));
+        assert!(prompt.contains("pressure: low"));
         assert!(prompt.contains("## Current Task Snapshot"));
         assert!(prompt.contains("## Since Last Resume"));
         assert!(prompt.contains("Follow the active current-task lane"));
@@ -9195,6 +11200,7 @@ mod tests {
             working_records: 2,
             inbox_items: 1,
             rehydration_items: 1,
+            recorded_at: Utc::now(),
         };
         let current = BundleResumeState {
             focus: Some("new focus".to_string()),
@@ -9204,21 +11210,43 @@ mod tests {
             working_records: 4,
             inbox_items: 0,
             rehydration_items: 2,
+            recorded_at: Utc::now(),
         };
 
         let changes = describe_resume_state_changes(Some(&previous), &current);
-        assert!(changes.iter().any(|value| value.contains("focus -> new focus")));
-        assert!(changes.iter().any(|value| value.contains("pressure -> new pressure")));
-        assert!(changes.iter().any(|value| value.contains("next_recovery -> artifact: new")));
-        assert!(changes.iter().any(|value| value.contains("lane -> demo / main / beta")));
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("focus -> new focus"))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("pressure -> new pressure"))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("next_recovery -> artifact: new"))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("lane -> demo / main / beta"))
+        );
         assert!(changes.iter().any(|value| value.contains("working 2 -> 4")));
         assert!(changes.iter().any(|value| value.contains("inbox 1 -> 0")));
-        assert!(changes.iter().any(|value| value.contains("rehydration 1 -> 2")));
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("rehydration 1 -> 2"))
+        );
     }
 
     #[test]
     fn builds_bundle_agent_profiles_for_known_agents() {
-        let dir = std::env::temp_dir().join(format!("memd-agent-profiles-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("memd-agent-profiles-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -9233,21 +11261,27 @@ mod tests {
 "#,
         )
         .expect("write config");
-        let response = build_bundle_agent_profiles(&dir, None, Some("bash")).expect("agent profiles");
+        let response =
+            build_bundle_agent_profiles(&dir, None, Some("bash")).expect("agent profiles");
         assert_eq!(response.agents.len(), 4);
         assert_eq!(response.shell, "bash");
         assert_eq!(response.current.as_deref(), Some("codex"));
         assert_eq!(response.current_session.as_deref(), Some("codex-a"));
         assert_eq!(response.agents[0].name, "codex");
         assert_eq!(response.agents[0].effective_agent, "codex@codex-a");
-        assert!(response.agents[0].memory_file.ends_with("agents/CODEX_MEMORY.md"));
+        assert!(
+            response.agents[0]
+                .memory_file
+                .ends_with("agents/CODEX_MEMORY.md")
+        );
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
     fn filters_bundle_agent_profiles_by_name() {
-        let dir = std::env::temp_dir().join(format!("memd-agent-selected-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("memd-agent-selected-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -9262,8 +11296,8 @@ mod tests {
 "#,
         )
         .expect("write config");
-        let response =
-            build_bundle_agent_profiles(&dir, Some("claude-code"), Some("pwsh")).expect("agent profiles");
+        let response = build_bundle_agent_profiles(&dir, Some("claude-code"), Some("pwsh"))
+            .expect("agent profiles");
         assert_eq!(response.agents.len(), 1);
         assert_eq!(response.current.as_deref(), Some("claude-code"));
         assert_eq!(response.selected.as_deref(), Some("claude-code"));
@@ -9303,8 +11337,16 @@ mod tests {
 "#,
         )
         .expect("write config");
-        fs::write(dir.join("env"), "MEMD_AGENT=codex@codex-a\nMEMD_SESSION=codex-a\n").expect("write env");
-        fs::write(dir.join("env.ps1"), "$env:MEMD_AGENT = \"codex@codex-a\"\n$env:MEMD_SESSION = \"codex-a\"\n").expect("write env.ps1");
+        fs::write(
+            dir.join("env"),
+            "MEMD_AGENT=codex@codex-a\nMEMD_SESSION=codex-a\n",
+        )
+        .expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_AGENT = \"codex@codex-a\"\n$env:MEMD_SESSION = \"codex-a\"\n",
+        )
+        .expect("write env.ps1");
 
         set_bundle_agent(&dir, "openclaw").expect("set bundle agent");
 
@@ -9394,7 +11436,10 @@ mod tests {
         )
         .expect("write sibling config");
         fs::write(
-            sibling_project.join(".memd").join("state").join("last-resume.json"),
+            sibling_project
+                .join(".memd")
+                .join("state")
+                .join("last-resume.json"),
             r#"{
   "focus": "Finish the sibling task",
   "pressure": "Resolve review comments",
@@ -9597,7 +11642,10 @@ mod tests {
         )
         .expect("write target config");
         fs::write(
-            target_project.join(".memd").join("state").join("heartbeat.json"),
+            target_project
+                .join(".memd")
+                .join("state")
+                .join("heartbeat.json"),
             serde_json::to_string_pretty(&BundleHeartbeatState {
                 session: Some("claude-b".to_string()),
                 agent: Some("claude-code".to_string()),
@@ -9625,7 +11673,10 @@ mod tests {
             .expect("matching session");
         assert_eq!(resolved.project.as_deref(), Some("target"));
         assert_eq!(resolved.session.as_deref(), Some("claude-b"));
-        assert_eq!(resolved.bundle_root, target_project.join(".memd").display().to_string());
+        assert_eq!(
+            resolved.bundle_root,
+            target_project.join(".memd").display().to_string()
+        );
 
         fs::remove_dir_all(root).expect("cleanup target-session root");
     }
@@ -9677,29 +11728,35 @@ mod tests {
         )
         .expect("write heartbeat");
 
-        let acquired = run_claims_command(&ClaimsArgs {
-            output: dir.clone(),
-            acquire: true,
-            release: false,
-            transfer_to_session: None,
-            scope: Some("file:src/main.rs".to_string()),
-            ttl_secs: 900,
-            summary: false,
-        }, &base_url)
+        let acquired = run_claims_command(
+            &ClaimsArgs {
+                output: dir.clone(),
+                acquire: true,
+                release: false,
+                transfer_to_session: None,
+                scope: Some("file:src/main.rs".to_string()),
+                ttl_secs: 900,
+                summary: false,
+            },
+            &base_url,
+        )
         .await
         .expect("acquire claim");
         assert_eq!(acquired.claims.len(), 1);
         assert_eq!(acquired.claims[0].scope, "file:src/main.rs");
 
-        let released = run_claims_command(&ClaimsArgs {
-            output: dir.clone(),
-            acquire: false,
-            release: true,
-            transfer_to_session: None,
-            scope: Some("file:src/main.rs".to_string()),
-            ttl_secs: 900,
-            summary: false,
-        }, &base_url)
+        let released = run_claims_command(
+            &ClaimsArgs {
+                output: dir.clone(),
+                acquire: false,
+                release: true,
+                transfer_to_session: None,
+                scope: Some("file:src/main.rs".to_string()),
+                ttl_secs: 900,
+                summary: false,
+            },
+            &base_url,
+        )
         .await
         .expect("release claim");
         assert_eq!(released.claims.len(), 1);
@@ -9710,7 +11767,8 @@ mod tests {
 
     #[tokio::test]
     async fn claims_transfer_scope_to_target_session() {
-        let root = std::env::temp_dir().join(format!("memd-claim-transfer-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("memd-claim-transfer-{}", uuid::Uuid::new_v4()));
         let current_project = root.join("current");
         let target_project = root.join("target");
         let current_bundle = current_project.join(".memd");
@@ -9803,28 +11861,34 @@ mod tests {
         )
         .expect("write target heartbeat");
 
-        let acquired = run_claims_command(&ClaimsArgs {
-            output: current_bundle.clone(),
-            acquire: true,
-            release: false,
-            transfer_to_session: None,
-            scope: Some("task:parser-refactor".to_string()),
-            ttl_secs: 900,
-            summary: false,
-        }, &base_url)
+        let acquired = run_claims_command(
+            &ClaimsArgs {
+                output: current_bundle.clone(),
+                acquire: true,
+                release: false,
+                transfer_to_session: None,
+                scope: Some("task:parser-refactor".to_string()),
+                ttl_secs: 900,
+                summary: false,
+            },
+            &base_url,
+        )
         .await
         .expect("acquire claim");
         assert_eq!(acquired.claims[0].session.as_deref(), Some("codex-a"));
 
-        let transferred = run_claims_command(&ClaimsArgs {
-            output: current_bundle.clone(),
-            acquire: false,
-            release: false,
-            transfer_to_session: Some("claude-b".to_string()),
-            scope: Some("task:parser-refactor".to_string()),
-            ttl_secs: 900,
-            summary: false,
-        }, &base_url)
+        let transferred = run_claims_command(
+            &ClaimsArgs {
+                output: current_bundle.clone(),
+                acquire: false,
+                release: false,
+                transfer_to_session: Some("claude-b".to_string()),
+                scope: Some("task:parser-refactor".to_string()),
+                ttl_secs: 900,
+                summary: false,
+            },
+            &base_url,
+        )
         .await
         .expect("transfer claim");
         assert_eq!(transferred.claims.len(), 1);
@@ -9886,58 +11950,67 @@ mod tests {
         )
         .expect("write target config");
 
-        let sent = run_messages_command(&MessagesArgs {
-            output: current_bundle.clone(),
-            send: true,
-            inbox: false,
-            ack: None,
-            target_session: Some("claude-b".to_string()),
-            kind: Some("handoff".to_string()),
-            request_help: false,
-            request_review: false,
-            assign_scope: None,
-            scope: None,
-            content: Some("Pick up the parser refactor".to_string()),
-            summary: false,
-        }, &current_base_url)
+        let sent = run_messages_command(
+            &MessagesArgs {
+                output: current_bundle.clone(),
+                send: true,
+                inbox: false,
+                ack: None,
+                target_session: Some("claude-b".to_string()),
+                kind: Some("handoff".to_string()),
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: Some("Pick up the parser refactor".to_string()),
+                summary: false,
+            },
+            &current_base_url,
+        )
         .await
         .expect("send message");
         assert_eq!(sent.messages.len(), 1);
         assert_eq!(sent.messages[0].to_session, "claude-b");
 
-        let inbox = run_messages_command(&MessagesArgs {
-            output: target_bundle.clone(),
-            send: false,
-            inbox: true,
-            ack: None,
-            target_session: None,
-            kind: None,
-            request_help: false,
-            request_review: false,
-            assign_scope: None,
-            scope: None,
-            content: None,
-            summary: false,
-        }, &target_base_url)
+        let inbox = run_messages_command(
+            &MessagesArgs {
+                output: target_bundle.clone(),
+                send: false,
+                inbox: true,
+                ack: None,
+                target_session: None,
+                kind: None,
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: None,
+                summary: false,
+            },
+            &target_base_url,
+        )
         .await
         .expect("read inbox");
         assert_eq!(inbox.messages.len(), 1);
         let message_id = inbox.messages[0].id.clone();
 
-        let acked = run_messages_command(&MessagesArgs {
-            output: target_bundle.clone(),
-            send: false,
-            inbox: true,
-            ack: Some(message_id),
-            target_session: None,
-            kind: None,
-            request_help: false,
-            request_review: false,
-            assign_scope: None,
-            scope: None,
-            content: None,
-            summary: false,
-        }, &target_base_url)
+        let acked = run_messages_command(
+            &MessagesArgs {
+                output: target_bundle.clone(),
+                send: false,
+                inbox: true,
+                ack: Some(message_id),
+                target_session: None,
+                kind: None,
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: None,
+                summary: false,
+            },
+            &target_base_url,
+        )
         .await
         .expect("ack message");
         assert!(acked.messages[0].acknowledged_at.is_some());
@@ -9947,7 +12020,8 @@ mod tests {
 
     #[test]
     fn set_bundle_base_url_updates_config_and_env_files() {
-        let dir = std::env::temp_dir().join(format!("memd-bundle-base-url-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("memd-bundle-base-url-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -10129,15 +12203,25 @@ mod tests {
                 }],
             }),
             change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
 
         let changes = describe_eval_changes(&baseline, 88, &snapshot);
         assert!(changes.iter().any(|value| value.contains("score 72 -> 88")));
         assert!(changes.iter().any(|value| value.contains("working 2 -> 3")));
-        assert!(changes.iter().any(|value| value.contains("rehydration 1 -> 2")));
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("rehydration 1 -> 2"))
+        );
         assert!(changes.iter().any(|value| value.contains("inbox 3 -> 0")));
         assert!(changes.iter().any(|value| value.contains("lanes 1 -> 2")));
-        assert!(changes.iter().any(|value| value.contains("semantic 0 -> 1")));
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("semantic 0 -> 1"))
+        );
     }
 
     #[test]
@@ -10298,22 +12382,479 @@ mod tests {
                     6
                 ],
             },
-            workspaces: memd_schema::WorkspaceMemoryResponse { workspaces: Vec::new() },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
             semantic: Some(memd_rag::RagRetrieveResponse {
                 status: "ok".to_string(),
                 mode: memd_rag::RagRetrieveMode::Auto,
                 items: Vec::new(),
             }),
             change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
 
         let recommendations = build_eval_recommendations(&snapshot, 62);
-        assert!(recommendations.iter().any(|value| value.contains("memd remember")));
-        assert!(recommendations.iter().any(|value| value.contains("compact context")));
-        assert!(recommendations.iter().any(|value| value.contains("rehydrate deeper context")));
-        assert!(recommendations.iter().any(|value| value.contains("workspace or visibility")));
-        assert!(recommendations.iter().any(|value| value.contains("inbox pressure")));
-        assert!(recommendations.iter().any(|value| value.contains("LightRAG")));
-        assert!(recommendations.iter().any(|value| value.contains("write a fresh baseline")));
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("memd remember"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("compact context"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("rehydrate deeper context"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("workspace or visibility"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("inbox pressure"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("LightRAG"))
+        );
+        assert!(
+            recommendations
+                .iter()
+                .any(|value| value.contains("write a fresh baseline"))
+        );
+    }
+
+    #[test]
+    fn suggest_coordination_actions_emits_multi_priority_output() {
+        let now = Utc::now();
+        let inbox = PeerCoordinationInboxResponse {
+            messages: vec![
+                PeerMessageRecord {
+                    id: "m-1".to_string(),
+                    kind: "status_check".to_string(),
+                    from_session: "peer-a".to_string(),
+                    from_agent: None,
+                    to_session: "codex".to_string(),
+                    project: None,
+                    namespace: None,
+                    workspace: None,
+                    content: "review this artifact".to_string(),
+                    created_at: now,
+                    acknowledged_at: None,
+                },
+                PeerMessageRecord {
+                    id: "m-2".to_string(),
+                    kind: "help_request".to_string(),
+                    from_session: "peer-b".to_string(),
+                    from_agent: None,
+                    to_session: "codex".to_string(),
+                    project: None,
+                    namespace: None,
+                    workspace: None,
+                    content: "another request".to_string(),
+                    created_at: now,
+                    acknowledged_at: None,
+                },
+            ],
+            owned_tasks: vec![],
+            help_tasks: vec![],
+            review_tasks: vec![],
+        };
+
+        let stale_sessions = vec!["peer-stale"];
+        let active_peers = vec!["peer-helper"];
+        let claims = vec![
+            SessionClaim {
+                scope: "shared/src.rs".to_string(),
+                session: Some("peer-stale".to_string()),
+                agent: Some("claude".to_string()),
+                effective_agent: Some("codex".to_string()),
+                project: None,
+                workspace: None,
+                host: None,
+                pid: None,
+                acquired_at: now,
+                expires_at: now,
+            },
+            SessionClaim {
+                scope: "shared/src.rs".to_string(),
+                session: Some("peer-contender".to_string()),
+                agent: None,
+                effective_agent: None,
+                project: None,
+                workspace: None,
+                host: None,
+                pid: None,
+                acquired_at: now,
+                expires_at: now,
+            },
+        ];
+        let tasks = vec![
+            PeerTaskRecord {
+                task_id: "task-exclusive".to_string(),
+                title: "edit shared".to_string(),
+                description: None,
+                status: "assigned".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("peer-owner".to_string()),
+                agent: Some("peer-owner".to_string()),
+                effective_agent: None,
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec!["shared/src.rs".to_string()],
+                help_requested: false,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+            PeerTaskRecord {
+                task_id: "task-review".to_string(),
+                title: "run review".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("codex".to_string()),
+                agent: Some("coder".to_string()),
+                effective_agent: None,
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec![],
+                help_requested: false,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+            PeerTaskRecord {
+                task_id: "task-help".to_string(),
+                title: "parallel assist".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "help_only".to_string(),
+                session: Some("codex".to_string()),
+                agent: Some("coder".to_string()),
+                effective_agent: None,
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec![],
+                help_requested: false,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+        ];
+        let policy_conflicts = vec!["policy conflict for shared scope".to_string()];
+
+        let suggestions = suggest_coordination_actions(
+            &inbox,
+            &stale_sessions,
+            &active_peers,
+            &claims,
+            &tasks,
+            "codex",
+            &policy_conflicts,
+        );
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .filter(|s| s.action == "ack_message")
+                .count(),
+            2,
+            "each inbox message should produce its own ack suggestion"
+        );
+        assert!(suggestions.iter().any(|s| s.action == "recover_session"));
+        assert!(suggestions.iter().any(|s| s.action == "assign_scope"));
+        assert!(suggestions.iter().any(|s| s.action == "request_review"));
+        assert!(suggestions.iter().any(|s| s.action == "request_help"));
+        assert!(
+            suggestions
+                .iter()
+                .any(|s| s.stale_session.as_deref() == Some("peer-stale"))
+        );
+    }
+
+    #[test]
+    fn build_gap_candidates_generates_core_gap_signals() {
+        let output = std::env::temp_dir().join(format!("memd-gap-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+
+        let runtime = None;
+        let resume = None;
+        let commits = vec!["abc".to_string(), "def".to_string()];
+        let mut evidence = Vec::new();
+
+        let candidates = build_gap_candidates(
+            &output,
+            &runtime,
+            &resume,
+            None,
+            None,
+            None,
+            &commits,
+            &mut evidence,
+        );
+
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "memory:no_eval_snapshot"),
+            "baseline eval signal should be present when no eval exists"
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "memory:missing_resume_state"),
+            "resume signal should be present when resume and state are missing"
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "coordination:coordination_unreachable"),
+            "coordination signal should be present when coordination snapshot is unavailable"
+        );
+        assert!(
+            !evidence.is_empty(),
+            "recent commits should generate at least one evidence string"
+        );
+
+        fs::remove_dir_all(&output).expect("cleanup temp output");
+    }
+
+    #[test]
+    fn prioritize_gap_candidates_orders_high_to_low_priority() {
+        let candidates = vec![
+            GapCandidate {
+                id: "memory:a".to_string(),
+                area: "memory".to_string(),
+                priority: 40,
+                severity: "low".to_string(),
+                signal: "low".to_string(),
+                evidence: Vec::new(),
+                recommendation: "low-priority".to_string(),
+            },
+            GapCandidate {
+                id: "coordination:b".to_string(),
+                area: "coordination".to_string(),
+                priority: 90,
+                severity: "high".to_string(),
+                signal: "high".to_string(),
+                evidence: Vec::new(),
+                recommendation: "high-priority".to_string(),
+            },
+            GapCandidate {
+                id: "memory:c".to_string(),
+                area: "memory".to_string(),
+                priority: 70,
+                severity: "medium".to_string(),
+                signal: "medium".to_string(),
+                evidence: Vec::new(),
+                recommendation: "medium-priority".to_string(),
+            },
+        ];
+        let sorted = prioritize_gap_candidates(candidates, 2);
+        assert_eq!(sorted[0].priority, 90);
+        assert_eq!(sorted[1].priority, 70);
+    }
+
+    #[test]
+    fn evaluate_gap_changes_detects_count_and_status_shift() {
+        let baseline = GapReport {
+            bundle_root: ".memd".to_string(),
+            project: None,
+            namespace: None,
+            agent: None,
+            session: None,
+            workspace: None,
+            visibility: None,
+            limit: 8,
+            commits_checked: 0,
+            eval_status: Some("usable".to_string()),
+            eval_score: Some(70),
+            eval_score_delta: Some(-5),
+            candidate_count: 6,
+            high_priority_count: 2,
+            top_priorities: Vec::new(),
+            candidates: Vec::new(),
+            recommendations: Vec::new(),
+            changes: Vec::new(),
+            evidence: Vec::new(),
+            generated_at: Utc::now(),
+            previous_candidate_count: None,
+        };
+
+        let current = GapReport {
+            bundle_root: ".memd".to_string(),
+            project: None,
+            namespace: None,
+            agent: None,
+            session: None,
+            workspace: None,
+            visibility: None,
+            limit: 8,
+            commits_checked: 2,
+            eval_status: Some("weak".to_string()),
+            eval_score: Some(66),
+            eval_score_delta: Some(-10),
+            candidate_count: 2,
+            high_priority_count: 1,
+            top_priorities: Vec::new(),
+            candidates: Vec::new(),
+            recommendations: Vec::new(),
+            changes: Vec::new(),
+            evidence: Vec::new(),
+            generated_at: Utc::now(),
+            previous_candidate_count: None,
+        };
+
+        let changes = evaluate_gap_changes(&current, Some(&baseline));
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("candidate_count 6 -> 2"))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("eval_score Some(70) -> Some(66)"))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|value| value.contains("eval_status=weak"))
+        );
+    }
+
+    fn test_gap_report(
+        candidate_count: usize,
+        high_priority_count: usize,
+        eval_score: Option<u8>,
+        top_priorities: Vec<String>,
+    ) -> GapReport {
+        GapReport {
+            bundle_root: ".memd".to_string(),
+            project: None,
+            namespace: None,
+            agent: None,
+            session: None,
+            workspace: None,
+            visibility: None,
+            limit: 8,
+            commits_checked: 0,
+            eval_status: None,
+            eval_score,
+            eval_score_delta: None,
+            candidate_count,
+            high_priority_count,
+            top_priorities,
+            candidates: Vec::new(),
+            recommendations: Vec::new(),
+            changes: Vec::new(),
+            evidence: Vec::new(),
+            generated_at: Utc::now(),
+            previous_candidate_count: None,
+        }
+    }
+
+    #[test]
+    fn build_improvement_actions_dedupes_and_limits() {
+        let mut gap = test_gap_report(3, 2, Some(61), vec!["memory:low_eval_score".to_string()]);
+        gap.candidates.push(GapCandidate {
+            id: "memory:low_eval_score".to_string(),
+            area: "memory".to_string(),
+            priority: 95,
+            severity: "high".to_string(),
+            signal: "low_eval_score".to_string(),
+            evidence: vec!["evidence".to_string()],
+            recommendation: "refresh eval".to_string(),
+        });
+        let coordination = CoordinationResponse {
+            bundle_root: ".memd".to_string(),
+            current_session: "codex".to_string(),
+            inbox: PeerCoordinationInboxResponse {
+                messages: Vec::new(),
+                owned_tasks: Vec::new(),
+                help_tasks: Vec::new(),
+                review_tasks: Vec::new(),
+            },
+            recovery: CoordinationRecoverySummary {
+                stale_peers: Vec::new(),
+                reclaimable_claims: Vec::new(),
+                stalled_tasks: Vec::new(),
+            },
+            policy_conflicts: Vec::new(),
+            suggestions: (0..10)
+                .map(|index| CoordinationSuggestion {
+                    action: "ack_message".to_string(),
+                    priority: "medium".to_string(),
+                    target_session: None,
+                    task_id: None,
+                    scope: None,
+                    message_id: Some(format!("dup-{index}")),
+                    reason: "dedupe check".to_string(),
+                    stale_session: None,
+                })
+                .chain(std::iter::once(CoordinationSuggestion {
+                    action: "ack_message".to_string(),
+                    priority: "high".to_string(),
+                    target_session: None,
+                    task_id: None,
+                    scope: None,
+                    message_id: Some("dup-0".to_string()),
+                    reason: "dedupe check".to_string(),
+                    stale_session: None,
+                }))
+                .collect(),
+            boundary_recommendations: Vec::new(),
+            receipts: Vec::new(),
+        };
+        let actions = build_improvement_actions(&gap, Some(&coordination));
+        assert!(
+            actions.len() <= 8,
+            "action list should be bounded by apply_improvement cap"
+        );
+        assert!(
+            actions
+                .iter()
+                .filter(|value| value.action == "refresh_eval")
+                .count()
+                == 1,
+            "low_eval_score only yields one refresh_eval action"
+        );
+        assert!(
+            actions
+                .iter()
+                .filter(|value| value.message_id.as_deref() == Some("dup-0"))
+                .count()
+                <= 1,
+            "duplicate suggestion keys should dedupe"
+        );
+    }
+
+    #[test]
+    fn improvement_progress_tracks_candidate_score_and_priority_change() {
+        let baseline = test_gap_report(10, 3, Some(82), vec!["a".to_string(), "b".to_string()]);
+        let fewer_candidates =
+            test_gap_report(8, 3, Some(82), vec!["a".to_string(), "b".to_string()]);
+        let better_score = test_gap_report(10, 3, Some(84), vec!["a".to_string(), "b".to_string()]);
+        let changed_priorities =
+            test_gap_report(10, 3, Some(82), vec!["x".to_string(), "a".to_string()]);
+        let no_change = test_gap_report(10, 3, Some(82), vec!["a".to_string(), "b".to_string()]);
+
+        assert!(improvement_progress(&baseline, &fewer_candidates));
+        assert!(improvement_progress(&baseline, &better_score));
+        assert!(improvement_progress(&baseline, &changed_priorities));
+        assert!(!improvement_progress(&baseline, &no_change));
     }
 }

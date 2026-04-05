@@ -746,7 +746,11 @@ pub fn build_writeback_markdown(
                 sibling.id,
                 sibling.confidence,
                 sibling.status,
-                if sibling.preferred { "preferred" } else { "candidate" }
+                if sibling.preferred {
+                    "preferred"
+                } else {
+                    "candidate"
+                }
             ));
         }
     }
@@ -755,9 +759,7 @@ pub fn build_writeback_markdown(
         for artifact in explain.rehydration.iter().take(8) {
             markdown.push_str(&format!(
                 "- **{}** {}: {}\n",
-                artifact.kind,
-                artifact.label,
-                artifact.summary
+                artifact.kind, artifact.label, artifact.summary
             ));
             if let Some(reason) = artifact.reason.as_deref() {
                 markdown.push_str(&format!("  - reason: {}\n", reason));
@@ -975,10 +977,19 @@ pub fn build_handoff_markdown(
     }
     markdown.push_str(&format!("route: {}\n", snapshot.route));
     markdown.push_str(&format!("intent: {}\n", snapshot.intent));
-    markdown.push_str(&format!("working_items: {}\n", snapshot.working.records.len()));
-    markdown.push_str(&format!("rehydration_items: {}\n", snapshot.working.rehydration_queue.len()));
+    markdown.push_str(&format!(
+        "working_items: {}\n",
+        snapshot.working.records.len()
+    ));
+    markdown.push_str(&format!(
+        "rehydration_items: {}\n",
+        snapshot.working.rehydration_queue.len()
+    ));
     markdown.push_str(&format!("inbox_items: {}\n", snapshot.inbox.items.len()));
-    markdown.push_str(&format!("workspace_lanes: {}\n", snapshot.workspaces.workspaces.len()));
+    markdown.push_str(&format!(
+        "workspace_lanes: {}\n",
+        snapshot.workspaces.workspaces.len()
+    ));
     markdown.push_str(&format!(
         "semantic_hits: {}\n",
         snapshot
@@ -1016,9 +1027,7 @@ pub fn build_handoff_markdown(
         for artifact in snapshot.working.rehydration_queue.iter().take(8) {
             markdown.push_str(&format!(
                 "- **{}** {}: {}\n",
-                artifact.kind,
-                artifact.label,
-                artifact.summary
+                artifact.kind, artifact.label, artifact.summary
             ));
             if let Some(path) = artifact.source_path.as_deref() {
                 markdown.push_str(&format!("  - source_path: {}\n", path));
@@ -1037,10 +1046,7 @@ pub fn build_handoff_markdown(
         for item in snapshot.inbox.items.iter().take(8) {
             markdown.push_str(&format!(
                 "- {:?} {:?} | confidence {:.2} | {}\n",
-                item.item.kind,
-                item.item.status,
-                item.item.confidence,
-                item.item.content
+                item.item.kind, item.item.status, item.item.confidence, item.item.content
             ));
             if !item.reasons.is_empty() {
                 markdown.push_str(&format!("  - reasons: {}\n", item.reasons.join(", ")));
@@ -1183,7 +1189,10 @@ pub fn build_note_mirror_markdown(
             markdown.push_str(&format!("- workspace: {}\n", workspace));
         }
         if let Some(visibility) = visibility {
-            markdown.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
+            markdown.push_str(&format!(
+                "- visibility: {}\n",
+                format_visibility(visibility)
+            ));
         }
     }
     if !note.aliases.is_empty() {
@@ -1264,7 +1273,10 @@ pub fn build_attachment_mirror_markdown(
         markdown.push_str(&format!("- workspace: {}\n", workspace));
     }
     if let Some(visibility) = visibility {
-        markdown.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
+        markdown.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(visibility)
+        ));
     }
     if let Some(folder_path) = attachment.folder_path.as_deref() {
         markdown.push_str(&format!("- folder: {}\n", folder_path));
@@ -1308,7 +1320,10 @@ pub fn build_roundtrip_annotation(
         block.push_str(&format!("- workspace: {}\n", workspace));
     }
     if let Some(visibility) = visibility {
-        block.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
+        block.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(visibility)
+        ));
     }
     if !note.links.is_empty() {
         block.push_str(&format!("- links: {}\n", note.links.join(", ")));
@@ -2516,6 +2531,8 @@ mod tests {
             },
             semantic: None,
             change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -2587,12 +2604,16 @@ mod tests {
                 status: "ok".to_string(),
                 mode: memd_rag::RagRetrieveMode::Auto,
                 items: vec![memd_rag::RagRetrieveItem {
-                    content: "Shared workspace notes mention the same handoff lane and recovery path.".to_string(),
+                    content:
+                        "Shared workspace notes mention the same handoff lane and recovery path."
+                            .to_string(),
                     source: Some("vault/wiki/team-alpha.md".to_string()),
                     score: 0.93,
                 }],
             }),
             change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {
@@ -2635,7 +2656,9 @@ mod tests {
             7,
         );
         assert!(markdown.contains("[[old-note]]"));
-        assert!(markdown.contains("[[rust-memory-patterns]] | query: Rust Memory Patterns | items: 7"));
+        assert!(
+            markdown.contains("[[rust-memory-patterns]] | query: Rust Memory Patterns | items: 7")
+        );
     }
 
     #[test]
@@ -2647,9 +2670,9 @@ mod tests {
             Path::new("/tmp/vault/.memd/compiled/memory/bundle-first-fact-12345678.md"),
             1,
         );
-        assert!(
-            markdown.contains("[[bundle-first-fact-12345678]] | memory: bundle-first fact 12345678 | items: 1")
-        );
+        assert!(markdown.contains(
+            "[[bundle-first-fact-12345678]] | memory: bundle-first fact 12345678 | items: 1"
+        ));
     }
 
     #[test]

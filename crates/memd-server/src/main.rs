@@ -23,24 +23,24 @@ use memd_schema::{
     CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
     ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
-    EntitySearchRequest, EntitySearchResponse, HealthResponse, InboxMemoryItem,
+    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
     MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PromoteMemoryRequest,
-    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
-    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest,
-    SourceMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
-    PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
-    PeerClaimAcquireRequest, PeerClaimRecoverRequest, PeerClaimReleaseRequest,
-    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
-    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
-    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse,
-    PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PeerClaimAcquireRequest,
+    PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
+    PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
+    PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
+    PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest,
+    PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse,
+    RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
+    TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -244,12 +244,30 @@ async fn main() {
         .route("/coordination/messages/inbox", get(get_peer_inbox))
         .route("/coordination/messages/ack", post(post_peer_ack))
         .route("/coordination/inbox", get(get_peer_coordination_inbox))
-        .route("/coordination/receipts/record", post(post_peer_coordination_receipt))
-        .route("/coordination/receipts", get(get_peer_coordination_receipts))
-        .route("/coordination/claims/acquire", post(post_peer_claim_acquire))
-        .route("/coordination/claims/release", post(post_peer_claim_release))
-        .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
-        .route("/coordination/claims/recover", post(post_peer_claim_recover))
+        .route(
+            "/coordination/receipts/record",
+            post(post_peer_coordination_receipt),
+        )
+        .route(
+            "/coordination/receipts",
+            get(get_peer_coordination_receipts),
+        )
+        .route(
+            "/coordination/claims/acquire",
+            post(post_peer_claim_acquire),
+        )
+        .route(
+            "/coordination/claims/release",
+            post(post_peer_claim_release),
+        )
+        .route(
+            "/coordination/claims/transfer",
+            post(post_peer_claim_transfer),
+        )
+        .route(
+            "/coordination/claims/recover",
+            post(post_peer_claim_recover),
+        )
         .route("/coordination/claims", get(get_peer_claims))
         .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
         .route("/coordination/tasks/assign", post(post_peer_task_assign))
@@ -695,7 +713,10 @@ async fn post_peer_message(
         ));
     }
 
-    let response = state.store.send_peer_message(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .send_peer_message(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -752,7 +773,10 @@ async fn post_peer_coordination_receipt(
     Json(req): Json<PeerCoordinationReceiptRequest>,
 ) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
     if req.kind.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "kind must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "kind must not be empty".to_string(),
+        ));
     }
     if req.actor_session.trim().is_empty() {
         return Err((
@@ -761,7 +785,10 @@ async fn post_peer_coordination_receipt(
         ));
     }
     if req.summary.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "summary must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "summary must not be empty".to_string(),
+        ));
     }
     let response = state
         .store
@@ -786,12 +813,21 @@ async fn post_peer_claim_acquire(
     Json(req): Json<PeerClaimAcquireRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
     }
     if req.session.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "session must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
     }
-    let response = state.store.acquire_peer_claim(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .acquire_peer_claim(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -800,12 +836,21 @@ async fn post_peer_claim_release(
     Json(req): Json<PeerClaimReleaseRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
     }
     if req.session.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "session must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
     }
-    let response = state.store.release_peer_claim(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .release_peer_claim(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -814,7 +859,10 @@ async fn post_peer_claim_transfer(
     Json(req): Json<PeerClaimTransferRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
     }
     if req.from_session.trim().is_empty() || req.to_session.trim().is_empty() {
         return Err((
@@ -822,7 +870,10 @@ async fn post_peer_claim_transfer(
             "from_session and to_session must not be empty".to_string(),
         ));
     }
-    let response = state.store.transfer_peer_claim(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .transfer_peer_claim(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -831,7 +882,10 @@ async fn post_peer_claim_recover(
     Json(req): Json<PeerClaimRecoverRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
     }
     if req.from_session.trim().is_empty() {
         return Err((
@@ -842,9 +896,15 @@ async fn post_peer_claim_recover(
     if let Some(to_session) = req.to_session.as_deref()
         && to_session.trim().is_empty()
     {
-        return Err((StatusCode::BAD_REQUEST, "to_session must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
     }
-    let response = state.store.recover_peer_claim(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .recover_peer_claim(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1386,7 +1446,7 @@ fn build_context(
             .filter(|entry| plan.allows(entry.item.scope))
             .filter(|entry| entry.item.scope == scope)
             .filter(|entry| entry.item.status == MemoryStatus::Active)
-        .filter(|entry| match (&req.project, &entry.item.project, scope) {
+            .filter(|entry| match (&req.project, &entry.item.project, scope) {
                 (Some(project), Some(item_project), MemoryScope::Project) => {
                     item_project == project
                 }
@@ -1525,22 +1585,28 @@ fn filter_items(
         .collect();
 
     filtered.sort_by(|a, b| {
-        search_score(&b.item, b.entity.as_ref(), b.source_trust_score, &query, plan)
-            .partial_cmp(&search_score(
-                &a.item,
-                a.entity.as_ref(),
-                a.source_trust_score,
-                &query,
-                plan,
-            ))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                b.item
-                    .confidence
-                    .partial_cmp(&a.item.confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+        search_score(
+            &b.item,
+            b.entity.as_ref(),
+            b.source_trust_score,
+            &query,
+            plan,
+        )
+        .partial_cmp(&search_score(
+            &a.item,
+            a.entity.as_ref(),
+            a.source_trust_score,
+            &query,
+            plan,
+        ))
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            b.item
+                .confidence
+                .partial_cmp(&a.item.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
     for item in &mut filtered {
         item.item.content = compact_content(&item.item.content, max_chars);

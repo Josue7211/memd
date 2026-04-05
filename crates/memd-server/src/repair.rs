@@ -5,7 +5,7 @@ use memd_schema::{
     RepairMemoryResponse, VerifyMemoryRequest,
 };
 
-use super::{canonical_key, internal_error, redundancy_key, AppState};
+use super::{AppState, canonical_key, internal_error, redundancy_key};
 
 pub(crate) fn expire_item(
     state: &AppState,
@@ -190,7 +190,10 @@ pub(crate) fn repair_item(
             if let Some(content) = req.content {
                 let content = content.trim().to_string();
                 if content.is_empty() {
-                    return Err((StatusCode::BAD_REQUEST, "content cannot be empty".to_string()));
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "content cannot be empty".to_string(),
+                    ));
                 }
                 item.content = content;
                 reasons.push("content_repaired".to_string());

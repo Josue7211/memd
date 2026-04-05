@@ -7,9 +7,9 @@ use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
     MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
     MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
-    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope,
-    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkingMemoryTraceRecord,
+    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, WorkingMemoryEvictionRecord,
+    WorkingMemoryPolicyState, WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkingMemoryTraceRecord,
 };
 
 pub(crate) fn working_memory(
@@ -116,9 +116,7 @@ pub(crate) fn working_memory(
         .iter()
         .take(rehydration_limit)
         .map(|entry| {
-            let source_item = selected_items
-                .iter()
-                .find(|item| item.id == entry.id);
+            let source_item = selected_items.iter().find(|item| item.id == entry.id);
             build_rehydration_record(source_item, entry.id, &entry.record, &entry.reason)
         })
         .collect::<Vec<_>>();
@@ -251,17 +249,18 @@ fn working_item_priority(
     now: chrono::DateTime<Utc>,
 ) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
-    let age_days = now
-        .signed_duration_since(item.updated_at)
-        .num_days()
-        .max(0) as f32;
+    let age_days = now.signed_duration_since(item.updated_at).num_days().max(0) as f32;
     let verification_days = item
         .last_verified_at
         .map(|verified| now.signed_duration_since(verified).num_days().max(0) as f32)
         .unwrap_or(45.0);
     let recent_use_days = entity
         .and_then(|entity| entity.last_accessed_at)
-        .map(|last_accessed_at| now.signed_duration_since(last_accessed_at).num_days().max(0) as f32)
+        .map(|last_accessed_at| {
+            now.signed_duration_since(last_accessed_at)
+                .num_days()
+                .max(0) as f32
+        })
         .unwrap_or(45.0);
     let rehearsal_count = entity.map(|entity| entity.rehearsal_count).unwrap_or(0);
 
@@ -367,18 +366,19 @@ fn working_item_priority(
     if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
         reasons.push("trusted_source".to_string());
     }
-    ((confidence * 0.48
-        + status_score
-        + source_score
-        + stage_score
-        + freshness_score
-        + verification_score
-        + ttl_score
-        + recent_use_score
-        + rehearsal_score
-        + trust_score
-        + contradiction_score)
-        .clamp(0.0, 1.0),
+    (
+        (confidence * 0.48
+            + status_score
+            + source_score
+            + stage_score
+            + freshness_score
+            + verification_score
+            + ttl_score
+            + recent_use_score
+            + rehearsal_score
+            + trust_score
+            + contradiction_score)
+            .clamp(0.0, 1.0),
         reasons,
     )
 }
@@ -505,7 +505,11 @@ mod tests {
         assert!(reasons.iter().any(|reason| reason == "contested"));
         assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
         assert!(reasons.iter().any(|reason| reason == "trust_below_floor"));
-        assert!(reasons.iter().any(|reason| reason.starts_with("recent_use_days=")));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.starts_with("recent_use_days="))
+        );
     }
 }
 

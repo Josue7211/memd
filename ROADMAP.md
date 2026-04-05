@@ -43,6 +43,7 @@ The product standard is:
 - short-term-first memory
 - native multi-agent interoperability
 - inspectable memory
+- token-efficient memory by default
 
 In practical terms:
 
@@ -51,6 +52,8 @@ In practical terms:
 - verified, inferred, claimed, stale, and contested memory should stay explicit
 - Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
 - users should be able to inspect what the system remembers, why, and what changed
+- the default path should avoid expensive rereads, oversized reinjection, and stale-session rebuild waste
+- when legitimately huge context is required, the system should make those passes deliberate, structured, and higher-yield instead of paying giant-context cost on every turn
 
 ## Current Status
 
@@ -94,6 +97,7 @@ What is already real in the repo:
 - salience, rehearsal, decay, and consolidation exist
 - explain, inbox, maintenance, and policy inspection exist
 - branchable belief lanes exist for competing durable memory records
+- `memd gap` now emits evidence-driven improvement candidates from eval, resume, and coordination lanes
 
 ## Deployment Tiers
 
@@ -103,6 +107,7 @@ from day one.
 ### Tier 1: Obsidian Only
 
 - raw source material
+- compiled entity/relationship wiki artifacts
 - markdown wiki pages
 - compiled output pages
 - direct file browsing and backlinks
@@ -141,6 +146,7 @@ Backends and producers work behind it:
 - short-term sync
 - auto-dream / consolidation
 - Obsidian vault and compiled markdown wiki workflows
+- compiled knowledge graphs and reusable intermediate artifacts
 - semantic retrieval
 - graph relationships
 - verification workers
@@ -158,6 +164,19 @@ Clients consume it through one API:
 - Mission Control
 - OpenClaw
 - generic HTTP/CLI users
+
+Artifact classes should also be first-class:
+
+- operational memory
+- evidence memory
+- compiled knowledge/wiki artifacts
+- graph/entity artifacts
+- design memory:
+  - design systems
+  - visual rules
+  - component constraints
+  - anti-slop guidance
+  - harness-specific UI strengths and weaknesses
 
 ## Versions
 
@@ -200,6 +219,14 @@ Deliver:
 - dream/candidate ingestion and promotion gates
 - Obsidian vault bridge for markdown-native ingest and writeback
 - compiled-wiki workflow support where raw sources and derived notes can live in the same knowledge workspace
+- compiled graph workflow support where raw evidence can be transformed once into reusable entity/relationship artifacts
+- long-document and large-context workflow support:
+  - global brief/spec extraction
+  - glossary and terminology memory
+  - entity/reference sheets
+  - chunk-local working windows
+  - cross-chunk consistency memory
+  - final reconciliation passes that use broad context only when needed
 - LightRAG adapter and bundle-first backend configuration
 - tiered deployment shape:
   - Obsidian-only
@@ -209,6 +236,14 @@ Deliver:
 - one-command attach flow for Claude Code, Codex, Mission Control, and OpenClaw
 - freshness, contradiction surfacing, inbox, explain, and maintenance views
 - graph/entity primitives, salience, rehearsal, decay, and consolidation
+- provenance-typed graph edges for compiled knowledge:
+  - extracted
+  - inferred
+  - ambiguous
+- design memory as a typed artifact lane:
+  - `DESIGN.md`-style specs
+  - reusable visual system prompts and constraints
+  - harness-aware design guidance such as frontend strengths, weaknesses, and portability
 - working memory, timeline traces, and policy inspection
 
 Success:
@@ -218,6 +253,9 @@ Success:
 - memory remains compact, typed, inspectable, and evidence-backed
 - markdown-native research and wiki workflows can stay in Obsidian without giving up typed memory, provenance, or agent automation
 - the same knowledge base can scale from solo file-native use to shared sync to semantic retrieval
+- repeated raw rereads can be replaced by cheaper compiled graph/wiki retrieval at small and medium scales
+- reusable design guidance can be recalled like memory instead of re-explained in every UI task
+- long-form work such as books, corpora, or large migrations can preserve coherence without paying maximum context cost on every intermediate step
 - the substrate behaves like a brain-inspired control plane, not a bag of notes
 
 Implementation history:
@@ -258,6 +296,7 @@ Deliver:
 - provenance-native memory where every durable belief carries source,
   freshness, trust, and verification state
 - compiled wiki material and Obsidian evidence pages can be treated as first-class evidence lanes, not only as loose note text
+- raw folders can be compiled into reusable graph/wiki intermediates so the system queries compiled knowledge before cold-reading source files again
 - explicit working-memory admission, eviction, and rehydration policy
 - retrieval as a learned control loop instead of a fixed heuristic table
 - trust-weighted source memory across humans, agents, tools, files, and sensors
@@ -327,6 +366,28 @@ Deliver:
 - operator-facing hot-lane inspectability:
   - show what changed since last resume
   - keep current focus, pressure, and next recovery visible across prompt, bundle, and status surfaces
+- operator-facing token efficiency observability:
+  - attribute context footprint by source:
+    - system/tool surface
+    - memory injection
+    - hook payloads
+    - file reads
+    - shell output
+  - detect redundant rereads and repeated high-bloat command patterns
+  - surface cache-cliff and idle-gap risk before an expensive resumed turn
+- anti-waste control policies:
+  - prefer hot-lane and compiled artifacts before cold raw rereads
+  - suppress repeated same-session file rereads when prior evidence is still valid
+  - budget context injection per surface
+  - recommend fresh-session handoff when stale-session continuation would be more expensive than a compact resume
+  - optimize legitimate large-context jobs by splitting them into:
+    - durable global state
+    - compact local windows
+    - explicit reconciliation passes
+- universal design memory evolution:
+  - learn reusable UI/system specs from stable project outputs
+  - promote accepted design memory into portable design artifacts
+  - keep harness-native and adapter-required design guidance explicit
 
 Evolution Engine:
 
@@ -347,6 +408,7 @@ Success:
 - repeated work gets cheaper because the system learns and promotes the right abstractions
 - the memory loop feels alive: capture, resume, inspect, consolidate, repeat
 - dream/autodream/autoresearch live inside `memd`, with skills, CLI, MCP, and UI acting as surfaces over the same subsystem
+- token optimization is a competitive advantage of the substrate, not an accidental side effect
 
 ### v5: Memory-Native Cognition Infrastructure
 
@@ -423,6 +485,12 @@ Deliver:
 - explicit autoresearch -> autodream flow:
   - autoresearch runs first to find gaps and test bounded improvements
   - autodream runs after to consolidate accepted learnings, not speculative failures
+- token and context observability for agent sessions:
+  - transcript/session import into a compact local audit store
+  - cost and bloat attribution by turn, workflow, tool class, and memory payload class
+  - cache-cliff, idle-gap, and resume-rebuild warnings
+  - repeated read/output waste detection
+  - hooks that can warn, compact, fork, or recommend fresh-session resume when context cost is about to spike
 
 Success:
 
@@ -430,6 +498,7 @@ Success:
 - repeated quality improvements become cheaper and more reliable over time
 - the system can improve hot-path memory and coordination behavior overnight without unsafe drift
 - learning lives in the substrate, while promoted abstractions can be marked portable, harness-native, or adapter-required instead of being forced into false universality
+- operators can see where token budget is being burned instead of guessing after rate limits hit
 
 Core loop:
 

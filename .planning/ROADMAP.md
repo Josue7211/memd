@@ -132,6 +132,7 @@ Success:
 - let `obsidian compile` generate durable memory/evidence pages, not only query pages
 - keep compiled wiki artifacts indexed and directly openable from the vault workspace
 - preserve typed-memory provenance and rehydration details inside compiled markdown output
+- preserve a path from raw source -> compiled wiki -> typed graph so repeated retrieval does not depend on rereading cold raw files
 
 Status: Complete
 
@@ -600,7 +601,7 @@ Success:
 - preserve explicit operator choice instead of silently auto-executing actions
 - avoid inventing a second recommendation taxonomy separate from existing coordination policy
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -633,6 +634,77 @@ Status: Planned
 Success:
 
 - dream and autodream become native `memd` capabilities instead of external-only orchestration
+
+#### Phase 47.2: `v6` Token and Context Observability
+
+- add a local session/transcript audit path that attributes context footprint by source class
+- detect cache cliffs, idle-gap rebuild risk, redundant rereads, and high-bloat shell output patterns
+- keep the first slice focused on observability and operator warnings, not provider-specific hacks
+- preserve portability so the same audit model can work across Codex, Claude Code, OpenCode, and similar harnesses
+- make the first operator-facing outputs actionable:
+  - compact instead of continue
+  - fork a fresh session with bundle resume
+  - prefer compiled knowledge artifacts over raw rereads
+  - suppress repeated same-session reads when evidence is still fresh
+
+Status: Planned
+
+Success:
+
+- operators can see why token budget is being burned before limits hit, and `memd` can use that evidence in later self-improvement loops
+
+#### Phase 47.3: `v6` Raw-to-Graph Compilation for Knowledge Workspaces
+
+- add a compiled-knowledge path that transforms raw folders into reusable entity/relationship/evidence artifacts
+- query compiled graph/wiki outputs before rereading raw files when the compiled lane is fresh enough
+- preserve provenance classes on graph edges:
+  - extracted
+  - inferred
+  - ambiguous
+- keep the first slice filesystem-first so Obsidian-only setups benefit before semantic backends are required
+
+Status: Planned
+
+Success:
+
+- medium-scale research workspaces stop paying repeated cold-read costs because `memd` can answer from compiled knowledge artifacts first
+
+#### Phase 47.35: `v6` Large-Context Workflow Compression
+
+- add a workflow for legitimately large-context jobs such as books, long reports, and large migration corpora
+- split these jobs into compact reusable layers:
+  - global brief
+  - glossary / terminology memory
+  - entity and reference sheets
+  - chunk-local working windows
+  - reconciliation / harmonization passes
+- keep the first slice focused on preserving global coherence while avoiding giant-context usage on every intermediate turn
+- preserve provenance and cross-chunk traceability so later review can justify translation or synthesis choices
+
+Status: Planned
+
+Success:
+
+- `memd` can make short and medium sessions competitive with huge sessions for most long-form work while still supporting deliberate broad-context passes when they truly add value
+
+#### Phase 47.4: `v6` Universal Design Memory
+
+- add a typed design-memory lane for reusable design-system artifacts instead of treating design guidance as ad hoc prompt text
+- support `DESIGN.md`-style artifacts with:
+  - visual theme
+  - color roles
+  - typography hierarchy
+  - component constraints
+  - responsive rules
+  - anti-slop / anti-pattern guidance
+- preserve harness-aware metadata so frontend guidance can record which agents or shells are native, portable, or adapter-required
+- keep the first slice focused on storage, retrieval, and inspectability before automated design extraction
+
+Status: Planned
+
+Success:
+
+- UI and product design guidance becomes reusable memory that can move across sessions and harnesses without being re-explained every time
 
 #### Phase 48: `v6` Scenario Harness for Memory and Coordination
 

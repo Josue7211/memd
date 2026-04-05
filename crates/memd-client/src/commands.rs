@@ -47,9 +47,7 @@ pub(crate) fn parse_memory_visibility_value(value: &str) -> anyhow::Result<Memor
         "private" => Ok(MemoryVisibility::Private),
         "workspace" | "shared" => Ok(MemoryVisibility::Workspace),
         "public" => Ok(MemoryVisibility::Public),
-        _ => anyhow::bail!(
-            "invalid visibility '{value}'; expected private, workspace, or public"
-        ),
+        _ => anyhow::bail!("invalid visibility '{value}'; expected private, workspace, or public"),
     }
 }
 
@@ -96,9 +94,7 @@ pub(crate) fn parse_memory_repair_mode_value(value: &str) -> anyhow::Result<Memo
     }
 }
 
-pub(crate) fn parse_entity_relation_kind(
-    value: &str,
-) -> anyhow::Result<EntityRelationKind> {
+pub(crate) fn parse_entity_relation_kind(value: &str) -> anyhow::Result<EntityRelationKind> {
     let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
     match normalized.as_str() {
         "same_as" | "same" => Ok(EntityRelationKind::SameAs),
@@ -112,7 +108,9 @@ pub(crate) fn parse_entity_relation_kind(
     }
 }
 
-pub(crate) fn parse_retrieval_route(value: Option<String>) -> anyhow::Result<Option<RetrievalRoute>> {
+pub(crate) fn parse_retrieval_route(
+    value: Option<String>,
+) -> anyhow::Result<Option<RetrievalRoute>> {
     match value {
         Some(value) => Ok(Some(parse_retrieval_route_value(&value)?)),
         None => Ok(None),

@@ -1899,8 +1899,7 @@ mod tests {
 
         let request_json = serde_json::to_string(&request).unwrap();
         let response_json = serde_json::to_string(&response).unwrap();
-        let decoded_request: WorkspaceMemoryRequest =
-            serde_json::from_str(&request_json).unwrap();
+        let decoded_request: WorkspaceMemoryRequest = serde_json::from_str(&request_json).unwrap();
         let decoded_response: WorkspaceMemoryResponse =
             serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.workspace, request.workspace);

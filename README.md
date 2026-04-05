@@ -259,6 +259,46 @@ cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-belo
 cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-on-regression
 ```
 
+Find the next highest-priority memory and coordination improvement gaps:
+
+```bash
+cargo run -p memd-client --bin memd -- gap --output .memd
+cargo run -p memd-client --bin memd -- gap --output .memd --write --summary
+```
+
+Use `--write` to persist artifacts and get a diff against the latest report:
+
+```bash
+cargo run -p memd-client --bin memd -- gap --output .memd --write --limit 12 --recent-commits 24
+```
+
+`memd gap` writes:
+
+- `.memd/gaps/latest.json`
+- `.memd/gaps/latest.md`
+- timestamped snapshots in `.memd/gaps/`
+
+`latest.md` includes candidate count, top priorities, and concrete recommendation
+steps, plus `changes` summary when a prior gap report exists.
+
+Run a bounded self-improvement loop that can apply a bounded set of actions back
+into the memory/coordination flow:
+
+```bash
+cargo run -p memd-client --bin memd -- improve --output .memd
+cargo run -p memd-client --bin memd -- improve --output .memd --apply
+cargo run -p memd-client --bin memd -- improve --output .memd --apply --max-iterations 5
+```
+
+`memd improve` writes:
+
+- `.memd/improvements/latest.json`
+- `.memd/improvements/latest.md`
+- timestamped snapshots in `.memd/improvements/`
+
+`--summary` shows a concise execution view; default output is full machine-readable
+JSON.
+
 Eval summaries and markdown snapshots now include concrete recommendations based
 on the live resume lane, not just raw findings.
 

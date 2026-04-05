@@ -8,16 +8,16 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
-    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse,
-    PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
-    PeerClaimRecoverRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest,
-    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, RepairMemoryRequest,
-    RepairMemoryResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
-    SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
+    MemoryPolicyResponse, PeerClaimAcquireRequest, PeerClaimRecoverRequest,
+    PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
+    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest,
+    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
     WorkspaceMemoryResponse,
 };
 
@@ -252,10 +252,7 @@ impl MemdClient {
         self.post_json("/coordination/claims/recover", req).await
     }
 
-    pub async fn peer_claims(
-        &self,
-        req: &PeerClaimsRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+    pub async fn peer_claims(&self, req: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
         self.get_json_with_query("/coordination/claims", req).await
     }
 
@@ -295,7 +292,8 @@ impl MemdClient {
         &self,
         req: &PeerCoordinationReceiptsRequest,
     ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
-        self.get_json_with_query("/coordination/receipts", req).await
+        self.get_json_with_query("/coordination/receipts", req)
+            .await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

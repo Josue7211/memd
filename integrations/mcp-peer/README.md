@@ -19,9 +19,11 @@ It does not create a second coordination store.
 - `check_inbox`
 - `coordination_inbox`
 - `coordination_dashboard`
-  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
+  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `suggestions`, `history`
 - `coordination_changes`
-  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
+  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `suggestions`, `history`
+- `coordination_suggestions`
+  - optional `view`: `all`, `policy`, `suggestions`, `history`
 - `coordination_action`
   - `action`: `ack_message`, `assign_scope`, `recover_session`, `request_help`, `request_review`
 - `recover_stale_session`

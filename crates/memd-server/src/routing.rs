@@ -147,9 +147,7 @@ fn default_route_for_intent(intent: RetrievalIntent) -> RetrievalRoute {
         RetrievalIntent::Decision
         | RetrievalIntent::Runbook
         | RetrievalIntent::Procedural
-        | RetrievalIntent::Topology => {
-            RetrievalRoute::ProjectFirst
-        }
+        | RetrievalIntent::Topology => RetrievalRoute::ProjectFirst,
         RetrievalIntent::Preference | RetrievalIntent::Pattern => RetrievalRoute::GlobalFirst,
         RetrievalIntent::SelfModel => RetrievalRoute::LocalFirst,
     }

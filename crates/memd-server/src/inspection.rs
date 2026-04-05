@@ -1,13 +1,13 @@
 use axum::http::StatusCode;
-use std::collections::BTreeMap;
 use memd_schema::{
-    ExplainBranchSiblingRecord, ExplainMemoryRequest, ExplainMemoryResponse,
-    MemoryEventRecord, MemoryItem, MemoryRehydrationRecord, MemoryStage, MemoryStatus,
-    RetrievalFeedbackSurfaceCount, RetrievalFeedbackSummary, RetrievalIntent,
-    RetrievalRoute, SourceMemoryRecord, SourceMemoryRequest,
+    ExplainBranchSiblingRecord, ExplainMemoryRequest, ExplainMemoryResponse, MemoryEventRecord,
+    MemoryItem, MemoryRehydrationRecord, MemoryStage, MemoryStatus, RetrievalFeedbackSummary,
+    RetrievalFeedbackSurfaceCount, RetrievalIntent, RetrievalRoute, SourceMemoryRecord,
+    SourceMemoryRequest,
 };
+use std::collections::BTreeMap;
 
-use super::{canonical_key, internal_error, redundancy_key, AppState};
+use super::{AppState, canonical_key, internal_error, redundancy_key};
 
 pub(crate) fn explain_memory(
     state: &AppState,
@@ -111,7 +111,10 @@ fn build_retrieval_feedback(
 
     if let Some(branch) = &item.belief_branch {
         let branch_tag = format!("belief_branch:{branch}");
-        if !recent_policy_hooks.iter().any(|existing| existing == &branch_tag) {
+        if !recent_policy_hooks
+            .iter()
+            .any(|existing| existing == &branch_tag)
+        {
             recent_policy_hooks.push(branch_tag);
         }
     }
@@ -189,25 +192,30 @@ fn build_rehydration(
         recorded_at: Some(event.occurred_at),
     }));
 
-    trail.extend(sources.iter().take(3).map(|source| MemoryRehydrationRecord {
-        id: None,
-        kind: "source_memory".to_string(),
-        label: format!(
-            "{}:{}",
-            source.source_agent.as_deref().unwrap_or("none"),
-            source.source_system.as_deref().unwrap_or("none")
-        ),
-        summary: format!(
-            "items={} trust={:.2} avg_confidence={:.2}",
-            source.item_count, source.trust_score, source.avg_confidence
-        ),
-        reason: Some("rehydrate_source_lane".to_string()),
-        source_agent: source.source_agent.clone(),
-        source_system: source.source_system.clone(),
-        source_path: None,
-        source_quality: None,
-        recorded_at: source.last_seen_at,
-    }));
+    trail.extend(
+        sources
+            .iter()
+            .take(3)
+            .map(|source| MemoryRehydrationRecord {
+                id: None,
+                kind: "source_memory".to_string(),
+                label: format!(
+                    "{}:{}",
+                    source.source_agent.as_deref().unwrap_or("none"),
+                    source.source_system.as_deref().unwrap_or("none")
+                ),
+                summary: format!(
+                    "items={} trust={:.2} avg_confidence={:.2}",
+                    source.item_count, source.trust_score, source.avg_confidence
+                ),
+                reason: Some("rehydrate_source_lane".to_string()),
+                source_agent: source.source_agent.clone(),
+                source_system: source.source_system.clone(),
+                source_path: None,
+                source_quality: None,
+                recorded_at: source.last_seen_at,
+            }),
+    );
 
     trail
 }
@@ -253,7 +261,9 @@ fn build_policy_hooks(
     }
     if item.preferred {
         hooks.push("preferred_branch".to_string());
-    } else if !branch_siblings.is_empty() && !branch_siblings.iter().any(|sibling| sibling.preferred) {
+    } else if !branch_siblings.is_empty()
+        && !branch_siblings.iter().any(|sibling| sibling.preferred)
+    {
         hooks.push("unresolved_contradiction".to_string());
     }
     if let Some(branch) = &item.belief_branch {

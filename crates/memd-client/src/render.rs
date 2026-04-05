@@ -143,7 +143,10 @@ pub(crate) fn render_entity_summary(
     output
 }
 
-pub(crate) fn render_entity_search_summary(response: &EntitySearchResponse, follow: bool) -> String {
+pub(crate) fn render_entity_search_summary(
+    response: &EntitySearchResponse,
+    follow: bool,
+) -> String {
     let mut output = format!(
         "entity-search query=\"{}\" candidates={} ambiguous={}",
         compact_inline(&response.query, 48),
@@ -481,10 +484,7 @@ pub(crate) fn render_source_summary(response: &SourceMemoryResponse, follow: boo
     output
 }
 
-pub(crate) fn render_workspace_summary(
-    response: &WorkspaceMemoryResponse,
-    follow: bool,
-) -> String {
+pub(crate) fn render_workspace_summary(response: &WorkspaceMemoryResponse, follow: bool) -> String {
     let mut output = format!("workspace_memory workspaces={}", response.workspaces.len());
 
     if let Some(best) = response.workspaces.first() {
@@ -542,6 +542,29 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         snapshot.route,
         snapshot.intent,
     ));
+    output.push_str("\n## Context Budget\n\n");
+    output.push_str(&format!(
+        "- estimated_chars: {}\n- estimated_tokens: {}\n- pressure: {}\n- working_budget_used: {}/{}\n",
+        snapshot.estimated_prompt_chars(),
+        snapshot.estimated_prompt_tokens(),
+        snapshot.context_pressure(),
+        snapshot.working.used_chars,
+        snapshot.working.budget_chars,
+    ));
+    if let Some(age_minutes) = snapshot.resume_state_age_minutes {
+        output.push_str(&format!("- resume_state_age_minutes: {}\n", age_minutes));
+    }
+    output.push_str(&format!(
+        "- refresh_recommended: {}\n",
+        snapshot.refresh_recommended
+    ));
+    let hints = snapshot.optimization_hints();
+    if !hints.is_empty() {
+        output.push_str("- optimization_hints:\n");
+        for hint in hints.iter().take(4) {
+            output.push_str(&format!("  - {}\n", compact_inline(hint, 180)));
+        }
+    }
 
     let current_task = render_current_task_snapshot(snapshot);
     if !current_task.is_empty() {
@@ -609,7 +632,11 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         }
     }
 
-    if let Some(semantic) = snapshot.semantic.as_ref().filter(|semantic| !semantic.items.is_empty()) {
+    if let Some(semantic) = snapshot
+        .semantic
+        .as_ref()
+        .filter(|semantic| !semantic.items.is_empty())
+    {
         output.push_str("\n## Semantic Recall\n\n");
         for item in semantic.items.iter().take(4) {
             output.push_str(&format!(
@@ -885,6 +912,246 @@ pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> Strin
     output
 }
 
+pub(crate) fn render_gap_summary(response: &crate::GapReport) -> String {
+    let mut output = format!(
+        "gap bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} candidates={} high_priority={} eval_score={}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.candidate_count,
+        response.high_priority_count,
+        response
+            .eval_score
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    );
+
+    if let Some(status) = response.eval_status.as_deref() {
+        output.push_str(&format!(" eval_status={status}"));
+    } else {
+        output.push_str(" eval_status=none");
+    }
+
+    if response.eval_score_delta.is_some() || response.previous_candidate_count.is_some() {
+        output.push_str(&format!(
+            " eval_score_delta={} prev_candidates={}",
+            response
+                .eval_score_delta
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            response
+                .previous_candidate_count
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        ));
+    }
+
+    if let Some(changes) = response.changes.first() {
+        output.push_str(&format!(" next=top:{}", changes));
+    }
+
+    output.push_str(&format!(
+        " commit_window={} recent={}",
+        response.limit, response.commits_checked
+    ));
+
+    output
+}
+
+pub(crate) fn render_improvement_summary(response: &crate::ImprovementReport) -> String {
+    let mut output = format!(
+        "improve bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} apply={} iterations={} converged={} initial_candidates={} final_candidates={} final_score={}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.apply,
+        response.iterations.len(),
+        response.converged,
+        response
+            .initial_gap
+            .as_ref()
+            .map(|value| value.candidate_count)
+            .unwrap_or(0),
+        response
+            .final_gap
+            .as_ref()
+            .map(|value| value.candidate_count)
+            .unwrap_or(0),
+        response
+            .final_gap
+            .as_ref()
+            .and_then(|value| value.eval_score)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+    );
+    output.push_str(&format!(
+        " max_iterations={} started_at={}",
+        response.max_iterations,
+        response.started_at.format("%Y-%m-%d %H:%M:%S UTC")
+    ));
+    if response.final_gap.is_some() {
+        if let Some(changes) = response.final_changes.first() {
+            output.push_str(&format!(" next=top:{}", changes));
+        }
+    }
+    if !response.iterations.is_empty() {
+        let iteration_overview = response
+            .iterations
+            .iter()
+            .map(|iteration| {
+                format!(
+                    "iter{} pre={}->{}, actions={}",
+                    iteration.iteration,
+                    iteration.pre_gap.candidate_count,
+                    iteration.post_gap.as_ref().map_or_else(
+                        || "none".to_string(),
+                        |summary| summary.candidate_count.to_string(),
+                    ),
+                    iteration.planned_actions.len()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        output.push_str(&format!(" iterations=[{}]", iteration_overview));
+    }
+    output
+}
+
+pub(crate) fn render_improvement_markdown(response: &crate::ImprovementReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd improvement report\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- apply: {}\n- max_iterations: {}\n- converged: {}\n- started_at: {}\n- completed_at: {}\n- initial_candidates: {}\n- final_candidates: {}\n- final_score: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.apply,
+        response.max_iterations,
+        response.converged,
+        response.started_at,
+        response.completed_at,
+        response
+            .initial_gap
+            .as_ref()
+            .map(|value| value.candidate_count)
+            .unwrap_or(0),
+        response
+            .final_gap
+            .as_ref()
+            .map(|value| value.candidate_count)
+            .unwrap_or(0),
+        response
+            .final_gap
+            .as_ref()
+            .and_then(|value| value.eval_score)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    ));
+
+    if !response.final_changes.is_empty() {
+        markdown.push_str("\n## Final Changes\n\n");
+        for change in &response.final_changes {
+            markdown.push_str(&format!("- {change}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Iterations\n\n");
+    if response.iterations.is_empty() {
+        markdown.push_str("- no iterations executed\n");
+        return markdown;
+    }
+
+    for iteration in &response.iterations {
+        markdown.push_str(&format!("### Iteration {}\n\n", iteration.iteration));
+        markdown.push_str(&format!(
+            "- pre_gap: candidates={} high_priority={} eval_score={}\n",
+            iteration.pre_gap.candidate_count,
+            iteration.pre_gap.high_priority_count,
+            iteration
+                .pre_gap
+                .eval_score
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+
+        if let Some(post_gap) = &iteration.post_gap {
+            markdown.push_str(&format!(
+                "- post_gap: candidates={} high_priority={} eval_score={}\n",
+                post_gap.candidate_count,
+                post_gap.high_priority_count,
+                post_gap
+                    .eval_score
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+        } else {
+            markdown.push_str("- post_gap: none\n");
+        }
+
+        markdown.push_str("- planned actions:\n");
+        if iteration.planned_actions.is_empty() {
+            markdown.push_str("  - none\n");
+        } else {
+            for action in &iteration.planned_actions {
+                let extras = format!(
+                    "{}{}{}{}",
+                    action
+                        .task_id
+                        .as_ref()
+                        .map(|value| format!(" task={value}"))
+                        .unwrap_or_default(),
+                    action
+                        .scope
+                        .as_ref()
+                        .map(|value| format!(" scope={value}"))
+                        .unwrap_or_default(),
+                    action
+                        .target_session
+                        .as_ref()
+                        .map(|value| format!(" target_session={value}"))
+                        .unwrap_or_default(),
+                    action
+                        .message_id
+                        .as_ref()
+                        .map(|value| format!(" message={value}"))
+                        .unwrap_or_default(),
+                );
+                markdown.push_str(&format!(
+                    "  - {} [{}] {}{}\n",
+                    action.action, action.priority, action.reason, extras,
+                ));
+            }
+        }
+
+        markdown.push_str("- execution:\n");
+        if iteration.executed_actions.is_empty() {
+            markdown.push_str("  - none\n");
+        } else {
+            for result in &iteration.executed_actions {
+                markdown.push_str(&format!(
+                    "  - {} {}: {}\n",
+                    result.status, result.action, result.detail
+                ));
+            }
+        }
+        markdown.push('\n');
+    }
+
+    markdown
+}
+
 pub(crate) fn render_repair_summary(response: &RepairMemoryResponse, follow: bool) -> String {
     let mut output = format!(
         "repair mode={} item={} status={} confidence={:.2} reasons={}",
@@ -943,7 +1210,11 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
                     .events
                     .iter()
                     .take(3)
-                    .map(|event| format!("{}:{}", event.event_type, compact_inline(&event.summary, 36)))
+                    .map(|event| format!(
+                        "{}:{}",
+                        event.event_type,
+                        compact_inline(&event.summary, 36)
+                    ))
                     .collect::<Vec<_>>()
                     .join(" | ")
             ));
@@ -971,7 +1242,11 @@ pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: b
                         sibling.belief_branch.as_deref().unwrap_or("none"),
                         short_uuid(sibling.id),
                         sibling.confidence,
-                        if sibling.preferred { "preferred" } else { "candidate" }
+                        if sibling.preferred {
+                            "preferred"
+                        } else {
+                            "candidate"
+                        }
                     )
                 })
                 .collect::<Vec<_>>();
