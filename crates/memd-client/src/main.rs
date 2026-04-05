@@ -3665,6 +3665,10 @@ fn compact_resume_rag_text(input: &str, max_chars: usize) -> String {
     output
 }
 
+fn default_auto_short_term_capture() -> bool {
+    true
+}
+
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let output = &args.output;
     if output.exists() && !args.force {
@@ -3689,6 +3693,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         intent: args.intent.clone(),
         workspace: args.workspace.clone(),
         visibility: args.visibility.clone(),
+        auto_short_term_capture: true,
         backend: BundleBackendConfig {
             rag: BundleRagConfig {
                 enabled: args.rag_url.is_some(),
@@ -3715,7 +3720,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}{}{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
             args.base_url,
             args.project,
             args.namespace
@@ -3725,6 +3730,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             args.agent,
             args.route,
             args.intent,
+            if config.auto_short_term_capture { "true" } else { "false" },
             args.workspace
                 .as_ref()
                 .map(|value| format!("MEMD_WORKSPACE={value}\n"))
@@ -3744,7 +3750,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&args.project),
             args.namespace
@@ -3754,6 +3760,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             escape_ps1(&args.agent),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
+            if config.auto_short_term_capture { "true" } else { "false" },
             args.workspace
                 .as_ref()
                 .map(|value| format!("$env:MEMD_WORKSPACE = \"{}\"\n", escape_ps1(value)))
@@ -3779,7 +3786,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/CLAUDE_IMPORTS.md`\n- `agents/CLAUDE.md.example`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle. For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `state/last-resume.json`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/CLAUDE_IMPORTS.md`\n- `agents/CLAUDE.md.example`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Automatic short-term capture is enabled by default for compaction spill boundaries and writes bundle state under `state/last-resume.json`. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle. For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3828,7 +3835,7 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     ));
     markdown.push_str("## Bundle Defaults\n\n");
     markdown.push_str(&format!(
-        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n- auto_short_term_capture: {}\n",
         config.project,
         config.namespace.as_deref().unwrap_or("none"),
         config.agent,
@@ -3836,10 +3843,12 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
         config.visibility.as_deref().unwrap_or("all"),
         config.route,
         config.intent,
+        if config.auto_short_term_capture { "true" } else { "false" },
     ));
     markdown.push_str("\n## Notes\n\n");
     markdown.push_str("- `resume` keeps the active working memory fresh on the fast local hot path.\n");
     markdown.push_str("- `handoff` adds shared workspace, source-lane, and delegation state.\n");
+    markdown.push_str("- automatic short-term capture runs on compaction spill boundaries unless disabled in the bundle env/config.\n");
     markdown.push_str("- add `--semantic` only when you want slower deep recall from the semantic backend.\n");
     markdown.push_str("- future dream/consolidation output should flow back into this same memory surface.\n");
     write_memory_markdown_files(output, &markdown)
@@ -4423,6 +4432,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "intent": config.intent,
             "workspace": config.workspace,
             "visibility": config.visibility,
+            "auto_short_term_capture": config.auto_short_term_capture,
         })),
         "resume_preview": resume_preview,
         "server": health,
@@ -4466,7 +4476,19 @@ fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRunt
         intent: config.intent,
         workspace: config.workspace,
         visibility: config.visibility,
+        auto_short_term_capture: config.auto_short_term_capture,
     }))
+}
+
+fn bundle_auto_short_term_capture_enabled(output: &Path) -> anyhow::Result<bool> {
+    if let Ok(value) = std::env::var("MEMD_AUTO_SHORT_TERM_CAPTURE") {
+        let value = value.trim().to_ascii_lowercase();
+        return Ok(matches!(value.as_str(), "1" | "true" | "yes" | "on"));
+    }
+
+    Ok(read_bundle_runtime_config(output)?
+        .map(|config| config.auto_short_term_capture)
+        .unwrap_or(true))
 }
 
 async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result<ResumeSnapshot> {
@@ -5063,6 +5085,9 @@ async fn auto_checkpoint_compaction_packet(
     if read_bundle_runtime_config(&output)?.is_none() {
         return Ok(());
     }
+    if !bundle_auto_short_term_capture_enabled(&output)? {
+        return Ok(());
+    }
 
     let Some(content) = render_compaction_checkpoint_content(packet) else {
         return Ok(());
@@ -5453,6 +5478,7 @@ struct BundleConfig {
     intent: String,
     workspace: Option<String>,
     visibility: Option<String>,
+    auto_short_term_capture: bool,
     backend: BundleBackendConfig,
     hooks: BundleHooksConfig,
     rag_url: Option<String>,
@@ -5496,6 +5522,8 @@ struct BundleConfigFile {
     workspace: Option<String>,
     #[serde(default)]
     visibility: Option<String>,
+    #[serde(default = "default_auto_short_term_capture")]
+    auto_short_term_capture: bool,
     #[serde(default)]
     rag_url: Option<String>,
     #[serde(default)]
@@ -5512,6 +5540,7 @@ struct BundleRuntimeConfig {
     intent: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
+    auto_short_term_capture: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5705,6 +5734,7 @@ mod tests {
             intent: None,
             workspace: None,
             visibility: None,
+            auto_short_term_capture: true,
             rag_url: None,
             backend: Some(BundleBackendConfigFile {
                 rag: Some(BundleRagConfigFile {
@@ -5732,6 +5762,7 @@ mod tests {
             intent: None,
             workspace: None,
             visibility: None,
+            auto_short_term_capture: true,
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: None,
         };
@@ -5755,6 +5786,7 @@ mod tests {
             intent: "general".to_string(),
             workspace: Some("team-alpha".to_string()),
             visibility: Some("workspace".to_string()),
+            auto_short_term_capture: true,
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
                     enabled: true,
@@ -5797,6 +5829,7 @@ mod tests {
             intent: "general".to_string(),
             workspace: Some("team-alpha".to_string()),
             visibility: Some("workspace".to_string()),
+            auto_short_term_capture: true,
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
                     enabled: true,
