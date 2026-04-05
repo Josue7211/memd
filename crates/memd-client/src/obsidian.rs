@@ -13,7 +13,7 @@ use memd_schema::{
     MemoryContextFrame, MemoryKind, MemoryScope, MemoryVisibility, SearchMemoryResponse,
     SourceMemoryResponse, SourceQuality,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::form_urlencoded::byte_serialize;
 use uuid::Uuid;
@@ -37,18 +37,22 @@ pub struct ObsidianVaultScan {
     pub attachment_count: usize,
     pub attachment_sensitive_count: usize,
     pub attachment_unchanged_count: usize,
+    pub cache_hits: usize,
+    pub attachment_cache_hits: usize,
+    pub cache_pruned: usize,
+    pub attachment_cache_pruned: usize,
     pub sensitive_notes: Vec<ObsidianSensitiveNote>,
     pub attachments: Vec<ObsidianAttachment>,
     pub notes: Vec<ObsidianNote>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObsidianSensitivity {
     pub sensitive: bool,
     pub reasons: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObsidianSensitiveNote {
     pub path: PathBuf,
     pub relative_path: String,
@@ -56,7 +60,7 @@ pub struct ObsidianSensitiveNote {
     pub reasons: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObsidianAttachment {
     pub path: PathBuf,
     pub relative_path: String,
@@ -84,7 +88,7 @@ pub struct ObsidianSyncEntry {
     pub entity_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObsidianNote {
     pub path: PathBuf,
     pub relative_path: String,
@@ -104,12 +108,33 @@ pub struct ObsidianNote {
     pub content_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ObsidianScanCache {
+    pub notes: HashMap<String, ObsidianScanCacheNoteEntry>,
+    pub attachments: HashMap<String, ObsidianScanCacheAttachmentEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObsidianScanCacheNoteEntry {
+    pub bytes: u64,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub note: ObsidianNote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObsidianScanCacheAttachmentEntry {
+    pub bytes: u64,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub attachment: ObsidianAttachment,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ObsidianImportPreview {
     pub scan: ObsidianVaultScan,
     pub candidates: Vec<CandidateMemoryRequest>,
     pub note_index: HashMap<String, usize>,
     pub unchanged_count: usize,
+    pub duplicate_count: usize,
     pub sync_state_path: PathBuf,
 }
 
@@ -135,12 +160,19 @@ pub fn scan_vault(
     exclude_tags: &[String],
 ) -> anyhow::Result<ObsidianVaultScan> {
     let vault = vault.as_ref();
+    let cache_path = default_scan_cache_path(vault);
+    let mut scan_cache = load_scan_cache(&cache_path).unwrap_or_default();
     let mut notes = Vec::new();
     let mut sensitive_notes = Vec::new();
     let mut attachments = Vec::new();
     let mut skipped_count = 0usize;
     let mut sensitive_count = 0usize;
     let mut attachment_sensitive_count = 0usize;
+    let mut cache_hits = 0usize;
+    let mut attachment_cache_hits = 0usize;
+    let mut path_migrations = Vec::<(String, String)>::new();
+    let mut note_paths_seen = HashSet::<String>::new();
+    let mut attachment_paths_seen = HashSet::<String>::new();
     let max_notes = max_notes.unwrap_or(usize::MAX);
     let max_attachments = max_attachments.unwrap_or(usize::MAX);
 
@@ -162,12 +194,110 @@ pub fn scan_vault(
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
         if is_markdown {
+            let relative_path = path
+                .strip_prefix(vault)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            note_paths_seen.insert(relative_path.clone());
             if notes.len() >= max_notes {
                 skipped_count += 1;
                 continue;
             }
 
-            if let Some(note) = parse_markdown_note(vault, path)? {
+            let metadata =
+                fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+            let modified_at = metadata.modified().ok().map(system_time_to_utc);
+            let cached_note = scan_cache.notes.get(&relative_path).and_then(|entry| {
+                (entry.bytes == metadata.len() && entry.modified_at == modified_at)
+                    .then(|| entry.note.clone())
+            });
+            if let Some(mut note) = cached_note {
+                cache_hits += 1;
+                note.path = path.to_path_buf();
+                note.relative_path = relative_path;
+                note.modified_at = modified_at;
+                notes.push(note);
+                continue;
+            }
+            if let Some((cached_path, cached_entry)) = find_cached_note_by_path_migration(
+                &scan_cache,
+                &relative_path,
+                metadata.len(),
+                modified_at,
+                &path_migrations,
+            ) {
+                cache_hits += 1;
+                scan_cache.notes.remove(&cached_path);
+                let mut note = cached_entry.note;
+                note.path = path.to_path_buf();
+                note.relative_path = relative_path.clone();
+                note.modified_at = modified_at;
+                if let Some((old_prefix, new_prefix)) =
+                    infer_path_migration(&cached_path, &relative_path)
+                {
+                    register_path_migration(&mut path_migrations, old_prefix, new_prefix);
+                }
+                scan_cache.notes.insert(
+                    relative_path.clone(),
+                    ObsidianScanCacheNoteEntry {
+                        bytes: note.bytes,
+                        modified_at: note.modified_at,
+                        note: note.clone(),
+                    },
+                );
+                notes.push(note);
+                continue;
+            }
+            if let Some((cached_path, cached_entry)) =
+                find_cached_note_by_stat(&scan_cache, metadata.len(), modified_at)
+            {
+                cache_hits += 1;
+                scan_cache.notes.remove(&cached_path);
+                let mut note = cached_entry.note;
+                note.path = path.to_path_buf();
+                note.relative_path = relative_path.clone();
+                note.modified_at = modified_at;
+                if let Some((old_prefix, new_prefix)) =
+                    infer_path_migration(&cached_path, &relative_path)
+                {
+                    register_path_migration(&mut path_migrations, old_prefix, new_prefix);
+                }
+                scan_cache.notes.insert(
+                    relative_path.clone(),
+                    ObsidianScanCacheNoteEntry {
+                        bytes: note.bytes,
+                        modified_at: note.modified_at,
+                        note: note.clone(),
+                    },
+                );
+                notes.push(note);
+                continue;
+            }
+
+            let raw =
+                fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+            let raw = strip_roundtrip_annotation(&raw);
+            let content_hash = hash_content(&raw);
+            if let Some((cached_path, cached_entry)) =
+                find_cached_note_by_content_hash(&scan_cache, &content_hash)
+            {
+                cache_hits += 1;
+                scan_cache.notes.remove(&cached_path);
+                let mut note = cached_entry.note;
+                note.path = path.to_path_buf();
+                note.relative_path = relative_path.clone();
+                note.bytes = metadata.len();
+                note.modified_at = modified_at;
+                note.content_hash = content_hash.clone();
+                scan_cache.notes.insert(
+                    relative_path.clone(),
+                    ObsidianScanCacheNoteEntry {
+                        bytes: note.bytes,
+                        modified_at: note.modified_at,
+                        note: note.clone(),
+                    },
+                );
                 if !note_matches_scope(
                     &note,
                     include_folders,
@@ -189,6 +319,46 @@ pub fn scan_vault(
                     continue;
                 }
                 notes.push(note);
+                continue;
+            }
+
+            if let Some(note) = parse_markdown_note_from_raw(
+                vault,
+                path,
+                &raw,
+                metadata.len(),
+                modified_at,
+                content_hash,
+            )? {
+                if !note_matches_scope(
+                    &note,
+                    include_folders,
+                    exclude_folders,
+                    include_tags,
+                    exclude_tags,
+                ) {
+                    skipped_count += 1;
+                    continue;
+                }
+                if note.sensitivity.sensitive {
+                    sensitive_notes.push(ObsidianSensitiveNote {
+                        path: note.path.clone(),
+                        relative_path: note.relative_path.clone(),
+                        title: note.title.clone(),
+                        reasons: note.sensitivity.reasons.clone(),
+                    });
+                    sensitive_count += 1;
+                    continue;
+                }
+                scan_cache.notes.insert(
+                    note.relative_path.clone(),
+                    ObsidianScanCacheNoteEntry {
+                        bytes: note.bytes,
+                        modified_at: note.modified_at,
+                        note: note.clone(),
+                    },
+                );
+                notes.push(note);
             }
             continue;
         }
@@ -197,11 +367,30 @@ pub fn scan_vault(
             skipped_count += 1;
             continue;
         }
+        let relative_path = path
+            .strip_prefix(vault)
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        attachment_paths_seen.insert(relative_path.clone());
         if attachments.len() >= max_attachments {
             skipped_count += 1;
             continue;
         }
-        if let Some(attachment) = parse_attachment(vault, path)? {
+        let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        let modified_at = metadata.modified().ok().map(system_time_to_utc);
+        let cached_attachment = scan_cache
+            .attachments
+            .get(&relative_path)
+            .and_then(|entry| {
+                (entry.bytes == metadata.len() && entry.modified_at == modified_at)
+                    .then(|| entry.attachment.clone())
+            });
+        if let Some(mut attachment) = cached_attachment {
+            attachment_cache_hits += 1;
+            attachment.path = path.to_path_buf();
+            attachment.relative_path = relative_path;
+            attachment.modified_at = modified_at;
             if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
                 skipped_count += 1;
                 continue;
@@ -211,7 +400,156 @@ pub fn scan_vault(
                 continue;
             }
             attachments.push(attachment);
+            continue;
         }
+        if let Some((cached_path, cached_entry)) = find_cached_attachment_by_path_migration(
+            &scan_cache,
+            &relative_path,
+            metadata.len(),
+            modified_at,
+            &path_migrations,
+        ) {
+            attachment_cache_hits += 1;
+            scan_cache.attachments.remove(&cached_path);
+            let mut attachment = cached_entry.attachment;
+            attachment.path = path.to_path_buf();
+            attachment.relative_path = relative_path.clone();
+            attachment.modified_at = modified_at;
+            if let Some((old_prefix, new_prefix)) =
+                infer_path_migration(&cached_path, &relative_path)
+            {
+                register_path_migration(&mut path_migrations, old_prefix, new_prefix);
+            }
+            if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
+                skipped_count += 1;
+                continue;
+            }
+            if attachment.sensitivity.sensitive {
+                attachment_sensitive_count += 1;
+                continue;
+            }
+            scan_cache.attachments.insert(
+                relative_path.clone(),
+                ObsidianScanCacheAttachmentEntry {
+                    bytes: attachment.bytes,
+                    modified_at: attachment.modified_at,
+                    attachment: attachment.clone(),
+                },
+            );
+            attachments.push(attachment);
+            continue;
+        }
+        if let Some((cached_path, cached_entry)) =
+            find_cached_attachment_by_stat(&scan_cache, metadata.len(), modified_at)
+        {
+            attachment_cache_hits += 1;
+            scan_cache.attachments.remove(&cached_path);
+            let mut attachment = cached_entry.attachment;
+            attachment.path = path.to_path_buf();
+            attachment.relative_path = relative_path.clone();
+            attachment.modified_at = modified_at;
+            if let Some((old_prefix, new_prefix)) =
+                infer_path_migration(&cached_path, &relative_path)
+            {
+                register_path_migration(&mut path_migrations, old_prefix, new_prefix);
+            }
+            if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
+                skipped_count += 1;
+                continue;
+            }
+            if attachment.sensitivity.sensitive {
+                attachment_sensitive_count += 1;
+                continue;
+            }
+            scan_cache.attachments.insert(
+                relative_path.clone(),
+                ObsidianScanCacheAttachmentEntry {
+                    bytes: attachment.bytes,
+                    modified_at: attachment.modified_at,
+                    attachment: attachment.clone(),
+                },
+            );
+            attachments.push(attachment);
+            continue;
+        }
+
+        let raw = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+        let content_hash = hash_bytes(&raw);
+        if let Some((cached_path, cached_entry)) =
+            find_cached_attachment_by_content_hash(&scan_cache, &content_hash)
+        {
+            attachment_cache_hits += 1;
+            scan_cache.attachments.remove(&cached_path);
+            let mut attachment = cached_entry.attachment;
+            attachment.path = path.to_path_buf();
+            attachment.relative_path = relative_path.clone();
+            attachment.bytes = metadata.len();
+            attachment.modified_at = modified_at;
+            attachment.content_hash = content_hash.clone();
+            scan_cache.attachments.insert(
+                relative_path.clone(),
+                ObsidianScanCacheAttachmentEntry {
+                    bytes: attachment.bytes,
+                    modified_at: attachment.modified_at,
+                    attachment: attachment.clone(),
+                },
+            );
+            if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
+                skipped_count += 1;
+                continue;
+            }
+            if attachment.sensitivity.sensitive {
+                attachment_sensitive_count += 1;
+                continue;
+            }
+            attachments.push(attachment);
+            continue;
+        }
+
+        if let Some(attachment) =
+            parse_attachment_from_raw(vault, path, &raw, metadata.len(), modified_at, content_hash)?
+        {
+            if !attachment_matches_scope(&attachment, include_folders, exclude_folders) {
+                skipped_count += 1;
+                continue;
+            }
+            if attachment.sensitivity.sensitive {
+                attachment_sensitive_count += 1;
+                continue;
+            }
+            scan_cache.attachments.insert(
+                attachment.relative_path.clone(),
+                ObsidianScanCacheAttachmentEntry {
+                    bytes: attachment.bytes,
+                    modified_at: attachment.modified_at,
+                    attachment: attachment.clone(),
+                },
+            );
+            attachments.push(attachment);
+        }
+    }
+
+    let cache_pruned = scan_cache
+        .notes
+        .keys()
+        .filter(|path| !note_paths_seen.contains(*path))
+        .count();
+    let attachment_cache_pruned = if include_attachments {
+        scan_cache
+            .attachments
+            .keys()
+            .filter(|path| !attachment_paths_seen.contains(*path))
+            .count()
+    } else {
+        0
+    };
+    scan_cache
+        .notes
+        .retain(|path, _| note_paths_seen.contains(path));
+    if include_attachments {
+        scan_cache
+            .attachments
+            .retain(|path, _| attachment_paths_seen.contains(path));
     }
 
     let mut note_index = HashMap::new();
@@ -240,7 +578,7 @@ pub fn scan_vault(
         notes[idx].backlinks = backlinks;
     }
 
-    Ok(ObsidianVaultScan {
+    let scan = ObsidianVaultScan {
         vault: vault.to_path_buf(),
         project,
         namespace,
@@ -254,10 +592,17 @@ pub fn scan_vault(
         attachment_count: attachments.len(),
         attachment_sensitive_count,
         attachment_unchanged_count: 0,
+        cache_hits,
+        attachment_cache_hits,
+        cache_pruned,
+        attachment_cache_pruned,
         sensitive_notes,
         attachments,
         notes,
-    })
+    };
+
+    let _ = save_scan_cache(&cache_path, &scan_cache);
+    Ok(scan)
 }
 
 pub fn load_sync_state(
@@ -286,6 +631,216 @@ pub fn save_sync_state(path: impl AsRef<Path>, state: &ObsidianSyncState) -> any
     Ok(())
 }
 
+pub fn load_scan_cache(path: impl AsRef<Path>) -> anyhow::Result<ObsidianScanCache> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(ObsidianScanCache::default());
+    }
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let state: ObsidianScanCache =
+        serde_json::from_str(&raw).context("parse obsidian scan cache")?;
+    Ok(state)
+}
+
+pub fn save_scan_cache(path: impl AsRef<Path>, state: &ObsidianScanCache) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(state).context("serialize obsidian scan cache")?;
+    fs::write(path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn find_cached_note_by_content_hash(
+    cache: &ObsidianScanCache,
+    content_hash: &str,
+) -> Option<(String, ObsidianScanCacheNoteEntry)> {
+    cache
+        .notes
+        .iter()
+        .find(|(_, entry)| entry.note.content_hash == content_hash)
+        .map(|(path, entry)| (path.clone(), entry.clone()))
+}
+
+fn find_cached_attachment_by_content_hash(
+    cache: &ObsidianScanCache,
+    content_hash: &str,
+) -> Option<(String, ObsidianScanCacheAttachmentEntry)> {
+    cache
+        .attachments
+        .iter()
+        .find(|(_, entry)| entry.attachment.content_hash == content_hash)
+        .map(|(path, entry)| (path.clone(), entry.clone()))
+}
+
+fn find_cached_note_by_stat(
+    cache: &ObsidianScanCache,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+) -> Option<(String, ObsidianScanCacheNoteEntry)> {
+    cache
+        .notes
+        .iter()
+        .find(|(_, entry)| entry.bytes == bytes && entry.modified_at == modified_at)
+        .map(|(path, entry)| (path.clone(), entry.clone()))
+}
+
+fn find_cached_attachment_by_stat(
+    cache: &ObsidianScanCache,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+) -> Option<(String, ObsidianScanCacheAttachmentEntry)> {
+    cache
+        .attachments
+        .iter()
+        .find(|(_, entry)| entry.bytes == bytes && entry.modified_at == modified_at)
+        .map(|(path, entry)| (path.clone(), entry.clone()))
+}
+
+fn find_cached_note_by_path_migration(
+    cache: &ObsidianScanCache,
+    current_path: &str,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+    migrations: &[(String, String)],
+) -> Option<(String, ObsidianScanCacheNoteEntry)> {
+    find_cached_by_path_migration(&cache.notes, current_path, bytes, modified_at, migrations)
+}
+
+fn find_cached_attachment_by_path_migration(
+    cache: &ObsidianScanCache,
+    current_path: &str,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+    migrations: &[(String, String)],
+) -> Option<(String, ObsidianScanCacheAttachmentEntry)> {
+    find_cached_by_path_migration(
+        &cache.attachments,
+        current_path,
+        bytes,
+        modified_at,
+        migrations,
+    )
+}
+
+fn find_cached_by_path_migration<T>(
+    cache: &HashMap<String, T>,
+    current_path: &str,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+    migrations: &[(String, String)],
+) -> Option<(String, T)>
+where
+    T: Clone + HasScanCacheMetadata,
+{
+    for (old_prefix, new_prefix) in migrations.iter().rev() {
+        if let Some(candidate_path) = translate_migrated_path(current_path, old_prefix, new_prefix)
+        {
+            if let Some(entry) = cache.get(&candidate_path) {
+                if entry.cache_bytes() == bytes && entry.cache_modified_at() == modified_at {
+                    return Some((candidate_path, entry.clone()));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn register_path_migration(
+    migrations: &mut Vec<(String, String)>,
+    old_prefix: String,
+    new_prefix: String,
+) {
+    if old_prefix.is_empty() || new_prefix.is_empty() || old_prefix == new_prefix {
+        return;
+    }
+    if migrations.iter().any(|(existing_old, existing_new)| {
+        existing_old == &old_prefix && existing_new == &new_prefix
+    }) {
+        return;
+    }
+    migrations.push((old_prefix, new_prefix));
+}
+
+fn infer_path_migration(old_path: &str, new_path: &str) -> Option<(String, String)> {
+    let old_parts = split_path_parts(old_path);
+    let new_parts = split_path_parts(new_path);
+    if old_parts.len() < 2 || new_parts.len() < 2 {
+        return None;
+    }
+    let mut suffix_len = 0usize;
+    while suffix_len < old_parts.len()
+        && suffix_len < new_parts.len()
+        && old_parts[old_parts.len() - 1 - suffix_len]
+            == new_parts[new_parts.len() - 1 - suffix_len]
+    {
+        suffix_len += 1;
+    }
+    if suffix_len < 2 {
+        return None;
+    }
+    let old_prefix = join_path_parts(&old_parts[..old_parts.len() - suffix_len]);
+    let new_prefix = join_path_parts(&new_parts[..new_parts.len() - suffix_len]);
+    if old_prefix.is_empty() || new_prefix.is_empty() || old_prefix == new_prefix {
+        return None;
+    }
+    Some((old_prefix, new_prefix))
+}
+
+fn translate_migrated_path(
+    current_path: &str,
+    old_prefix: &str,
+    new_prefix: &str,
+) -> Option<String> {
+    let current = Path::new(current_path);
+    let new_prefix = Path::new(new_prefix);
+    let remainder = current.strip_prefix(new_prefix).ok()?;
+    let mut candidate = PathBuf::from(old_prefix);
+    candidate.push(remainder);
+    Some(candidate.display().to_string())
+}
+
+fn split_path_parts(path: &str) -> Vec<String> {
+    Path::new(path)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect()
+}
+
+fn join_path_parts(parts: &[String]) -> String {
+    let mut path = PathBuf::new();
+    for part in parts {
+        path.push(part);
+    }
+    path.display().to_string()
+}
+
+trait HasScanCacheMetadata {
+    fn cache_bytes(&self) -> u64;
+    fn cache_modified_at(&self) -> Option<DateTime<Utc>>;
+}
+
+impl HasScanCacheMetadata for ObsidianScanCacheNoteEntry {
+    fn cache_bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    fn cache_modified_at(&self) -> Option<DateTime<Utc>> {
+        self.modified_at
+    }
+}
+
+impl HasScanCacheMetadata for ObsidianScanCacheAttachmentEntry {
+    fn cache_bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    fn cache_modified_at(&self) -> Option<DateTime<Utc>> {
+        self.modified_at
+    }
+}
+
 pub fn build_import_preview(
     scan: ObsidianVaultScan,
     sync_state: &ObsidianSyncState,
@@ -299,16 +854,23 @@ pub fn build_import_preview(
     let mut changed_notes = Vec::new();
     let mut note_index = HashMap::new();
     let mut unchanged_count = 0usize;
+    let mut duplicate_count = 0usize;
+    let mut seen_fingerprints = HashSet::<String>::new();
 
     for (idx, note) in scan.notes.iter().enumerate() {
-        note_index.insert(note.normalized_title.clone(), idx);
-        for alias in &note.aliases {
-            note_index.entry(normalized_title(alias)).or_insert(idx);
-        }
         let entry = sync_state.entries.get(&note.relative_path);
         if entry.is_some_and(|entry| entry.content_hash == note.content_hash) {
             unchanged_count += 1;
             continue;
+        }
+        let fingerprint = note_import_fingerprint(note);
+        if !seen_fingerprints.insert(fingerprint) {
+            duplicate_count += 1;
+            continue;
+        }
+        note_index.insert(note.normalized_title.clone(), idx);
+        for alias in &note.aliases {
+            note_index.entry(normalized_title(alias)).or_insert(idx);
         }
         candidates.push(build_note_request(
             note,
@@ -331,10 +893,33 @@ pub fn build_import_preview(
             candidates: candidates.clone(),
             note_index,
             unchanged_count,
+            duplicate_count,
             sync_state_path,
         },
         candidates,
         changed_notes,
+    )
+}
+
+fn note_import_fingerprint(note: &ObsidianNote) -> String {
+    let tags = note
+        .tags
+        .iter()
+        .map(|tag| normalized_title(tag))
+        .collect::<Vec<_>>()
+        .join("|");
+    let aliases = note
+        .aliases
+        .iter()
+        .map(|alias| normalized_title(alias))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "{:?}|{}|{}|{}",
+        note.kind,
+        normalized_title(&note.excerpt),
+        tags,
+        aliases
     )
 }
 
@@ -518,6 +1103,23 @@ pub fn default_compiled_memory_path(vault: &Path, explain: &ExplainMemoryRespons
         .join("compiled")
         .join("memory")
         .join(format!("{slug}.md"))
+}
+
+pub fn find_compiled_memory_path_by_id(vault: &Path, id: Uuid) -> Option<PathBuf> {
+    let memory_dir = vault.join(".memd").join("compiled").join("memory");
+    let short_id = short_uuid(id);
+    let needle = format!("-{short_id}.md");
+    let entries = fs::read_dir(&memory_dir).ok()?;
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.ends_with(&needle))
+        })
 }
 
 pub fn default_compiled_index_path(vault: &Path) -> PathBuf {
@@ -903,6 +1505,44 @@ pub fn build_compiled_memory_markdown(
     ));
     markdown.push_str(&body);
     (title, markdown)
+}
+
+pub fn parse_compiled_artifact_metadata(markdown: &str) -> (Option<String>, Option<usize>) {
+    let mut title = None;
+    let mut item_count = None;
+    let mut in_frontmatter = false;
+
+    for line in markdown.lines() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            if in_frontmatter {
+                break;
+            }
+            in_frontmatter = true;
+            continue;
+        }
+        if !in_frontmatter {
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("title:") {
+            let value = rest.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                title = Some(value.to_string());
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("items:") {
+            item_count = rest.trim().parse::<usize>().ok();
+        }
+    }
+
+    (title, item_count)
+}
+
+pub fn read_compiled_artifact_metadata(
+    path: &Path,
+) -> anyhow::Result<(Option<String>, Option<usize>)> {
+    let markdown = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    Ok(parse_compiled_artifact_metadata(&markdown))
 }
 
 pub fn build_compiled_index_markdown(
@@ -1422,11 +2062,15 @@ pub fn partition_changed_attachments<'a>(
 ) -> (Vec<&'a ObsidianAttachment>, usize) {
     let mut changed = Vec::new();
     let mut unchanged_count = 0usize;
+    let mut seen_hashes = HashSet::<String>::new();
 
     for attachment in attachments {
         let entry = sync_state.entries.get(&attachment.relative_path);
         if entry.is_some_and(|entry| entry.content_hash == attachment.content_hash) {
             unchanged_count += 1;
+            continue;
+        }
+        if !seen_hashes.insert(attachment.content_hash.clone()) {
             continue;
         }
         changed.push(attachment);
@@ -1546,10 +2190,15 @@ pub fn normalized_title(value: &str) -> String {
         .join(" ")
 }
 
-fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianNote>> {
-    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let raw = strip_roundtrip_annotation(&raw);
-    let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+fn parse_markdown_note_from_raw(
+    vault: &Path,
+    path: &Path,
+    raw: &str,
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+    content_hash: String,
+) -> anyhow::Result<Option<ObsidianNote>> {
+    let raw = strip_roundtrip_annotation(raw);
     let (frontmatter, body) = split_frontmatter(&raw);
     let title = frontmatter
         .as_ref()
@@ -1601,9 +2250,6 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         .as_deref()
         .map(|folder| folder.split('/').count())
         .unwrap_or(0);
-    let content_hash = hash_content(&raw);
-    let modified_at = metadata.modified().ok().map(system_time_to_utc);
-
     Ok(Some(ObsidianNote {
         path: path.to_path_buf(),
         relative_path,
@@ -1618,14 +2264,34 @@ fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsid
         links,
         backlinks: Vec::new(),
         sensitivity: detect_sensitivity(&title, &body, frontmatter.as_ref()),
-        bytes: metadata.len(),
+        bytes,
         modified_at,
         content_hash,
     }))
 }
 
-fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianAttachment>> {
+#[cfg(test)]
+fn parse_markdown_note(vault: &Path, path: &Path) -> anyhow::Result<Option<ObsidianNote>> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    parse_markdown_note_from_raw(
+        vault,
+        path,
+        &raw,
+        metadata.len(),
+        metadata.modified().ok().map(system_time_to_utc),
+        hash_content(&strip_roundtrip_annotation(&raw)),
+    )
+}
+
+fn parse_attachment_from_raw(
+    vault: &Path,
+    path: &Path,
+    raw: &[u8],
+    bytes: u64,
+    modified_at: Option<DateTime<Utc>>,
+    content_hash: String,
+) -> anyhow::Result<Option<ObsidianAttachment>> {
     let relative_path = path
         .strip_prefix(vault)
         .unwrap_or(path)
@@ -1642,10 +2308,6 @@ fn parse_attachment(vault: &Path, path: &Path) -> anyhow::Result<Option<Obsidian
         .first_raw()
         .map(|value| value.to_string());
     let asset_kind = classify_asset_kind(path, mime.as_deref()).to_string();
-    let bytes = metadata.len();
-    let modified_at = metadata.modified().ok().map(system_time_to_utc);
-    let raw = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    let content_hash = hash_bytes(&raw);
     let sensitivity = if is_text_like_attachment(path) {
         let text = String::from_utf8_lossy(&raw);
         detect_sensitivity(
@@ -1738,6 +2400,10 @@ fn fallback_attachment_match(
 
 fn default_sync_state_path(vault: &Path) -> PathBuf {
     vault.join(".memd").join("obsidian-sync.json")
+}
+
+fn default_scan_cache_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("obsidian-scan-cache.json")
 }
 
 fn hash_content(content: &str) -> String {
@@ -2196,6 +2862,204 @@ mod tests {
     }
 
     #[test]
+    fn build_import_preview_suppresses_duplicate_note_content() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+
+        fs::write(
+            vault.join("alpha.md"),
+            "---\ntitle: Alpha\n---\n# Alpha\nSame body.\n",
+        )
+        .unwrap();
+        fs::write(
+            vault.join("beta.md"),
+            "---\ntitle: Beta\n---\n# Beta\nSame body.\n",
+        )
+        .unwrap();
+
+        let scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        let sync_state = ObsidianSyncState::default();
+        let (preview, candidates, changed_notes) =
+            build_import_preview(scan, &sync_state, vault.join(".memd/state.json"));
+
+        assert_eq!(preview.duplicate_count, 1);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(changed_notes.len(), 1);
+        assert_eq!(preview.scan.note_count, 2);
+        assert_eq!(preview.scan.unchanged_count, 0);
+    }
+
+    #[test]
+    fn scan_cache_prunes_deleted_notes() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+        let note_path = vault.join("prune.md");
+        fs::write(
+            &note_path,
+            "---\ntitle: Prune Me\n---\n# Prune Me\nKeep this once.\n",
+        )
+        .unwrap();
+
+        let first_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(first_scan.note_count, 1);
+
+        fs::remove_file(&note_path).unwrap();
+
+        let second_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(second_scan.note_count, 0);
+        assert!(second_scan.cache_pruned >= 1);
+
+        let cache = load_scan_cache(default_scan_cache_path(&vault)).unwrap();
+        assert!(cache.notes.is_empty());
+    }
+
+    #[test]
+    fn scan_cache_reuses_renamed_notes() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+        let source_path = vault.join("source.md");
+        let renamed_path = vault.join("renamed.md");
+        fs::write(
+            &source_path,
+            "---\ntitle: Rename Me\n---\n# Rename Me\nSame body for rename.\n",
+        )
+        .unwrap();
+
+        let first_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(first_scan.note_count, 1);
+
+        fs::rename(&source_path, &renamed_path).unwrap();
+
+        let second_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(second_scan.note_count, 1);
+        assert!(second_scan.cache_hits >= 1);
+
+        let cache = load_scan_cache(default_scan_cache_path(&vault)).unwrap();
+        assert!(cache.notes.contains_key("renamed.md"));
+        assert!(!cache.notes.contains_key("source.md"));
+    }
+
+    #[test]
+    fn scan_cache_reuses_touched_notes_by_content_hash() {
+        let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
+        fs::create_dir_all(&vault).unwrap();
+        let note_path = vault.join("touch.md");
+        let body = "---\ntitle: Touch Me\n---\n# Touch Me\nSame body.\n";
+        fs::write(&note_path, body).unwrap();
+
+        let first_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(first_scan.note_count, 1);
+
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        fs::write(&note_path, body).unwrap();
+
+        let second_scan = scan_vault(
+            &vault,
+            None,
+            None,
+            None,
+            None,
+            Some(10),
+            false,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(second_scan.note_count, 1);
+        assert!(second_scan.cache_hits >= 1);
+
+        let cache = load_scan_cache(default_scan_cache_path(&vault)).unwrap();
+        assert!(cache.notes.contains_key("touch.md"));
+    }
+
+    #[test]
     fn scans_attachments_when_enabled() {
         let vault = std::env::temp_dir().join(format!("memd-obsidian-vault-{}", Uuid::new_v4()));
         fs::create_dir_all(&vault).unwrap();
@@ -2235,6 +3099,46 @@ mod tests {
                 .iter()
                 .any(|asset| asset.relative_path == "screenshot.png")
         );
+    }
+
+    #[test]
+    fn partition_changed_attachments_suppresses_duplicate_content_hashes() {
+        let attachments = vec![
+            ObsidianAttachment {
+                path: PathBuf::from("a.png"),
+                relative_path: "a.png".to_string(),
+                folder_path: None,
+                asset_kind: "image".to_string(),
+                mime: Some("image/png".to_string()),
+                bytes: 4,
+                modified_at: None,
+                content_hash: "same".to_string(),
+                sensitivity: ObsidianSensitivity {
+                    sensitive: false,
+                    reasons: Vec::new(),
+                },
+            },
+            ObsidianAttachment {
+                path: PathBuf::from("b.png"),
+                relative_path: "b.png".to_string(),
+                folder_path: None,
+                asset_kind: "image".to_string(),
+                mime: Some("image/png".to_string()),
+                bytes: 4,
+                modified_at: None,
+                content_hash: "same".to_string(),
+                sensitivity: ObsidianSensitivity {
+                    sensitive: false,
+                    reasons: Vec::new(),
+                },
+            },
+        ];
+
+        let sync_state = ObsidianSyncState::default();
+        let (changed, unchanged) = partition_changed_attachments(&attachments, &sync_state);
+
+        assert_eq!(changed.len(), 1);
+        assert_eq!(unchanged, 0);
     }
 
     #[test]
@@ -2477,6 +3381,41 @@ mod tests {
             path,
             Path::new("/tmp/vault/.memd/compiled/memory/bundle-12345678.md")
         );
+    }
+
+    #[test]
+    fn parses_compiled_query_metadata() {
+        let markdown = r#"---
+title: Rust Memory Patterns
+source_system: memd
+source_agent: memd
+route: projectfirst
+intent: fact
+items: 7
+---
+
+# Rust Memory Patterns
+"#;
+        let (title, items) = parse_compiled_artifact_metadata(markdown);
+        assert_eq!(title.as_deref(), Some("Rust Memory Patterns"));
+        assert_eq!(items, Some(7));
+    }
+
+    #[test]
+    fn finds_existing_compiled_memory_path_by_id() {
+        let vault = std::env::temp_dir().join(format!("memd-compiled-{}", Uuid::new_v4()));
+        let memory_dir = vault.join(".memd").join("compiled").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let expected = memory_dir.join("bundle-12345678.md");
+        fs::write(&expected, "# Compiled Memory Page\n").unwrap();
+
+        let found = find_compiled_memory_path_by_id(
+            &vault,
+            Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap(),
+        );
+        assert_eq!(found.as_deref(), Some(expected.as_path()));
+
+        let _ = fs::remove_dir_all(&vault);
     }
 
     #[test]

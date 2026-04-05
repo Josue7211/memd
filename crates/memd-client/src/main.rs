@@ -3161,12 +3161,68 @@ async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Re
 }
 
 async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyhow::Result<()> {
+    let update_compiled_index = |output_path: &Path,
+                                 title: &str,
+                                 entry_kind: &str,
+                                 item_count: usize|
+     -> anyhow::Result<()> {
+        let index_path = obsidian::default_compiled_index_path(&args.vault);
+        let existing_index = fs::read_to_string(&index_path).ok();
+        let index_markdown = obsidian::build_compiled_index_markdown(
+            existing_index.as_deref(),
+            entry_kind,
+            title,
+            output_path,
+            item_count,
+        );
+        if existing_index.as_deref() != Some(index_markdown.as_str()) {
+            obsidian::write_markdown(&index_path, &index_markdown)?;
+        }
+        Ok(())
+    };
+
     let (title, markdown, output_path, preview, index_items, index_kind) = if let Some(id) =
         args.id.as_ref()
     {
         let id = id
             .parse::<uuid::Uuid>()
             .context("parse obsidian compile id")?;
+        let output_path = args
+            .output
+            .clone()
+            .or_else(|| obsidian::find_compiled_memory_path_by_id(&args.vault, id));
+        if let Some(output_path) = output_path.as_ref() {
+            if output_path.exists() && !args.overwrite {
+                let (artifact_title, _) = obsidian::read_compiled_artifact_metadata(output_path)?;
+                let title = artifact_title.unwrap_or_else(|| {
+                    output_path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("compiled-memory")
+                        .to_string()
+                });
+                if args.apply {
+                    update_compiled_index(output_path, &title, "memory", 1)?;
+                }
+                let preview = serde_json::json!({
+                    "output_path": output_path.display().to_string(),
+                    "open_uri": obsidian::build_open_uri(output_path, args.pane_type.as_deref())?,
+                    "title": title,
+                    "id": id,
+                    "kind": "memory",
+                    "rehydration": 0usize,
+                    "apply": args.apply,
+                    "reused_existing": true,
+                    "compiled_source": "existing_artifact",
+                });
+                if args.open {
+                    let uri = obsidian::build_open_uri(output_path, args.pane_type.as_deref())?;
+                    obsidian::open_uri(&uri)?;
+                }
+                print_json(&preview)?;
+                return Ok(());
+            }
+        }
         let explain = client
             .explain(&ExplainMemoryRequest {
                 id,
@@ -3188,12 +3244,44 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
             "kind": format!("{:?}", explain.item.kind).to_lowercase(),
             "rehydration": explain.rehydration.len(),
             "apply": args.apply,
+            "reused_existing": false,
+            "compiled_source": "explained_memory",
         });
         (title, markdown, output_path, preview, 1usize, "memory")
     } else {
         let Some(query) = args.query.as_ref() else {
             anyhow::bail!("obsidian compile requires --query <text> or --id <uuid>");
         };
+        let output_path = args
+            .output
+            .clone()
+            .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
+        if output_path.exists() && !args.overwrite {
+            let (artifact_title, item_count) =
+                obsidian::read_compiled_artifact_metadata(&output_path)?;
+            let title = artifact_title.unwrap_or_else(|| query.trim().to_string());
+            let items = item_count.unwrap_or(0);
+            if args.apply {
+                update_compiled_index(&output_path, &title, "query", items)?;
+            }
+            let preview = serde_json::json!({
+                "output_path": output_path.display().to_string(),
+                "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+                "title": title,
+                "query": query,
+                "items": items,
+                "semantic_hits": 0usize,
+                "apply": args.apply,
+                "reused_existing": true,
+                "compiled_source": "existing_artifact",
+            });
+            if args.open {
+                let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
+                obsidian::open_uri(&uri)?;
+            }
+            print_json(&preview)?;
+            return Ok(());
+        }
         let route = parse_retrieval_route(args.route.clone())?;
         let intent = parse_retrieval_intent(args.intent.clone())?;
         let response = client
@@ -3243,11 +3331,6 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
         } else {
             None
         };
-
-        let output_path = args
-            .output
-            .clone()
-            .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
         let (title, markdown) = obsidian::build_compiled_note_markdown(
             &args.vault,
             query,
@@ -3262,6 +3345,8 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
             "items": response.items.len(),
             "semantic_hits": semantic.as_ref().map(|response| response.items.len()).unwrap_or(0),
             "apply": args.apply,
+            "reused_existing": false,
+            "compiled_source": "compiled_query",
         });
         (
             title,
@@ -3285,16 +3370,7 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
         );
     }
     obsidian::write_markdown(&output_path, &markdown)?;
-    let index_path = obsidian::default_compiled_index_path(&args.vault);
-    let existing_index = fs::read_to_string(&index_path).ok();
-    let index_markdown = obsidian::build_compiled_index_markdown(
-        existing_index.as_deref(),
-        index_kind,
-        &title,
-        &output_path,
-        index_items,
-    );
-    obsidian::write_markdown(&index_path, &index_markdown)?;
+    update_compiled_index(&output_path, &title, index_kind, index_items)?;
     if args.open {
         let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
         obsidian::open_uri(&uri)?;
@@ -3368,6 +3444,17 @@ async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyho
     } else {
         Vec::new()
     };
+    let cache_requests = preview.scan.note_count + preview.scan.attachment_count;
+    let cache_hits = preview.scan.cache_hits + preview.scan.attachment_cache_hits;
+    let cache_health = if cache_requests == 0 {
+        "empty"
+    } else if cache_hits == 0 {
+        "cold"
+    } else if cache_hits * 2 >= cache_requests {
+        "hot"
+    } else {
+        "warm"
+    };
     let mirror_notes = count_obsidian_mirrors(&args.vault, "notes")?;
     let mirror_attachments = count_obsidian_mirrors(&args.vault, "attachments")?;
     let sync_state_entries = sync_state.entries.len();
@@ -3377,7 +3464,7 @@ async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyho
     let unchanged_attachments = preview.scan.attachment_unchanged_count;
     let roundtrip_live = sync_state_entries > 0 || mirror_notes > 0 || mirror_attachments > 0;
     let mut summary = format!(
-        "obsidian_status vault={} notes={} changed_notes={} unchanged_notes={} attachments={} changed_attachments={} unchanged_attachments={} sync_entries={} mirrors_notes={} mirrors_attachments={} roundtrip_live={} state={}",
+        "obsidian_status vault={} notes={} changed_notes={} unchanged_notes={} attachments={} changed_attachments={} unchanged_attachments={} cache_health={} cache_hits={} attachment_cache_hits={} cache_pruned={} attachment_cache_pruned={} sync_entries={} mirrors_notes={} mirrors_attachments={} roundtrip_live={} state={}",
         args.vault.display(),
         preview.scan.note_count,
         changed_notes,
@@ -3385,6 +3472,11 @@ async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyho
         preview.scan.attachment_count,
         changed_attachments,
         unchanged_attachments,
+        cache_health,
+        preview.scan.cache_hits,
+        preview.scan.attachment_cache_hits,
+        preview.scan.cache_pruned,
+        preview.scan.attachment_cache_pruned,
         sync_state_entries,
         mirror_notes,
         mirror_attachments,
@@ -3417,6 +3509,11 @@ async fn run_obsidian_status(_client: &MemdClient, args: &ObsidianArgs) -> anyho
             "attachments": preview.scan.attachment_count,
             "changed_attachments": changed_attachments,
             "unchanged_attachments": unchanged_attachments,
+            "cache_health": cache_health,
+            "cache_hits": preview.scan.cache_hits,
+            "attachment_cache_hits": preview.scan.attachment_cache_hits,
+            "cache_pruned": preview.scan.cache_pruned,
+            "attachment_cache_pruned": preview.scan.attachment_cache_pruned,
             "sync_state_entries": sync_state_entries,
             "mirror_notes": mirror_notes,
             "mirror_attachments": mirror_attachments,
@@ -4249,7 +4346,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `state/last-resume.json`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/CLAUDE_IMPORTS.md`\n- `agents/CLAUDE.md.example`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Automatic short-term capture is enabled by default for compaction spill boundaries and writes bundle state under `state/last-resume.json`. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle. For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `cargo run -p memd-client --bin memd -- status --output {bundle}`\n2. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n3. Resume the compact local working set:\n   - `cargo run -p memd-client --bin memd -- resume --output {bundle} --intent current_task`\n\n## Notes\n\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -8106,27 +8203,18 @@ fn render_bundle_memory_markdown(
 fn render_current_task_bundle_snapshot(snapshot: &ResumeSnapshot) -> String {
     let mut markdown = String::new();
 
-    if let Some(focus) = snapshot.working.records.first() {
+    if let Some(focus) = snapshot.compact_working_records().first() {
         markdown.push_str("- focus: ");
-        markdown.push_str(focus.record.trim());
+        markdown.push_str(focus.trim());
         markdown.push('\n');
     }
 
-    if let Some(blocker) = snapshot.inbox.items.first() {
-        markdown.push_str(&format!(
-            "- pressure: {:?} {:?}: {}\n",
-            blocker.item.kind,
-            blocker.item.status,
-            blocker.item.content.trim()
-        ));
+    if let Some(blocker) = snapshot.compact_inbox_items().first() {
+        markdown.push_str(&format!("- pressure: {}\n", blocker.trim()));
     }
 
-    if let Some(next) = snapshot.working.rehydration_queue.first() {
-        markdown.push_str(&format!(
-            "- next_recovery: {}: {}\n",
-            next.label,
-            next.summary.trim()
-        ));
+    if let Some(next) = snapshot.compact_rehydration_summaries().first() {
+        markdown.push_str(&format!("- next_recovery: {}\n", next.trim()));
     }
 
     if let Some(lane) = snapshot.workspaces.workspaces.first() {
@@ -8190,6 +8278,27 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let health = client.healthz().await.ok();
     let runtime = read_bundle_runtime_config(output)?;
     let heartbeat = read_bundle_heartbeat(output)?;
+    let config_exists = output.join("config.json").exists();
+    let env_exists = output.join("env").exists();
+    let env_ps1_exists = output.join("env.ps1").exists();
+    let hooks_exists = output.join("hooks").exists();
+    let agents_exists = output.join("agents").exists();
+    let mut missing = Vec::<&str>::new();
+    if !config_exists {
+        missing.push("config.json");
+    }
+    if !env_exists {
+        missing.push("env");
+    }
+    if !env_ps1_exists {
+        missing.push("env.ps1");
+    }
+    if !hooks_exists {
+        missing.push("hooks/");
+    }
+    if !agents_exists {
+        missing.push("agents/");
+    }
     let resume_preview = if output.join("config.json").exists() && health.is_some() {
         let preview = read_bundle_resume(
             &ResumeArgs {
@@ -8288,14 +8397,31 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         })),
         None => None,
     };
+    let rag_ready = rag
+        .as_ref()
+        .map(|value| {
+            !value
+                .get("enabled")
+                .and_then(|enabled| enabled.as_bool())
+                .unwrap_or(false)
+                || value
+                    .get("healthy")
+                    .and_then(|healthy| healthy.as_bool())
+                    .unwrap_or(false)
+        })
+        .unwrap_or(true);
+    let setup_ready =
+        output.exists() && missing.is_empty() && health.is_some() && runtime.is_some() && rag_ready;
     Ok(serde_json::json!({
         "bundle": output,
         "exists": output.exists(),
-        "config": output.join("config.json").exists(),
-        "env": output.join("env").exists(),
-        "env_ps1": output.join("env.ps1").exists(),
-        "hooks": output.join("hooks").exists(),
-        "agents": output.join("agents").exists(),
+        "config": config_exists,
+        "env": env_exists,
+        "env_ps1": env_ps1_exists,
+        "hooks": hooks_exists,
+        "agents": agents_exists,
+        "setup_ready": setup_ready,
+        "missing": missing,
         "active_agent": runtime.as_ref().and_then(|config| config.agent.clone()),
         "defaults": runtime.as_ref().map(|config| serde_json::json!({
             "project": config.project,
@@ -9943,6 +10069,22 @@ struct ResumeSnapshot {
 }
 
 impl ResumeSnapshot {
+    fn compact_memory_values<'a, I>(values: I) -> Vec<String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut seen = std::collections::HashSet::<String>::new();
+        let mut compacted = Vec::new();
+        for value in values {
+            let normalized = Self::normalized_memory_text(value);
+            if normalized.is_empty() || !seen.insert(normalized) {
+                continue;
+            }
+            compacted.push(value.trim().to_string());
+        }
+        compacted
+    }
+
     fn normalized_memory_text(value: &str) -> String {
         value
             .split_whitespace()
@@ -9951,61 +10093,81 @@ impl ResumeSnapshot {
             .to_lowercase()
     }
 
+    fn compact_context_records(&self) -> Vec<String> {
+        Self::compact_memory_values(
+            self.context
+                .records
+                .iter()
+                .map(|record| record.record.as_str()),
+        )
+    }
+
+    fn compact_working_records(&self) -> Vec<String> {
+        Self::compact_memory_values(
+            self.working
+                .records
+                .iter()
+                .map(|record| record.record.as_str()),
+        )
+    }
+
+    fn compact_rehydration_summaries(&self) -> Vec<String> {
+        Self::compact_memory_values(
+            self.working
+                .rehydration_queue
+                .iter()
+                .map(|item| item.summary.as_str()),
+        )
+    }
+
+    fn compact_inbox_items(&self) -> Vec<String> {
+        Self::compact_memory_values(
+            self.inbox
+                .items
+                .iter()
+                .map(|item| item.item.content.as_str()),
+        )
+    }
+
+    fn compact_semantic_items(&self) -> Vec<String> {
+        Self::compact_memory_values(
+            self.semantic
+                .iter()
+                .flat_map(|semantic| semantic.items.iter())
+                .map(|item| item.content.as_str()),
+        )
+    }
+
     fn redundant_context_items(&self) -> usize {
         let mut seen = std::collections::HashSet::<String>::new();
         let mut duplicates = 0usize;
 
-        for value in self
-            .context
-            .records
-            .iter()
-            .map(|record| record.record.as_str())
-        {
-            let normalized = Self::normalized_memory_text(value);
+        for value in self.compact_context_records() {
+            let normalized = Self::normalized_memory_text(&value);
             if !normalized.is_empty() && !seen.insert(normalized) {
                 duplicates += 1;
             }
         }
-        for value in self
-            .working
-            .records
-            .iter()
-            .map(|record| record.record.as_str())
-        {
-            let normalized = Self::normalized_memory_text(value);
+        for value in self.compact_working_records() {
+            let normalized = Self::normalized_memory_text(&value);
             if !normalized.is_empty() && !seen.insert(normalized) {
                 duplicates += 1;
             }
         }
-        for value in self
-            .working
-            .rehydration_queue
-            .iter()
-            .map(|item| item.summary.as_str())
-        {
-            let normalized = Self::normalized_memory_text(value);
+        for value in self.compact_rehydration_summaries() {
+            let normalized = Self::normalized_memory_text(&value);
             if !normalized.is_empty() && !seen.insert(normalized) {
                 duplicates += 1;
             }
         }
-        for value in self
-            .inbox
-            .items
-            .iter()
-            .map(|item| item.item.content.as_str())
-        {
-            let normalized = Self::normalized_memory_text(value);
+        for value in self.compact_inbox_items() {
+            let normalized = Self::normalized_memory_text(&value);
             if !normalized.is_empty() && !seen.insert(normalized) {
                 duplicates += 1;
             }
         }
-        for value in self
-            .semantic
-            .iter()
-            .flat_map(|semantic| semantic.items.iter())
-            .map(|item| item.content.as_str())
-        {
-            let normalized = Self::normalized_memory_text(value);
+        for value in self.compact_semantic_items() {
+            let normalized = Self::normalized_memory_text(&value);
             if !normalized.is_empty() && !seen.insert(normalized) {
                 duplicates += 1;
             }
@@ -10022,33 +10184,14 @@ impl ResumeSnapshot {
             + self.visibility.as_deref().map_or(0, str::len)
             + self.route.len()
             + self.intent.len();
-        let context_chars: usize = self
-            .context
-            .records
-            .iter()
-            .map(|record| record.record.len())
-            .sum();
-        let working_chars: usize = self
-            .working
-            .records
-            .iter()
-            .map(|record| record.record.len())
-            .sum();
+        let context_chars: usize = self.compact_context_records().iter().map(String::len).sum();
+        let working_chars: usize = self.compact_working_records().iter().map(String::len).sum();
         let rehydration_chars: usize = self
-            .working
-            .rehydration_queue
+            .compact_rehydration_summaries()
             .iter()
-            .map(|item| item.label.len() + item.summary.len())
+            .map(String::len)
             .sum();
-        let inbox_chars: usize = self
-            .inbox
-            .items
-            .iter()
-            .map(|item| {
-                let reasons_len: usize = item.reasons.iter().map(|reason| reason.len()).sum();
-                item.item.content.len() + reasons_len
-            })
-            .sum();
+        let inbox_chars: usize = self.compact_inbox_items().iter().map(String::len).sum();
         let workspace_chars: usize = self
             .workspaces
             .workspaces
@@ -10060,13 +10203,7 @@ impl ResumeSnapshot {
                     + lane.tags.iter().map(|tag| tag.len()).sum::<usize>()
             })
             .sum();
-        let semantic_chars: usize = self.semantic.as_ref().map_or(0, |semantic| {
-            semantic
-                .items
-                .iter()
-                .map(|item| item.content.len() + item.source.as_deref().map_or(0, str::len))
-                .sum()
-        });
+        let semantic_chars: usize = self.compact_semantic_items().iter().map(String::len).sum();
         let change_chars: usize = self.change_summary.iter().map(|change| change.len()).sum();
         header_chars
             + context_chars

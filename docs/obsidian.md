@@ -46,6 +46,9 @@ The bridge is filesystem-first:
 - attachments can be imported from the vault, routed through the multimodal path, and linked back to the note they belong to
 - notes that look like secrets are skipped before import
 - notes can be mirrored back in place with a small `memd` sync block for round-trip editing
+- compiled query pages and compiled memory pages should be treated as the preferred repeat-entry surface before cold raw rereads
+- if a topic is already represented in `.memd/compiled/`, prefer that artifact for new agent sessions and only fall back to raw sources when proof-level drilldown is needed
+- repeated scans should reuse `.memd/obsidian-scan-cache.json` when file size and modified time match, so unchanged vault material is not reopened unnecessarily
 
 ## Scan
 
@@ -54,6 +57,8 @@ Show what is in the vault without importing anything:
 ```bash
 cargo run -p memd-client --bin memd -- obsidian scan --vault ~/vault --summary
 ```
+
+The scanner keeps a local fingerprint cache in `.memd/obsidian-scan-cache.json` and reuses parsed note and attachment snapshots when a file has not changed.
 
 ## Import
 

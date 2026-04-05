@@ -227,6 +227,15 @@ Bootstrap a project bundle with LightRAG configured:
 cargo run -p memd-client --bin memd -- init --project demo --agent codex --rag-url http://127.0.0.1:9000
 ```
 
+Fastest bundle sanity check after init:
+
+```bash
+cargo run -p memd-client --bin memd -- status --output .memd
+```
+
+`status` now reports whether the bundle setup is ready, what files are missing,
+and whether the configured backend is actually reachable.
+
 When you are still building the memory loop, keep `memd` as the source of
 truth and treat LightRAG as an optional semantic backend behind the control
 plane.

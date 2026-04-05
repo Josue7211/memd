@@ -8,7 +8,7 @@ use crate::obsidian::ObsidianVaultScan;
 
 pub(crate) fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut summary = format!(
-        "obsidian_scan vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} skipped={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={}",
+        "obsidian_scan vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} skipped={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} cache_hits={} attachment_cache_hits={} cache_pruned={} attachment_cache_pruned={}",
         scan.vault.display(),
         scan.project.as_deref().unwrap_or("none"),
         scan.namespace.as_deref().unwrap_or("none"),
@@ -21,7 +21,11 @@ pub(crate) fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: boo
         scan.backlink_count,
         scan.attachment_count,
         scan.attachment_sensitive_count,
-        scan.attachment_unchanged_count
+        scan.attachment_unchanged_count,
+        scan.cache_hits,
+        scan.attachment_cache_hits,
+        scan.cache_pruned,
+        scan.attachment_cache_pruned
     );
 
     if follow {
@@ -50,7 +54,7 @@ pub(crate) fn render_obsidian_import_summary(
         .map(|attachments| attachments.submitted)
         .unwrap_or(0);
     let mut summary = format!(
-        "obsidian_import vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} note_failures={} attachment_failures={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
+        "obsidian_import vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} duplicate_suppressed={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} note_failures={} attachment_failures={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
         output.preview.scan.vault.display(),
         output.preview.scan.project.as_deref().unwrap_or("none"),
         output.preview.scan.namespace.as_deref().unwrap_or("none"),
@@ -63,6 +67,7 @@ pub(crate) fn render_obsidian_import_summary(
         output.preview.scan.attachment_count,
         output.preview.scan.attachment_sensitive_count,
         output.attachment_unchanged_count,
+        output.preview.duplicate_count,
         output.submitted,
         attachment_submitted,
         output.duplicates,
