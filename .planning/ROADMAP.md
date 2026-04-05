@@ -457,11 +457,24 @@ Success:
 - keep the first slice compact enough for resume, handoff, and MCP use
 - preserve explicit session-qualified ownership and inspectability
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - active sessions can see coordination pressure from one compact surface instead of stitching together messages, tasks, and presence manually
 
+#### Phase 36: `v5` Claim Recovery and Coordination Automation
+
+- detect stale/dead ownership pressure from heartbeats and leased claims
+- surface reclaimable claims and stalled shared tasks explicitly
+- add safe recovery paths for rerouting blocked coworking lanes
+- keep the first automation slice operator-visible and ownership-safe
+
+Status: Planned
+
+Success:
+
+- active sessions can recover blocked shared work without silent ownership drift
+
 ---
-*Last updated: 2026-04-05 after shipping `v5` shared-task orchestration*
+*Last updated: 2026-04-05 after shipping `v5` coordination inbox and task presence*

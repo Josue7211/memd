@@ -189,6 +189,14 @@ const tools = [
     },
   },
   {
+    name: "coordination_inbox",
+    description: "Read the compact coordination inbox for the current session, including messages and shared-task pressure.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "send_message",
     description: "Send a direct coordination message to another session.",
     inputSchema: {
@@ -382,6 +390,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `- ${message.id.slice(0, 8)} [${message.kind}] ${message.from_agent ?? message.from_session} -> ${message.to_session} | ${compact(message.content, 100)}`
       );
       return textResult([`messages=${rows.length}`, ...rows]);
+    }
+
+    case "coordination_inbox": {
+      if (!identity.session) throw new Error("Bundle session is required for coordination inbox.");
+      const response = await memdGet(identity.baseUrl, "/coordination/inbox", {
+        session: identity.session,
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        limit: 64,
+      });
+      const lines = [
+        `messages=${response.messages?.length ?? 0}`,
+        `owned=${response.owned_tasks?.length ?? 0}`,
+        `help=${response.help_tasks?.length ?? 0}`,
+        `review=${response.review_tasks?.length ?? 0}`,
+      ];
+      for (const message of response.messages ?? []) {
+        lines.push(`- msg ${message.id.slice(0, 8)} [${message.kind}] ${compact(message.content, 100)}`);
+      }
+      for (const task of response.owned_tasks ?? []) {
+        lines.push(`- own ${task.task_id} [${task.status}] ${compact(task.title, 96)}`);
+      }
+      return textResult(lines);
     }
 
     case "send_message": {

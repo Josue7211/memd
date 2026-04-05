@@ -657,6 +657,23 @@ pub struct PeerTasksResponse {
     pub tasks: Vec<PeerTaskRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerCoordinationInboxRequest {
+    pub session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationInboxResponse {
+    pub messages: Vec<PeerMessageRecord>,
+    pub owned_tasks: Vec<PeerTaskRecord>,
+    pub help_tasks: Vec<PeerTaskRecord>,
+    pub review_tasks: Vec<PeerTaskRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,

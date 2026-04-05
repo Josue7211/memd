@@ -6,11 +6,12 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
-    PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
-    PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord,
-    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerCoordinationInboxRequest,
+    PeerCoordinationInboxResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
+    PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest,
+    PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
+    PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest,
+    PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
     SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -1924,6 +1925,55 @@ impl SqliteStore {
             );
         }
         Ok(PeerTasksResponse { tasks })
+    }
+
+    pub fn peer_coordination_inbox(
+        &self,
+        request: &PeerCoordinationInboxRequest,
+    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        let messages = self
+            .peer_inbox(&PeerMessageInboxRequest {
+                session: request.session.clone(),
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                include_acknowledged: Some(false),
+                limit: request.limit,
+            })?
+            .messages;
+
+        let tasks = self
+            .peer_tasks(&PeerTasksRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                active_only: Some(true),
+                limit: request.limit,
+            })?
+            .tasks;
+
+        let mut owned_tasks = Vec::new();
+        let mut help_tasks = Vec::new();
+        let mut review_tasks = Vec::new();
+        for task in tasks {
+            if task.session.as_deref() == Some(request.session.as_str()) {
+                owned_tasks.push(task.clone());
+            }
+            if task.help_requested {
+                help_tasks.push(task.clone());
+            }
+            if task.review_requested {
+                review_tasks.push(task);
+            }
+        }
+
+        Ok(PeerCoordinationInboxResponse {
+            messages,
+            owned_tasks,
+            help_tasks,
+            review_tasks,
+        })
     }
 
     pub fn find_duplicate(

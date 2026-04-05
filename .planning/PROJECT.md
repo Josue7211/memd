@@ -72,7 +72,8 @@ real memory:
 
 - [x] Expose the brokered coordination substrate through a first-class peer MCP surface.
 - [x] Expand peer coordination from MCP primitives into richer shared-task orchestration.
-- [ ] Add a compact coordination inbox that merges peer messages, task ownership, and session pressure.
+- [x] Add a compact coordination inbox that merges peer messages, task ownership, and session pressure.
+- [ ] Add safe stale-session recovery so blocked coworking lanes can be reclaimed without ownership drift.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.

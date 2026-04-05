@@ -8,8 +8,8 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest,
-    PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
+    MemoryPolicyResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
     PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest,
     PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, RepairMemoryRequest,
     RepairMemoryResponse,
@@ -267,6 +267,13 @@ impl MemdClient {
 
     pub async fn peer_tasks(&self, req: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
         self.get_json_with_query("/coordination/tasks", req).await
+    }
+
+    pub async fn peer_coordination_inbox(
+        &self,
+        req: &PeerCoordinationInboxRequest,
+    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        self.get_json_with_query("/coordination/inbox", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

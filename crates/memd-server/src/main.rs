@@ -37,8 +37,8 @@ use memd_schema::{
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
     PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
     PeerClaimAcquireRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
-    PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest,
-    PeerTasksResponse,
+    PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -241,6 +241,7 @@ async fn main() {
         .route("/coordination/messages/send", post(post_peer_message))
         .route("/coordination/messages/inbox", get(get_peer_inbox))
         .route("/coordination/messages/ack", post(post_peer_ack))
+        .route("/coordination/inbox", get(get_peer_coordination_inbox))
         .route("/coordination/claims/acquire", post(post_peer_claim_acquire))
         .route("/coordination/claims/release", post(post_peer_claim_release))
         .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
@@ -721,6 +722,23 @@ async fn post_peer_ack(
         return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
     }
     let response = state.store.ack_peer_message(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_coordination_inbox(
+    State(state): State<AppState>,
+    Query(req): Query<PeerCoordinationInboxRequest>,
+) -> Result<Json<PeerCoordinationInboxResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .peer_coordination_inbox(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 

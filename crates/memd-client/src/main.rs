@@ -29,7 +29,8 @@ use memd_schema::{
     CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
     EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
     EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PeerMessageAckRequest,
+    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus,
+    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerMessageAckRequest,
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerTaskAssignRequest,
     PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest, PromoteMemoryRequest,
     RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
@@ -73,6 +74,7 @@ enum Commands {
     Claims(ClaimsArgs),
     Messages(MessagesArgs),
     Tasks(TasksArgs),
+    Coordination(CoordinationArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -1061,6 +1063,15 @@ struct TasksArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct CoordinationArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1487,6 +1498,14 @@ async fn main() -> anyhow::Result<()> {
             let response = run_tasks_command(&args, &base_url).await?;
             if args.summary {
                 println!("{}", render_tasks_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Coordination(args) => {
+            let response = run_coordination_command(&args, &base_url).await?;
+            if args.summary {
+                println!("{}", render_coordination_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -5090,6 +5109,88 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
     lines.join("\n")
 }
 
+async fn run_coordination_command(
+    args: &CoordinationArgs,
+    base_url: &str,
+) -> anyhow::Result<CoordinationResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty())
+        .context("coordination requires a configured bundle session")?;
+    let current_base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+    let client = MemdClient::new(&current_base_url)?;
+    let response = client
+        .peer_coordination_inbox(&PeerCoordinationInboxRequest {
+            session: current_session.clone(),
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            limit: Some(128),
+        })
+        .await?;
+    Ok(CoordinationResponse {
+        bundle_root: args.output.display().to_string(),
+        current_session,
+        inbox: response,
+    })
+}
+
+fn render_coordination_summary(response: &CoordinationResponse) -> String {
+    let mut lines = vec![format!(
+        "coordination bundle={} session={} messages={} owned={} help={} review={}",
+        response.bundle_root,
+        response.current_session,
+        response.inbox.messages.len(),
+        response.inbox.owned_tasks.len(),
+        response.inbox.help_tasks.len(),
+        response.inbox.review_tasks.len(),
+    )];
+    for message in response.inbox.messages.iter().take(6) {
+        lines.push(format!(
+            "- msg {} [{}] {}",
+            &message.id[..8.min(message.id.len())],
+            message.kind,
+            compact_inline(&message.content, 90)
+        ));
+    }
+    for task in response.inbox.owned_tasks.iter().take(6) {
+        lines.push(format!(
+            "- own {} [{}] {}",
+            task.task_id,
+            task.status,
+            compact_inline(&task.title, 90)
+        ));
+    }
+    for task in response.inbox.help_tasks.iter().take(4) {
+        lines.push(format!(
+            "- help {} [{}] owner={}",
+            task.task_id,
+            task.status,
+            task.effective_agent
+                .as_deref()
+                .or(task.session.as_deref())
+                .unwrap_or("none")
+        ));
+    }
+    for task in response.inbox.review_tasks.iter().take(4) {
+        lines.push(format!(
+            "- review {} [{}] owner={}",
+            task.task_id,
+            task.status,
+            task.effective_agent
+                .as_deref()
+                .or(task.session.as_deref())
+                .unwrap_or("none")
+        ));
+    }
+    lines.join("\n")
+}
+
 fn describe_resume_state_changes(
     previous: Option<&BundleResumeState>,
     current: &BundleResumeState,
@@ -7377,6 +7478,13 @@ struct TasksResponse {
     bundle_root: String,
     current_session: Option<String>,
     tasks: Vec<PeerTaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CoordinationResponse {
+    bundle_root: String,
+    current_session: String,
+    inbox: PeerCoordinationInboxResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
