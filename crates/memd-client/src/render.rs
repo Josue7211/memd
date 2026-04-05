@@ -8,8 +8,12 @@ use crate::obsidian::ObsidianVaultScan;
 
 pub(crate) fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut summary = format!(
-        "obsidian_scan vault={} notes={} sensitive={} skipped={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={}",
+        "obsidian_scan vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} skipped={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={}",
         scan.vault.display(),
+        scan.project.as_deref().unwrap_or("none"),
+        scan.namespace.as_deref().unwrap_or("none"),
+        scan.workspace.as_deref().unwrap_or("none"),
+        format_visibility(scan.visibility),
         scan.note_count,
         scan.sensitive_count,
         scan.skipped_count,
@@ -46,8 +50,12 @@ pub(crate) fn render_obsidian_import_summary(
         .map(|attachments| attachments.submitted)
         .unwrap_or(0);
     let mut summary = format!(
-        "obsidian_import vault={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} note_failures={} attachment_failures={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
+        "obsidian_import vault={} project={} namespace={} workspace={} visibility={} notes={} sensitive={} unchanged={} backlinks={} attachments={} attachment_sensitive={} attachment_unchanged={} submitted={} attachment_submitted={} duplicates={} attachment_duplicates={} note_failures={} attachment_failures={} links={} attachment_links={} mirrored={} mirrored_attachments={} dry_run={}",
         output.preview.scan.vault.display(),
+        output.preview.scan.project.as_deref().unwrap_or("none"),
+        output.preview.scan.namespace.as_deref().unwrap_or("none"),
+        output.preview.scan.workspace.as_deref().unwrap_or("none"),
+        format_visibility(output.preview.scan.visibility),
         output.preview.scan.note_count,
         output.preview.scan.sensitive_count,
         output.preview.scan.unchanged_count,
