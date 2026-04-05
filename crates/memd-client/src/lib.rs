@@ -9,7 +9,9 @@ use memd_schema::{
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
     MemoryPolicyResponse, PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest,
-    PeerMessagesResponse, RepairMemoryRequest, RepairMemoryResponse,
+    PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
+    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, RepairMemoryRequest,
+    RepairMemoryResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
@@ -218,6 +220,34 @@ impl MemdClient {
         req: &PeerMessageAckRequest,
     ) -> anyhow::Result<PeerMessagesResponse> {
         self.post_json("/coordination/messages/ack", req).await
+    }
+
+    pub async fn acquire_peer_claim(
+        &self,
+        req: &PeerClaimAcquireRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/acquire", req).await
+    }
+
+    pub async fn release_peer_claim(
+        &self,
+        req: &PeerClaimReleaseRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/release", req).await
+    }
+
+    pub async fn transfer_peer_claim(
+        &self,
+        req: &PeerClaimTransferRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/transfer", req).await
+    }
+
+    pub async fn peer_claims(
+        &self,
+        req: &PeerClaimsRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.get_json_with_query("/coordination/claims", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

@@ -36,6 +36,8 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
     PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
+    PeerClaimAcquireRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
+    PeerClaimsResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -238,6 +240,10 @@ async fn main() {
         .route("/coordination/messages/send", post(post_peer_message))
         .route("/coordination/messages/inbox", get(get_peer_inbox))
         .route("/coordination/messages/ack", post(post_peer_ack))
+        .route("/coordination/claims/acquire", post(post_peer_claim_acquire))
+        .route("/coordination/claims/release", post(post_peer_claim_release))
+        .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
+        .route("/coordination/claims", get(get_peer_claims))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
@@ -711,6 +717,59 @@ async fn post_peer_ack(
         return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
     }
     let response = state.store.ack_peer_message(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_acquire(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimAcquireRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+    }
+    if req.session.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "session must not be empty".to_string()));
+    }
+    let response = state.store.acquire_peer_claim(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_release(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimReleaseRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+    }
+    if req.session.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "session must not be empty".to_string()));
+    }
+    let response = state.store.release_peer_claim(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_transfer(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimTransferRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+    }
+    if req.from_session.trim().is_empty() || req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session and to_session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.transfer_peer_claim(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_claims(
+    State(state): State<AppState>,
+    Query(req): Query<PeerClaimsRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    let response = state.store.peer_claims(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

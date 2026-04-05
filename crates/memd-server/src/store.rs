@@ -8,8 +8,10 @@ use memd_schema::{
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerMessageAckRequest,
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
-    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
+    PeerClaimsRequest, PeerClaimsResponse, SourceMemoryRecord, SourceMemoryRequest,
+    SourceMemoryResponse,
+    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
@@ -148,6 +150,20 @@ impl SqliteStore {
               ON peer_messages(to_session, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_peer_messages_project_namespace
               ON peer_messages(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_claims (
+              scope TEXT PRIMARY KEY,
+              session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              expires_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_claims_session
+              ON peer_claims(session, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_claims_project_namespace
+              ON peer_claims(project, namespace, expires_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -1481,6 +1497,198 @@ impl SqliteStore {
         })
     }
 
+    pub fn acquire_peer_claim(
+        &self,
+        request: &PeerClaimAcquireRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let expires_at =
+            chrono::Utc::now() + chrono::TimeDelta::seconds(request.ttl_seconds.max(1) as i64);
+        let claim = PeerClaimRecord {
+            scope: request.scope.trim().to_string(),
+            session: request.session.trim().to_string(),
+            agent: request.agent.clone(),
+            effective_agent: request.effective_agent.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            host: request.host.clone(),
+            pid: request.pid,
+            acquired_at: chrono::Utc::now(),
+            expires_at,
+        };
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let existing = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1",
+                params![claim.scope.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch existing peer claim")?;
+        if let Some(payload) = existing {
+            let existing_claim: PeerClaimRecord =
+                serde_json::from_str(&payload).context("deserialize existing peer claim")?;
+            if existing_claim.session != claim.session && existing_claim.expires_at > chrono::Utc::now()
+            {
+                anyhow::bail!(
+                    "scope '{}' already claimed by {}",
+                    claim.scope,
+                    existing_claim
+                        .effective_agent
+                        .as_deref()
+                        .unwrap_or(existing_claim.session.as_str())
+                );
+            }
+        }
+
+        let payload_json = serde_json::to_string(&claim).context("serialize peer claim")?;
+        conn.execute(
+            r#"
+            INSERT INTO peer_claims (scope, session, project, namespace, workspace, expires_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(scope) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              expires_at = excluded.expires_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                claim.scope.as_str(),
+                claim.session.as_str(),
+                &claim.project,
+                &claim.namespace,
+                &claim.workspace,
+                claim.expires_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert peer claim")?;
+
+        Ok(PeerClaimsResponse { claims: vec![claim] })
+    }
+
+    pub fn release_peer_claim(
+        &self,
+        request: &PeerClaimReleaseRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for release")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+        let claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for release")?;
+        conn.execute(
+            "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+            params![request.scope.trim(), request.session.trim()],
+        )
+        .context("release peer claim")?;
+        Ok(PeerClaimsResponse { claims: vec![claim] })
+    }
+
+    pub fn transfer_peer_claim(
+        &self,
+        request: &PeerClaimTransferRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for transfer")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+
+        let mut claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for transfer")?;
+        claim.session = request.to_session.trim().to_string();
+        claim.agent = request.to_agent.clone();
+        claim.effective_agent = request.to_effective_agent.clone();
+        let updated_payload =
+            serde_json::to_string(&claim).context("serialize transferred peer claim")?;
+        conn.execute(
+            r#"
+            UPDATE peer_claims
+            SET session = ?2, payload_json = ?3
+            WHERE scope = ?1 AND session = ?4
+            "#,
+            params![
+                request.scope.trim(),
+                claim.session.as_str(),
+                updated_payload,
+                request.from_session.trim(),
+            ],
+        )
+        .context("transfer peer claim")?;
+        Ok(PeerClaimsResponse { claims: vec![claim] })
+    }
+
+    pub fn peer_claims(&self, request: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let limit = request.limit.unwrap_or(256).clamp(1, 1024) as i64;
+        let active_only = request.active_only.unwrap_or(true);
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_claims
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 0 OR expires_at > ?6)
+                ORDER BY expires_at DESC
+                LIMIT ?7
+                "#,
+            )
+            .context("prepare peer claims query")?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if active_only { 1 } else { 0 },
+                    now,
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer claims")?;
+
+        let mut claims = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer claim row")?;
+            claims.push(
+                serde_json::from_str::<PeerClaimRecord>(&payload)
+                    .context("deserialize peer claim payload")?,
+            );
+        }
+        Ok(PeerClaimsResponse { claims })
+    }
+
     pub fn find_duplicate(
         &self,
         redundancy_key: &str,
@@ -1490,6 +1698,16 @@ impl SqliteStore {
     ) -> anyhow::Result<Option<DuplicateMatch>> {
         self.find_by_any_key(redundancy_key, canonical_key, stage)
             .map(|found| found.filter(|duplicate| duplicate.id != exclude_id))
+    }
+
+    fn prune_expired_peer_claims(&self) -> anyhow::Result<()> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            "DELETE FROM peer_claims WHERE expires_at <= ?1",
+            params![chrono::Utc::now().to_rfc3339()],
+        )
+        .context("prune expired peer claims")?;
+        Ok(())
     }
 
     fn find_by_any_key(

@@ -538,6 +538,65 @@ pub struct PeerMessagesResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimRecord {
+    pub scope: String,
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub acquired_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimAcquireRequest {
+    pub scope: String,
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub ttl_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimReleaseRequest {
+    pub scope: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimTransferRequest {
+    pub scope: String,
+    pub from_session: String,
+    pub to_session: String,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerClaimsRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimsResponse {
+    pub claims: Vec<PeerClaimRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,

@@ -965,6 +965,9 @@ struct ClaimsArgs {
     release: bool,
 
     #[arg(long)]
+    transfer_to_session: Option<String>,
+
+    #[arg(long)]
     scope: Option<String>,
 
     #[arg(long, default_value_t = 900)]
@@ -1418,7 +1421,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Claims(args) => {
-            let response = run_claims_command(&args)?;
+            let response = run_claims_command(&args, &base_url).await?;
             if args.summary {
                 println!("{}", render_claims_summary(&response));
             } else {
@@ -4159,11 +4162,6 @@ fn write_bundle_claims(output: &Path, state: &SessionClaimsState) -> anyhow::Res
     Ok(())
 }
 
-fn prune_expired_claims(state: &mut SessionClaimsState) {
-    let now = Utc::now();
-    state.claims.retain(|claim| claim.expires_at > now);
-}
-
 fn detect_host_name() -> Option<String> {
     std::env::var("HOSTNAME")
         .ok()
@@ -4297,11 +4295,25 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
     )
 }
 
-fn run_claims_command(args: &ClaimsArgs) -> anyhow::Result<ClaimsResponse> {
+async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result<ClaimsResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let heartbeat = read_bundle_heartbeat(&args.output)?;
-    let mut state = read_bundle_claims(&args.output)?;
-    prune_expired_claims(&mut state);
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty());
+    let current_base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+    let current_agent = runtime.as_ref().and_then(|config| config.agent.clone());
+    let current_effective_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let client = MemdClient::new(&current_base_url)?;
 
     if args.acquire {
         let scope = args
@@ -4310,45 +4322,100 @@ fn run_claims_command(args: &ClaimsArgs) -> anyhow::Result<ClaimsResponse> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .context("claims --acquire requires --scope")?;
-        let current_session = runtime.as_ref().and_then(|config| config.session.clone());
-        if let Some(existing) = state.claims.iter().find(|claim| {
-            claim.scope == scope
-                && claim.session != current_session
-                && claim.expires_at > Utc::now()
-        }) {
-            anyhow::bail!(
-                "scope '{}' already claimed by {}",
-                scope,
-                existing
-                    .effective_agent
-                    .as_deref()
-                    .or(existing.session.as_deref())
-                    .unwrap_or("another session")
-            );
-        }
-
-        state.claims.retain(|claim| {
-            !(claim.scope == scope && claim.session == current_session)
+        let session = current_session
+            .as_deref()
+            .context("claims --acquire requires a configured bundle session")?;
+        let response = client
+            .acquire_peer_claim(&memd_schema::PeerClaimAcquireRequest {
+                scope: scope.to_string(),
+                session: session.to_string(),
+                agent: current_agent,
+                effective_agent: current_effective_agent,
+                project: runtime.as_ref().and_then(|config| config.project.clone()),
+                namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+                workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+                host: heartbeat.as_ref().and_then(|value| value.host.clone()),
+                pid: heartbeat.as_ref().and_then(|value| value.pid),
+                ttl_seconds: args.ttl_secs,
+            })
+            .await?;
+        let cache = SessionClaimsState {
+            claims: client
+                .peer_claims(&memd_schema::PeerClaimsRequest {
+                    session: None,
+                    project: runtime.as_ref().and_then(|config| config.project.clone()),
+                    namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+                    workspace: None,
+                    active_only: Some(true),
+                    limit: Some(512),
+                })
+                .await?
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
+        };
+        write_bundle_claims(&args.output, &cache)?;
+        return Ok(ClaimsResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            claims: response
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
         });
-        state.claims.push(SessionClaim {
-            scope: scope.to_string(),
-            session: runtime.as_ref().and_then(|config| config.session.clone()),
-            agent: runtime.as_ref().and_then(|config| config.agent.clone()),
-            effective_agent: runtime.as_ref().and_then(|config| {
-                config
-                    .agent
-                    .as_deref()
-                    .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
-            }),
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
-            host: heartbeat.as_ref().and_then(|value| value.host.clone()),
-            pid: heartbeat.as_ref().and_then(|value| value.pid),
-            acquired_at: Utc::now(),
-            expires_at: Utc::now() + chrono::TimeDelta::seconds(args.ttl_secs as i64),
+    } else if let Some(target_session) = args
+        .transfer_to_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let scope = args
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("claims --transfer-to-session requires --scope")?;
+        let session = current_session
+            .as_deref()
+            .context("claims --transfer-to-session requires a configured bundle session")?;
+        let target = resolve_target_session_bundle(&args.output, target_session)?;
+        let response = client
+            .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+                scope: scope.to_string(),
+                from_session: session.to_string(),
+                to_session: target_session.to_string(),
+                to_agent: target.as_ref().and_then(|entry| entry.agent.clone()),
+                to_effective_agent: target.as_ref().and_then(|entry| entry.effective_agent.clone()),
+            })
+            .await?;
+        let cache = SessionClaimsState {
+            claims: client
+                .peer_claims(&memd_schema::PeerClaimsRequest {
+                    session: None,
+                    project: runtime.as_ref().and_then(|config| config.project.clone()),
+                    namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+                    workspace: None,
+                    active_only: Some(true),
+                    limit: Some(512),
+                })
+                .await?
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
+        };
+        write_bundle_claims(&args.output, &cache)?;
+        return Ok(ClaimsResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            claims: response
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
         });
-        state.claims.sort_by(|left, right| left.scope.cmp(&right.scope));
-        write_bundle_claims(&args.output, &state)?;
     } else if args.release {
         let scope = args
             .scope
@@ -4356,19 +4423,69 @@ fn run_claims_command(args: &ClaimsArgs) -> anyhow::Result<ClaimsResponse> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .context("claims --release requires --scope")?;
-        let current_session = runtime.as_ref().and_then(|config| config.session.clone());
-        state.claims.retain(|claim| {
-            !(claim.scope == scope && claim.session == current_session)
+        let session = current_session
+            .as_deref()
+            .context("claims --release requires a configured bundle session")?;
+        let response = client
+            .release_peer_claim(&memd_schema::PeerClaimReleaseRequest {
+                scope: scope.to_string(),
+                session: session.to_string(),
+            })
+            .await?;
+        let cache = SessionClaimsState {
+            claims: client
+                .peer_claims(&memd_schema::PeerClaimsRequest {
+                    session: None,
+                    project: runtime.as_ref().and_then(|config| config.project.clone()),
+                    namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+                    workspace: None,
+                    active_only: Some(true),
+                    limit: Some(512),
+                })
+                .await?
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
+        };
+        write_bundle_claims(&args.output, &cache)?;
+        return Ok(ClaimsResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            claims: response
+                .claims
+                .into_iter()
+                .map(session_claim_from_record)
+                .collect(),
         });
-        write_bundle_claims(&args.output, &state)?;
-    } else {
-        write_bundle_claims(&args.output, &state)?;
     }
+
+    let response = client
+        .peer_claims(&memd_schema::PeerClaimsRequest {
+            session: None,
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: None,
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await?;
+    let claims = response
+        .claims
+        .into_iter()
+        .map(session_claim_from_record)
+        .collect::<Vec<_>>();
+    write_bundle_claims(
+        &args.output,
+        &SessionClaimsState {
+            claims: claims.clone(),
+        },
+    )?;
 
     Ok(ClaimsResponse {
         bundle_root: args.output.display().to_string(),
-        current_session: runtime.and_then(|config| config.session),
-        claims: state.claims,
+        current_session,
+        claims,
     })
 }
 
@@ -6741,6 +6858,21 @@ struct SessionClaimsState {
     claims: Vec<SessionClaim>,
 }
 
+fn session_claim_from_record(record: memd_schema::PeerClaimRecord) -> SessionClaim {
+    SessionClaim {
+        scope: record.scope,
+        session: Some(record.session),
+        agent: record.agent,
+        effective_agent: record.effective_agent,
+        project: record.project,
+        workspace: record.workspace,
+        host: record.host,
+        pid: record.pid,
+        acquired_at: record.acquired_at,
+        expires_at: record.expires_at,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ClaimsResponse {
     bundle_root: String,
@@ -6855,13 +6987,15 @@ mod tests {
         routing::{get, post},
     };
     use memd_schema::{
-        PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest,
-        PeerMessagesResponse,
+        PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
+        PeerClaimsRequest, PeerClaimsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
+        PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
     };
 
     #[derive(Clone, Default)]
     struct MockPeerState {
         messages: Arc<Mutex<Vec<PeerMessageRecord>>>,
+        claims: Arc<Mutex<Vec<PeerClaimRecord>>>,
     }
 
     async fn mock_send_peer_message(
@@ -6933,12 +7067,116 @@ mod tests {
         Json(PeerMessagesResponse { messages: acked })
     }
 
+    async fn mock_claim_acquire(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerClaimAcquireRequest>,
+    ) -> Json<PeerClaimsResponse> {
+        let mut claims = state.claims.lock().expect("lock claims");
+        claims.retain(|claim| claim.expires_at > Utc::now());
+        if let Some(existing) = claims
+            .iter()
+            .find(|claim| claim.scope == req.scope && claim.session != req.session)
+            .cloned()
+        {
+            return Json(PeerClaimsResponse {
+                claims: vec![existing],
+            });
+        }
+        claims.retain(|claim| !(claim.scope == req.scope && claim.session == req.session));
+        let claim = PeerClaimRecord {
+            scope: req.scope,
+            session: req.session,
+            agent: req.agent,
+            effective_agent: req.effective_agent,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            host: req.host,
+            pid: req.pid,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::seconds(req.ttl_seconds as i64),
+        };
+        claims.push(claim.clone());
+        Json(PeerClaimsResponse { claims: vec![claim] })
+    }
+
+    async fn mock_claim_release(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerClaimReleaseRequest>,
+    ) -> Json<PeerClaimsResponse> {
+        let mut claims = state.claims.lock().expect("lock claims");
+        let mut released = Vec::new();
+        claims.retain(|claim| {
+            let matches = claim.scope == req.scope && claim.session == req.session;
+            if matches {
+                released.push(claim.clone());
+            }
+            !matches
+        });
+        Json(PeerClaimsResponse { claims: released })
+    }
+
+    async fn mock_claim_transfer(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerClaimTransferRequest>,
+    ) -> Json<PeerClaimsResponse> {
+        let mut claims = state.claims.lock().expect("lock claims");
+        let mut transferred = Vec::new();
+        for claim in claims.iter_mut() {
+            if claim.scope == req.scope && claim.session == req.from_session {
+                claim.session = req.to_session.clone();
+                claim.agent = req.to_agent.clone();
+                claim.effective_agent = req.to_effective_agent.clone();
+                transferred.push(claim.clone());
+            }
+        }
+        Json(PeerClaimsResponse {
+            claims: transferred,
+        })
+    }
+
+    async fn mock_claims(
+        State(state): State<MockPeerState>,
+        Query(req): Query<PeerClaimsRequest>,
+    ) -> Json<PeerClaimsResponse> {
+        let claims = state
+            .claims
+            .lock()
+            .expect("lock claims")
+            .iter()
+            .filter(|claim| {
+                req.session
+                    .as_ref()
+                    .is_none_or(|session| &claim.session == session)
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|project| claim.project.as_ref() == Some(project))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| claim.namespace.as_ref() == Some(namespace))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| claim.workspace.as_ref() == Some(workspace))
+                    && (!req.active_only.unwrap_or(true) || claim.expires_at > Utc::now())
+            })
+            .cloned()
+            .collect();
+        Json(PeerClaimsResponse { claims })
+    }
+
     async fn spawn_mock_peer_server() -> String {
         let state = MockPeerState::default();
         let app = Router::new()
             .route("/coordination/messages/send", post(mock_send_peer_message))
             .route("/coordination/messages/inbox", get(mock_peer_inbox))
             .route("/coordination/messages/ack", post(mock_peer_ack))
+            .route("/coordination/claims/acquire", post(mock_claim_acquire))
+            .route("/coordination/claims/release", post(mock_claim_release))
+            .route("/coordination/claims/transfer", post(mock_claim_transfer))
+            .route("/coordination/claims", get(mock_claims))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -7847,22 +8085,26 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup target-session root");
     }
 
-    #[test]
-    fn claims_acquire_and_release_scope() {
+    #[tokio::test]
+    async fn claims_acquire_and_release_scope() {
         let dir = std::env::temp_dir().join(format!("memd-claims-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(dir.join("state")).expect("create claims dir");
+        let base_url = spawn_mock_peer_server().await;
         fs::write(
             dir.join("config.json"),
-            r#"{
+            format!(
+                r#"{{
   "project": "demo",
   "agent": "codex",
   "session": "codex-a",
   "workspace": "shared",
-  "base_url": "http://127.0.0.1:8787",
+  "base_url": "{}",
   "route": "auto",
   "intent": "general"
-}
+}}
 "#,
+                base_url
+            ),
         )
         .expect("write config");
         fs::write(
@@ -7875,7 +8117,7 @@ mod tests {
                 namespace: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
-                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url: Some(base_url.clone()),
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(1111),
@@ -7893,10 +8135,12 @@ mod tests {
             output: dir.clone(),
             acquire: true,
             release: false,
+            transfer_to_session: None,
             scope: Some("file:src/main.rs".to_string()),
             ttl_secs: 900,
             summary: false,
-        })
+        }, &base_url)
+        .await
         .expect("acquire claim");
         assert_eq!(acquired.claims.len(), 1);
         assert_eq!(acquired.claims[0].scope, "file:src/main.rs");
@@ -7905,14 +8149,144 @@ mod tests {
             output: dir.clone(),
             acquire: false,
             release: true,
+            transfer_to_session: None,
             scope: Some("file:src/main.rs".to_string()),
             ttl_secs: 900,
             summary: false,
-        })
+        }, &base_url)
+        .await
         .expect("release claim");
-        assert!(released.claims.is_empty());
+        assert_eq!(released.claims.len(), 1);
+        assert_eq!(released.claims[0].scope, "file:src/main.rs");
 
         fs::remove_dir_all(dir).expect("cleanup claims dir");
+    }
+
+    #[tokio::test]
+    async fn claims_transfer_scope_to_target_session() {
+        let root = std::env::temp_dir().join(format!("memd-claim-transfer-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(current_bundle.join("state")).expect("create current claims dir");
+        fs::create_dir_all(target_bundle.join("state")).expect("create target claims dir");
+        let base_url = spawn_mock_peer_server().await;
+
+        fs::write(
+            current_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "general"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write current config");
+        fs::write(
+            current_bundle.join("state").join("heartbeat.json"),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(1111),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            })
+            .expect("serialize current heartbeat"),
+        )
+        .expect("write current heartbeat");
+
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "general"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(
+            target_bundle.join("state").join("heartbeat.json"),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(2222),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            })
+            .expect("serialize target heartbeat"),
+        )
+        .expect("write target heartbeat");
+
+        let acquired = run_claims_command(&ClaimsArgs {
+            output: current_bundle.clone(),
+            acquire: true,
+            release: false,
+            transfer_to_session: None,
+            scope: Some("task:parser-refactor".to_string()),
+            ttl_secs: 900,
+            summary: false,
+        }, &base_url)
+        .await
+        .expect("acquire claim");
+        assert_eq!(acquired.claims[0].session.as_deref(), Some("codex-a"));
+
+        let transferred = run_claims_command(&ClaimsArgs {
+            output: current_bundle.clone(),
+            acquire: false,
+            release: false,
+            transfer_to_session: Some("claude-b".to_string()),
+            scope: Some("task:parser-refactor".to_string()),
+            ttl_secs: 900,
+            summary: false,
+        }, &base_url)
+        .await
+        .expect("transfer claim");
+        assert_eq!(transferred.claims.len(), 1);
+        assert_eq!(transferred.claims[0].session.as_deref(), Some("claude-b"));
+        assert_eq!(
+            transferred.claims[0].effective_agent.as_deref(),
+            Some("claude-code@claude-b")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup transfer dir");
     }
 
     #[tokio::test]
