@@ -37,7 +37,8 @@ use memd_schema::{
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
     PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
     PeerClaimAcquireRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
-    PeerClaimsResponse,
+    PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest,
+    PeerTasksResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -244,6 +245,9 @@ async fn main() {
         .route("/coordination/claims/release", post(post_peer_claim_release))
         .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
         .route("/coordination/claims", get(get_peer_claims))
+        .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
+        .route("/coordination/tasks/assign", post(post_peer_task_assign))
+        .route("/coordination/tasks", get(get_peer_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
@@ -770,6 +774,54 @@ async fn get_peer_claims(
     Query(req): Query<PeerClaimsRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     let response = state.store.peer_claims(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_task_upsert(
+    State(state): State<AppState>,
+    Json(req): Json<PeerTaskUpsertRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    if req.task_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "task_id must not be empty".to_string(),
+        ));
+    }
+    if req.title.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "title must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.upsert_peer_task(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_task_assign(
+    State(state): State<AppState>,
+    Json(req): Json<PeerTaskAssignRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    if req.task_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "task_id must not be empty".to_string(),
+        ));
+    }
+    if req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.assign_peer_task(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_tasks(
+    State(state): State<AppState>,
+    Query(req): Query<PeerTasksRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    let response = state.store.peer_tasks(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

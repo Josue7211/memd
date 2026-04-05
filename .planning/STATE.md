@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` shared-task orchestration on top of the new peer MCP bridge.
+**Current focus:** Start `v5` coordination inbox and task presence on top of the new shared-task layer.
 
 ## Current Status
 
@@ -43,14 +43,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - retrieval ranking now prefers verified canonical evidence over unverified synthetic continuity
 - peer coordination now has brokered messages, claims, claim transfer, and assignment-friendly handoff primitives
 - the first MCP-native peer coordination bridge now exposes brokered coworking tools directly to agent clients
+- shared-task orchestration now exists across backend, CLI, and MCP surfaces
 
 ## Open Loops
 
-- planning roadmap now needs phase 34 execution so peer coordination grows into explicit shared-task orchestration
+- planning roadmap now needs phase 35 execution so coworking pressure becomes visible from one coordination inbox
 
 ## Next Command
 
-Execute phase 34 so peer coordination grows from MCP primitives into shared-task orchestration.
+Execute phase 35 so active sessions can inspect coordination pressure from one compact surface.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

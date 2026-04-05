@@ -270,6 +270,75 @@ const tools = [
       required: ["scope", "target_session"],
     },
   },
+  {
+    name: "list_tasks",
+    description: "List shared tasks for the current project and workspace.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        active_only: { type: "boolean", default: true },
+      },
+    },
+  },
+  {
+    name: "upsert_task",
+    description: "Create or update a shared task backed by memd coordination state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", default: "active" },
+        claim_scopes: {
+          type: "array",
+          items: { type: "string" },
+          default: [],
+        },
+      },
+      required: ["task_id", "title"],
+    },
+  },
+  {
+    name: "assign_task",
+    description: "Assign a shared task to another session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        target_session: { type: "string" },
+      },
+      required: ["task_id", "target_session"],
+    },
+  },
+  {
+    name: "request_task_help",
+    description: "Mark a shared task as needing help and notify another session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        target_session: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["task_id", "target_session"],
+    },
+  },
+  {
+    name: "request_task_review",
+    description: "Mark a shared task as needing review and notify another session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        target_session: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["task_id", "target_session"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -419,6 +488,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `Assigned scope ${args.scope}. Take ownership and continue from there.`,
       });
       return textResult([`assigned=${response.messages?.length ?? 0}`, `scope=${args.scope}`]);
+    }
+
+    case "list_tasks": {
+      const response = await memdGet(identity.baseUrl, "/coordination/tasks", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: args.active_only !== false,
+        limit: 64,
+      });
+      const rows = (response.tasks ?? []).map(
+        (task) =>
+          `- ${task.task_id} [${task.status}] owner=${task.effective_agent ?? task.session ?? "none"} help=${task.help_requested ? "yes" : "no"} review=${task.review_requested ? "yes" : "no"} | ${compact(task.title, 96)}`
+      );
+      return textResult([`tasks=${rows.length}`, ...rows]);
+    }
+
+    case "upsert_task": {
+      if (!identity.session) throw new Error("Bundle session is required to own shared tasks.");
+      const response = await memdPost(identity.baseUrl, "/coordination/tasks/upsert", {
+        task_id: args.task_id,
+        title: args.title,
+        description: args.description ?? null,
+        status: args.status ?? "active",
+        session: identity.session,
+        agent: identity.agent,
+        effective_agent: identity.effectiveAgent,
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        claim_scopes: Array.isArray(args.claim_scopes) ? args.claim_scopes : [],
+        help_requested: false,
+        review_requested: false,
+      });
+      const task = response.tasks?.[0];
+      return textResult([
+        `task=${task?.task_id ?? args.task_id}`,
+        `status=${task?.status ?? (args.status ?? "active")}`,
+      ]);
+    }
+
+    case "assign_task": {
+      if (!identity.session) throw new Error("Bundle session is required to assign shared tasks.");
+      const target = peerBySession.get(args.target_session);
+      if (!target) throw new Error(`Unknown target session: ${args.target_session}`);
+      const response = await memdPost(identity.baseUrl, "/coordination/tasks/assign", {
+        task_id: args.task_id,
+        from_session: identity.session,
+        to_session: args.target_session,
+        to_agent: target.agent,
+        to_effective_agent: target.effective_agent,
+        note: null,
+      });
+      const task = response.tasks?.[0];
+      return textResult([
+        `task=${task?.task_id ?? args.task_id}`,
+        `assigned_to=${task?.effective_agent ?? task?.session ?? args.target_session}`,
+        `status=${task?.status ?? "assigned"}`,
+      ]);
+    }
+
+    case "request_task_help":
+    case "request_task_review": {
+      if (!identity.session) throw new Error("Bundle session is required for task requests.");
+      const target = peerBySession.get(args.target_session);
+      if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
+      const needsHelp = request.params.name === "request_task_help";
+      const taskResponse = await memdPost(identity.baseUrl, "/coordination/tasks/upsert", {
+        task_id: args.task_id,
+        title: args.title ?? `Shared task ${args.task_id}`,
+        description: args.description ?? null,
+        status: needsHelp ? "needs_help" : "needs_review",
+        session: identity.session,
+        agent: identity.agent,
+        effective_agent: identity.effectiveAgent,
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        claim_scopes: [],
+        help_requested: needsHelp,
+        review_requested: !needsHelp,
+      });
+      const message = await memdPost(target.base_url, "/coordination/messages/send", {
+        kind: needsHelp ? "help_request" : "review_request",
+        from_session: identity.session,
+        from_agent: identity.effectiveAgent,
+        to_session: args.target_session,
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        content: needsHelp
+          ? `Need help on shared task ${args.task_id}.`
+          : `Need review on shared task ${args.task_id}.`,
+      });
+      return textResult([
+        `task=${taskResponse.tasks?.[0]?.task_id ?? args.task_id}`,
+        `requested=${needsHelp ? "help" : "review"}`,
+        `message=${message.messages?.[0]?.id ?? "sent"}`,
+      ]);
     }
 
     default:

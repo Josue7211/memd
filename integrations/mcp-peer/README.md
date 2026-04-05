@@ -24,6 +24,11 @@ It does not create a second coordination store.
 - `release_claim`
 - `transfer_claim`
 - `assign_work`
+- `list_tasks`
+- `upsert_task`
+- `assign_task`
+- `request_task_help`
+- `request_task_review`
 
 ## Environment
 
@@ -59,5 +64,5 @@ npm install
 - peer discovery is bundle-aware: it scans sibling project bundles and reads
   their session identity and heartbeat state
 - message and claim operations use the shared `memd-server` backend routes
-- claims and assignments preserve session-qualified ownership instead of
-  collapsing everyone into one lane
+- claims, tasks, and assignments preserve session-qualified ownership instead
+  of collapsing everyone into one lane

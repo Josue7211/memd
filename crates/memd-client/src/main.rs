@@ -30,9 +30,10 @@ use memd_schema::{
     EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
     EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerTaskAssignRequest,
+    PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest, PromoteMemoryRequest,
+    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
+    StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -71,6 +72,7 @@ enum Commands {
     Heartbeat(HeartbeatArgs),
     Claims(ClaimsArgs),
     Messages(MessagesArgs),
+    Tasks(TasksArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -1017,6 +1019,48 @@ struct MessagesArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct TasksArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    upsert: bool,
+
+    #[arg(long)]
+    assign_to_session: Option<String>,
+
+    #[arg(long)]
+    target_session: Option<String>,
+
+    #[arg(long)]
+    task_id: Option<String>,
+
+    #[arg(long)]
+    title: Option<String>,
+
+    #[arg(long)]
+    description: Option<String>,
+
+    #[arg(long)]
+    status: Option<String>,
+
+    #[arg(long, value_name = "SCOPE")]
+    scope: Vec<String>,
+
+    #[arg(long)]
+    request_help: bool,
+
+    #[arg(long)]
+    request_review: bool,
+
+    #[arg(long)]
+    all: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1435,6 +1479,14 @@ async fn main() -> anyhow::Result<()> {
             let response = run_messages_command(&args, &base_url).await?;
             if args.summary {
                 println!("{}", render_messages_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Tasks(args) => {
+            let response = run_tasks_command(&args, &base_url).await?;
+            if args.summary {
+                println!("{}", render_tasks_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -4753,6 +4805,291 @@ fn render_messages_summary(response: &MessagesResponse) -> String {
     lines.join("\n")
 }
 
+async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<TasksResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty());
+    let current_agent = runtime.as_ref().and_then(|config| config.agent.clone());
+    let current_effective_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let current_project = runtime.as_ref().and_then(|config| config.project.clone());
+    let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let current_base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+    let client = MemdClient::new(&current_base_url)?;
+
+    if args.upsert {
+        let task_id = args
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("tasks --upsert requires --task-id")?;
+        let title = args
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("tasks --upsert requires --title")?;
+        let response = client
+            .upsert_peer_task(&PeerTaskUpsertRequest {
+                task_id: task_id.to_string(),
+                title: title.to_string(),
+                description: args.description.clone(),
+                status: args.status.clone(),
+                session: current_session.clone(),
+                agent: current_agent.clone(),
+                effective_agent: current_effective_agent.clone(),
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                claim_scopes: args.scope.clone(),
+                help_requested: Some(false),
+                review_requested: Some(false),
+            })
+            .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "tasks",
+            format!("Updated shared task {task_id}."),
+            vec!["tasks".to_string(), "auto-checkpoint".to_string()],
+            0.83,
+        )
+        .await?;
+        return Ok(TasksResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            tasks: response.tasks,
+        });
+    }
+
+    if let Some(target_session) = args
+        .assign_to_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let task_id = args
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("tasks --assign-to-session requires --task-id")?;
+        let session = current_session
+            .as_deref()
+            .context("tasks --assign-to-session requires a configured bundle session")?;
+        let target = resolve_target_session_bundle(&args.output, target_session)?
+            .context("target session not found in awareness")?;
+
+        let existing = client
+            .peer_tasks(&PeerTasksRequest {
+                session: None,
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                active_only: Some(false),
+                limit: Some(256),
+            })
+            .await?;
+        if let Some(task) = existing.tasks.iter().find(|task| task.task_id == task_id) {
+            for scope in &task.claim_scopes {
+                let _ = client
+                    .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+                        scope: scope.clone(),
+                        from_session: session.to_string(),
+                        to_session: target_session.to_string(),
+                        to_agent: target.agent.clone(),
+                        to_effective_agent: target.effective_agent.clone(),
+                    })
+                    .await;
+            }
+        }
+
+        let response = client
+            .assign_peer_task(&PeerTaskAssignRequest {
+                task_id: task_id.to_string(),
+                from_session: Some(session.to_string()),
+                to_session: target_session.to_string(),
+                to_agent: target.agent.clone(),
+                to_effective_agent: target.effective_agent.clone(),
+                note: None,
+            })
+            .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "tasks",
+            format!("Assigned shared task {task_id} to session {target_session}."),
+            vec![
+                "tasks".to_string(),
+                "assignment".to_string(),
+                "auto-checkpoint".to_string(),
+            ],
+            0.85,
+        )
+        .await?;
+        return Ok(TasksResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            tasks: response.tasks,
+        });
+    }
+
+    if args.request_help || args.request_review {
+        let task_id = args
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("tasks help/review requires --task-id")?;
+        let target_session = args
+            .target_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("tasks help/review requires --target-session")?;
+        let from_session = current_session
+            .as_deref()
+            .context("tasks help/review requires a configured bundle session")?;
+        let target = resolve_target_session_bundle(&args.output, target_session)?
+            .context("target session not found in awareness")?;
+        let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
+        let target_base_url = target_runtime
+            .as_ref()
+            .and_then(|config| config.base_url.clone())
+            .or(target.base_url.clone())
+            .unwrap_or_else(|| current_base_url.clone());
+        let target_client = MemdClient::new(&target_base_url)?;
+
+        let tasks = client
+            .upsert_peer_task(&PeerTaskUpsertRequest {
+                task_id: task_id.to_string(),
+                title: args
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| format!("Shared task {task_id}")),
+                description: args.description.clone(),
+                status: Some(if args.request_help {
+                    "needs_help".to_string()
+                } else {
+                    "needs_review".to_string()
+                }),
+                session: current_session.clone(),
+                agent: current_agent.clone(),
+                effective_agent: current_effective_agent.clone(),
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                claim_scopes: args.scope.clone(),
+                help_requested: Some(args.request_help),
+                review_requested: Some(args.request_review),
+            })
+            .await?;
+        let kind = if args.request_help {
+            "help_request"
+        } else {
+            "review_request"
+        };
+        let content = if args.request_help {
+            format!("Need help on shared task {task_id}. Please coordinate before changing overlapping work.")
+        } else {
+            format!("Need review on shared task {task_id}. Please inspect the task before handoff.")
+        };
+        target_client
+            .send_peer_message(&PeerMessageSendRequest {
+                kind: kind.to_string(),
+                from_session: from_session.to_string(),
+                from_agent: current_effective_agent.clone(),
+                to_session: target_session.to_string(),
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                content,
+            })
+            .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "tasks",
+            format!(
+                "{} requested on shared task {task_id} from session {target_session}.",
+                if args.request_help { "Help" } else { "Review" }
+            ),
+            vec![
+                "tasks".to_string(),
+                if args.request_help {
+                    "help-request".to_string()
+                } else {
+                    "review-request".to_string()
+                },
+                "auto-checkpoint".to_string(),
+            ],
+            0.81,
+        )
+        .await?;
+        return Ok(TasksResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            tasks: tasks.tasks,
+        });
+    }
+
+    let response = client
+        .peer_tasks(&PeerTasksRequest {
+            session: None,
+            project: current_project,
+            namespace: current_namespace,
+            workspace: current_workspace,
+            active_only: Some(!args.all),
+            limit: Some(256),
+        })
+        .await?;
+    Ok(TasksResponse {
+        bundle_root: args.output.display().to_string(),
+        current_session,
+        tasks: response.tasks,
+    })
+}
+
+fn render_tasks_summary(response: &TasksResponse) -> String {
+    let mut lines = vec![format!(
+        "tasks bundle={} current_session={} count={}",
+        response.bundle_root,
+        response.current_session.as_deref().unwrap_or("none"),
+        response.tasks.len()
+    )];
+    for task in &response.tasks {
+        lines.push(format!(
+            "- {} [{}] owner={} scopes={} help={} review={} | {}",
+            task.task_id,
+            task.status,
+            task.effective_agent
+                .as_deref()
+                .or(task.session.as_deref())
+                .unwrap_or("none"),
+            if task.claim_scopes.is_empty() {
+                "none".to_string()
+            } else {
+                task.claim_scopes.join(",")
+            },
+            if task.help_requested { "yes" } else { "no" },
+            if task.review_requested { "yes" } else { "no" },
+            compact_inline(&task.title, 80)
+        ));
+    }
+    lines.join("\n")
+}
+
 fn describe_resume_state_changes(
     previous: Option<&BundleResumeState>,
     current: &BundleResumeState,
@@ -7033,6 +7370,13 @@ struct MessagesResponse {
     bundle_root: String,
     current_session: Option<String>,
     messages: Vec<PeerMessageRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TasksResponse {
+    bundle_root: String,
+    current_session: Option<String>,
+    tasks: Vec<PeerTaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

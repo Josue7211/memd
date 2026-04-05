@@ -597,6 +597,67 @@ pub struct PeerClaimsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskRecord {
+    pub task_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub session: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub claim_scopes: Vec<String>,
+    pub help_requested: bool,
+    pub review_requested: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskUpsertRequest {
+    pub task_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub session: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub claim_scopes: Vec<String>,
+    pub help_requested: Option<bool>,
+    pub review_requested: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskAssignRequest {
+    pub task_id: String,
+    pub from_session: Option<String>,
+    pub to_session: String,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerTasksRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTasksResponse {
+    pub tasks: Vec<PeerTaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,

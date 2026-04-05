@@ -9,8 +9,9 @@ use memd_schema::{
     MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerMessageAckRequest,
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
     PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
-    PeerClaimsRequest, PeerClaimsResponse, SourceMemoryRecord, SourceMemoryRequest,
-    SourceMemoryResponse,
+    PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord,
+    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
+    SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -164,6 +165,21 @@ impl SqliteStore {
               ON peer_claims(session, expires_at DESC);
             CREATE INDEX IF NOT EXISTS idx_peer_claims_project_namespace
               ON peer_claims(project, namespace, expires_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_tasks (
+              task_id TEXT PRIMARY KEY,
+              session TEXT,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              status TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_tasks_session
+              ON peer_tasks(session, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_tasks_project_namespace
+              ON peer_tasks(project, namespace, updated_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -1687,6 +1703,227 @@ impl SqliteStore {
             );
         }
         Ok(PeerClaimsResponse { claims })
+    }
+
+    pub fn upsert_peer_task(
+        &self,
+        request: &PeerTaskUpsertRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let existing = conn
+            .query_row(
+                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                params![request.task_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch existing peer task")?;
+
+        let now = chrono::Utc::now();
+        let mut task = if let Some(payload) = existing {
+            let mut task: PeerTaskRecord =
+                serde_json::from_str(&payload).context("deserialize existing peer task")?;
+            task.title = request.title.trim().to_string();
+            task.description = request
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            if let Some(status) = request.status.as_deref() {
+                let trimmed = status.trim();
+                if !trimmed.is_empty() {
+                    task.status = trimmed.to_string();
+                }
+            }
+            task.session = request.session.clone().or(task.session);
+            task.agent = request.agent.clone().or(task.agent);
+            task.effective_agent = request.effective_agent.clone().or(task.effective_agent);
+            task.project = request.project.clone().or(task.project);
+            task.namespace = request.namespace.clone().or(task.namespace);
+            task.workspace = request.workspace.clone().or(task.workspace);
+            if !request.claim_scopes.is_empty() {
+                task.claim_scopes = request
+                    .claim_scopes
+                    .iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect();
+            }
+            if let Some(value) = request.help_requested {
+                task.help_requested = value;
+            }
+            if let Some(value) = request.review_requested {
+                task.review_requested = value;
+            }
+            task.updated_at = now;
+            task
+        } else {
+            PeerTaskRecord {
+                task_id: request.task_id.trim().to_string(),
+                title: request.title.trim().to_string(),
+                description: request
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
+                status: request
+                    .status
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("active")
+                    .to_string(),
+                session: request.session.clone(),
+                agent: request.agent.clone(),
+                effective_agent: request.effective_agent.clone(),
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                claim_scopes: request
+                    .claim_scopes
+                    .iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect(),
+                help_requested: request.help_requested.unwrap_or(false),
+                review_requested: request.review_requested.unwrap_or(false),
+                created_at: now,
+                updated_at: now,
+            }
+        };
+
+        if task.status.trim().is_empty() {
+            task.status = "active".to_string();
+        }
+
+        let payload_json = serde_json::to_string(&task).context("serialize peer task")?;
+        conn.execute(
+            r#"
+            INSERT INTO peer_tasks (task_id, session, project, namespace, workspace, status, updated_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(task_id) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              status = excluded.status,
+              updated_at = excluded.updated_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                task.task_id.as_str(),
+                &task.session,
+                &task.project,
+                &task.namespace,
+                &task.workspace,
+                task.status.as_str(),
+                task.updated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert peer task")?;
+
+        Ok(PeerTasksResponse { tasks: vec![task] })
+    }
+
+    pub fn assign_peer_task(
+        &self,
+        request: &PeerTaskAssignRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                params![request.task_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer task for assignment")?;
+        let Some(payload) = payload else {
+            return Ok(PeerTasksResponse { tasks: Vec::new() });
+        };
+
+        let mut task: PeerTaskRecord =
+            serde_json::from_str(&payload).context("deserialize peer task for assignment")?;
+        if let Some(from_session) = request
+            .from_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if task.session.as_deref() != Some(from_session) {
+                anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
+            }
+        }
+        task.session = Some(request.to_session.trim().to_string());
+        task.agent = request.to_agent.clone();
+        task.effective_agent = request.to_effective_agent.clone();
+        task.status = "assigned".to_string();
+        task.updated_at = chrono::Utc::now();
+        let payload_json =
+            serde_json::to_string(&task).context("serialize assigned peer task")?;
+        conn.execute(
+            r#"
+            UPDATE peer_tasks
+            SET session = ?2, status = ?3, updated_at = ?4, payload_json = ?5
+            WHERE task_id = ?1
+            "#,
+            params![
+                task.task_id.as_str(),
+                &task.session,
+                task.status.as_str(),
+                task.updated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("assign peer task")?;
+        Ok(PeerTasksResponse { tasks: vec![task] })
+    }
+
+    pub fn peer_tasks(&self, request: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let active_only = request.active_only.unwrap_or(true);
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_tasks
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 0 OR status NOT IN ('done', 'closed'))
+                ORDER BY updated_at DESC
+                LIMIT ?6
+                "#,
+            )
+            .context("prepare peer tasks query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if active_only { 1 } else { 0 },
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer tasks")?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer task row")?;
+            tasks.push(
+                serde_json::from_str::<PeerTaskRecord>(&payload)
+                    .context("deserialize peer task payload")?,
+            );
+        }
+        Ok(PeerTasksResponse { tasks })
     }
 
     pub fn find_duplicate(

@@ -444,11 +444,24 @@ Success:
 - preserve session-qualified ownership and claim safety while making coworking easier to inspect
 - keep the first orchestration slice narrow before heavier automation and planning layers
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - simultaneous agent sessions can coordinate through explicit shared tasks instead of only raw messages and scope claims
 
+#### Phase 35: `v5` Coordination Inbox and Task Presence
+
+- combine peer messages, shared task pressure, and ownership state into one coordination view
+- surface help, review, and assignment pressure without manual cross-checking
+- keep the first slice compact enough for resume, handoff, and MCP use
+- preserve explicit session-qualified ownership and inspectability
+
+Status: Planned
+
+Success:
+
+- active sessions can see coordination pressure from one compact surface instead of stitching together messages, tasks, and presence manually
+
 ---
-*Last updated: 2026-04-05 after shipping the first `v5` peer MCP bridge*
+*Last updated: 2026-04-05 after shipping `v5` shared-task orchestration*

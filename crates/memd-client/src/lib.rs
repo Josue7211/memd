@@ -10,7 +10,8 @@ use memd_schema::{
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
     MemoryPolicyResponse, PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest,
     PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
-    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, RepairMemoryRequest,
+    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest,
+    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, RepairMemoryRequest,
     RepairMemoryResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
@@ -248,6 +249,24 @@ impl MemdClient {
         req: &PeerClaimsRequest,
     ) -> anyhow::Result<PeerClaimsResponse> {
         self.get_json_with_query("/coordination/claims", req).await
+    }
+
+    pub async fn upsert_peer_task(
+        &self,
+        req: &PeerTaskUpsertRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        self.post_json("/coordination/tasks/upsert", req).await
+    }
+
+    pub async fn assign_peer_task(
+        &self,
+        req: &PeerTaskAssignRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        self.post_json("/coordination/tasks/assign", req).await
+    }
+
+    pub async fn peer_tasks(&self, req: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+        self.get_json_with_query("/coordination/tasks", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

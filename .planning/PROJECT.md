@@ -71,7 +71,8 @@ real memory:
 ### Next Product Priorities
 
 - [x] Expose the brokered coordination substrate through a first-class peer MCP surface.
-- [ ] Expand peer coordination from MCP primitives into richer shared-task orchestration.
+- [x] Expand peer coordination from MCP primitives into richer shared-task orchestration.
+- [ ] Add a compact coordination inbox that merges peer messages, task ownership, and session pressure.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
