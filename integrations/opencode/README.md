@@ -11,7 +11,7 @@ Recommended flow:
 
 If you are using a bundle, read:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
 
 Use the OpenCode-specific entrypoint:

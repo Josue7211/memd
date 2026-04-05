@@ -1951,6 +1951,7 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
+                    auto_checkpoint_compaction_packet(&packet, &base_url).await?;
                     let submitted = responses.len();
                     let result = CompactionSpillResult {
                         submitted,
@@ -2063,6 +2064,7 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
                         sync_candidate_responses_to_rag(&rag, &responses).await?;
                     }
+                    auto_checkpoint_compaction_packet(&packet, &base_url).await?;
                     let submitted = responses.len();
                     print_json(&CompactionSpillResult {
                         submitted,
@@ -3741,7 +3743,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMD_MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3817,7 +3819,7 @@ fn write_bundle_memory_files(
 }
 
 fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
-    let root_memory = output.join("MEMORY.md");
+    let root_memory = output.join("MEMD_MEMORY.md");
     fs::write(&root_memory, markdown).with_context(|| format!("write {}", root_memory.display()))?;
 
     let agents_dir = output.join("agents");
@@ -4818,6 +4820,130 @@ async fn checkpoint_with_bundle_defaults(
     remember_with_bundle_defaults(&translated, base_url).await
 }
 
+async fn auto_checkpoint_compaction_packet(
+    packet: &CompactionPacket,
+    base_url: &str,
+) -> anyhow::Result<()> {
+    let Some(output) = resolve_default_bundle_root()? else {
+        return Ok(());
+    };
+    if read_bundle_runtime_config(&output)?.is_none() {
+        return Ok(());
+    }
+
+    let Some(content) = render_compaction_checkpoint_content(packet) else {
+        return Ok(());
+    };
+
+    let response = checkpoint_with_bundle_defaults(
+        &CheckpointArgs {
+            output: output.clone(),
+            project: packet.session.project.clone(),
+            namespace: None,
+            workspace: None,
+            visibility: None,
+            source_path: Some("compaction".to_string()),
+            confidence: Some(0.85),
+            ttl_seconds: Some(86_400),
+            tag: vec!["compaction".to_string(), "auto-checkpoint".to_string()],
+            content: Some(content),
+            input: None,
+            stdin: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    let snapshot = read_bundle_resume(
+        &ResumeArgs {
+            output,
+            project: packet.session.project.clone(),
+            namespace: None,
+            agent: packet.session.agent.clone(),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some("current_task".to_string()),
+            limit: Some(8),
+            rehydration_limit: Some(4),
+            semantic: false,
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+    write_bundle_memory_files(&snapshot_bundle_root(&response, &snapshot), &snapshot, None)?;
+    Ok(())
+}
+
+fn snapshot_bundle_root(
+    _response: &memd_schema::StoreMemoryResponse,
+    _snapshot: &ResumeSnapshot,
+) -> PathBuf {
+    resolve_default_bundle_root()
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| PathBuf::from(".memd"))
+}
+
+fn render_compaction_checkpoint_content(packet: &CompactionPacket) -> Option<String> {
+    let mut lines = Vec::new();
+
+    if !packet.session.task.trim().is_empty() {
+        lines.push(format!("task: {}", packet.session.task.trim()));
+    }
+    if !packet.goal.trim().is_empty() {
+        lines.push(format!("goal: {}", packet.goal.trim()));
+    }
+    if !packet.active_work.is_empty() {
+        lines.push(format!(
+            "active: {}",
+            packet
+                .active_work
+                .iter()
+                .take(3)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+    if !packet.next_actions.is_empty() {
+        lines.push(format!(
+            "next: {}",
+            packet
+                .next_actions
+                .iter()
+                .take(3)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+    if !packet.do_not_drop.is_empty() {
+        lines.push(format!(
+            "keep: {}",
+            packet
+                .do_not_drop
+                .iter()
+                .take(2)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+
+    let content = lines.join("\n");
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(content)
+    }
+}
+
 fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs {
     let mut tags = vec!["checkpoint".to_string(), "current-task".to_string()];
     for tag in &args.tag {
@@ -5405,7 +5531,7 @@ mod tests {
 
         write_bundle_memory_placeholder(&dir, &config).expect("write placeholder");
 
-        let markdown = fs::read_to_string(dir.join("MEMORY.md")).expect("read placeholder");
+        let markdown = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
         assert!(markdown.contains("memd resume --output"));
         assert!(markdown.contains("--semantic"));
         assert!(markdown.contains("fast local hot path"));

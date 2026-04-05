@@ -51,6 +51,7 @@ evidence, and inspect its own working memory across sessions.
 - [x] Bias default bundle launch flows toward current-task memory.
 - [x] Align bundle status preview with the current-task hot path.
 - [x] Align hook-context defaults with the current-task hot path.
+- [x] Use memd-specific bundle memory filenames that do not collide with agent-native memory files.
 
 ### Out of Scope
 
@@ -91,7 +92,9 @@ and those short-term writes now refresh the visible bundle memory files
 immediately. The default attach and agent launch surfaces now also resume with
 `current_task` intent so the short-term lane is the default starting point, and
 bundle status now previews that same lane. The installed hook-context flow now
-uses that same current-task default.
+uses that same current-task default. The shared memd root file is now
+`MEMD_MEMORY.md` instead of a generic `MEMORY.md`, so it does not collide with
+agents that already own that filename.
 The deployment shape is now explicitly tiered:
 
 - Tier 1: Obsidian-only
@@ -120,4 +123,4 @@ LightRAG stays optional for larger-scale semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-05 after GSD phase 24 completion*
+*Last updated: 2026-04-05 after GSD phase 25 completion*

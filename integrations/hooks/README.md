@@ -28,7 +28,7 @@ memd resume --output .memd
 
 That also refreshes:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`

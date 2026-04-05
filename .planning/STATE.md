@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next short-term memory slice after hook-context current-task defaults.
+**Current focus:** Queue the next short-term memory slice after agent-safe memory surface names.
 
 ## Current Status
 
@@ -35,6 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - default attach and agent launch surfaces now resume with `current_task` intent
 - bundle status preview now mirrors the same current-task hot path
 - the installed hook-context path now defaults to `current_task` intent too
+- bundle root memory is now written to `MEMD_MEMORY.md` to avoid collisions with agent-native `MEMORY.md` files
 
 ## Open Loops
 

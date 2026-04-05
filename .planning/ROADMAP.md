@@ -326,5 +326,17 @@ Success:
 
 - the default hook context path now resumes short-term memory with current-task intent
 
+#### Phase 25: `v4` Agent-Safe Memory Surface Names
+
+- stop using a generic bundle `MEMORY.md` filename that can collide with agent-native memory systems
+- keep a memd-specific shared root memory file alongside agent-specific copies
+- update integration docs so Codex and other clients use the non-colliding memd surface
+
+Status: Complete
+
+Success:
+
+- memd no longer assumes ownership of a generic `MEMORY.md` filename inside the bundle
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

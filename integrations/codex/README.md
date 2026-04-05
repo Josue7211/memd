@@ -5,7 +5,7 @@ Codex should use the same `memd` surface as every other agent.
 Because Codex does not have a built-in durable `memory.md` surface here,
 `memd` now maintains bundle-local markdown memory files for it:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
 
 Those files are refreshed by:
@@ -32,7 +32,7 @@ memd context --project <project> --agent codex --compact
 ## Read The Bundle Memory File
 
 ```bash
-cat .memd/MEMORY.md
+cat .memd/MEMD_MEMORY.md
 ```
 
 Or use the Codex-specific copy:

@@ -10,7 +10,7 @@ Recommended flow:
 
 If you are using a bundle, read:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
 
 And use the OpenClaw-specific entrypoint:

@@ -14,7 +14,7 @@ If you want a shell-level integration, reuse the shared hook kit in
 
 If you are using a bundle, read:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
 
 And use the Claude-specific entrypoint:

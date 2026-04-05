@@ -14,7 +14,7 @@ The shortest default loop is:
 - `memd resume --output .memd`
 - `memd remember --output .memd --kind <kind> --content <text>`
 - `memd handoff --output .memd --prompt`
-- read `.memd/MEMORY.md` or `.memd/agents/CODEX_MEMORY.md`
+- read `.memd/MEMD_MEMORY.md` or `.memd/agents/CODEX_MEMORY.md`
 
 Supported platforms:
 
@@ -129,7 +129,7 @@ cargo run -p memd-client --bin memd -- resume --output .memd --intent current_ta
 
 That also refreshes:
 
-- `.memd/MEMORY.md`
+- `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
