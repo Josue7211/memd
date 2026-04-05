@@ -149,6 +149,10 @@ Generated writeback and compiled memory pages now include workspace and
 visibility metadata in their frontmatter and summary sections so handoff state
 stays visible inside the vault, not only in API responses.
 
+Mirror notes and roundtrip annotations produced by `obsidian sync` /
+`obsidian roundtrip` also carry workspace and visibility when those flags are
+set, so shared-lane provenance survives inside mirrored vault artifacts too.
+
 Each applied compile also updates:
 
 ```text

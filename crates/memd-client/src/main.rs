@@ -2079,10 +2079,27 @@ async fn run_obsidian_import(
                         .await?;
                     entity.entity.as_ref().map(|entity| entity.id)
                 };
-                let block = obsidian::build_roundtrip_annotation(note, Some(item_id), entity_id);
+                let block = obsidian::build_roundtrip_annotation(
+                    note,
+                    Some(item_id),
+                    entity_id,
+                    args.workspace.as_deref(),
+                    args.visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
+                );
                 obsidian::annotate_note(&note.path, &block)?;
-                let (_, mirror_markdown) =
-                    obsidian::build_note_mirror_markdown(note, Some(item_id), entity_id);
+                let (_, mirror_markdown) = obsidian::build_note_mirror_markdown(
+                    note,
+                    Some(item_id),
+                    entity_id,
+                    args.workspace.as_deref(),
+                    args.visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
+                );
                 let mirror_path = obsidian::note_mirror_path(&preview.scan.vault, note);
                 obsidian::write_markdown(&mirror_path, &mirror_markdown)?;
                 mirrored_notes += 1;
@@ -2121,6 +2138,11 @@ async fn run_obsidian_import(
                         entity_id,
                         linked_note,
                         None,
+                        args.workspace.as_deref(),
+                        args.visibility
+                            .as_deref()
+                            .map(parse_memory_visibility_value)
+                            .transpose()?,
                     );
                     let mirror_path = obsidian::attachment_mirror_path(&preview.scan.vault, asset);
                     obsidian::write_markdown(&mirror_path, &mirror_markdown)?;

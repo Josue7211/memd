@@ -938,6 +938,8 @@ pub fn build_note_mirror_markdown(
     note: &ObsidianNote,
     item_id: Option<Uuid>,
     entity_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> (String, String) {
     let title = note.title.clone();
     let mut markdown = String::new();
@@ -950,6 +952,12 @@ pub fn build_note_mirror_markdown(
     }
     if let Some(entity_id) = entity_id {
         markdown.push_str(&format!("entity_id: {}\n", entity_id));
+    }
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!("visibility: {}\n", format_visibility(visibility)));
     }
     if let Some(folder_path) = note.folder_path.as_deref() {
         markdown.push_str(&format!("folder: {}\n", folder_path));
@@ -966,6 +974,15 @@ pub fn build_note_mirror_markdown(
     markdown.push_str(&format!("# {}\n\n", note.title));
     markdown.push_str("## Excerpt\n\n");
     markdown.push_str(&note.excerpt);
+    if workspace.is_some() || visibility.is_some() {
+        markdown.push_str("\n\n## Shared Lane\n\n");
+        if let Some(workspace) = workspace {
+            markdown.push_str(&format!("- workspace: {}\n", workspace));
+        }
+        if let Some(visibility) = visibility {
+            markdown.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
+        }
+    }
     if !note.aliases.is_empty() {
         markdown.push_str("\n\n## Aliases\n\n");
         for alias in &note.aliases {
@@ -993,6 +1010,8 @@ pub fn build_attachment_mirror_markdown(
     entity_id: Option<Uuid>,
     linked_note: Option<&ObsidianNote>,
     track_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> (String, String) {
     let title = Path::new(&attachment.relative_path)
         .file_name()
@@ -1021,6 +1040,12 @@ pub fn build_attachment_mirror_markdown(
     if let Some(track_id) = track_id {
         markdown.push_str(&format!("track_id: {}\n", track_id));
     }
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!("visibility: {}\n", format_visibility(visibility)));
+    }
     if let Some(note) = linked_note {
         markdown.push_str(&format!("linked_note: {}\n", note.title));
         markdown.push_str(&format!("linked_note_path: {}\n", note.relative_path));
@@ -1032,6 +1057,12 @@ pub fn build_attachment_mirror_markdown(
     markdown.push_str("## Attachment\n\n");
     markdown.push_str(&format!("- path: {}\n", attachment.relative_path));
     markdown.push_str(&format!("- kind: {}\n", attachment.asset_kind));
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("- workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
+    }
     if let Some(folder_path) = attachment.folder_path.as_deref() {
         markdown.push_str(&format!("- folder: {}\n", folder_path));
     }
@@ -1054,6 +1085,8 @@ pub fn build_roundtrip_annotation(
     note: &ObsidianNote,
     item_id: Option<Uuid>,
     entity_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> String {
     let mut block = String::new();
     block.push_str(MEMD_ROUNDTRIP_BEGIN);
@@ -1067,6 +1100,12 @@ pub fn build_roundtrip_annotation(
     }
     if let Some(entity_id) = entity_id {
         block.push_str(&format!("- entity_id: {}\n", entity_id));
+    }
+    if let Some(workspace) = workspace {
+        block.push_str(&format!("- workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        block.push_str(&format!("- visibility: {}\n", format_visibility(visibility)));
     }
     if !note.links.is_empty() {
         block.push_str(&format!("- links: {}\n", note.links.join(", ")));
@@ -2069,7 +2108,13 @@ mod tests {
             modified_at: None,
             content_hash: "abc123".to_string(),
         };
-        let block = build_roundtrip_annotation(&note, Some(Uuid::nil()), Some(Uuid::nil()));
+        let block = build_roundtrip_annotation(
+            &note,
+            Some(Uuid::nil()),
+            Some(Uuid::nil()),
+            Some("core"),
+            Some(MemoryVisibility::Workspace),
+        );
         let updated =
             upsert_markdown_block(content, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, &block);
         assert!(updated.contains("memd sync"));
