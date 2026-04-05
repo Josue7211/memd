@@ -338,5 +338,89 @@ Success:
 
 - memd no longer assumes ownership of a generic `MEMORY.md` filename inside the bundle
 
+#### Phase 26: `v4` Claude Native Memory Bridge
+
+- bridge bundle memory into Claude Code through native `CLAUDE.md` imports
+- generate a Claude import target and example file inside the bundle
+- treat `/memory`, imports, dream, and autodream as first-class parts of the Claude integration
+
+Status: Complete
+
+Success:
+
+- Claude Code can load `memd` memory through its own native memory system instead of a parallel markdown convention
+
+#### Phase 27: `v4` Resume Current-Task Snapshot
+
+- surface current focus, pressure, next recovery, and active lane in bundle memory and prompt views
+- keep the hot lane readable at a glance instead of forcing deep inspection
+- make short-term memory feel actionable, not just present
+
+Status: Complete
+
+Success:
+
+- operators can immediately see the active task state from the default resume surfaces
+
+#### Phase 28: `v4` Resume Change Summaries
+
+- persist the last hot-lane snapshot under the bundle
+- show a compact “since last resume” delta in prompt and bundle views
+- keep short-term pickup fast without transcript replay
+
+Status: Complete
+
+Success:
+
+- resume can explain what changed since the last pickup instead of only dumping current state
+
+#### Phase 29: `v4` Remember Refresh Writeback
+
+- refresh bundle memory files immediately after durable `remember` writes
+- keep visible bundle state aligned with durable memory writes
+- avoid stale bundle surfaces between write and next resume
+
+Status: Complete
+
+Success:
+
+- visible short-term memory stays aligned with durable writes in the same bundle workflow
+
+#### Phase 30: `v4` Status and Summary Hot-Lane Alignment
+
+- expose resume deltas through `memd status`
+- enrich `resume --summary` with focus and pressure instead of only counts
+- keep quick inspection aligned with the actual hot lane
+
+Status: Complete
+
+Success:
+
+- lightweight status surfaces carry enough task-state signal to be useful on their own
+
+#### Phase 31: `v4` Automatic Short-Term Memory Management
+
+- capture meaningful short-term state transitions automatically
+- avoid transcript dumping by storing only high-signal task changes
+- keep the hot lane fresh while leaving dream/autodream to consolidate durable signal later
+
+Status: Planned
+
+Success:
+
+- short-term memory improves with less manual checkpointing while remaining compact and useful
+
+#### Phase 32: `v4` Epistemic Retrieval Behavior
+
+- make retrieval prefer verified evidence over narrative continuity
+- keep inferred, claimed, stale, and contested memory explicit in hot and deep recall
+- reduce false confidence by making epistemic state affect ranking and inspection
+
+Status: Planned
+
+Success:
+
+- `memd` helps agents remember more while also being wrong less often
+
 ---
-*Created: 2026-04-04 during GSD brownfield initialization*
+*Last updated: 2026-04-05 after aligning roadmap to the real-memory product standard*

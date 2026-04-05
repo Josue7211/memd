@@ -32,6 +32,26 @@ It should solve memory as infrastructure:
 
 The target is not a feature. The target is an open-source platform.
 
+## Product Standard
+
+`memd` only wins if it feels like real memory instead of memory tooling.
+
+The product standard is:
+
+- zero-friction memory
+- epistemic memory
+- short-term-first memory
+- native multi-agent interoperability
+- inspectable memory
+
+In practical terms:
+
+- resume should feel automatic
+- short-term state should stay sharp without transcript bloat
+- verified, inferred, claimed, stale, and contested memory should stay explicit
+- Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
+- users should be able to inspect what the system remembers, why, and what changed
+
 ## Current Status
 
 `memd` is no longer a simple phase-by-phase project. It is becoming the
@@ -292,6 +312,13 @@ Deliver:
 - regression detection for memory quality, not just system health
 - evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
 - tier-aware policy evolution so Obsidian-only, shared sync, and LightRAG setups can tune differently
+- automatic short-term memory management:
+  - capture meaningful task-state changes without transcript dumping
+  - keep the hot lane fresh with minimal manual effort
+  - let dream and autodream consolidate high-signal short-term memory into durable memory
+- operator-facing hot-lane inspectability:
+  - show what changed since last resume
+  - keep current focus, pressure, and next recovery visible across prompt, bundle, and status surfaces
 
 Evolution Engine:
 
@@ -309,6 +336,7 @@ Success:
 - regressions are detectable before they become user pain
 - the system can self-correct under load and over time
 - repeated work gets cheaper because the system learns and promotes the right abstractions
+- the memory loop feels alive: capture, resume, inspect, consolidate, repeat
 
 ### v5: Memory-Native Cognition Infrastructure
 
@@ -326,6 +354,11 @@ Deliver:
 - memory-aware tool selection and verification planning
 - simulation and replay support for counterfactual reasoning
 - skill invocation as part of planning, not just a post-hoc helper lookup
+- first-class inspectability surfaces for:
+  - knowledge workspace
+  - memory systems view
+  - eventual brain-view telemetry hooks for `braind`
+- provenance-native cognition behavior where verified evidence outranks narrative continuity
 
 Success:
 
@@ -333,6 +366,7 @@ Success:
 - identity, goals, plans, and evidence remain coherent over long horizons
 - `memd` becomes part of the cognition stack, not just a support service
 - cognition can select, compose, and learn skills as part of normal reasoning
+- the system becomes less confidently wrong, not just less forgetful
 
 ### v6: OSS-Ready Project Infrastructure
 
@@ -358,13 +392,12 @@ Success:
 
 ## Immediate Next Steps
 
-1. Start `v0` by moving active work onto a dedicated branch, then split only the large files where it improves reuse and maintenance.
-2. Add version history, contribution rules, review expectations, and security guidance under `v0`.
-3. Finish `v1` repair tooling and provenance drilldown.
-4. Start `v2` with explicit working-memory admission, eviction, and rehydration policy.
-5. Add `v2` trust-weighted source memory and reversible compression.
-6. Build `v3` federated boundaries only after local and superhuman memory semantics are stable.
-7. Add `v4` autonomic tuning only after the evaluation harness is trustworthy.
+1. Add automatic short-term memory management so important state transitions get captured without transcript bloat.
+2. Keep the hot lane sharp with better replacement, cleanup, and branch/workspace-aware current-task state.
+3. Make epistemic state first-class in retrieval behavior: verified, inferred, claimed, stale, contested.
+4. Tighten native multi-agent bridges so switching clients feels like changing terminals, not losing the brain.
+5. Expand inspectability from bundle files into richer workspace and UI surfaces.
+6. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
 
 ## Non-Goals
 

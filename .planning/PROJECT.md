@@ -16,6 +16,15 @@ inspectable, and useful under real task pressure.
 Priority 1 is Codex continuity: `memd` must let Codex persist state, recover
 evidence, and inspect its own working memory across sessions.
 
+The product bar is higher than “memory features exist.” `memd` should feel like
+real memory:
+
+- zero-friction memory
+- epistemic memory
+- short-term-first memory
+- native multi-agent interoperability
+- inspectable memory
+
 ## Requirements
 
 ### Validated
@@ -52,6 +61,23 @@ evidence, and inspect its own working memory across sessions.
 - [x] Align bundle status preview with the current-task hot path.
 - [x] Align hook-context defaults with the current-task hot path.
 - [x] Use memd-specific bundle memory filenames that do not collide with agent-native memory files.
+- [x] Add Claude-native `CLAUDE.md` import bridging on top of bundle memory files.
+- [x] Persist short-term resume deltas and surface them through prompt, bundle, and status views.
+- [x] Refresh bundle memory files immediately after durable `remember` writes.
+- [x] Make one-line `resume --summary` reflect the active hot lane instead of only counts.
+
+### Next Product Priorities
+
+- [ ] Add automatic short-term memory capture for meaningful task-state changes.
+- [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
+- [ ] Make epistemic state first-class in retrieval behavior:
+  - verified
+  - inferred
+  - claimed
+  - stale
+  - contested
+- [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
+- [ ] Expand inspectability from bundle files into richer workspace and UI surfaces.
 
 ### Out of Scope
 
@@ -103,6 +129,14 @@ The deployment shape is now explicitly tiered:
 
 LightRAG stays optional for larger-scale semantic recall.
 
+The product direction is now explicit:
+
+- short-term memory must feel instant
+- long-term retrieval must stay evidence-backed
+- dream and autodream should consolidate signal instead of creating bloat
+- native agent memory surfaces should bridge cleanly into `memd` without ownership collisions
+- the eventual UX should make memory inspectable enough to trust
+
 ## Constraints
 
 - **Architecture**: `memd` remains the memory control plane — cognition and planning stay outside this repo.
@@ -121,6 +155,7 @@ LightRAG stays optional for larger-scale semantic recall.
 | Keep the external multimodal stack behind `rag-sidecar` | Preserves portability and clean backend boundaries | ✓ Good |
 | Treat Obsidian as a first-class markdown workspace, not just an import source | Supports compiled-wiki workflows without forcing semantic backend dependency at small scale | ✓ Good |
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
+| `memd` must feel like real memory, not memory tooling | Product success depends on low-friction continuity, inspectability, and truthfulness | — In Progress |
 
 ---
 *Last updated: 2026-04-05 after GSD phase 25 completion*
