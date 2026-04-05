@@ -145,6 +145,10 @@ The Obsidian commands that read or compile memory can also take
 pages line up with the same safe shared-memory boundaries as the rest of the
 control plane.
 
+Generated writeback and compiled memory pages now include workspace and
+visibility metadata in their frontmatter and summary sections so handoff state
+stays visible inside the vault, not only in API responses.
+
 Each applied compile also updates:
 
 ```text

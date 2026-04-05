@@ -634,6 +634,13 @@ pub fn build_writeback_markdown(
     if let Some(namespace) = explain.item.namespace.as_deref() {
         markdown.push_str(&format!("namespace: {}\n", namespace));
     }
+    if let Some(workspace) = explain.item.workspace.as_deref() {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    markdown.push_str(&format!(
+        "visibility: {}\n",
+        format_visibility(explain.item.visibility)
+    ));
     if let Some(source_system) = explain.item.source_system.as_deref() {
         markdown.push_str(&format!("source_system: {}\n", source_system));
     }
@@ -670,6 +677,13 @@ pub fn build_writeback_markdown(
     for reason in &explain.reasons {
         markdown.push_str(&format!("- {}\n", reason));
     }
+    markdown.push_str(&format!(
+        "- visibility: {}\n",
+        format_visibility(explain.item.visibility)
+    ));
+    if let Some(workspace) = explain.item.workspace.as_deref() {
+        markdown.push_str(&format!("- workspace: {}\n", workspace));
+    }
     if !explain.policy_hooks.is_empty() {
         markdown.push_str("\n## Policy Hooks\n\n");
         for hook in &explain.policy_hooks {
@@ -699,9 +713,11 @@ pub fn build_writeback_markdown(
         markdown.push_str("\n## Source Lanes\n\n");
         for source in explain.sources.iter().take(5) {
             markdown.push_str(&format!(
-                "- {} / {} | trust {:.2} | avg confidence {:.2} | items {}\n",
+                "- {} / {} | workspace {} | visibility {} | trust {:.2} | avg confidence {:.2} | items {}\n",
                 source.source_agent.as_deref().unwrap_or("none"),
                 source.source_system.as_deref().unwrap_or("none"),
+                source.workspace.as_deref().unwrap_or("none"),
+                format_visibility(source.visibility),
                 source.trust_score,
                 source.avg_confidence,
                 source.item_count
@@ -798,6 +814,13 @@ pub fn build_compiled_note_markdown(
         if let Some(namespace) = item.namespace.as_deref() {
             markdown.push_str(&format!("- namespace: {}\n", namespace));
         }
+        if let Some(workspace) = item.workspace.as_deref() {
+            markdown.push_str(&format!("- workspace: {}\n", workspace));
+        }
+        markdown.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(item.visibility)
+        ));
         if let Some(branch) = item.belief_branch.as_deref() {
             markdown.push_str(&format!("- belief_branch: {}\n", branch));
         }
@@ -839,9 +862,11 @@ pub fn build_compiled_memory_markdown(
     markdown.push_str("---\n\n");
     markdown.push_str("# Compiled Memory Page\n\n");
     markdown.push_str(&format!(
-        "- memory: `{}`\n- branch: {}\n- confidence: {:.2}\n- rehydration: {}\n\n",
+        "- memory: `{}`\n- branch: {}\n- visibility: {}\n- workspace: {}\n- confidence: {:.2}\n- rehydration: {}\n\n",
         explain.item.id,
         explain.item.belief_branch.as_deref().unwrap_or("none"),
+        format_visibility(explain.item.visibility),
+        explain.item.workspace.as_deref().unwrap_or("none"),
         explain.item.confidence,
         explain.rehydration.len()
     ));
@@ -899,6 +924,14 @@ fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
         .and_then(|value| value.to_str())
         .map(|value| value.replace(['[', ']'], ""))?;
     Some(format!("[[{}]]", title))
+}
+
+fn format_visibility(value: MemoryVisibility) -> &'static str {
+    match value {
+        MemoryVisibility::Private => "private",
+        MemoryVisibility::Workspace => "workspace",
+        MemoryVisibility::Public => "public",
+    }
 }
 
 pub fn build_note_mirror_markdown(
