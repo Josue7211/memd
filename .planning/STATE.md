@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation snapshot persistence.
+**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation regression diffs.
 
 ## Current Status
 
@@ -26,6 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - `v3` workspace-aware retrieval priorities are closed in the planning record
 - the first `v4` memory evaluation harness is in place for bundle-backed resume quality
 - bundle evaluation snapshots can now be written for future comparison
+- bundle evaluation now compares against the latest baseline and reports drift
 
 ## Open Loops
 

@@ -776,9 +776,17 @@ pub(crate) fn render_maintenance_report_summary(
 
 pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> String {
     let mut output = format!(
-        "eval status={} score={} agent={} workspace={} working={} context={} rehydration={} inbox={} lanes={} semantic={}",
+        "eval status={} score={} baseline={} delta={} agent={} workspace={} working={} context={} rehydration={} inbox={} lanes={} semantic={}",
         response.status,
         response.score,
+        response
+            .baseline_score
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        response
+            .score_delta
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
         response.agent.as_deref().unwrap_or("none"),
         response.workspace.as_deref().unwrap_or("none"),
         response.working_records,
@@ -797,6 +805,16 @@ pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> Strin
             .map(|value| compact_inline(value, 56))
             .collect::<Vec<_>>();
         output.push_str(&format!(" findings={}", findings.join(" | ")));
+    }
+
+    if !response.changes.is_empty() {
+        let changes = response
+            .changes
+            .iter()
+            .take(3)
+            .map(|value| compact_inline(value, 40))
+            .collect::<Vec<_>>();
+        output.push_str(&format!(" changes={}", changes.join(" | ")));
     }
 
     output

@@ -218,5 +218,17 @@ Success:
 
 - bundle memory quality can be recorded over time instead of only observed once
 
+#### Phase 16: `v4` Evaluation Regression Diffs
+
+- compare current bundle evaluation results against the latest saved baseline
+- surface score drift and changed dimensions in both summary and persisted artifacts
+- keep the first regression slice deterministic and local before adding automatic policy reactions
+
+Status: Complete
+
+Success:
+
+- bundle evaluation can distinguish stable memory health from regression or improvement
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

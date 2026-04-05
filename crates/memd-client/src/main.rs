@@ -3778,10 +3778,18 @@ fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd bundle evaluation\n\n");
     markdown.push_str(&format!(
-        "- bundle: {}\n- status: {}\n- score: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n",
+        "- bundle: {}\n- status: {}\n- score: {}\n- baseline_score: {}\n- score_delta: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n",
         response.bundle_root,
         response.status,
         response.score,
+        response
+            .baseline_score
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        response
+            .score_delta
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
         response.agent.as_deref().unwrap_or("none"),
         response.workspace.as_deref().unwrap_or("none"),
         response.visibility.as_deref().unwrap_or("none"),
@@ -3802,6 +3810,15 @@ fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
     } else {
         for finding in &response.findings {
             markdown.push_str(&format!("- {}\n", finding));
+        }
+    }
+
+    markdown.push_str("\n## Changes\n\n");
+    if response.changes.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for change in &response.changes {
+            markdown.push_str(&format!("- {}\n", change));
         }
     }
 
@@ -4337,6 +4354,7 @@ async fn eval_bundle_memory(
     args: &EvalArgs,
     base_url: &str,
 ) -> anyhow::Result<BundleEvalResponse> {
+    let baseline = read_latest_bundle_eval(&args.output)?;
     let snapshot = read_bundle_resume(
         &ResumeArgs {
             output: args.output.clone(),
@@ -4398,6 +4416,13 @@ async fn eval_bundle_memory(
         "weak"
     };
 
+    let baseline_score = baseline.as_ref().map(|value| value.score);
+    let score_delta = baseline_score.map(|baseline| score as i32 - baseline as i32);
+    let changes = baseline
+        .as_ref()
+        .map(|baseline| describe_eval_changes(baseline, score, &snapshot))
+        .unwrap_or_default();
+
     Ok(BundleEvalResponse {
         bundle_root: args.output.display().to_string(),
         project: snapshot.project.clone(),
@@ -4421,7 +4446,85 @@ async fn eval_bundle_memory(
             .map(|semantic| semantic.items.len())
             .unwrap_or(0),
         findings,
+        baseline_score,
+        score_delta,
+        changes,
     })
+}
+
+fn read_latest_bundle_eval(output: &Path) -> anyhow::Result<Option<BundleEvalResponse>> {
+    let path = output.join("evals").join("latest.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let eval = serde_json::from_str::<BundleEvalResponse>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(eval))
+}
+
+fn describe_eval_changes(
+    baseline: &BundleEvalResponse,
+    score: u8,
+    snapshot: &ResumeSnapshot,
+) -> Vec<String> {
+    let mut changes = Vec::new();
+
+    if baseline.score != score {
+        changes.push(format!("score {} -> {}", baseline.score, score));
+    }
+
+    let working_records = snapshot.working.records.len();
+    if baseline.working_records != working_records {
+        changes.push(format!(
+            "working {} -> {}",
+            baseline.working_records, working_records
+        ));
+    }
+
+    let context_records = snapshot.context.records.len();
+    if baseline.context_records != context_records {
+        changes.push(format!(
+            "context {} -> {}",
+            baseline.context_records, context_records
+        ));
+    }
+
+    let rehydration_items = snapshot.working.rehydration_queue.len();
+    if baseline.rehydration_items != rehydration_items {
+        changes.push(format!(
+            "rehydration {} -> {}",
+            baseline.rehydration_items, rehydration_items
+        ));
+    }
+
+    let inbox_items = snapshot.inbox.items.len();
+    if baseline.inbox_items != inbox_items {
+        changes.push(format!("inbox {} -> {}", baseline.inbox_items, inbox_items));
+    }
+
+    let workspace_lanes = snapshot.workspaces.workspaces.len();
+    if baseline.workspace_lanes != workspace_lanes {
+        changes.push(format!(
+            "lanes {} -> {}",
+            baseline.workspace_lanes, workspace_lanes
+        ));
+    }
+
+    let semantic_hits = snapshot
+        .semantic
+        .as_ref()
+        .map(|semantic| semantic.items.len())
+        .unwrap_or(0);
+    if baseline.semantic_hits != semantic_hits {
+        changes.push(format!(
+            "semantic {} -> {}",
+            baseline.semantic_hits, semantic_hits
+        ));
+    }
+
+    changes
 }
 
 async fn remember_with_bundle_defaults(
@@ -4843,7 +4946,7 @@ struct HandoffSnapshot {
     sources: memd_schema::SourceMemoryResponse,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BundleEvalResponse {
     bundle_root: String,
     project: Option<String>,
@@ -4860,6 +4963,9 @@ struct BundleEvalResponse {
     workspace_lanes: usize,
     semantic_hits: usize,
     findings: Vec<String>,
+    baseline_score: Option<u8>,
+    score_delta: Option<i32>,
+    changes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -5128,5 +5234,161 @@ mod tests {
         assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn describes_eval_changes_against_baseline() {
+        let baseline = BundleEvalResponse {
+            bundle_root: ".memd".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            status: "usable".to_string(),
+            score: 72,
+            working_records: 2,
+            context_records: 1,
+            rehydration_items: 1,
+            inbox_items: 3,
+            workspace_lanes: 1,
+            semantic_hits: 0,
+            findings: Vec::new(),
+            baseline_score: None,
+            score_delta: None,
+            changes: Vec::new(),
+        };
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "ctx".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 100,
+                remaining_chars: 1500,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![
+                    memd_schema::CompactMemoryRecord {
+                        id: uuid::Uuid::new_v4(),
+                        record: "one".to_string(),
+                    },
+                    memd_schema::CompactMemoryRecord {
+                        id: uuid::Uuid::new_v4(),
+                        record: "two".to_string(),
+                    },
+                    memd_schema::CompactMemoryRecord {
+                        id: uuid::Uuid::new_v4(),
+                        record: "three".to_string(),
+                    },
+                ],
+                evicted: Vec::new(),
+                rehydration_queue: vec![
+                    memd_schema::MemoryRehydrationRecord {
+                        id: None,
+                        kind: "source".to_string(),
+                        label: "artifact".to_string(),
+                        summary: "more".to_string(),
+                        reason: None,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        recorded_at: None,
+                    },
+                    memd_schema::MemoryRehydrationRecord {
+                        id: None,
+                        kind: "source".to_string(),
+                        label: "artifact-2".to_string(),
+                        summary: "more".to_string(),
+                        reason: None,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        recorded_at: None,
+                    },
+                ],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: vec![],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![
+                    memd_schema::WorkspaceMemoryRecord {
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        item_count: 3,
+                        active_count: 3,
+                        candidate_count: 0,
+                        contested_count: 0,
+                        source_lane_count: 1,
+                        avg_confidence: 0.9,
+                        trust_score: 0.9,
+                        last_seen_at: None,
+                        tags: vec![],
+                    },
+                    memd_schema::WorkspaceMemoryRecord {
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        item_count: 2,
+                        active_count: 2,
+                        candidate_count: 0,
+                        contested_count: 0,
+                        source_lane_count: 1,
+                        avg_confidence: 0.8,
+                        trust_score: 0.8,
+                        last_seen_at: None,
+                        tags: vec![],
+                    },
+                ],
+            },
+            semantic: Some(memd_rag::RagRetrieveResponse {
+                status: "ok".to_string(),
+                mode: memd_rag::RagRetrieveMode::Auto,
+                items: vec![memd_rag::RagRetrieveItem {
+                    content: "semantic".to_string(),
+                    source: Some("wiki/demo.md".to_string()),
+                    score: 0.9,
+                }],
+            }),
+        };
+
+        let changes = describe_eval_changes(&baseline, 88, &snapshot);
+        assert!(changes.iter().any(|value| value.contains("score 72 -> 88")));
+        assert!(changes.iter().any(|value| value.contains("working 2 -> 3")));
+        assert!(changes.iter().any(|value| value.contains("rehydration 1 -> 2")));
+        assert!(changes.iter().any(|value| value.contains("inbox 3 -> 0")));
+        assert!(changes.iter().any(|value| value.contains("lanes 1 -> 2")));
+        assert!(changes.iter().any(|value| value.contains("semantic 0 -> 1")));
     }
 }
