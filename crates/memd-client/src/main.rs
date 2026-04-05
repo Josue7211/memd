@@ -1075,6 +1075,9 @@ struct CoordinationArgs {
     view: Option<String>,
 
     #[arg(long)]
+    changes_only: bool,
+
+    #[arg(long)]
     watch: bool,
 
     #[arg(long, default_value_t = 30)]
@@ -1552,6 +1555,15 @@ async fn main() -> anyhow::Result<()> {
                     }
                     previous = Some(response);
                     tokio::time::sleep(interval).await;
+                }
+            } else if args.changes_only {
+                let response = run_coordination_command(&args, &base_url).await?;
+                let changes =
+                    build_coordination_change_response(&args.output, &response, args.view.as_deref())?;
+                if args.summary {
+                    println!("{}", render_coordination_change_summary(&changes));
+                } else {
+                    print_json(&changes)?;
                 }
             } else {
                 let response = run_coordination_command(&args, &base_url).await?;
@@ -5793,6 +5805,184 @@ fn render_coordination_alerts(
     alerts
 }
 
+fn coordination_snapshot_path(output: &Path) -> PathBuf {
+    output.join("state").join("coordination-snapshot.json")
+}
+
+fn read_coordination_snapshot(output: &Path) -> anyhow::Result<Option<CoordinationSnapshotState>> {
+    let path = coordination_snapshot_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state = serde_json::from_str(&content)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(state))
+}
+
+fn write_coordination_snapshot(
+    output: &Path,
+    state: &CoordinationSnapshotState,
+) -> anyhow::Result<()> {
+    let path = coordination_snapshot_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))
+}
+
+fn build_coordination_alert_snapshot(response: &CoordinationResponse) -> CoordinationAlertSnapshot {
+    CoordinationAlertSnapshot {
+        message_count: response.inbox.messages.len(),
+        owned_count: response.inbox.owned_tasks.len(),
+        help_count: response.inbox.help_tasks.len(),
+        review_count: response.inbox.review_tasks.len(),
+        stale_peer_count: response.recovery.stale_peers.len(),
+        reclaimable_claim_count: response.recovery.reclaimable_claims.len(),
+        stalled_task_count: response.recovery.stalled_tasks.len(),
+        policy_conflict_count: response.policy_conflicts.len(),
+        recommendation_count: response.boundary_recommendations.len(),
+        latest_receipt_id: response.receipts.first().map(|receipt| receipt.id.clone()),
+    }
+}
+
+fn render_coordination_snapshot_alerts(
+    previous: Option<&CoordinationAlertSnapshot>,
+    current: &CoordinationAlertSnapshot,
+    view: &str,
+) -> Vec<String> {
+    let Some(previous) = previous else {
+        return vec!["alert initial coordination snapshot".to_string()];
+    };
+
+    let show_all = matches!(view, "all" | "overview");
+    let mut alerts = Vec::new();
+
+    if show_all || view == "inbox" {
+        if previous.message_count != current.message_count
+            || previous.owned_count != current.owned_count
+        {
+            alerts.push(format!(
+                "alert inbox messages {}->{} owned {}->{}",
+                previous.message_count,
+                current.message_count,
+                previous.owned_count,
+                current.owned_count
+            ));
+        }
+    }
+    if show_all || view == "requests" {
+        if previous.help_count != current.help_count
+            || previous.review_count != current.review_count
+        {
+            alerts.push(format!(
+                "alert requests help {}->{} review {}->{}",
+                previous.help_count,
+                current.help_count,
+                previous.review_count,
+                current.review_count
+            ));
+        }
+    }
+    if show_all || view == "recovery" {
+        if previous.stale_peer_count != current.stale_peer_count
+            || previous.reclaimable_claim_count != current.reclaimable_claim_count
+            || previous.stalled_task_count != current.stalled_task_count
+        {
+            alerts.push(format!(
+                "alert recovery stale {}->{} reclaimable {}->{} stalled {}->{}",
+                previous.stale_peer_count,
+                current.stale_peer_count,
+                previous.reclaimable_claim_count,
+                current.reclaimable_claim_count,
+                previous.stalled_task_count,
+                current.stalled_task_count
+            ));
+        }
+    }
+    if show_all || view == "policy" {
+        if previous.policy_conflict_count != current.policy_conflict_count
+            || previous.recommendation_count != current.recommendation_count
+        {
+            alerts.push(format!(
+                "alert policy conflicts {}->{} recommendations {}->{}",
+                previous.policy_conflict_count,
+                current.policy_conflict_count,
+                previous.recommendation_count,
+                current.recommendation_count
+            ));
+        }
+    }
+    if show_all || view == "history" {
+        if previous.latest_receipt_id != current.latest_receipt_id {
+            alerts.push(format!(
+                "alert history latest_receipt={}",
+                current.latest_receipt_id.as_deref().unwrap_or("none")
+            ));
+        }
+    }
+
+    alerts
+}
+
+fn build_coordination_change_response(
+    output: &Path,
+    response: &CoordinationResponse,
+    view: Option<&str>,
+) -> anyhow::Result<CoordinationChangeResponse> {
+    let view = view.unwrap_or("all").to_string();
+    let previous = read_coordination_snapshot(output)?;
+    let snapshot = build_coordination_alert_snapshot(response);
+    let alerts =
+        render_coordination_snapshot_alerts(previous.as_ref().map(|state| &state.snapshot), &snapshot, &view);
+    let change = CoordinationChangeResponse {
+        bundle_root: response.bundle_root.clone(),
+        current_session: response.current_session.clone(),
+        view: view.clone(),
+        changed: !alerts.is_empty(),
+        alerts,
+        snapshot: snapshot.clone(),
+        generated_at: Utc::now(),
+        previous_generated_at: previous.as_ref().map(|state| state.generated_at),
+    };
+    write_coordination_snapshot(
+        output,
+        &CoordinationSnapshotState {
+            generated_at: change.generated_at,
+            view,
+            snapshot,
+        },
+    )?;
+    Ok(change)
+}
+
+fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> String {
+    let mut lines = vec![
+        format!(
+            "coordination_changes bundle={} session={} view={} changed={}",
+            response.bundle_root, response.current_session, response.view, response.changed
+        ),
+        format!(
+            "snapshot messages={} owned={} help={} review={} stale={} reclaimable={} stalled={} conflicts={} recommendations={} latest_receipt={}",
+            response.snapshot.message_count,
+            response.snapshot.owned_count,
+            response.snapshot.help_count,
+            response.snapshot.review_count,
+            response.snapshot.stale_peer_count,
+            response.snapshot.reclaimable_claim_count,
+            response.snapshot.stalled_task_count,
+            response.snapshot.policy_conflict_count,
+            response.snapshot.recommendation_count,
+            response.snapshot.latest_receipt_id.as_deref().unwrap_or("none"),
+        ),
+    ];
+    for alert in &response.alerts {
+        lines.push(format!("- {alert}"));
+    }
+    lines.join("\n")
+}
+
 fn suggest_boundary_recommendations(
     tasks: &[PeerTaskRecord],
     claims: &[SessionClaim],
@@ -8150,6 +8340,39 @@ struct CoordinationRecoverySummary {
     stale_peers: Vec<ProjectAwarenessEntry>,
     reclaimable_claims: Vec<SessionClaim>,
     stalled_tasks: Vec<PeerTaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CoordinationChangeResponse {
+    bundle_root: String,
+    current_session: String,
+    view: String,
+    changed: bool,
+    alerts: Vec<String>,
+    snapshot: CoordinationAlertSnapshot,
+    generated_at: DateTime<Utc>,
+    previous_generated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CoordinationSnapshotState {
+    generated_at: DateTime<Utc>,
+    view: String,
+    snapshot: CoordinationAlertSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct CoordinationAlertSnapshot {
+    message_count: usize,
+    owned_count: usize,
+    help_count: usize,
+    review_count: usize,
+    stale_peer_count: usize,
+    reclaimable_claim_count: usize,
+    stalled_task_count: usize,
+    policy_conflict_count: usize,
+    recommendation_count: usize,
+    latest_receipt_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

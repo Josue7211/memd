@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` coordination subscription and hook surfaces on top of the watch-aware coworking substrate.
+**Current focus:** Start `v5` UI-friendly coordination feed surfaces on top of the reusable change-feed substrate.
 
 ## Current Status
 
@@ -52,11 +52,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 ## Open Loops
 
-- planning roadmap now needs phase 43 execution so live coordination pressure can feed other agent and operator surfaces without bespoke polling logic
+- planning roadmap now needs phase 44 execution so reusable coordination deltas can feed richer UI and operator surfaces cleanly
 
 ## Next Command
 
-Execute phase 43 so coordination changes can plug into other surfaces through a stable subscription or hook layer.
+Execute phase 44 so coordination deltas can be consumed by richer UI and operator surfaces without reshaping the feed again.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

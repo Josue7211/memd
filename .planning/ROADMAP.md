@@ -561,11 +561,24 @@ Success:
 - preserve compatibility with the current dashboard, drilldown, and watch categories
 - reduce bespoke polling logic across CLI, MCP, and future UI surfaces
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - coordination pressure can feed other agent and operator surfaces through one stable change surface instead of one-off watchers
+
+#### Phase 44: `v5` UI-Friendly Coordination Feed Surfaces
+
+- expose the reusable coordination delta model through cleaner UI-oriented response shapes
+- keep the first slice compatible with the current bounded dashboard, drilldown, watch, and change categories
+- preserve compactness so richer operator surfaces can consume the feed without transcript bloat
+- avoid inventing a second coordination event taxonomy for UI consumers
+
+Status: Planned
+
+Success:
+
+- richer operator surfaces can consume the same bounded coordination delta model without custom adapter glue
 
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*
