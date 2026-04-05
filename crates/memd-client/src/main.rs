@@ -3474,7 +3474,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` to refresh the markdown memory files for Codex and other agents.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` to refresh the markdown memory files for Codex and other agents. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3486,20 +3486,25 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 
 fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
-    let shell_profile = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nexec memd resume --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n",
-        compact_bundle_value(output.to_string_lossy().as_ref()),
-    );
-    fs::write(agents_dir.join("agent.sh"), shell_profile)
-        .with_context(|| format!("write {}", agents_dir.join("agent.sh").display()))?;
-    set_executable_if_shell_script(&agents_dir.join("agent.sh"), "agent.sh")?;
+    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
+    for (slug, env_agent) in [
+        ("agent", None),
+        ("codex", Some("codex")),
+        ("claude-code", Some("claude-code")),
+        ("openclaw", Some("openclaw")),
+        ("opencode", Some("opencode")),
+    ] {
+        let shell_profile = render_agent_shell_profile(output, env_agent);
+        let shell_path = agents_dir.join(format!("{slug}.sh"));
+        fs::write(&shell_path, shell_profile)
+            .with_context(|| format!("write {}", shell_path.display()))?;
+        set_executable_if_shell_script(&shell_path, shell_path.file_name().and_then(|v| v.to_str()).unwrap_or("agent.sh"))?;
 
-    let ps1_profile = format!(
-        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\nmemd resume --output $env:MEMD_BUNDLE_ROOT\n",
-        escape_ps1(output.to_string_lossy().as_ref()),
-    );
-    fs::write(agents_dir.join("agent.ps1"), ps1_profile)
-        .with_context(|| format!("write {}", agents_dir.join("agent.ps1").display()))?;
+        let ps1_profile = render_agent_ps1_profile(output, env_agent);
+        let ps1_path = agents_dir.join(format!("{slug}.ps1"));
+        fs::write(&ps1_path, ps1_profile)
+            .with_context(|| format!("write {}", ps1_path.display()))?;
+    }
 
     Ok(())
 }
@@ -3545,13 +3550,45 @@ fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
     let root_memory = output.join("MEMORY.md");
     fs::write(&root_memory, markdown).with_context(|| format!("write {}", root_memory.display()))?;
 
-    let codex_memory = output.join("agents").join("CODEX_MEMORY.md");
-    if let Some(parent) = codex_memory.parent() {
+    let agents_dir = output.join("agents");
+    if let Some(parent) = agents_dir.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    fs::write(&codex_memory, markdown)
-        .with_context(|| format!("write {}", codex_memory.display()))?;
+    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
+    for file_name in [
+        "CODEX_MEMORY.md",
+        "CLAUDE_CODE_MEMORY.md",
+        "OPENCLAW_MEMORY.md",
+        "OPENCODE_MEMORY.md",
+    ] {
+        let path = agents_dir.join(file_name);
+        fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
+    }
     Ok(())
+}
+
+fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let mut script = format!(
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
+        compact_bundle_value(output.to_string_lossy().as_ref()),
+    );
+    if let Some(env_agent) = env_agent {
+        script.push_str(&format!("export MEMD_AGENT=\"{}\"\n", compact_bundle_value(env_agent)));
+    }
+    script.push_str("exec memd resume --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n");
+    script
+}
+
+fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let mut script = format!(
+        "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
+        escape_ps1(output.to_string_lossy().as_ref()),
+    );
+    if let Some(env_agent) = env_agent {
+        script.push_str(&format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(env_agent)));
+    }
+    script.push_str("memd resume --output $env:MEMD_BUNDLE_ROOT\n");
+    script
 }
 
 fn render_bundle_memory_markdown(

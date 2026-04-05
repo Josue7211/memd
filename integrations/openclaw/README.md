@@ -8,6 +8,17 @@ Recommended flow:
 2. spill compaction output into durable memory
 3. rely on the inbox and explain views for review and cleanup
 
+If you are using a bundle, read:
+
+- `.memd/MEMORY.md`
+- `.memd/agents/OPENCLAW_MEMORY.md`
+
+And use the OpenClaw-specific entrypoint:
+
+```bash
+.memd/agents/openclaw.sh
+```
+
 ## Shell Hook
 
 ```bash

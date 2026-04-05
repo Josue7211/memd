@@ -12,6 +12,17 @@ Recommended flow:
 If you want a shell-level integration, reuse the shared hook kit in
 [`../hooks`](../hooks).
 
+If you are using a bundle, read:
+
+- `.memd/MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_MEMORY.md`
+
+And use the Claude-specific entrypoint:
+
+```bash
+.memd/agents/claude-code.sh
+```
+
 ## Read Context
 
 ```bash

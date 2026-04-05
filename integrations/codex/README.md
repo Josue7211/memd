@@ -41,6 +41,12 @@ Or use the Codex-specific copy:
 cat .memd/agents/CODEX_MEMORY.md
 ```
 
+Use the Codex-specific resume entrypoint:
+
+```bash
+.memd/agents/codex.sh
+```
+
 ## Hook Context
 
 ```bash

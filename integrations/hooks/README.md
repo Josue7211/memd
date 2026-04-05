@@ -30,6 +30,9 @@ That also refreshes:
 
 - `.memd/MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/OPENCLAW_MEMORY.md`
+- `.memd/agents/OPENCODE_MEMORY.md`
 
 Persist a memory into the same bundle lane:
 
@@ -43,6 +46,13 @@ lane/source information:
 ```bash
 memd handoff --output .memd
 ```
+
+Agent-specific bundle entrypoints are generated under `.memd/agents/`:
+
+- `codex.sh`
+- `claude-code.sh`
+- `openclaw.sh`
+- `opencode.sh`
 
 ## Environment
 

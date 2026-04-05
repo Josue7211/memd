@@ -116,6 +116,9 @@ That also refreshes:
 
 - `.memd/MEMORY.md`
 - `.memd/agents/CODEX_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/OPENCLAW_MEMORY.md`
+- `.memd/agents/OPENCODE_MEMORY.md`
 
 Persist a durable memory into the same bundle defaults:
 
@@ -140,6 +143,15 @@ Write that handoff into the Obsidian workspace:
 
 ```bash
 cargo run -p memd-client --bin memd -- obsidian handoff --vault ~/vault --project demo --workspace team-alpha --visibility workspace --apply --open
+```
+
+Switch between clients on the same bundle with the generated scripts:
+
+```bash
+.memd/agents/codex.sh
+.memd/agents/claude-code.sh
+.memd/agents/openclaw.sh
+.memd/agents/opencode.sh
 ```
 
 Bootstrap a project bundle with LightRAG configured:
