@@ -213,6 +213,9 @@ Check bundle health:
 cargo run -p memd-client --bin memd -- status --output .memd
 ```
 
+`status` now previews the same fast local `current_task` resume lane that the
+default attach and agent launch surfaces use.
+
 Evaluate the quality of the current bundle-backed memory lane:
 
 ```bash

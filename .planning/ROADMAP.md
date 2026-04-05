@@ -302,5 +302,17 @@ Success:
 
 - default launch flows start from the current-task lane instead of a generic intent
 
+#### Phase 23: `v4` Status Preview Alignment
+
+- make bundle status preview reflect the real short-term launch path
+- keep diagnostics on the same fast local lane as default resume
+- document that `status` previews current-task memory instead of generic bundle state
+
+Status: Complete
+
+Success:
+
+- `memd status` reports the same current-task hot path that default launches use
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

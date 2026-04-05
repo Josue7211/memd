@@ -4108,7 +4108,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 workspace: None,
                 visibility: None,
                 route: None,
-                intent: None,
+                intent: Some("current_task".to_string()),
                 limit: Some(4),
                 rehydration_limit: Some(2),
                 semantic: false,
