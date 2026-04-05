@@ -112,6 +112,10 @@ Resume the default memory snapshot from that bundle:
 cargo run -p memd-client --bin memd -- resume --output .memd
 ```
 
+If the bundle has a LightRAG-compatible backend configured, `resume` also pulls
+a bounded semantic recall lane and writes it into the memory files without
+replacing typed `memd` working memory.
+
 That also refreshes:
 
 - `.memd/MEMORY.md`
@@ -138,6 +142,9 @@ Emit a compact shared handoff bundle for delegation or resume:
 ```bash
 cargo run -p memd-client --bin memd -- handoff --output .memd --prompt
 ```
+
+With RAG configured, `handoff` carries the same bounded semantic recall lane so
+cross-agent resumes get both typed state and semantic fallback.
 
 Write that handoff into the Obsidian workspace:
 
@@ -172,7 +179,7 @@ cargo run -p memd-client --bin memd -- status --output .memd
 
 When the server is reachable, `status` also includes a lightweight resume
 preview so you can see whether the default memory lane is actually returning
-working records, inbox items, and workspace lanes.
+working records, inbox items, workspace lanes, and semantic hit count.
 
 Print the attach snippet that points agents at the bundle-backed resume flow:
 

@@ -67,6 +67,12 @@ bundle's `config.json` `backend.rag.url` setting before falling back to
 `memd status --output .memd` also reports whether the bundle has RAG enabled
 and whether the configured backend is reachable.
 
+When a bundle has RAG enabled, `memd resume --output .memd` and
+`memd handoff --output .memd --prompt` also query a small semantic fallback
+lane automatically. That semantic recall is bounded and additive: typed
+working memory, inbox, workspace lanes, and provenance still come from `memd`
+first.
+
 ## Sync Behavior
 
 `memd rag sync` exports canonical project and global memory items from `memd`
@@ -78,6 +84,8 @@ The sync path is intentionally explicit:
 - the backend receives compact records
 - duplicate and near-duplicate suppression still happens in `memd`
 - the semantic layer augments the markdown/file layer instead of replacing it
+- bundle resume and handoff flows consume semantic recall as a fallback lane,
+  not as the source of truth
 
 ## Product Positioning
 

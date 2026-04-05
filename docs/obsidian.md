@@ -185,6 +185,7 @@ Handoff pages land under `<vault>/.memd/handoffs/` by default and package:
 - rehydration queue
 - inbox pressure
 - workspace lanes
+- semantic recall when the bundle has RAG configured
 - source lanes
 
 Mirror notes and roundtrip annotations produced by `obsidian sync` /

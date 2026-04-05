@@ -20,7 +20,9 @@ use memd_core::{
 use memd_multimodal::{
     MultimodalChunk, MultimodalIngestPlan, build_ingest_plan, extract_chunks, to_sidecar_requests,
 };
-use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest};
+use memd_rag::{
+    RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest, RagRetrieveResponse,
+};
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest, CandidateMemoryRequest,
     CompactionDecision, CompactionOpenLoop, CompactionPacket, CompactionReference,
@@ -3361,6 +3363,78 @@ fn maybe_rag_client_from_bundle_or_env() -> anyhow::Result<Option<RagClient>> {
     }
 }
 
+fn maybe_rag_client_for_bundle(output: &Path) -> anyhow::Result<Option<RagClient>> {
+    if let Some(config) = read_bundle_rag_config(output)? {
+        if config.enabled {
+            let rag_url = config.url.with_context(|| {
+                format!(
+                    "rag backend is enabled in {} but no url was configured",
+                    output.display()
+                )
+            })?;
+            return Ok(Some(RagClient::new(rag_url)?));
+        }
+    }
+
+    match std::env::var("MEMD_RAG_URL") {
+        Ok(value) if !value.trim().is_empty() => Ok(Some(RagClient::new(value)?)),
+        _ => Ok(None),
+    }
+}
+
+fn build_resume_rag_query(
+    project: Option<&str>,
+    workspace: Option<&str>,
+    intent: &str,
+    working: &memd_schema::WorkingMemoryResponse,
+    context: &memd_schema::CompactContextResponse,
+) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(project) = project.filter(|value| !value.trim().is_empty()) {
+        parts.push(format!("project: {project}"));
+    }
+    if let Some(workspace) = workspace.filter(|value| !value.trim().is_empty()) {
+        parts.push(format!("workspace: {workspace}"));
+    }
+    if !intent.trim().is_empty() {
+        parts.push(format!("intent: {intent}"));
+    }
+
+    for record in working.records.iter().take(2) {
+        let value = compact_resume_rag_text(&record.record, 180);
+        if !value.is_empty() {
+            parts.push(format!("working: {value}"));
+        }
+    }
+
+    for record in context.records.iter().take(2) {
+        let value = compact_resume_rag_text(&record.record, 180);
+        if !value.is_empty() {
+            parts.push(format!("context: {value}"));
+        }
+    }
+
+    compact_resume_rag_text(&parts.join(" | "), 700)
+}
+
+fn compact_resume_rag_text(input: &str, max_chars: usize) -> String {
+    let collapsed = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.len() <= max_chars {
+        return collapsed;
+    }
+
+    let mut output = String::new();
+    for ch in collapsed.chars() {
+        if output.chars().count() >= max_chars.saturating_sub(1) {
+            break;
+        }
+        output.push(ch);
+    }
+    output.push('…');
+    output
+}
+
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let output = &args.output;
     if output.exists() && !args.force {
@@ -3656,6 +3730,21 @@ fn render_bundle_memory_markdown(
         }
     }
 
+    if let Some(semantic) = snapshot.semantic.as_ref().filter(|semantic| !semantic.items.is_empty()) {
+        markdown.push_str("\n## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {}{}{}\n",
+                compact_resume_rag_text(&item.content, 220),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {source}"))
+                    .unwrap_or_default(),
+                format!(" | score {:.2}", item.score)
+            ));
+        }
+    }
+
     if let Some(handoff) = handoff {
         markdown.push_str("\n## Source Lanes\n\n");
         if handoff.sources.sources.is_empty() {
@@ -3766,6 +3855,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "inbox_items": snapshot.inbox.items.len(),
                 "workspace_lanes": snapshot.workspaces.workspaces.len(),
                 "rehydration_queue": snapshot.working.rehydration_queue.len(),
+                "semantic_hits": snapshot.semantic.as_ref().map(|semantic| semantic.items.len()).unwrap_or(0),
             })
         })
     } else {
@@ -3983,6 +4073,32 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
             limit: Some(6),
         })
         .await?;
+    let semantic = if let Some(rag) = maybe_rag_client_for_bundle(&args.output)? {
+        let query = build_resume_rag_query(
+            project.as_deref(),
+            workspace.as_deref(),
+            &intent_raw,
+            &working,
+            &context,
+        );
+        if query.trim().is_empty() {
+            None
+        } else {
+            rag.retrieve(&RagRetrieveRequest {
+                query,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                mode: RagRetrieveMode::Auto,
+                limit: Some(4),
+                include_cross_modal: false,
+            })
+            .await
+            .ok()
+            .filter(|response| !response.items.is_empty())
+        }
+    } else {
+        None
+    };
 
     Ok(ResumeSnapshot {
         project,
@@ -3996,6 +4112,7 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         working,
         inbox,
         workspaces,
+        semantic,
     })
 }
 
@@ -4294,6 +4411,7 @@ struct ResumeSnapshot {
     working: memd_schema::WorkingMemoryResponse,
     inbox: memd_schema::MemoryInboxResponse,
     workspaces: memd_schema::WorkspaceMemoryResponse,
+    semantic: Option<RagRetrieveResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]

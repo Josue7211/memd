@@ -596,6 +596,21 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         }
     }
 
+    if let Some(semantic) = snapshot.semantic.as_ref().filter(|semantic| !semantic.items.is_empty()) {
+        output.push_str("\n## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(4) {
+            output.push_str(&format!(
+                "- {}{} | score {:.2}\n",
+                compact_inline(&item.content, 180),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_inline(source, 48)))
+                    .unwrap_or_default(),
+                item.score
+            ));
+        }
+    }
+
     output
 }
 
@@ -664,6 +679,26 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
                 workspace.item_count,
                 workspace.source_lane_count,
                 workspace.trust_score
+            ));
+        }
+    }
+
+    if let Some(semantic) = snapshot
+        .resume
+        .semantic
+        .as_ref()
+        .filter(|semantic| !semantic.items.is_empty())
+    {
+        output.push_str("\n## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(5) {
+            output.push_str(&format!(
+                "- {}{} | score {:.2}\n",
+                compact_inline(&item.content, 180),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_inline(source, 48)))
+                    .unwrap_or_default(),
+                item.score
             ));
         }
     }

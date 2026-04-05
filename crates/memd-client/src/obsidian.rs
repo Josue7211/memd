@@ -2454,6 +2454,7 @@ mod tests {
             workspaces: memd_schema::WorkspaceMemoryResponse {
                 workspaces: Vec::new(),
             },
+            semantic: None,
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -2521,6 +2522,7 @@ mod tests {
                     tags: vec!["handoff".to_string()],
                 }],
             },
+            semantic: None,
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {
