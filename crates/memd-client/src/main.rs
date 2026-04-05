@@ -67,6 +67,7 @@ enum Commands {
     Healthz,
     Status(StatusArgs),
     Awareness(AwarenessArgs),
+    Heartbeat(HeartbeatArgs),
     Bundle(BundleArgs),
     Eval(EvalArgs),
     Agent(AgentArgs),
@@ -932,6 +933,15 @@ struct AwarenessArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct HeartbeatArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct BundleArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1310,6 +1320,14 @@ async fn main() -> anyhow::Result<()> {
             let response = read_project_awareness(&args)?;
             if args.summary {
                 println!("{}", render_project_awareness_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Heartbeat(args) => {
+            let response = refresh_bundle_heartbeat(&args.output, None)?;
+            if args.summary {
+                println!("{}", render_bundle_heartbeat_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -3965,11 +3983,16 @@ fn write_bundle_memory_files(
 ) -> anyhow::Result<()> {
     let markdown = render_bundle_memory_markdown(snapshot, handoff);
     write_memory_markdown_files(output, &markdown)?;
-    write_bundle_resume_state(output, snapshot)
+    write_bundle_resume_state(output, snapshot)?;
+    write_bundle_heartbeat(output, Some(snapshot))
 }
 
 fn bundle_resume_state_path(output: &Path) -> PathBuf {
     output.join("state").join("last-resume.json")
+}
+
+fn bundle_heartbeat_state_path(output: &Path) -> PathBuf {
+    output.join("state").join("heartbeat.json")
 }
 
 fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
@@ -3993,6 +4016,142 @@ fn write_bundle_resume_state(output: &Path, snapshot: &ResumeSnapshot) -> anyhow
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())
+}
+
+fn read_bundle_heartbeat(output: &Path) -> anyhow::Result<Option<BundleHeartbeatState>> {
+    let path = bundle_heartbeat_state_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state = serde_json::from_str::<BundleHeartbeatState>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(state))
+}
+
+fn detect_host_name() -> Option<String> {
+    std::env::var("HOSTNAME")
+        .ok()
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn heartbeat_presence_label(last_seen: DateTime<Utc>) -> &'static str {
+    let age = Utc::now() - last_seen;
+    if age.num_seconds() <= 120 {
+        "active"
+    } else if age.num_minutes() <= 15 {
+        "stale"
+    } else {
+        "dead"
+    }
+}
+
+fn build_bundle_heartbeat(
+    output: &Path,
+    snapshot: Option<&ResumeSnapshot>,
+) -> anyhow::Result<BundleHeartbeatState> {
+    let runtime = read_bundle_runtime_config(output)?.unwrap_or(BundleRuntimeConfig {
+        project: None,
+        namespace: None,
+        agent: None,
+        session: None,
+        base_url: None,
+        route: None,
+        intent: None,
+        workspace: None,
+        visibility: None,
+        auto_short_term_capture: true,
+    });
+    let session = runtime.session.clone();
+    let agent = runtime.agent.clone();
+    let effective_agent = agent
+        .as_deref()
+        .map(|value| compose_agent_identity(value, session.as_deref()));
+    let focus = snapshot
+        .and_then(|value| value.working.records.first().map(|record| record.record.clone()))
+        .or_else(|| read_bundle_resume_state(output).ok().flatten().and_then(|value| value.focus));
+    let pressure = snapshot
+        .and_then(|value| value.inbox.items.first().map(|item| item.item.content.clone()))
+        .or_else(|| read_bundle_resume_state(output).ok().flatten().and_then(|value| value.pressure));
+    let next_recovery = snapshot
+        .and_then(|value| {
+            value
+                .working
+                .rehydration_queue
+                .first()
+                .map(|item| format!("{}: {}", item.label, item.summary))
+        })
+        .or_else(|| {
+            read_bundle_resume_state(output)
+                .ok()
+                .flatten()
+                .and_then(|value| value.next_recovery)
+        });
+
+    Ok(BundleHeartbeatState {
+        session,
+        agent,
+        effective_agent,
+        project: snapshot.and_then(|value| value.project.clone()).or(runtime.project),
+        namespace: snapshot.and_then(|value| value.namespace.clone()).or(runtime.namespace),
+        workspace: snapshot.and_then(|value| value.workspace.clone()).or(runtime.workspace),
+        visibility: snapshot
+            .and_then(|value| value.visibility.clone())
+            .or(runtime.visibility),
+        base_url: runtime.base_url,
+        host: detect_host_name(),
+        pid: Some(std::process::id()),
+        focus,
+        pressure,
+        next_recovery,
+        status: "live".to_string(),
+        last_seen: Utc::now(),
+    })
+}
+
+fn write_bundle_heartbeat(output: &Path, snapshot: Option<&ResumeSnapshot>) -> anyhow::Result<()> {
+    let path = bundle_heartbeat_state_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let state = build_bundle_heartbeat(output, snapshot)?;
+    fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn refresh_bundle_heartbeat(
+    output: &Path,
+    snapshot: Option<&ResumeSnapshot>,
+) -> anyhow::Result<BundleHeartbeatState> {
+    write_bundle_heartbeat(output, snapshot)?;
+    read_bundle_heartbeat(output)?.context("reload bundle heartbeat after write")
+}
+
+fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
+    format!(
+        "heartbeat project={} agent={} session={} presence={} base_url={} focus=\"{}\" pressure=\"{}\"",
+        state.project.as_deref().unwrap_or("none"),
+        state.effective_agent
+            .as_deref()
+            .or(state.agent.as_deref())
+            .unwrap_or("none"),
+        state.session.as_deref().unwrap_or("none"),
+        heartbeat_presence_label(state.last_seen),
+        state.base_url.as_deref().unwrap_or("none"),
+        state
+            .focus
+            .as_deref()
+            .map(|value| compact_inline(value, 72))
+            .unwrap_or_else(|| "none".to_string()),
+        state
+            .pressure
+            .as_deref()
+            .map(|value| compact_inline(value, 72))
+            .unwrap_or_else(|| "none".to_string())
+    )
 }
 
 fn describe_resume_state_changes(
@@ -4421,6 +4580,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let client = MemdClient::new(base_url)?;
     let health = client.healthz().await.ok();
     let runtime = read_bundle_runtime_config(output)?;
+    let heartbeat = read_bundle_heartbeat(output)?;
     let resume_preview = if output.join("config.json").exists() && health.is_some() {
             let preview = read_bundle_resume(
             &ResumeArgs {
@@ -4541,6 +4701,19 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "visibility": config.visibility,
             "auto_short_term_capture": config.auto_short_term_capture,
         })),
+        "heartbeat": heartbeat.as_ref().map(|value| serde_json::json!({
+            "session": value.session,
+            "agent": value.agent,
+            "effective_agent": value.effective_agent,
+            "presence": heartbeat_presence_label(value.last_seen),
+            "base_url": value.base_url,
+            "host": value.host,
+            "pid": value.pid,
+            "focus": value.focus,
+            "pressure": value.pressure,
+            "next_recovery": value.next_recovery,
+            "last_seen": value.last_seen,
+        })),
         "resume_preview": resume_preview,
         "server": health,
         "rag": rag.unwrap_or_else(|| serde_json::json!({
@@ -4659,8 +4832,15 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             auto_short_term_capture: true,
         });
         let state = read_bundle_resume_state(&bundle_root)?;
+        let heartbeat = read_bundle_heartbeat(&bundle_root)?;
         let state_path = bundle_resume_state_path(&bundle_root);
-        let last_updated = if state_path.exists() {
+        let heartbeat_path = bundle_heartbeat_state_path(&bundle_root);
+        let last_updated = if heartbeat_path.exists() {
+            fs::metadata(&heartbeat_path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .map(DateTime::<Utc>::from)
+        } else if state_path.exists() {
             fs::metadata(&state_path)
                 .ok()
                 .and_then(|metadata| metadata.modified().ok())
@@ -4684,11 +4864,32 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             agent: runtime.agent,
             session: runtime.session,
             base_url: runtime.base_url.clone(),
-            workspace: runtime.workspace,
-            visibility: runtime.visibility,
-            focus: state.as_ref().and_then(|value| value.focus.clone()),
-            pressure: state.as_ref().and_then(|value| value.pressure.clone()),
-            next_recovery: state.as_ref().and_then(|value| value.next_recovery.clone()),
+            presence: heartbeat
+                .as_ref()
+                .map(|value| heartbeat_presence_label(value.last_seen).to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            host: heartbeat.as_ref().and_then(|value| value.host.clone()),
+            pid: heartbeat.as_ref().and_then(|value| value.pid),
+            workspace: heartbeat
+                .as_ref()
+                .and_then(|value| value.workspace.clone())
+                .or(runtime.workspace),
+            visibility: heartbeat
+                .as_ref()
+                .and_then(|value| value.visibility.clone())
+                .or(runtime.visibility),
+            focus: heartbeat
+                .as_ref()
+                .and_then(|value| value.focus.clone())
+                .or_else(|| state.as_ref().and_then(|value| value.focus.clone())),
+            pressure: heartbeat
+                .as_ref()
+                .and_then(|value| value.pressure.clone())
+                .or_else(|| state.as_ref().and_then(|value| value.pressure.clone())),
+            next_recovery: heartbeat
+                .as_ref()
+                .and_then(|value| value.next_recovery.clone())
+                .or_else(|| state.as_ref().and_then(|value| value.next_recovery.clone())),
             last_updated,
         });
         if let Some(url) = entries
@@ -4738,8 +4939,9 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | ns={} agent={} session={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} | presence={} ns={} agent={} session={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
+            entry.presence,
             entry.namespace.as_deref().unwrap_or("none"),
             entry.effective_agent
                 .as_deref()
@@ -6043,6 +6245,9 @@ struct ProjectAwarenessEntry {
     session: Option<String>,
     effective_agent: Option<String>,
     base_url: Option<String>,
+    presence: String,
+    host: Option<String>,
+    pid: Option<u32>,
     workspace: Option<String>,
     visibility: Option<String>,
     focus: Option<String>,
@@ -6057,6 +6262,25 @@ struct ProjectAwarenessResponse {
     current_bundle: String,
     collisions: Vec<String>,
     entries: Vec<ProjectAwarenessEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleHeartbeatState {
+    session: Option<String>,
+    agent: Option<String>,
+    effective_agent: Option<String>,
+    project: Option<String>,
+    namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    base_url: Option<String>,
+    host: Option<String>,
+    pid: Option<u32>,
+    focus: Option<String>,
+    pressure: Option<String>,
+    next_recovery: Option<String>,
+    status: String,
+    last_seen: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -6602,6 +6826,7 @@ mod tests {
             r#"{
   "project": "demo",
   "agent": "codex",
+  "session": "codex-a",
   "base_url": "http://127.0.0.1:8787",
   "route": "auto",
   "intent": "general"
@@ -6613,7 +6838,9 @@ mod tests {
         assert_eq!(response.agents.len(), 4);
         assert_eq!(response.shell, "bash");
         assert_eq!(response.current.as_deref(), Some("codex"));
+        assert_eq!(response.current_session.as_deref(), Some("codex-a"));
         assert_eq!(response.agents[0].name, "codex");
+        assert_eq!(response.agents[0].effective_agent, "codex@codex-a");
         assert!(response.agents[0].memory_file.ends_with("agents/CODEX_MEMORY.md"));
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
@@ -6628,6 +6855,7 @@ mod tests {
             r#"{
   "project": "demo",
   "agent": "claude-code",
+  "session": "claude-a",
   "base_url": "http://127.0.0.1:8787",
   "route": "auto",
   "intent": "general"
@@ -6651,7 +6879,9 @@ mod tests {
         );
         let summary = render_bundle_agent_profiles_summary(&response);
         assert!(summary.contains("current=claude-code"));
+        assert!(summary.contains("session=claude-a"));
         assert!(summary.contains("claude-code [active]"));
+        assert!(summary.contains("effective claude-code@claude-a"));
         assert!(summary.contains("/memory"));
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -6666,6 +6896,7 @@ mod tests {
   "project": "demo",
   "namespace": "main",
   "agent": "codex",
+  "session": "codex-a",
   "base_url": "http://127.0.0.1:8787",
   "route": "auto",
   "intent": "general"
@@ -6673,8 +6904,8 @@ mod tests {
 "#,
         )
         .expect("write config");
-        fs::write(dir.join("env"), "MEMD_AGENT=codex\n").expect("write env");
-        fs::write(dir.join("env.ps1"), "$env:MEMD_AGENT = \"codex\"\n").expect("write env.ps1");
+        fs::write(dir.join("env"), "MEMD_AGENT=codex@codex-a\nMEMD_SESSION=codex-a\n").expect("write env");
+        fs::write(dir.join("env.ps1"), "$env:MEMD_AGENT = \"codex@codex-a\"\n$env:MEMD_SESSION = \"codex-a\"\n").expect("write env.ps1");
 
         set_bundle_agent(&dir, "openclaw").expect("set bundle agent");
 
@@ -6682,8 +6913,8 @@ mod tests {
         let env = fs::read_to_string(dir.join("env")).expect("read env");
         let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
         assert!(config.contains(r#""agent": "openclaw""#));
-        assert!(env.contains("MEMD_AGENT=openclaw"));
-        assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw\""));
+        assert!(env.contains("MEMD_AGENT=openclaw@codex-a"));
+        assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw@codex-a\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -6698,6 +6929,7 @@ mod tests {
   "project": "demo",
   "namespace": "main",
   "agent": "codex",
+  "session": "codex-a",
   "base_url": "http://127.0.0.1:8787",
   "route": "auto",
   "intent": "general",
@@ -6708,12 +6940,12 @@ mod tests {
         .expect("write config");
         fs::write(
             dir.join("env"),
-            "MEMD_AGENT=codex\nMEMD_AUTO_SHORT_TERM_CAPTURE=true\n",
+            "MEMD_AGENT=codex@codex-a\nMEMD_SESSION=codex-a\nMEMD_AUTO_SHORT_TERM_CAPTURE=true\n",
         )
         .expect("write env");
         fs::write(
             dir.join("env.ps1"),
-            "$env:MEMD_AGENT = \"codex\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"true\"\n",
+            "$env:MEMD_AGENT = \"codex@codex-a\"\n$env:MEMD_SESSION = \"codex-a\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"true\"\n",
         )
         .expect("write env.ps1");
 
@@ -6811,6 +7043,9 @@ mod tests {
                 session: Some("claude-a".to_string()),
                 effective_agent: Some("claude-code@claude-a".to_string()),
                 base_url: None,
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
                 workspace: Some("research".to_string()),
                 visibility: Some("workspace".to_string()),
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
@@ -6823,7 +7058,7 @@ mod tests {
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("awareness root=/tmp/projects bundles=1 collisions=0"));
         assert!(summary.contains(
-            "sibling | ns=main agent=claude-code@claude-a session=claude-a base_url=none workspace=research"
+            "sibling | presence=active ns=main agent=claude-code@claude-a session=claude-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -6845,6 +7080,9 @@ mod tests {
                     session: Some("codex-a".to_string()),
                     effective_agent: Some("codex@codex-a".to_string()),
                     base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
                     workspace: Some("a".to_string()),
                     visibility: Some("workspace".to_string()),
                     focus: None,
@@ -6861,6 +7099,9 @@ mod tests {
                     session: Some("claude-b".to_string()),
                     effective_agent: Some("claude-code@claude-b".to_string()),
                     base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
                     workspace: Some("b".to_string()),
                     visibility: Some("workspace".to_string()),
                     focus: None,
@@ -6873,6 +7114,48 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("! base_url http://127.0.0.1:8787 used by 2 bundles"));
+    }
+
+    #[test]
+    fn heartbeat_presence_labels_age_bands() {
+        assert_eq!(heartbeat_presence_label(Utc::now()), "active");
+        assert_eq!(
+            heartbeat_presence_label(Utc::now() - chrono::TimeDelta::minutes(5)),
+            "stale"
+        );
+        assert_eq!(
+            heartbeat_presence_label(Utc::now() - chrono::TimeDelta::minutes(30)),
+            "dead"
+        );
+    }
+
+    #[test]
+    fn render_bundle_heartbeat_summary_surfaces_presence_and_focus() {
+        let state = BundleHeartbeatState {
+            session: Some("codex-a".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@codex-a".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            host: Some("workstation".to_string()),
+            pid: Some(4242),
+            focus: Some("Finish the live heartbeat lane".to_string()),
+            pressure: Some("Avoid memory drift".to_string()),
+            next_recovery: None,
+            status: "live".to_string(),
+            last_seen: Utc::now(),
+        };
+
+        let summary = render_bundle_heartbeat_summary(&state);
+        assert!(summary.contains("heartbeat project=demo"));
+        assert!(summary.contains("agent=codex@codex-a"));
+        assert!(summary.contains("session=codex-a"));
+        assert!(summary.contains("presence=active"));
+        assert!(summary.contains("focus=\"Finish the live heartbeat lane\""));
+        assert!(summary.contains("pressure=\"Avoid memory drift\""));
     }
 
     #[test]
