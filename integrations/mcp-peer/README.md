@@ -19,6 +19,7 @@ It does not create a second coordination store.
 - `check_inbox`
 - `coordination_inbox`
 - `recover_stale_session`
+- `recommend_boundaries`
 - `send_message`
 - `ack_message`
 - `list_claims`

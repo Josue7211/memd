@@ -5342,11 +5342,12 @@ async fn run_coordination_command(
         .collect::<Vec<_>>();
     Ok(CoordinationResponse {
         bundle_root: args.output.display().to_string(),
-        current_session,
+        current_session: current_session.clone(),
         inbox: response,
         recovery: CoordinationRecoverySummary {
             stale_peers: stale_peers.clone(),
             reclaimable_claims: claims
+                .clone()
                 .into_iter()
                 .filter(|claim| {
                     claim.session.as_deref().is_some_and(|session| {
@@ -5357,6 +5358,7 @@ async fn run_coordination_command(
                 })
                 .collect(),
             stalled_tasks: tasks
+                .clone()
                 .into_iter()
                 .filter(|task| {
                     task.session.as_deref().is_some_and(|session| {
@@ -5368,12 +5370,13 @@ async fn run_coordination_command(
                 .collect(),
         },
         policy_conflicts,
+        boundary_recommendations: suggest_boundary_recommendations(&tasks, &claims, &current_session),
     })
 }
 
 fn render_coordination_summary(response: &CoordinationResponse) -> String {
     let mut lines = vec![format!(
-        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={}",
+        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={} recommendations={}",
         response.bundle_root,
         response.current_session,
         response.inbox.messages.len(),
@@ -5384,6 +5387,7 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
         response.recovery.reclaimable_claims.len(),
         response.recovery.stalled_tasks.len(),
         response.policy_conflicts.len(),
+        response.boundary_recommendations.len(),
     )];
     for message in response.inbox.messages.iter().take(6) {
         lines.push(format!(
@@ -5461,7 +5465,62 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
     for conflict in response.policy_conflicts.iter().take(6) {
         lines.push(format!("- policy {}", compact_inline(conflict, 96)));
     }
+    for recommendation in response.boundary_recommendations.iter().take(6) {
+        lines.push(format!("- recommend {}", compact_inline(recommendation, 96)));
+    }
     lines.join("\n")
+}
+
+fn suggest_boundary_recommendations(
+    tasks: &[PeerTaskRecord],
+    claims: &[SessionClaim],
+    current_session: &str,
+) -> Vec<String> {
+    tasks.iter()
+        .map(|task| {
+            let branch_prefix = match task.coordination_mode.as_str() {
+                "shared_review" => "review",
+                "help_only" => "help",
+                _ => "feat",
+            };
+            let branch_suffix = task
+                .task_id
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+                .collect::<String>()
+                .split('-')
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join("-");
+            let owned_scopes = claims
+                .iter()
+                .filter(|claim| claim.session.as_deref() == task.session.as_deref())
+                .filter(|claim| task.claim_scopes.is_empty() || task.claim_scopes.contains(&claim.scope))
+                .map(|claim| claim.scope.clone())
+                .collect::<Vec<_>>();
+            let scope_hint = if !task.claim_scopes.is_empty() {
+                task.claim_scopes.join(", ")
+            } else if !owned_scopes.is_empty() {
+                owned_scopes.join(", ")
+            } else {
+                "define a narrower scope".to_string()
+            };
+            let ownership_hint = if task.session.as_deref() == Some(current_session) {
+                "active owner"
+            } else {
+                "remote owner"
+            };
+            format!(
+                "task {} [{}] -> branch {}/{} | {} | scopes {}",
+                task.task_id,
+                task.coordination_mode,
+                branch_prefix,
+                if branch_suffix.is_empty() { "task" } else { &branch_suffix },
+                ownership_hint,
+                scope_hint
+            )
+        })
+        .collect()
 }
 
 fn describe_resume_state_changes(
@@ -7760,6 +7819,7 @@ struct CoordinationResponse {
     inbox: PeerCoordinationInboxResponse,
     recovery: CoordinationRecoverySummary,
     policy_conflicts: Vec<String>,
+    boundary_recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

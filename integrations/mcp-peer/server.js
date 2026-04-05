@@ -209,6 +209,14 @@ const tools = [
     },
   },
   {
+    name: "recommend_boundaries",
+    description: "Recommend cleaner branch and scope boundaries for active shared tasks.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "send_message",
     description: "Send a direct coordination message to another session.",
     inputSchema: {
@@ -486,6 +494,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         `claims=${reclaimableClaims.length}`,
         `tasks=${stalledTasks.length}`,
       ]);
+    }
+
+    case "recommend_boundaries": {
+      const tasks = await memdGet(identity.baseUrl, "/coordination/tasks", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: true,
+        limit: 128,
+      });
+      const lines = [];
+      for (const task of tasks.tasks ?? []) {
+        const branchPrefix =
+          task.coordination_mode === "shared_review"
+            ? "review"
+            : task.coordination_mode === "help_only"
+              ? "help"
+              : "feat";
+        const branchSuffix = String(task.task_id)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        const scopeHint =
+          Array.isArray(task.claim_scopes) && task.claim_scopes.length > 0
+            ? task.claim_scopes.join(", ")
+            : "define a narrower scope";
+        lines.push(
+          `- ${task.task_id} [${task.coordination_mode}] -> ${branchPrefix}/${branchSuffix || "task"} | scopes ${scopeHint}`
+        );
+      }
+      return textResult([`recommendations=${lines.length}`, ...lines]);
     }
 
     case "send_message": {

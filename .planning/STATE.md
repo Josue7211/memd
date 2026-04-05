@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` branch and scope recommendations on top of the policy-aware coworking substrate.
+**Current focus:** Start `v5` coordination audit trail and receipts on top of the policy-aware coworking substrate.
 
 ## Current Status
 
@@ -47,14 +47,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - coordination inbox and task presence now exist as a compact coworking surface
 - stale-session recovery now exists across backend, CLI, and MCP surfaces
 - coordination policy and ownership guards now distinguish exclusive-write and collaborative lanes
+- advisory branch and scope recommendations now exist across coordination views
 
 ## Open Loops
 
-- planning roadmap now needs phase 38 execution so peer sessions get cleaner branch and scope guidance before overlap starts
+- planning roadmap now needs phase 39 execution so coworking actions leave compact receipts instead of disappearing into raw state changes
 
 ## Next Command
 
-Execute phase 38 so peer sessions can choose cleaner branch and scope boundaries before overlap starts.
+Execute phase 39 so coworking actions leave compact, inspectable receipts.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

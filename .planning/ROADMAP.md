@@ -496,11 +496,24 @@ Success:
 - keep the first slice advisory instead of mutating git state automatically
 - preserve explicit operator control over final work-boundary decisions
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - simultaneous sessions can split work more cleanly before implementation overlap begins
 
+#### Phase 39: `v5` Coordination Audit Trail and Receipts
+
+- record compact coordination receipts for assignment, recovery, help, review, and transfer actions
+- expose bounded audit views through CLI and MCP surfaces
+- keep the first slice structured and compact instead of transcript-like logging
+- preserve compatibility with the current peer coordination model
+
+Status: Planned
+
+Success:
+
+- operators can inspect recent coworking transitions without reconstructing them from raw state
+
 ---
-*Last updated: 2026-04-05 after shipping `v5` coordination policy guards*
+*Last updated: 2026-04-05 after shipping `v5` branch and scope recommendations*
