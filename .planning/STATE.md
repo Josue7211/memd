@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` coordination action surfaces on top of the reusable UI-friendly feed substrate.
+**Current focus:** Start `v5` policy-aware coordination action suggestions on top of the bounded action substrate.
 
 ## Current Status
 
@@ -52,11 +52,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 ## Open Loops
 
-- planning roadmap now needs phase 45 execution so richer operator surfaces can act on bounded coordination signals, not just read them
+- planning roadmap now needs phase 46 execution so richer operator surfaces can move from available actions to the most appropriate bounded action under current pressure
 
 ## Next Command
 
-Execute phase 45 so richer operator surfaces can trigger bounded coordination actions from the same shared model.
+Execute phase 46 so richer operator surfaces can get policy-aware bounded action suggestions from current coordination pressure.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

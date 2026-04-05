@@ -22,6 +22,8 @@ It does not create a second coordination store.
   - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
 - `coordination_changes`
   - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
+- `coordination_action`
+  - `action`: `ack_message`, `assign_scope`, `recover_session`, `request_help`, `request_review`
 - `recover_stale_session`
 - `recommend_boundaries`
 - `send_message`

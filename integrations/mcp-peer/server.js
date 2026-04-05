@@ -280,6 +280,25 @@ const tools = [
     },
   },
   {
+    name: "coordination_action",
+    description: "Execute a bounded coordination action through one operator-facing entrypoint.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          description: "ack_message, assign_scope, recover_session, request_help, or request_review",
+        },
+        message_id: { type: "string" },
+        target_session: { type: "string" },
+        stale_session: { type: "string" },
+        scope: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "recover_stale_session",
     description: "Recover claims and shared tasks from a stale or dead session into the current session or another target session.",
     inputSchema: {
@@ -638,6 +657,129 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       );
       return textResult(stdout.trim().split("\n"));
+    }
+
+    case "coordination_action": {
+      switch (args.action) {
+        case "ack_message": {
+          if (!identity.session) throw new Error("Bundle session is required to acknowledge a message.");
+          if (!args.message_id) throw new Error("message_id is required for ack_message.");
+          const response = await memdPost(identity.baseUrl, "/coordination/messages/ack", {
+            id: args.message_id,
+            session: identity.session,
+          });
+          return textResult([`action=ack_message`, `acknowledged=${response.messages?.length ?? 0}`]);
+        }
+        case "assign_scope": {
+          if (!identity.session) throw new Error("Bundle session is required for assign_scope.");
+          if (!args.scope || !args.target_session) {
+            throw new Error("scope and target_session are required for assign_scope.");
+          }
+          const target = peerBySession.get(args.target_session);
+          if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
+          await memdPost(identity.baseUrl, "/coordination/claims/transfer", {
+            scope: args.scope,
+            from_session: identity.session,
+            to_session: args.target_session,
+            to_agent: target.agent ?? null,
+            to_effective_agent: target.effective_agent ?? null,
+          });
+          await memdPost(target.base_url, "/coordination/messages/send", {
+            kind: "assignment",
+            from_session: identity.session,
+            from_agent: identity.effectiveAgent,
+            to_session: args.target_session,
+            project: identity.project,
+            namespace: identity.namespace,
+            workspace: identity.workspace,
+            content: args.content || `Take ownership of ${args.scope}`,
+            scope: args.scope,
+          });
+          return textResult([
+            `action=assign_scope`,
+            `scope=${args.scope}`,
+            `target_session=${args.target_session}`,
+          ]);
+        }
+        case "recover_session": {
+          if (!args.stale_session) throw new Error("stale_session is required for recover_session.");
+          const targetSession = args.target_session || identity.session;
+          const stale = peerBySession.get(args.stale_session);
+          const target = peerBySession.get(targetSession);
+          if (!stale) throw new Error(`Unknown stale session: ${args.stale_session}`);
+          if (!target?.base_url) throw new Error(`Unknown target session: ${targetSession}`);
+          const claims = await memdGet(identity.baseUrl, "/coordination/claims", {
+            project: identity.project,
+            namespace: identity.namespace,
+            workspace: identity.workspace,
+            active_only: true,
+            limit: 256,
+          });
+          const tasks = await memdGet(identity.baseUrl, "/coordination/tasks", {
+            project: identity.project,
+            namespace: identity.namespace,
+            workspace: identity.workspace,
+            active_only: true,
+            limit: 256,
+          });
+          const reclaimableClaims = (claims.claims ?? []).filter((claim) => claim.session === args.stale_session);
+          const stalledTasks = (tasks.tasks ?? []).filter((task) => task.session === args.stale_session);
+          for (const claim of reclaimableClaims) {
+            await memdPost(identity.baseUrl, "/coordination/claims/recover", {
+              scope: claim.scope,
+              from_session: args.stale_session,
+              to_session: targetSession,
+              to_agent: target.agent ?? null,
+              to_effective_agent: target.effective_agent ?? null,
+            });
+          }
+          for (const task of stalledTasks) {
+            await memdPost(identity.baseUrl, "/coordination/tasks/assign", {
+              task_id: task.task_id,
+              from_session: args.stale_session,
+              to_session: targetSession,
+              to_agent: target.agent ?? null,
+              to_effective_agent: target.effective_agent ?? null,
+              note: `Recovered from ${stale.presence} session ${args.stale_session}`,
+            });
+          }
+          return textResult([
+            `action=recover_session`,
+            `stale_session=${args.stale_session}`,
+            `target_session=${targetSession}`,
+            `claims=${reclaimableClaims.length}`,
+            `tasks=${stalledTasks.length}`,
+          ]);
+        }
+        case "request_help":
+        case "request_review": {
+          if (!identity.session) throw new Error("Bundle session is required for request actions.");
+          if (!args.target_session || !args.content) {
+            throw new Error("target_session and content are required for request actions.");
+          }
+          const kind = args.action === "request_help" ? "help_request" : "review_request";
+          const target = peerBySession.get(args.target_session);
+          if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
+          const response = await memdPost(target.base_url, "/coordination/messages/send", {
+            kind,
+            from_session: identity.session,
+            from_agent: identity.effectiveAgent,
+            to_session: args.target_session,
+            project: identity.project,
+            namespace: identity.namespace,
+            workspace: identity.workspace,
+            content: args.content,
+            scope: args.scope ?? null,
+          });
+          return textResult([
+            `action=${args.action}`,
+            `target_session=${args.target_session}`,
+            `sent=${response.messages?.length ?? 0}`,
+          ]);
+        }
+        default:
+          throw new Error(`Unsupported coordination action: ${args.action}`);
+      }
     }
 
     case "recover_stale_session": {

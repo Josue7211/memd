@@ -587,11 +587,24 @@ Success:
 - preserve explicit operator control over assignment, recovery, and acknowledgement actions
 - avoid inventing a separate UI-only coordination contract
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - richer operator surfaces can act on bounded coordination pressure through the same shared model they use for inspection
+
+#### Phase 46: `v5` Policy-Aware Coordination Action Suggestions
+
+- suggest the most appropriate bounded coordination actions from current pressure
+- keep the first slice aligned with existing inbox, recovery, policy, and history categories
+- preserve explicit operator choice instead of silently auto-executing actions
+- avoid inventing a second recommendation taxonomy separate from existing coordination policy
+
+Status: Planned
+
+Success:
+
+- richer operator surfaces can move from bounded coordination pressure to the right bounded action faster without losing operator control
 
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*
