@@ -3739,7 +3739,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle} --intent current_task` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3780,7 +3780,7 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     markdown.push_str("This file is maintained by `memd` for agents that do not have built-in durable memory.\n\n");
     markdown.push_str("Refresh it with:\n\n");
     markdown.push_str(&format!(
-        "- `memd resume --output {}`\n- `memd resume --output {} --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
+        "- `memd resume --output {} --intent current_task`\n- `memd resume --output {} --intent current_task --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
         output.display(),
         output.display(),
         output.display(),
@@ -3926,7 +3926,7 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
     if let Some(env_agent) = env_agent {
         script.push_str(&format!("export MEMD_AGENT=\"{}\"\n", compact_bundle_value(env_agent)));
     }
-    script.push_str("exec memd resume --output \"$MEMD_BUNDLE_ROOT\" \"$@\"\n");
+    script.push_str("exec memd resume --output \"$MEMD_BUNDLE_ROOT\" --intent current_task \"$@\"\n");
     script
 }
 
@@ -3938,7 +3938,7 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
     if let Some(env_agent) = env_agent {
         script.push_str(&format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(env_agent)));
     }
-    script.push_str("memd resume --output $env:MEMD_BUNDLE_ROOT\n");
+    script.push_str("memd resume --output $env:MEMD_BUNDLE_ROOT --intent current_task\n");
     script
 }
 
@@ -4851,14 +4851,14 @@ fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<Stri
         "bash" | "zsh" | "sh" => Ok(format!(
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
 source "$MEMD_BUNDLE_ROOT/env"
-memd resume --output "$MEMD_BUNDLE_ROOT"
+memd resume --output "$MEMD_BUNDLE_ROOT" --intent current_task
 "#,
             bundle_path = bundle_path.display(),
         )),
         "powershell" | "pwsh" => Ok(format!(
             r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
 . (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
-memd resume --output $env:MEMD_BUNDLE_ROOT
+memd resume --output $env:MEMD_BUNDLE_ROOT --intent current_task
 "#,
             bundle_path = escape_ps1(&bundle_path.display().to_string()),
         )),
@@ -5439,6 +5439,17 @@ mod tests {
         assert!(translated.tag.iter().any(|value| value == "checkpoint"));
         assert!(translated.tag.iter().any(|value| value == "current-task"));
         assert!(translated.tag.iter().any(|value| value == "urgent"));
+    }
+
+    #[test]
+    fn agent_and_attach_scripts_default_to_current_task_intent() {
+        let shell = render_agent_shell_profile(Path::new(".memd"), Some("codex"));
+        let ps1 = render_agent_ps1_profile(Path::new(".memd"), Some("codex"));
+        let attach = render_attach_snippet("bash", Path::new(".memd")).expect("attach snippet");
+
+        assert!(shell.contains("--intent current_task"));
+        assert!(ps1.contains("--intent current_task"));
+        assert!(attach.contains("--intent current_task"));
     }
 
     #[test]

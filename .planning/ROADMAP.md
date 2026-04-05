@@ -290,5 +290,17 @@ Success:
 
 - short-term checkpoint writes update the visible bundle memory surface immediately
 
+#### Phase 22: `v4` Current-Task Resume Defaults
+
+- make attach and agent launch surfaces bias toward current-task memory
+- keep the fast local resume path intact while improving short-term retrieval intent
+- update generated bundle docs so the default launch contract is explicit
+
+Status: Complete
+
+Success:
+
+- default launch flows start from the current-task lane instead of a generic intent
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

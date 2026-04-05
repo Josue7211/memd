@@ -115,7 +115,7 @@ cargo run -p memd-client --bin memd -- init --project demo --namespace main --ag
 Resume the default memory snapshot from that bundle:
 
 ```bash
-cargo run -p memd-client --bin memd -- resume --output .memd
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
 ```
 
 This hot path stays local and bundle-backed by default so short-term memory
@@ -124,7 +124,7 @@ resume is fast.
 Pull semantic fallback only when you explicitly want deeper recall:
 
 ```bash
-cargo run -p memd-client --bin memd -- resume --output .memd --semantic
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task --semantic
 ```
 
 That also refreshes:
@@ -155,7 +155,7 @@ Resume with a shared workspace lane:
 
 ```bash
 cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex --workspace team-alpha --visibility workspace
-cargo run -p memd-client --bin memd -- resume --output .memd
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
 ```
 
 Emit a compact shared handoff bundle for delegation or resume:
