@@ -543,6 +543,12 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         snapshot.intent,
     ));
 
+    let current_task = render_current_task_snapshot(snapshot);
+    if !current_task.is_empty() {
+        output.push_str("\n## Current Task Snapshot\n\n");
+        output.push_str(&current_task);
+    }
+
     output.push_str("\n## Working Memory\n\n");
     if snapshot.working.records.is_empty() {
         output.push_str("- none\n");
@@ -609,6 +615,48 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
                 item.score
             ));
         }
+    }
+
+    output
+}
+
+fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
+    let mut output = String::new();
+
+    if let Some(focus) = snapshot.working.records.first() {
+        output.push_str(&format!(
+            "- focus: {}\n",
+            compact_inline(&focus.record, 180)
+        ));
+    }
+
+    if let Some(blocker) = snapshot.inbox.items.first() {
+        output.push_str(&format!(
+            "- pressure: {:?} {:?}: {}\n",
+            blocker.item.kind,
+            blocker.item.status,
+            compact_inline(&blocker.item.content, 160)
+        ));
+    }
+
+    if let Some(next) = snapshot.working.rehydration_queue.first() {
+        output.push_str(&format!(
+            "- next_recovery: {}: {}\n",
+            next.label,
+            compact_inline(&next.summary, 160)
+        ));
+    }
+
+    if !snapshot.workspaces.workspaces.is_empty() {
+        let lane = &snapshot.workspaces.workspaces[0];
+        output.push_str(&format!(
+            "- lane: {} / {} / {} | visibility {} | trust {:.2}\n",
+            lane.project.as_deref().unwrap_or("none"),
+            lane.namespace.as_deref().unwrap_or("none"),
+            lane.workspace.as_deref().unwrap_or("none"),
+            format_visibility(lane.visibility),
+            lane.trust_score
+        ));
     }
 
     output

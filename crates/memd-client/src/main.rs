@@ -3988,6 +3988,12 @@ fn render_bundle_memory_markdown(
         snapshot.intent,
     ));
 
+    let current_task = render_current_task_bundle_snapshot(snapshot);
+    if !current_task.is_empty() {
+        markdown.push_str("\n## Current Task Snapshot\n\n");
+        markdown.push_str(&current_task);
+    }
+
     markdown.push_str("\n## Working Memory\n\n");
     if snapshot.working.records.is_empty() {
         markdown.push_str("- none\n");
@@ -4072,6 +4078,46 @@ fn render_bundle_memory_markdown(
         markdown.push_str("\n## Handoff Notes\n\n");
         markdown.push_str("- this file was refreshed from a shared handoff bundle\n");
         markdown.push_str("- dream/consolidation output should feed this same file so durable memory and distilled memory stay aligned\n");
+    }
+
+    markdown
+}
+
+fn render_current_task_bundle_snapshot(snapshot: &ResumeSnapshot) -> String {
+    let mut markdown = String::new();
+
+    if let Some(focus) = snapshot.working.records.first() {
+        markdown.push_str("- focus: ");
+        markdown.push_str(focus.record.trim());
+        markdown.push('\n');
+    }
+
+    if let Some(blocker) = snapshot.inbox.items.first() {
+        markdown.push_str(&format!(
+            "- pressure: {:?} {:?}: {}\n",
+            blocker.item.kind,
+            blocker.item.status,
+            blocker.item.content.trim()
+        ));
+    }
+
+    if let Some(next) = snapshot.working.rehydration_queue.first() {
+        markdown.push_str(&format!(
+            "- next_recovery: {}: {}\n",
+            next.label,
+            next.summary.trim()
+        ));
+    }
+
+    if let Some(lane) = snapshot.workspaces.workspaces.first() {
+        markdown.push_str(&format!(
+            "- lane: {} / {} / {} | visibility {} | trust {:.2}\n",
+            lane.project.as_deref().unwrap_or("none"),
+            lane.namespace.as_deref().unwrap_or("none"),
+            lane.workspace.as_deref().unwrap_or("none"),
+            memory_visibility_label(lane.visibility),
+            lane.trust_score
+        ));
     }
 
     markdown
@@ -5611,6 +5657,117 @@ mod tests {
     }
 
     #[test]
+    fn bundle_memory_markdown_surfaces_current_task_snapshot() {
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 60,
+                remaining_chars: 1540,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "Finish the resume snapshot renderer".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "artifact".to_string(),
+                    summary: "Check the latest handoff note".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "Repair one stale workspace lane".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: vec!["checkpoint".to_string()],
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            semantic: None,
+        };
+
+        let markdown = render_bundle_memory_markdown(&snapshot, None);
+        assert!(markdown.contains("## Current Task Snapshot"));
+        assert!(markdown.contains("Finish the resume snapshot renderer"));
+        assert!(markdown.contains("Repair one stale workspace lane"));
+        assert!(markdown.contains("Check the latest handoff note"));
+        assert!(markdown.contains("team-alpha"));
+    }
+
+    #[test]
     fn agent_and_attach_scripts_default_to_current_task_intent() {
         let shell = render_agent_shell_profile(Path::new(".memd"), Some("codex"));
         let ps1 = render_agent_ps1_profile(Path::new(".memd"), Some("codex"));
@@ -5619,6 +5776,117 @@ mod tests {
         assert!(shell.contains("--intent current_task"));
         assert!(ps1.contains("--intent current_task"));
         assert!(attach.contains("--intent current_task"));
+    }
+
+    #[test]
+    fn resume_prompt_surfaces_current_task_snapshot() {
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 60,
+                remaining_chars: 1540,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "Follow the active current-task lane".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "Reload the shared workspace handoff".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "One review item is still open".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: vec!["checkpoint".to_string()],
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            semantic: None,
+        };
+
+        let prompt = crate::render::render_resume_prompt(&snapshot);
+        assert!(prompt.contains("## Current Task Snapshot"));
+        assert!(prompt.contains("Follow the active current-task lane"));
+        assert!(prompt.contains("One review item is still open"));
+        assert!(prompt.contains("Reload the shared workspace handoff"));
+        assert!(prompt.contains("team-alpha"));
     }
 
     #[test]
