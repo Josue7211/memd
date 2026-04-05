@@ -9,6 +9,11 @@ support measured self-improvement: detect quality gaps, replay real memory and
 coordination scenarios, run bounded experiments, and keep only changes that win
 against explicit gates.
 
+That loop should work together with autodream:
+
+- autoresearch finds gaps, runs bounded experiments, and records accepted wins
+- autodream consolidates those accepted learnings into durable memory and future procedure
+
 If you are using Codex or another agent day to day, `memd` should be the
 default memory substrate: retrieve working state from `memd`, inspect evidence
 with `memd explain`, and write compiled knowledge back into the workspace when

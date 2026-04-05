@@ -653,6 +653,7 @@ Success:
 - accept only experiments that clear the composite gates and discard regressions automatically
 - log accepted and rejected experiments in a compact research trail
 - consolidate accepted learnings into durable project memory and autodream inputs
+- make the handoff explicit: autoresearch produces accepted findings, then autodream consolidates only those accepted findings
 
 Status: Planned
 

@@ -413,6 +413,9 @@ Deliver:
   - promotion evidence
   - rollback history
 - accepted-learning consolidation into durable project memory and autodream inputs
+- explicit autoresearch -> autodream flow:
+  - autoresearch runs first to find gaps and test bounded improvements
+  - autodream runs after to consolidate accepted learnings, not speculative failures
 
 Success:
 
@@ -429,6 +432,7 @@ Core loop:
 - accept only bounded winning changes
 - promote only the abstractions whose strengths and weaknesses are understood per harness
 - consolidate accepted learnings back into durable project memory
+- let autodream compress accepted research outcomes into durable procedures, lessons, and future experiment seeds
 
 ### v7: OSS-Ready Project Infrastructure
 
