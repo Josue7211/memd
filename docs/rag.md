@@ -3,8 +3,28 @@
 `memd` keeps the memory control plane in Rust and treats long-term semantic
 storage as an optional backend.
 
+## Tier Position
+
+RAG is the third deployment tier, not the starting requirement:
+
+- Tier 1: Obsidian-only markdown-native knowledge
+- Tier 2: shared sync and shared memory lanes
+- Tier 3: LightRAG semantic retrieval
+
+The markdown/file layer stays first-class even after the semantic backend is attached.
+
+For daily work, the flow should be:
+
+1. store and inspect state in `memd`
+2. compile or write back useful evidence into Obsidian when it should stay visible
+3. use LightRAG only when the vault or project memory is too large for markdown-native retrieval alone
+
 The intended backend is LightRAG or a LightRAG-compatible service behind
 `rag-sidecar`, but the core product does not require it to run.
+
+That is important because `memd` also supports a markdown-native path through
+Obsidian vault ingest and compiled wiki workflows. For smaller knowledge bases,
+that can be enough without reaching for a semantic backend first.
 
 The full backend stack, when configured, must support multimodal inputs:
 
@@ -40,8 +60,18 @@ memd rag search --rag-url http://127.0.0.1:9000 --query "decision cache"
 
 If `--rag-url` is omitted, `MEMD_RAG_URL` is used.
 
+If the client is running inside a `memd` project bundle, it will prefer the
+bundle's `config.json` `backend.rag.url` setting before falling back to
+`MEMD_RAG_URL`.
+
 `memd status --output .memd` also reports whether the bundle has RAG enabled
 and whether the configured backend is reachable.
+
+When a bundle has RAG enabled, `memd resume --output .memd` and
+`memd handoff --output .memd --prompt` also query a small semantic fallback
+lane automatically. That semantic recall is bounded and additive: typed
+working memory, inbox, workspace lanes, and provenance still come from `memd`
+first.
 
 ## Sync Behavior
 
@@ -53,6 +83,9 @@ The sync path is intentionally explicit:
 - `memd` remains the source of truth for typed memory and policy
 - the backend receives compact records
 - duplicate and near-duplicate suppression still happens in `memd`
+- the semantic layer augments the markdown/file layer instead of replacing it
+- bundle resume and handoff flows consume semantic recall as a fallback lane,
+  not as the source of truth
 
 ## Product Positioning
 
@@ -60,7 +93,10 @@ RAG is optional for runtime deployment, but it is a core part of the long-term
 product story.
 
 Use `memd` alone for compact structured memory.
+Use Obsidian plus `memd` for markdown-native raw-source and compiled-wiki workflows.
 Add RAG when you want cross-project, cross-session semantic recall.
+Keep `memd` as the control plane even after RAG is added so retrieval, provenance,
+and branchable belief state stay in one place.
 
 See also:
 

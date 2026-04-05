@@ -1,0 +1,13 @@
+{
+  "name": "@memd/mcp-peer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Peer coordination MCP bridge for memd",
+  "bin": {
+    "memd-peer-mcp": "./server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}

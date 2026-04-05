@@ -1,6 +1,9 @@
+mod inspection;
 mod keys;
+mod repair;
 mod routing;
 mod store;
+mod working;
 
 use std::collections::{HashSet, VecDeque};
 
@@ -25,12 +28,19 @@ use memd_schema::{
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
     MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryScope, MemoryStage,
-    MemoryStatus, PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
-    WorkingMemoryTraceRecord,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PeerClaimAcquireRequest,
+    PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
+    PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
+    PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
+    PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest,
+    PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse,
+    RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
+    TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -53,10 +63,14 @@ impl AppState {
             id: Uuid::new_v4(),
             content: req.content.trim().to_string(),
             redundancy_key: None,
+            belief_branch: req.belief_branch,
+            preferred: false,
             kind: req.kind,
             scope: req.scope,
             project: req.project,
             namespace: req.namespace,
+            workspace: req.workspace,
+            visibility: req.visibility.unwrap_or_default(),
             source_agent: req.source_agent,
             source_system: req.source_system,
             source_path: req.source_path,
@@ -125,6 +139,9 @@ impl AppState {
         item.scope = req.scope.unwrap_or(item.scope);
         item.project = req.project.or(item.project);
         item.namespace = req.namespace.or(item.namespace);
+        item.workspace = req.workspace.or(item.workspace);
+        item.visibility = req.visibility.unwrap_or(item.visibility);
+        item.belief_branch = req.belief_branch.or(item.belief_branch);
         item.confidence = req.confidence.unwrap_or(item.confidence);
         item.ttl_seconds = req.ttl_seconds.or(item.ttl_seconds);
         if let Some(tags) = req.tags {
@@ -160,48 +177,6 @@ impl AppState {
         Ok((item, None))
     }
 
-    fn expire_item(&self, req: ExpireMemoryRequest) -> anyhow::Result<MemoryItem> {
-        let mut item = self
-            .store
-            .get(req.id)?
-            .ok_or_else(|| anyhow::anyhow!("memory item not found"))?;
-
-        item.status = req.status.unwrap_or(MemoryStatus::Expired);
-        item.updated_at = Utc::now();
-        let canonical_key = canonical_key(&item);
-        let redundancy_key = redundancy_key(&item);
-        let item = MemoryItem {
-            redundancy_key: Some(redundancy_key.clone()),
-            ..item
-        };
-        self.store.update(&item, &canonical_key, &redundancy_key)?;
-        let _ = self.record_item_event(&item, "expired", "memory item marked expired".to_string());
-        Ok(item)
-    }
-
-    fn verify_item(&self, req: VerifyMemoryRequest) -> anyhow::Result<MemoryItem> {
-        let mut item = self
-            .store
-            .get(req.id)?
-            .ok_or_else(|| anyhow::anyhow!("memory item not found"))?;
-
-        item.last_verified_at = Some(Utc::now());
-        if let Some(confidence) = req.confidence {
-            item.confidence = confidence.clamp(0.0, 1.0);
-        }
-        item.status = req.status.unwrap_or(MemoryStatus::Active);
-        item.updated_at = Utc::now();
-        let canonical_key = canonical_key(&item);
-        let redundancy_key = redundancy_key(&item);
-        let item = MemoryItem {
-            redundancy_key: Some(redundancy_key.clone()),
-            ..item
-        };
-        self.store.update(&item, &canonical_key, &redundancy_key)?;
-        let _ = self.record_item_event(&item, "verified", "memory item reverified".to_string());
-        Ok(item)
-    }
-
     fn record_item_event(
         &self,
         item: &MemoryItem,
@@ -219,6 +194,7 @@ impl AppState {
             item.updated_at,
             item.project.clone(),
             item.namespace.clone(),
+            item.workspace.clone(),
             item.source_agent.clone(),
             item.source_system.clone(),
             item.source_path.clone(),
@@ -245,6 +221,7 @@ async fn main() {
         .route("/memory/promote", post(promote_memory))
         .route("/memory/expire", post(expire_memory))
         .route("/memory/verify", post(verify_memory))
+        .route("/memory/repair", post(repair_memory))
         .route("/memory/search", post(search_memory))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))
@@ -261,10 +238,44 @@ async fn main() {
             get(get_agent_profile).post(post_agent_profile),
         )
         .route("/memory/source", get(get_source_memory))
+        .route("/memory/workspaces", get(get_workspace_memory))
         .route("/memory/explain", get(get_explain))
+        .route("/coordination/messages/send", post(post_peer_message))
+        .route("/coordination/messages/inbox", get(get_peer_inbox))
+        .route("/coordination/messages/ack", post(post_peer_ack))
+        .route("/coordination/inbox", get(get_peer_coordination_inbox))
+        .route(
+            "/coordination/receipts/record",
+            post(post_peer_coordination_receipt),
+        )
+        .route(
+            "/coordination/receipts",
+            get(get_peer_coordination_receipts),
+        )
+        .route(
+            "/coordination/claims/acquire",
+            post(post_peer_claim_acquire),
+        )
+        .route(
+            "/coordination/claims/release",
+            post(post_peer_claim_release),
+        )
+        .route(
+            "/coordination/claims/transfer",
+            post(post_peer_claim_transfer),
+        )
+        .route(
+            "/coordination/claims/recover",
+            post(post_peer_claim_recover),
+        )
+        .route("/coordination/claims", get(get_peer_claims))
+        .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
+        .route("/coordination/tasks/assign", post(post_peer_task_assign))
+        .route("/coordination/tasks", get(get_peer_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
+        .route("/memory/policy", get(get_memory_policy))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
@@ -321,6 +332,9 @@ async fn store_candidate(
         scope: req.scope,
         project: req.project,
         namespace: req.namespace,
+        workspace: req.workspace,
+        visibility: req.visibility,
+        belief_branch: req.belief_branch,
         source_agent: req.source_agent,
         source_system: req.source_system,
         source_path: req.source_path,
@@ -357,7 +371,7 @@ async fn expire_memory(
     State(state): State<AppState>,
     Json(req): Json<ExpireMemoryRequest>,
 ) -> Result<Json<ExpireMemoryResponse>, (StatusCode, String)> {
-    let item = state.expire_item(req).map_err(internal_error)?;
+    let item = repair::expire_item(&state, req)?;
     Ok(Json(ExpireMemoryResponse { item }))
 }
 
@@ -365,8 +379,45 @@ async fn verify_memory(
     State(state): State<AppState>,
     Json(req): Json<VerifyMemoryRequest>,
 ) -> Result<Json<VerifyMemoryResponse>, (StatusCode, String)> {
-    let item = state.verify_item(req).map_err(internal_error)?;
+    let item = repair::verify_item(&state, req)?;
     Ok(Json(VerifyMemoryResponse { item }))
+}
+
+async fn repair_memory(
+    State(state): State<AppState>,
+    Json(req): Json<RepairMemoryRequest>,
+) -> Result<Json<RepairMemoryResponse>, (StatusCode, String)> {
+    let response = repair::repair_item(&state, req)?;
+    Ok(Json(response))
+}
+
+async fn get_working_memory(
+    State(state): State<AppState>,
+    Query(req): Query<WorkingMemoryRequest>,
+) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
+    let response = working::working_memory(&state, req)?;
+    Ok(Json(response))
+}
+
+async fn get_explain(
+    State(state): State<AppState>,
+    Query(req): Query<ExplainMemoryRequest>,
+) -> Result<Json<ExplainMemoryResponse>, (StatusCode, String)> {
+    let plan = RetrievalPlan::resolve(req.route, req.intent);
+    let response = inspection::explain_memory(&state, req)?;
+    state
+        .record_retrieval_feedback(
+            std::slice::from_ref(&response.item),
+            1,
+            "retrieved_explain",
+            &plan,
+        )
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_memory_policy() -> Json<MemoryPolicyResponse> {
+    Json(working::memory_policy_snapshot())
 }
 
 async fn search_memory(
@@ -378,6 +429,9 @@ async fn search_memory(
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let items = filter_items(&items, &req, &plan);
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_search", &plan)
+        .map_err(internal_error)?;
     Ok(Json(SearchMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -392,6 +446,9 @@ async fn get_context(
     let req = apply_agent_profile_defaults(&state, req).map_err(internal_error)?;
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_context", &plan)
+        .map_err(internal_error)?;
     Ok(Json(ContextResponse {
         route: plan.route,
         intent: plan.intent,
@@ -406,6 +463,9 @@ async fn get_compact_context(
 ) -> Result<Json<CompactContextResponse>, (StatusCode, String)> {
     let (plan, retrieval_order, items) = build_context(&state, &req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, 3, "retrieved_compact_context", &plan)
+        .map_err(internal_error)?;
     let records = items
         .into_iter()
         .map(|item| CompactMemoryRecord {
@@ -419,84 +479,6 @@ async fn get_compact_context(
         intent: plan.intent,
         retrieval_order,
         records,
-    }))
-}
-
-async fn get_working_memory(
-    State(state): State<AppState>,
-    Query(req): Query<WorkingMemoryRequest>,
-) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
-    let req = apply_working_profile_defaults(&state, req).map_err(internal_error)?;
-    let compact_req = ContextRequest {
-        project: req.project.clone(),
-        agent: req.agent.clone(),
-        route: req.route,
-        intent: req.intent,
-        limit: req.limit,
-        max_chars_per_item: req.max_chars_per_item,
-    };
-    let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
-    let selected_items = items;
-
-    let budget_chars = req.max_total_chars.unwrap_or(1600).clamp(400, 8000);
-    let max_chars_per_item = req.max_chars_per_item.unwrap_or(220).clamp(80, 2000);
-    let mut used_chars = 0usize;
-    let mut truncated = false;
-    let mut records = Vec::new();
-
-    for item in &selected_items {
-        let mut record = compact_record(item);
-        if record.chars().count() > max_chars_per_item {
-            record = record
-                .chars()
-                .take(max_chars_per_item.saturating_sub(3))
-                .collect();
-            record.push_str("...");
-        }
-        let record_chars = record.chars().count();
-        if used_chars + record_chars > budget_chars {
-            truncated = true;
-            break;
-        }
-        used_chars += record_chars;
-        records.push(CompactMemoryRecord {
-            id: item.id,
-            record,
-        });
-    }
-
-    let traces = working_traces_for_items(&state, &selected_items, 3).map_err(internal_error)?;
-    let semantic_consolidation = if req.auto_consolidate.unwrap_or(false) {
-        let auto_request = MemoryConsolidationRequest {
-            project: req.project.clone(),
-            namespace: req.agent.clone(),
-            max_groups: Some(8),
-            min_events: Some(3),
-            lookback_days: Some(14),
-            min_salience: Some(0.22),
-            record_events: Some(true),
-        };
-        Some(
-            state
-                .consolidate_semantic_memory(&auto_request)
-                .map_err(internal_error)?,
-        )
-    } else {
-        None
-    };
-
-    Ok(Json(WorkingMemoryResponse {
-        route: plan.route,
-        intent: plan.intent,
-        retrieval_order,
-        budget_chars,
-        used_chars,
-        remaining_chars: budget_chars.saturating_sub(used_chars),
-        truncated,
-        records,
-        traces,
-        semantic_consolidation,
     }))
 }
 
@@ -522,6 +504,20 @@ async fn get_inbox(
             req.namespace
                 .as_ref()
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
+        })
+        .filter(|entry| {
+            req.workspace
+                .as_ref()
+                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+        })
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .filter(|entry| {
+            req.belief_branch
+                .as_ref()
+                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
         })
         .collect::<Vec<_>>();
 
@@ -686,57 +682,302 @@ async fn get_source_memory(
     Ok(Json(response))
 }
 
+async fn get_workspace_memory(
+    State(state): State<AppState>,
+    Query(req): Query<WorkspaceMemoryRequest>,
+) -> Result<Json<WorkspaceMemoryResponse>, (StatusCode, String)> {
+    let response = state.store.workspace_memory(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_message(
+    State(state): State<AppState>,
+    Json(req): Json<PeerMessageSendRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.from_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session must not be empty".to_string(),
+        ));
+    }
+    if req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
+    if req.content.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "content must not be empty".to_string(),
+        ));
+    }
+
+    let response = state
+        .store
+        .send_peer_message(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_inbox(
+    State(state): State<AppState>,
+    Query(req): Query<PeerMessageInboxRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.peer_inbox(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_ack(
+    State(state): State<AppState>,
+    Json(req): Json<PeerMessageAckRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    if req.id.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
+    }
+    let response = state.store.ack_peer_message(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_coordination_inbox(
+    State(state): State<AppState>,
+    Query(req): Query<PeerCoordinationInboxRequest>,
+) -> Result<Json<PeerCoordinationInboxResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .peer_coordination_inbox(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_coordination_receipt(
+    State(state): State<AppState>,
+    Json(req): Json<PeerCoordinationReceiptRequest>,
+) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    if req.kind.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "kind must not be empty".to_string(),
+        ));
+    }
+    if req.actor_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "actor_session must not be empty".to_string(),
+        ));
+    }
+    if req.summary.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "summary must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .record_peer_coordination_receipt(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_coordination_receipts(
+    State(state): State<AppState>,
+    Query(req): Query<PeerCoordinationReceiptsRequest>,
+) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .peer_coordination_receipts(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_acquire(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimAcquireRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
+    }
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .acquire_peer_claim(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_release(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimReleaseRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
+    }
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .release_peer_claim(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_transfer(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimTransferRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
+    }
+    if req.from_session.trim().is_empty() || req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session and to_session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .transfer_peer_claim(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_recover(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimRecoverRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "scope must not be empty".to_string(),
+        ));
+    }
+    if req.from_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session must not be empty".to_string(),
+        ));
+    }
+    if let Some(to_session) = req.to_session.as_deref()
+        && to_session.trim().is_empty()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .recover_peer_claim(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_claims(
+    State(state): State<AppState>,
+    Query(req): Query<PeerClaimsRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    let response = state.store.peer_claims(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_task_upsert(
+    State(state): State<AppState>,
+    Json(req): Json<PeerTaskUpsertRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    if req.task_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "task_id must not be empty".to_string(),
+        ));
+    }
+    if req.title.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "title must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.upsert_peer_task(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_task_assign(
+    State(state): State<AppState>,
+    Json(req): Json<PeerTaskAssignRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    if req.task_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "task_id must not be empty".to_string(),
+        ));
+    }
+    if req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.assign_peer_task(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_tasks(
+    State(state): State<AppState>,
+    Query(req): Query<PeerTasksRequest>,
+) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    let response = state.store.peer_tasks(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 async fn get_timeline(
     State(state): State<AppState>,
     Query(req): Query<TimelineMemoryRequest>,
 ) -> Result<Json<TimelineMemoryResponse>, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(12).min(32);
-    state.rehearse_item(req.id, 0.05).map_err(internal_error)?;
+    state
+        .record_retrieval_feedback_for_item(req.id, 0.05, "retrieved_timeline", &plan)
+        .map_err(internal_error)?;
     let (entity, events) = state.entity_view(req.id, limit).map_err(internal_error)?;
 
     Ok(Json(TimelineMemoryResponse {
         route: plan.route,
         intent: plan.intent,
-        entity,
-        events,
-    }))
-}
-
-async fn get_explain(
-    State(state): State<AppState>,
-    Query(req): Query<ExplainMemoryRequest>,
-) -> Result<Json<ExplainMemoryResponse>, (StatusCode, String)> {
-    let plan = RetrievalPlan::resolve(req.route, req.intent);
-    let item = state
-        .store
-        .get(req.id)
-        .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
-
-    let reasons = explain_reasons(&item, &plan);
-    let canonical = canonical_key(&item);
-    let redundancy = redundancy_key(&item);
-    state.rehearse_item(req.id, 0.06).map_err(internal_error)?;
-    let entity = state
-        .store
-        .entity_for_item(item.id)
-        .map_err(internal_error)?;
-    let events = match &entity {
-        Some(entity) => state
-            .store
-            .events_for_entity(entity.id, 8)
-            .map_err(internal_error)?,
-        None => Vec::new(),
-    };
-
-    Ok(Json(ExplainMemoryResponse {
-        route: plan.route,
-        intent: plan.intent,
-        item,
-        canonical_key: canonical,
-        redundancy_key: redundancy,
-        reasons,
         entity,
         events,
     }))
@@ -789,6 +1030,65 @@ impl AppState {
             let _ = self
                 .store
                 .rehearse_entity_for_item(&item, &canonical_key, salience_boost)?;
+        }
+        Ok(())
+    }
+
+    fn record_retrieval_feedback(
+        &self,
+        items: &[MemoryItem],
+        limit: usize,
+        event_type: &str,
+        plan: &RetrievalPlan,
+    ) -> anyhow::Result<()> {
+        for item in items.iter().take(limit) {
+            let canonical_key = canonical_key(item);
+            let entity = self.store.resolve_entity_for_item(item, &canonical_key)?;
+            let mut tags = vec![
+                "retrieval_feedback".to_string(),
+                format!("route:{}", enum_label_route(plan.route)),
+                format!("intent:{}", enum_label_intent(plan.intent)),
+            ];
+            if let Some(branch) = &item.belief_branch {
+                tags.push(format!("belief_branch:{branch}"));
+            }
+            self.store.record_event(
+                &entity.record,
+                item.id,
+                event_type,
+                format!(
+                    "{} route={} intent={}",
+                    event_type,
+                    enum_label_route(plan.route),
+                    enum_label_intent(plan.intent)
+                ),
+                Utc::now(),
+                item.project.clone(),
+                item.namespace.clone(),
+                item.workspace.clone(),
+                item.source_agent.clone(),
+                item.source_system.clone(),
+                item.source_path.clone(),
+                vec![],
+                tags,
+                Some(entity_context_frame(&entity.record, item)),
+                item.confidence,
+                entity.record.salience_score,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn record_retrieval_feedback_for_item(
+        &self,
+        item_id: Uuid,
+        salience_boost: f32,
+        event_type: &str,
+        plan: &RetrievalPlan,
+    ) -> anyhow::Result<()> {
+        self.rehearse_item(item_id, salience_boost)?;
+        if let Some(item) = self.store.get(item_id)? {
+            self.record_retrieval_feedback(std::slice::from_ref(&item), 1, event_type, plan)?;
         }
         Ok(())
     }
@@ -861,6 +1161,13 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    workspace: candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
                     source_agent: candidate
                         .entity
                         .context
@@ -917,6 +1224,11 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    candidate
+                        .entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
                     candidate
                         .entity
                         .context
@@ -1095,6 +1407,7 @@ impl AppState {
 struct MemoryViewItem {
     item: MemoryItem,
     entity: Option<MemoryEntityRecord>,
+    source_trust_score: f32,
 }
 
 fn enrich_with_entities(
@@ -1105,32 +1418,14 @@ fn enrich_with_entities(
         .into_iter()
         .map(|item| {
             let entity = state.store.entity_for_item(item.id)?;
-            Ok(MemoryViewItem { item, entity })
+            let source_trust_score = state.store.trust_score_for_item(&item)?;
+            Ok(MemoryViewItem {
+                item,
+                entity,
+                source_trust_score,
+            })
         })
         .collect()
-}
-
-fn working_traces_for_items(
-    state: &AppState,
-    items: &[MemoryItem],
-    limit: usize,
-) -> anyhow::Result<Vec<WorkingMemoryTraceRecord>> {
-    let mut traces = Vec::new();
-    for item in items.iter().take(limit) {
-        let (entity, events) = state.entity_view(item.id, 1)?;
-        let Some(event) = events.first() else {
-            continue;
-        };
-        traces.push(WorkingMemoryTraceRecord {
-            item_id: item.id,
-            entity_id: entity.as_ref().map(|entity| entity.id),
-            event_type: event.event_type.clone(),
-            summary: event.summary.clone(),
-            occurred_at: event.occurred_at,
-            salience_score: event.salience_score,
-        });
-    }
-    Ok(traces)
 }
 
 fn build_context(
@@ -1159,12 +1454,22 @@ fn build_context(
                 (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
                 _ => true,
             })
+            .filter(|entry| {
+                req.visibility
+                    .is_none_or(|visibility| entry.item.visibility == visibility)
+            })
             .cloned()
             .collect();
 
         bucket.sort_by(|a, b| {
-            context_score(&b.item, b.entity.as_ref(), req, &plan)
-                .partial_cmp(&context_score(&a.item, a.entity.as_ref(), req, &plan))
+            context_score(&b.item, b.entity.as_ref(), b.source_trust_score, req, &plan)
+                .partial_cmp(&context_score(
+                    &a.item,
+                    a.entity.as_ref(),
+                    a.source_trust_score,
+                    req,
+                    &plan,
+                ))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
         });
@@ -1214,40 +1519,6 @@ fn apply_agent_profile_defaults(
     Ok(req)
 }
 
-fn apply_working_profile_defaults(
-    state: &AppState,
-    mut req: WorkingMemoryRequest,
-) -> anyhow::Result<WorkingMemoryRequest> {
-    let Some(agent) = req.agent.clone() else {
-        return Ok(req);
-    };
-
-    let profile = state.store.agent_profile(&AgentProfileRequest {
-        agent,
-        project: req.project.clone(),
-        namespace: None,
-    })?;
-    if let Some(profile) = profile {
-        if req.route.is_none() {
-            req.route = profile.preferred_route;
-        }
-        if req.intent.is_none() {
-            req.intent = profile.preferred_intent;
-        }
-        if req.max_chars_per_item.is_none() {
-            req.max_chars_per_item = profile.summary_chars;
-        }
-        if req.max_total_chars.is_none() {
-            req.max_total_chars = profile.max_total_chars;
-        }
-        if req.limit.is_none() && profile.recall_depth.is_some() {
-            req.limit = profile.recall_depth;
-        }
-    }
-
-    Ok(req)
-}
-
 fn filter_items(
     items: &[MemoryViewItem],
     req: &SearchMemoryRequest,
@@ -1275,6 +1546,20 @@ fn filter_items(
                 .is_none_or(|namespace| entry.item.namespace.as_ref() == Some(namespace))
         })
         .filter(|entry| {
+            req.workspace
+                .as_ref()
+                .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
+        })
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .filter(|entry| {
+            req.belief_branch
+                .as_ref()
+                .is_none_or(|branch| entry.item.belief_branch.as_ref() == Some(branch))
+        })
+        .filter(|entry| {
             req.source_agent
                 .as_ref()
                 .is_none_or(|agent| entry.item.source_agent.as_ref() == Some(agent))
@@ -1300,16 +1585,28 @@ fn filter_items(
         .collect();
 
     filtered.sort_by(|a, b| {
-        search_score(&b.item, b.entity.as_ref(), &query, plan)
-            .partial_cmp(&search_score(&a.item, a.entity.as_ref(), &query, plan))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                b.item
-                    .confidence
-                    .partial_cmp(&a.item.confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+        search_score(
+            &b.item,
+            b.entity.as_ref(),
+            b.source_trust_score,
+            &query,
+            plan,
+        )
+        .partial_cmp(&search_score(
+            &a.item,
+            a.entity.as_ref(),
+            a.source_trust_score,
+            &query,
+            plan,
+        ))
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            b.item
+                .confidence
+                .partial_cmp(&a.item.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
     for item in &mut filtered {
         item.item.content = compact_content(&item.item.content, max_chars);
@@ -1344,6 +1641,7 @@ fn entity_context_frame(entity: &MemoryEntityRecord, item: &MemoryItem) -> Memor
         at: Some(item.updated_at),
         project: item.project.clone(),
         namespace: item.namespace.clone(),
+        workspace: item.workspace.clone(),
         repo: item.source_system.clone(),
         host: None,
         branch: None,
@@ -1395,6 +1693,8 @@ fn consolidation_kind(entity_type: &str) -> MemoryKind {
         "decision" => MemoryKind::Decision,
         "preference" => MemoryKind::Preference,
         "runbook" => MemoryKind::Runbook,
+        "procedural" => MemoryKind::Procedural,
+        "self_model" => MemoryKind::SelfModel,
         "topology" => MemoryKind::Topology,
         "status" => MemoryKind::Status,
         "pattern" => MemoryKind::Pattern,
@@ -1435,6 +1735,17 @@ fn compact_record(item: &MemoryItem) -> String {
             parts.push(format!("ns={}", sanitize_value(namespace)));
         }
     }
+    if let Some(workspace) = &item.workspace {
+        if !workspace.is_empty() {
+            parts.push(format!("ws={}", sanitize_value(workspace)));
+        }
+    }
+    parts.push(format!("vis={}", enum_label_visibility(item.visibility)));
+    if let Some(branch) = &item.belief_branch {
+        if !branch.is_empty() {
+            parts.push(format!("belief_branch={}", sanitize_value(branch)));
+        }
+    }
     if let Some(agent) = &item.source_agent {
         if !agent.is_empty() {
             parts.push(format!("agent={}", sanitize_value(agent)));
@@ -1454,6 +1765,36 @@ fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("c={}", sanitize_value(&item.content)));
 
     parts.join(" | ")
+}
+
+fn enum_label_route(route: RetrievalRoute) -> &'static str {
+    match route {
+        RetrievalRoute::Auto => "auto",
+        RetrievalRoute::LocalOnly => "local_only",
+        RetrievalRoute::SyncedOnly => "synced_only",
+        RetrievalRoute::ProjectOnly => "project_only",
+        RetrievalRoute::GlobalOnly => "global_only",
+        RetrievalRoute::LocalFirst => "local_first",
+        RetrievalRoute::SyncedFirst => "synced_first",
+        RetrievalRoute::ProjectFirst => "project_first",
+        RetrievalRoute::GlobalFirst => "global_first",
+        RetrievalRoute::All => "all",
+    }
+}
+
+fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
+    match intent {
+        RetrievalIntent::General => "general",
+        RetrievalIntent::CurrentTask => "current_task",
+        RetrievalIntent::Decision => "decision",
+        RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Procedural => "procedural",
+        RetrievalIntent::SelfModel => "self_model",
+        RetrievalIntent::Topology => "topology",
+        RetrievalIntent::Preference => "preference",
+        RetrievalIntent::Fact => "fact",
+        RetrievalIntent::Pattern => "pattern",
+    }
 }
 
 fn associative_recall_score(
@@ -1706,6 +2047,21 @@ fn dashboard_html() -> String {
         </div>
         <div class="grid-2">
           <div>
+            <label>Workspace</label>
+            <input id="workspace" placeholder="team-alpha">
+          </div>
+          <div>
+            <label>Visibility</label>
+            <select id="visibility">
+              <option value="">all</option>
+              <option value="private">private</option>
+              <option value="workspace">workspace</option>
+              <option value="public">public</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
             <label>Route</label>
             <select id="route">
               <option value="auto">auto</option>
@@ -1727,6 +2083,8 @@ fn dashboard_html() -> String {
               <option value="current_task">current_task</option>
               <option value="decision">decision</option>
               <option value="runbook">runbook</option>
+              <option value="procedural">procedural</option>
+              <option value="self_model">self_model</option>
               <option value="topology">topology</option>
               <option value="preference">preference</option>
               <option value="fact">fact</option>
@@ -1747,6 +2105,8 @@ fn dashboard_html() -> String {
           <button onclick="loadContext()">Load context</button>
           <button onclick="loadInbox()">Load inbox</button>
           <button onclick="loadSearch()">Search</button>
+          <button onclick="loadWorkspaces()">Workspaces</button>
+          <button class="secondary" onclick="loadSources()">Sources</button>
           <button class="secondary" onclick="loadExplain()">Explain</button>
         </div>
         <div class="note" id="healthNote">Loading health...</div>
@@ -1764,6 +2124,8 @@ fn dashboard_html() -> String {
     const healthNote = document.getElementById('healthNote');
     const qs = () => ({
       project: document.getElementById('project').value.trim(),
+      workspace: document.getElementById('workspace').value.trim(),
+      visibility: document.getElementById('visibility').value,
       agent: document.getElementById('agent').value.trim(),
       route: document.getElementById('route').value,
       intent: document.getElementById('intent').value,
@@ -1783,6 +2145,8 @@ fn dashboard_html() -> String {
       const q = qs();
       const params = new URLSearchParams();
       if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
       if (q.agent) params.set('agent', q.agent);
       if (q.route !== 'auto') params.set('route', q.route);
       if (q.intent !== 'general') params.set('intent', q.intent);
@@ -1793,6 +2157,8 @@ fn dashboard_html() -> String {
       const q = qs();
       const params = new URLSearchParams();
       if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
       if (q.agent) params.set('agent', q.agent);
       if (q.route !== 'auto') params.set('route', q.route);
       if (q.intent !== 'general') params.set('intent', q.intent);
@@ -1804,6 +2170,8 @@ fn dashboard_html() -> String {
       const body = {
         query: q.query || undefined,
         project: q.project || undefined,
+        workspace: q.workspace || undefined,
+        visibility: q.visibility || undefined,
         route: q.route,
         intent: q.intent,
       };
@@ -1812,6 +2180,24 @@ fn dashboard_html() -> String {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
       });
+      pretty(await res.json());
+    }
+    async function loadWorkspaces() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
+      const res = await fetch('/memory/workspaces?' + params.toString());
+      pretty(await res.json());
+    }
+    async function loadSources() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
+      const res = await fetch('/memory/source?' + params.toString());
       pretty(await res.json());
     }
     async function loadExplain() {
@@ -1848,6 +2234,8 @@ fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::Decision => "decision",
         MemoryKind::Preference => "preference",
         MemoryKind::Runbook => "runbook",
+        MemoryKind::Procedural => "procedural",
+        MemoryKind::SelfModel => "self_model",
         MemoryKind::Topology => "topology",
         MemoryKind::Status => "status",
         MemoryKind::Pattern => "pattern",
@@ -1861,6 +2249,14 @@ fn enum_label_scope(scope: MemoryScope) -> &'static str {
         MemoryScope::Synced => "synced",
         MemoryScope::Project => "project",
         MemoryScope::Global => "global",
+    }
+}
+
+fn enum_label_visibility(visibility: MemoryVisibility) -> &'static str {
+    match visibility {
+        MemoryVisibility::Private => "private",
+        MemoryVisibility::Workspace => "workspace",
+        MemoryVisibility::Public => "public",
     }
 }
 
@@ -1884,6 +2280,7 @@ fn enum_label_status(status: MemoryStatus) -> &'static str {
 fn context_score(
     item: &MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    source_trust_score: f32,
     req: &ContextRequest,
     plan: &RetrievalPlan,
 ) -> f32 {
@@ -1910,7 +2307,11 @@ fn context_score(
         }
     }
 
+    score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
+
     score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
+    score += trust_rank_adjustment(source_trust_score);
+    score += epistemic_rank_adjustment(item);
 
     if item.status == MemoryStatus::Stale {
         score -= 1.5;
@@ -1927,6 +2328,7 @@ fn context_score(
 fn search_score(
     item: &MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    source_trust_score: f32,
     query: &Option<String>,
     plan: &RetrievalPlan,
 ) -> f32 {
@@ -1954,6 +2356,8 @@ fn search_score(
     score += plan.scope_rank_bonus(item.scope) * 0.5;
     score += plan.intent_scope_bonus(item.scope) * 0.75;
     score += entity_attention_bonus(item, entity) * 0.75;
+    score += trust_rank_adjustment(source_trust_score) * 0.8;
+    score += epistemic_rank_adjustment(item) * 0.85;
 
     if let Some(query) = query {
         let content = item.content.to_ascii_lowercase();
@@ -1970,6 +2374,70 @@ fn search_score(
 
     score -= age_penalty(item.updated_at);
     score
+}
+
+fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
+    if source_trust_score < 0.35 {
+        -1.1
+    } else if source_trust_score < 0.5 {
+        -0.65
+    } else if source_trust_score < 0.6 {
+        -0.3
+    } else if source_trust_score >= 0.9 {
+        0.22
+    } else if source_trust_score >= 0.75 {
+        0.12
+    } else {
+        0.0
+    }
+}
+
+fn epistemic_rank_adjustment(item: &MemoryItem) -> f32 {
+    let mut score = match item.source_quality {
+        Some(SourceQuality::Canonical) => 0.4,
+        Some(SourceQuality::Derived) => 0.1,
+        Some(SourceQuality::Synthetic) => -0.4,
+        None => 0.0,
+    };
+
+    score += match item.last_verified_at {
+        Some(verified_at) => {
+            let verified_days = Utc::now()
+                .signed_duration_since(verified_at)
+                .num_days()
+                .max(0);
+            if verified_days <= 7 {
+                0.45
+            } else if verified_days <= 30 {
+                0.2
+            } else if verified_days <= 90 {
+                0.05
+            } else {
+                -0.15
+            }
+        }
+        None => -0.2,
+    };
+
+    if item.confidence < 0.6 {
+        score -= 0.25;
+    } else if item.confidence >= 0.9 {
+        score += 0.08;
+    }
+
+    score
+}
+
+fn workspace_rank_adjustment(
+    requested_workspace: Option<&String>,
+    item_workspace: Option<&String>,
+) -> f32 {
+    match (requested_workspace, item_workspace) {
+        (Some(requested), Some(item)) if requested == item => 0.85,
+        (Some(_), Some(_)) => -0.18,
+        (Some(_), None) => -0.08,
+        _ => 0.0,
+    }
 }
 
 fn age_penalty(updated_at: chrono::DateTime<Utc>) -> f32 {
@@ -2059,6 +2527,9 @@ fn entity_context_bonus(
 
 fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
     let mut reasons = Vec::new();
+    if item.preferred {
+        reasons.push("preferred-branch".to_string());
+    }
     if item.stage == MemoryStage::Candidate {
         reasons.push("candidate".to_string());
     }
@@ -2081,93 +2552,98 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
     if item.ttl_seconds.is_some() {
         reasons.push("ttl".to_string());
     }
-    reasons
-}
-
-fn explain_reasons(item: &MemoryItem, plan: &RetrievalPlan) -> Vec<String> {
-    let mut reasons = Vec::new();
-    reasons.push(format!("route={}", format_route(plan.route)));
-    reasons.push(format!("intent={}", format_intent(plan.intent)));
-    reasons.push(format!("scope={}", format_scope(item.scope)));
-    reasons.push(format!("stage={}", format_stage(item.stage)));
-    reasons.push(format!("status={}", format_status(item.status)));
-    if let Some(project) = &item.project {
-        reasons.push(format!("project={project}"));
-    }
-    if let Some(namespace) = &item.namespace {
-        reasons.push(format!("namespace={namespace}"));
-    }
-    if let Some(agent) = &item.source_agent {
-        reasons.push(format!("source_agent={agent}"));
-    }
-    if let Some(path) = &item.source_path {
-        reasons.push(format!("source_path={path}"));
-    }
-    if let Some(key) = &item.redundancy_key {
-        reasons.push(format!("redundancy_key={key}"));
-    }
-    if !item.supersedes.is_empty() {
-        reasons.push(format!("supersedes={}", item.supersedes.len()));
-    }
-    if item.status == MemoryStatus::Stale {
-        reasons.push("needs_verification".to_string());
-    }
-    if item.stage == MemoryStage::Candidate {
-        reasons.push("candidate_memory".to_string());
+    if item.belief_branch.is_some() && !item.preferred && item.status == MemoryStatus::Contested {
+        reasons.push("unresolved-contradiction".to_string());
     }
     reasons
 }
 
-fn format_route(route: memd_schema::RetrievalRoute) -> &'static str {
-    match route {
-        memd_schema::RetrievalRoute::Auto => "auto",
-        memd_schema::RetrievalRoute::LocalOnly => "local_only",
-        memd_schema::RetrievalRoute::SyncedOnly => "synced_only",
-        memd_schema::RetrievalRoute::ProjectOnly => "project_only",
-        memd_schema::RetrievalRoute::GlobalOnly => "global_only",
-        memd_schema::RetrievalRoute::LocalFirst => "local_first",
-        memd_schema::RetrievalRoute::SyncedFirst => "synced_first",
-        memd_schema::RetrievalRoute::ProjectFirst => "project_first",
-        memd_schema::RetrievalRoute::GlobalFirst => "global_first",
-        memd_schema::RetrievalRoute::All => "all",
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn format_intent(intent: memd_schema::RetrievalIntent) -> &'static str {
-    match intent {
-        memd_schema::RetrievalIntent::General => "general",
-        memd_schema::RetrievalIntent::CurrentTask => "current_task",
-        memd_schema::RetrievalIntent::Decision => "decision",
-        memd_schema::RetrievalIntent::Runbook => "runbook",
-        memd_schema::RetrievalIntent::Topology => "topology",
-        memd_schema::RetrievalIntent::Preference => "preference",
-        memd_schema::RetrievalIntent::Fact => "fact",
-        memd_schema::RetrievalIntent::Pattern => "pattern",
+    fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
+        let now = Utc::now();
+        MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: "workspace-ranked memory".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: workspace.map(|value| value.to_string()),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: None,
+            source_quality: Some(SourceQuality::Canonical),
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: Some(now),
+            supersedes: Vec::new(),
+            tags: vec!["workspace".to_string()],
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+        }
     }
-}
 
-fn format_scope(scope: MemoryScope) -> &'static str {
-    match scope {
-        MemoryScope::Local => "local",
-        MemoryScope::Synced => "synced",
-        MemoryScope::Project => "project",
-        MemoryScope::Global => "global",
+    #[test]
+    fn matching_workspace_ranks_above_other_shared_workspace() {
+        let req = ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+        };
+        let plan = RetrievalPlan::resolve(req.route, req.intent);
+        let matching = sample_memory_item(Some("team-alpha"));
+        let unrelated = sample_memory_item(Some("team-beta"));
+
+        assert!(
+            context_score(&matching, None, 0.9, &req, &plan)
+                > context_score(&unrelated, None, 0.9, &req, &plan)
+        );
     }
-}
 
-fn format_stage(stage: MemoryStage) -> &'static str {
-    match stage {
-        MemoryStage::Candidate => "candidate",
-        MemoryStage::Canonical => "canonical",
-    }
-}
+    #[test]
+    fn verified_canonical_memory_ranks_above_unverified_synthetic_memory() {
+        let req = ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+        };
+        let plan = RetrievalPlan::resolve(req.route, req.intent);
+        let mut verified = sample_memory_item(Some("team-alpha"));
+        verified.source_quality = Some(SourceQuality::Canonical);
+        verified.last_verified_at = Some(Utc::now());
+        verified.confidence = 0.88;
 
-fn format_status(status: MemoryStatus) -> &'static str {
-    match status {
-        MemoryStatus::Active => "active",
-        MemoryStatus::Stale => "stale",
-        MemoryStatus::Superseded => "superseded",
-        MemoryStatus::Contested => "contested",
-        MemoryStatus::Expired => "expired",
+        let mut inferred = sample_memory_item(Some("team-alpha"));
+        inferred.source_quality = Some(SourceQuality::Synthetic);
+        inferred.last_verified_at = None;
+        inferred.confidence = 0.88;
+
+        assert!(
+            context_score(&verified, None, 0.7, &req, &plan)
+                > context_score(&inferred, None, 0.7, &req, &plan)
+        );
+        assert!(
+            search_score(&verified, None, 0.7, &Some("workspace".to_string()), &plan)
+                > search_score(&inferred, None, 0.7, &Some("workspace".to_string()), &plan)
+        );
     }
 }

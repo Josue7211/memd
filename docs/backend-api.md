@@ -55,6 +55,8 @@ Request shape:
     "id": "uuid",
     "kind": "memory",
     "content": "canonical content",
+    "mime": "application/pdf",
+    "bytes": 4096,
     "source_quality": "derived",
     "source_agent": "memd",
     "source_path": "/path/to/file",
@@ -130,6 +132,7 @@ Response shape:
 
 - normalize `MemoryItem` into ingest records
 - write canonical spill output to `/v1/ingest`
+- preserve source metadata such as MIME type, byte size, source path, and tags
 - expose health via `/healthz`
 - support search/retrieval calls through `/v1/retrieve`
 - fail closed when the sidecar is unreachable

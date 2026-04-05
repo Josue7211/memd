@@ -22,10 +22,17 @@ pub fn canonical_key(item: &MemoryItem) -> String {
     let normalized_tags = normalized_tags(&item.tags);
     let project = item.project.as_deref().unwrap_or("");
     let namespace = item.namespace.as_deref().unwrap_or("");
+    let belief_branch = item.belief_branch.as_deref().unwrap_or("");
 
     format!(
-        "{:?}|{:?}|{}|{}|{}|{}",
-        item.kind, item.scope, project, namespace, normalized_content, normalized_tags
+        "{:?}|{:?}|{}|{}|{}|{}|{}",
+        item.kind,
+        item.scope,
+        project,
+        namespace,
+        belief_branch,
+        normalized_content,
+        normalized_tags
     )
 }
 
@@ -41,12 +48,14 @@ pub fn redundancy_key(item: &MemoryItem) -> String {
 
     let project = item.project.as_deref().unwrap_or("");
     let namespace = item.namespace.as_deref().unwrap_or("");
+    let belief_branch = item.belief_branch.as_deref().unwrap_or("");
     format!(
-        "{:?}|{:?}|{}|{}|{}",
+        "{:?}|{:?}|{}|{}|{}|{}",
         item.kind,
         item.scope,
         project.to_ascii_lowercase(),
         namespace.to_ascii_lowercase(),
+        belief_branch.to_ascii_lowercase(),
         words.join("|")
     )
 }
@@ -146,7 +155,9 @@ fn normalized_tags(tags: &[String]) -> String {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, SourceQuality};
+    use memd_schema::{
+        MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, SourceQuality,
+    };
     use uuid::Uuid;
 
     fn test_item(content: &str) -> MemoryItem {
@@ -154,10 +165,14 @@ mod tests {
             id: Uuid::nil(),
             content: content.to_string(),
             redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
             kind: MemoryKind::Fact,
             scope: MemoryScope::Project,
             project: Some("memd".into()),
             namespace: Some("test".into()),
+            workspace: Some("core".into()),
+            visibility: MemoryVisibility::Workspace,
             source_agent: Some("codex".into()),
             source_system: Some("memd".into()),
             source_path: None,
@@ -186,6 +201,16 @@ mod tests {
         let a = test_item("Cloudflare Tunnel protects rag.example.com");
         let b = test_item("rag.example.com is protected by Cloudflare Tunnel");
         assert_ne!(canonical_key(&a), canonical_key(&b));
+    }
+
+    #[test]
+    fn branch_key_separates_competing_beliefs() {
+        let mut mainline = test_item("rag uses bundle-first config");
+        mainline.belief_branch = Some("mainline".into());
+        let mut fallback = test_item("rag uses bundle-first config");
+        fallback.belief_branch = Some("fallback".into());
+        assert_ne!(redundancy_key(&mainline), redundancy_key(&fallback));
+        assert_ne!(canonical_key(&mainline), canonical_key(&fallback));
     }
 
     #[test]

@@ -14,6 +14,8 @@ pub const INGEST_REQUEST: &str = r#"{
     "id": "11111111-1111-1111-1111-111111111111",
     "kind": "fact",
     "content": "MinerU extracted a PDF and RAGAnything routed the table relations.",
+    "mime": "application/pdf",
+    "bytes": 4096,
     "source_quality": "derived",
     "source_agent": "memd",
     "source_path": "/tmp/report.pdf",
@@ -51,13 +53,17 @@ pub const RETRIEVE_RESPONSE: &str = r#"{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        SidecarHealthResponse, SidecarIngestRequest, SidecarIngestResponse, SidecarRetrieveRequest,
+        SidecarRetrieveResponse,
+    };
 
     #[test]
     fn fixtures_deserialize() {
-        let _: serde_json::Value = serde_json::from_str(HEALTHZ_OK).unwrap();
-        let _: serde_json::Value = serde_json::from_str(INGEST_REQUEST).unwrap();
-        let _: serde_json::Value = serde_json::from_str(INGEST_RESPONSE).unwrap();
-        let _: serde_json::Value = serde_json::from_str(RETRIEVE_REQUEST).unwrap();
-        let _: serde_json::Value = serde_json::from_str(RETRIEVE_RESPONSE).unwrap();
+        let _: SidecarHealthResponse = serde_json::from_str(HEALTHZ_OK).unwrap();
+        let _: SidecarIngestRequest = serde_json::from_str(INGEST_REQUEST).unwrap();
+        let _: SidecarIngestResponse = serde_json::from_str(INGEST_RESPONSE).unwrap();
+        let _: SidecarRetrieveRequest = serde_json::from_str(RETRIEVE_REQUEST).unwrap();
+        let _: SidecarRetrieveResponse = serde_json::from_str(RETRIEVE_RESPONSE).unwrap();
     }
 }

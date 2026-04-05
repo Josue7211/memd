@@ -49,6 +49,26 @@ They still pass through:
 - scope classification
 - promotion gating
 
+If a source later needs correction, repair should stay bounded and auditable:
+
+- verify the item against the current source
+- expire stale or invalid material
+- supersede replaced material
+- contest unresolved claims
+- correct metadata without rewriting unrelated history
+
+## Reversible Compression Rule
+
+Compact summaries are fine. Losing the path back to evidence is not.
+
+Every compressed summary should keep a recoverable trail back to:
+
+- the memory item
+- the source-memory aggregate
+- the recent lifecycle events that touched it
+
+That keeps the hot path cheap without turning compression into deletion.
+
 ## Practical Standard
 
 If a source would not help answer a real future question, it does not belong in `memd`.

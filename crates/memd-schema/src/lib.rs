@@ -9,6 +9,8 @@ pub enum MemoryKind {
     Decision,
     Preference,
     Runbook,
+    Procedural,
+    SelfModel,
     Topology,
     Status,
     Pattern,
@@ -46,6 +48,8 @@ pub enum RetrievalIntent {
     CurrentTask,
     Decision,
     Runbook,
+    Procedural,
+    SelfModel,
     Topology,
     Preference,
     Fact,
@@ -77,15 +81,30 @@ pub enum SourceQuality {
     Synthetic,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryVisibility {
+    #[default]
+    Private,
+    Workspace,
+    Public,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryItem {
     pub id: Uuid,
     pub content: String,
     pub redundancy_key: Option<String>,
+    pub belief_branch: Option<String>,
+    pub preferred: bool,
     pub kind: MemoryKind,
     pub scope: MemoryScope,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
+    #[serde(default)]
+    pub visibility: MemoryVisibility,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -108,6 +127,9 @@ pub struct StoreMemoryRequest {
     pub scope: MemoryScope,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -132,6 +154,9 @@ pub struct CandidateMemoryRequest {
     pub scope: MemoryScope,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -155,6 +180,9 @@ pub struct PromoteMemoryRequest {
     pub scope: Option<MemoryScope>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub belief_branch: Option<String>,
     pub confidence: Option<f32>,
     pub ttl_seconds: Option<u64>,
     pub tags: Option<Vec<String>>,
@@ -190,6 +218,41 @@ pub struct VerifyMemoryResponse {
     pub item: MemoryItem,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryRepairMode {
+    Verify,
+    Expire,
+    Supersede,
+    Contest,
+    PreferBranch,
+    CorrectMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairMemoryRequest {
+    pub id: Uuid,
+    pub mode: MemoryRepairMode,
+    pub confidence: Option<f32>,
+    pub status: Option<MemoryStatus>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub source_quality: Option<SourceQuality>,
+    pub content: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub supersedes: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairMemoryResponse {
+    pub item: MemoryItem,
+    pub mode: MemoryRepairMode,
+    pub reasons: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchMemoryRequest {
     pub query: Option<String>,
@@ -200,6 +263,9 @@ pub struct SearchMemoryRequest {
     pub statuses: Vec<MemoryStatus>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub belief_branch: Option<String>,
     pub source_agent: Option<String>,
     pub tags: Vec<String>,
     pub stages: Vec<MemoryStage>,
@@ -218,6 +284,8 @@ pub struct SearchMemoryResponse {
 pub struct ContextRequest {
     pub project: Option<String>,
     pub agent: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
     pub limit: Option<usize>,
@@ -250,11 +318,14 @@ pub struct CompactContextResponse {
 pub struct WorkingMemoryRequest {
     pub project: Option<String>,
     pub agent: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
     pub limit: Option<usize>,
     pub max_chars_per_item: Option<usize>,
     pub max_total_chars: Option<usize>,
+    pub rehydration_limit: Option<usize>,
     pub auto_consolidate: Option<bool>,
 }
 
@@ -267,9 +338,41 @@ pub struct WorkingMemoryResponse {
     pub used_chars: usize,
     pub remaining_chars: usize,
     pub truncated: bool,
+    pub policy: WorkingMemoryPolicyState,
     pub records: Vec<CompactMemoryRecord>,
+    pub evicted: Vec<WorkingMemoryEvictionRecord>,
+    pub rehydration_queue: Vec<MemoryRehydrationRecord>,
     pub traces: Vec<WorkingMemoryTraceRecord>,
     pub semantic_consolidation: Option<MemoryConsolidationResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryPolicyState {
+    pub admission_limit: usize,
+    pub max_chars_per_item: usize,
+    pub budget_chars: usize,
+    pub rehydration_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkingMemoryEvictionRecord {
+    pub id: Uuid,
+    pub record: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryRehydrationRecord {
+    pub id: Option<Uuid>,
+    pub kind: String,
+    pub label: String,
+    pub summary: String,
+    pub reason: Option<String>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub source_quality: Option<SourceQuality>,
+    pub recorded_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -321,6 +424,8 @@ pub struct AgentProfileUpsertRequest {
 pub struct SourceMemoryRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub limit: Option<usize>,
@@ -332,6 +437,8 @@ pub struct SourceMemoryRecord {
     pub source_system: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: MemoryVisibility,
     pub item_count: usize,
     pub active_count: usize,
     pub candidate_count: usize,
@@ -350,6 +457,284 @@ pub struct SourceMemoryResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryRecord {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: MemoryVisibility,
+    pub item_count: usize,
+    pub active_count: usize,
+    pub candidate_count: usize,
+    pub contested_count: usize,
+    pub source_lane_count: usize,
+    pub avg_confidence: f32,
+    pub trust_score: f32,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryResponse {
+    pub workspaces: Vec<WorkspaceMemoryRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageRecord {
+    pub id: String,
+    pub kind: String,
+    pub from_session: String,
+    pub from_agent: Option<String>,
+    pub to_session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub acknowledged_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageSendRequest {
+    pub kind: String,
+    pub from_session: String,
+    pub from_agent: Option<String>,
+    pub to_session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageAckRequest {
+    pub id: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerMessageInboxRequest {
+    pub session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub include_acknowledged: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessagesResponse {
+    pub messages: Vec<PeerMessageRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimRecord {
+    pub scope: String,
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub acquired_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimAcquireRequest {
+    pub scope: String,
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub ttl_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimReleaseRequest {
+    pub scope: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimTransferRequest {
+    pub scope: String,
+    pub from_session: String,
+    pub to_session: String,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimRecoverRequest {
+    pub scope: String,
+    pub from_session: String,
+    pub to_session: Option<String>,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerClaimsRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimsResponse {
+    pub claims: Vec<PeerClaimRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskRecord {
+    pub task_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(default = "default_coordination_mode")]
+    pub coordination_mode: String,
+    pub session: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub claim_scopes: Vec<String>,
+    pub help_requested: bool,
+    pub review_requested: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskUpsertRequest {
+    pub task_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub coordination_mode: Option<String>,
+    pub session: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub claim_scopes: Vec<String>,
+    pub help_requested: Option<bool>,
+    pub review_requested: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTaskAssignRequest {
+    pub task_id: String,
+    pub from_session: Option<String>,
+    pub to_session: String,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerTasksRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerTasksResponse {
+    pub tasks: Vec<PeerTaskRecord>,
+}
+
+fn default_coordination_mode() -> String {
+    "exclusive_write".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerCoordinationInboxRequest {
+    pub session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationInboxResponse {
+    pub messages: Vec<PeerMessageRecord>,
+    pub owned_tasks: Vec<PeerTaskRecord>,
+    pub help_tasks: Vec<PeerTaskRecord>,
+    pub review_tasks: Vec<PeerTaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptRecord {
+    pub id: String,
+    pub kind: String,
+    pub actor_session: String,
+    pub actor_agent: Option<String>,
+    pub target_session: Option<String>,
+    pub task_id: Option<String>,
+    pub scope: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptRequest {
+    pub kind: String,
+    pub actor_session: String,
+    pub actor_agent: Option<String>,
+    pub target_session: Option<String>,
+    pub task_id: Option<String>,
+    pub scope: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerCoordinationReceiptsRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptsResponse {
+    pub receipts: Vec<PeerCoordinationReceiptRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,
@@ -363,6 +748,9 @@ pub struct WorkingMemoryTraceRecord {
 pub struct MemoryInboxRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub belief_branch: Option<String>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
     pub limit: Option<usize>,
@@ -379,6 +767,7 @@ pub struct MemoryContextFrame {
     pub at: Option<DateTime<Utc>>,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
     pub repo: Option<String>,
     pub host: Option<String>,
     pub branch: Option<String>,
@@ -418,6 +807,7 @@ pub struct MemoryEventRecord {
     pub salience_score: f32,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
     pub source_agent: Option<String>,
     pub source_system: Option<String>,
     pub source_path: Option<String>,
@@ -436,6 +826,7 @@ pub struct MemoryInboxResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryRequest {
     pub id: Uuid,
+    pub belief_branch: Option<String>,
     pub route: Option<RetrievalRoute>,
     pub intent: Option<RetrievalIntent>,
 }
@@ -634,6 +1025,63 @@ pub struct MemoryMaintenanceReportResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyResponse {
+    pub retrieval_order: Vec<MemoryScope>,
+    pub route_defaults: Vec<MemoryPolicyRouteDefault>,
+    pub working_memory: MemoryPolicyWorkingMemory,
+    pub retrieval_feedback: MemoryPolicyFeedback,
+    pub source_trust_floor: f32,
+    pub promotion: MemoryPolicyPromotion,
+    pub decay: MemoryPolicyDecay,
+    pub consolidation: MemoryPolicyConsolidation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyRouteDefault {
+    pub intent: RetrievalIntent,
+    pub route: RetrievalRoute,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyWorkingMemory {
+    pub budget_chars: usize,
+    pub max_chars_per_item: usize,
+    pub default_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyFeedback {
+    pub enabled: bool,
+    pub tracked_surfaces: Vec<String>,
+    pub max_items_per_request: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyPromotion {
+    pub min_salience: f32,
+    pub min_events: usize,
+    pub lookback_days: i64,
+    pub default_ttl_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyDecay {
+    pub max_items: usize,
+    pub inactive_days: i64,
+    pub max_decay: f32,
+    pub record_events: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyConsolidation {
+    pub max_groups: usize,
+    pub min_events: usize,
+    pub lookback_days: i64,
+    pub min_salience: f32,
+    pub record_events: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainMemoryResponse {
     pub route: RetrievalRoute,
     pub intent: RetrievalIntent,
@@ -643,6 +1091,36 @@ pub struct ExplainMemoryResponse {
     pub reasons: Vec<String>,
     pub entity: Option<MemoryEntityRecord>,
     pub events: Vec<MemoryEventRecord>,
+    pub sources: Vec<SourceMemoryRecord>,
+    pub retrieval_feedback: RetrievalFeedbackSummary,
+    pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
+    pub rehydration: Vec<MemoryRehydrationRecord>,
+    pub policy_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainBranchSiblingRecord {
+    pub id: Uuid,
+    pub belief_branch: Option<String>,
+    pub preferred: bool,
+    pub status: MemoryStatus,
+    pub stage: MemoryStage,
+    pub confidence: f32,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalFeedbackSummary {
+    pub total_retrievals: usize,
+    pub last_retrieved_at: Option<DateTime<Utc>>,
+    pub by_surface: Vec<RetrievalFeedbackSurfaceCount>,
+    pub recent_policy_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalFeedbackSurfaceCount {
+    pub surface: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -736,6 +1214,7 @@ mod tests {
                 at: Some(Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),
@@ -763,6 +1242,7 @@ mod tests {
             salience_score: 0.74,
             project: Some("memd".to_string()),
             namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
             source_agent: Some("codex".to_string()),
             source_system: Some("cli".to_string()),
             source_path: Some("/tmp/memd".to_string()),
@@ -772,6 +1252,7 @@ mod tests {
                 at: Some(Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),
@@ -808,6 +1289,7 @@ mod tests {
                 at: Some(Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),
@@ -862,6 +1344,7 @@ mod tests {
                 at: Some(Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),
@@ -918,6 +1401,7 @@ mod tests {
                 at: Some(Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),
@@ -1037,15 +1521,195 @@ mod tests {
     }
 
     #[test]
+    fn explain_response_roundtrips() {
+        let now = Utc::now();
+        let response = ExplainMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::Decision,
+            item: MemoryItem {
+                id: Uuid::new_v4(),
+                content: "prefer bundle-first config".to_string(),
+                redundancy_key: Some("decision:bundle-first".to_string()),
+                belief_branch: Some("mainline".to_string()),
+                preferred: true,
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/docs/rag.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: 0.92,
+                ttl_seconds: None,
+                created_at: now,
+                updated_at: now,
+                last_verified_at: Some(now),
+                supersedes: vec![],
+                tags: vec!["decision".to_string()],
+                status: MemoryStatus::Active,
+                stage: MemoryStage::Canonical,
+            },
+            canonical_key: "decision:bundle-first".to_string(),
+            redundancy_key: "decision:bundle-first".to_string(),
+            reasons: vec!["route=project_first".to_string()],
+            entity: None,
+            events: vec![],
+            sources: vec![SourceMemoryRecord {
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 4,
+                active_count: 4,
+                candidate_count: 0,
+                derived_count: 0,
+                synthetic_count: 0,
+                contested_count: 0,
+                avg_confidence: 0.91,
+                trust_score: 0.95,
+                last_seen_at: Some(now),
+                tags: vec!["docs".to_string()],
+            }],
+            retrieval_feedback: RetrievalFeedbackSummary {
+                total_retrievals: 4,
+                last_retrieved_at: Some(now),
+                by_surface: vec![
+                    RetrievalFeedbackSurfaceCount {
+                        surface: "explain".to_string(),
+                        count: 2,
+                    },
+                    RetrievalFeedbackSurfaceCount {
+                        surface: "working".to_string(),
+                        count: 2,
+                    },
+                ],
+                recent_policy_hooks: vec![
+                    "route=project_first".to_string(),
+                    "intent=decision".to_string(),
+                ],
+            },
+            branch_siblings: vec![ExplainBranchSiblingRecord {
+                id: Uuid::new_v4(),
+                belief_branch: Some("fallback".to_string()),
+                preferred: false,
+                status: MemoryStatus::Contested,
+                stage: MemoryStage::Canonical,
+                confidence: 0.71,
+                updated_at: now,
+            }],
+            rehydration: vec![MemoryRehydrationRecord {
+                id: Some(Uuid::new_v4()),
+                kind: "memory_item".to_string(),
+                label: "canonical memory".to_string(),
+                summary: "prefer bundle-first config".to_string(),
+                reason: Some("rehydrate_primary_memory".to_string()),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/docs/rag.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                recorded_at: Some(now),
+            }],
+            policy_hooks: vec![
+                "route=project_first".to_string(),
+                "intent=decision".to_string(),
+                "source_trust_floor=0.60".to_string(),
+            ],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: ExplainMemoryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.item.belief_branch.as_deref(), Some("mainline"));
+        assert_eq!(decoded.retrieval_feedback.total_retrievals, 4);
+        assert_eq!(decoded.branch_siblings.len(), 1);
+        assert_eq!(decoded.rehydration.len(), 1);
+        assert_eq!(decoded.policy_hooks.len(), 3);
+        assert_eq!(decoded.sources[0].trust_score, 0.95);
+    }
+
+    #[test]
+    fn policy_response_roundtrips() {
+        let response = MemoryPolicyResponse {
+            retrieval_order: vec![
+                MemoryScope::Local,
+                MemoryScope::Synced,
+                MemoryScope::Project,
+                MemoryScope::Global,
+            ],
+            route_defaults: vec![
+                MemoryPolicyRouteDefault {
+                    intent: RetrievalIntent::CurrentTask,
+                    route: RetrievalRoute::LocalFirst,
+                },
+                MemoryPolicyRouteDefault {
+                    intent: RetrievalIntent::Preference,
+                    route: RetrievalRoute::GlobalFirst,
+                },
+            ],
+            working_memory: MemoryPolicyWorkingMemory {
+                budget_chars: 1600,
+                max_chars_per_item: 220,
+                default_limit: 8,
+            },
+            retrieval_feedback: MemoryPolicyFeedback {
+                enabled: true,
+                tracked_surfaces: vec![
+                    "search".to_string(),
+                    "context".to_string(),
+                    "working".to_string(),
+                    "explain".to_string(),
+                ],
+                max_items_per_request: 3,
+            },
+            source_trust_floor: 0.6,
+            promotion: MemoryPolicyPromotion {
+                min_salience: 0.22,
+                min_events: 3,
+                lookback_days: 14,
+                default_ttl_days: 90,
+            },
+            decay: MemoryPolicyDecay {
+                max_items: 128,
+                inactive_days: 21,
+                max_decay: 0.12,
+                record_events: true,
+            },
+            consolidation: MemoryPolicyConsolidation {
+                max_groups: 24,
+                min_events: 3,
+                lookback_days: 14,
+                min_salience: 0.22,
+                record_events: true,
+            },
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: MemoryPolicyResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.retrieval_order, response.retrieval_order);
+        assert_eq!(decoded.working_memory.default_limit, 8);
+        assert!(decoded.retrieval_feedback.enabled);
+        assert_eq!(decoded.source_trust_floor, 0.6);
+        assert_eq!(decoded.decay.max_decay, 0.12);
+        assert_eq!(decoded.consolidation.max_groups, 24);
+    }
+
+    #[test]
     fn working_memory_roundtrips() {
         let request = WorkingMemoryRequest {
             project: Some("memd".to_string()),
             agent: Some("codex".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
             route: Some(RetrievalRoute::ProjectFirst),
             intent: Some(RetrievalIntent::CurrentTask),
             limit: Some(4),
             max_chars_per_item: Some(180),
             max_total_chars: Some(900),
+            rehydration_limit: Some(2),
             auto_consolidate: Some(true),
         };
 
@@ -1057,9 +1721,32 @@ mod tests {
             used_chars: 612,
             remaining_chars: 288,
             truncated: false,
+            policy: WorkingMemoryPolicyState {
+                admission_limit: 4,
+                max_chars_per_item: 180,
+                budget_chars: 900,
+                rehydration_limit: 2,
+            },
             records: vec![CompactMemoryRecord {
                 id: Uuid::new_v4(),
                 record: "focus on the working set".to_string(),
+            }],
+            evicted: vec![WorkingMemoryEvictionRecord {
+                id: Uuid::new_v4(),
+                record: "older context left the hot set".to_string(),
+                reason: "evicted_by_budget".to_string(),
+            }],
+            rehydration_queue: vec![MemoryRehydrationRecord {
+                id: Some(Uuid::new_v4()),
+                kind: "working_memory_record".to_string(),
+                label: "evicted working-set item".to_string(),
+                summary: "older context left the hot set".to_string(),
+                reason: Some("evicted_by_budget".to_string()),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/memd/notes.md".to_string()),
+                source_quality: Some(SourceQuality::Derived),
+                recorded_at: Some(Utc::now()),
             }],
             traces: vec![WorkingMemoryTraceRecord {
                 item_id: Uuid::new_v4(),
@@ -1084,8 +1771,12 @@ mod tests {
         let decoded_request: WorkingMemoryRequest = serde_json::from_str(&request_json).unwrap();
         let decoded_response: WorkingMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.limit, request.limit);
+        assert_eq!(decoded_request.rehydration_limit, request.rehydration_limit);
         assert_eq!(decoded_response.budget_chars, response.budget_chars);
+        assert_eq!(decoded_response.policy.admission_limit, 4);
         assert_eq!(decoded_response.records.len(), 1);
+        assert_eq!(decoded_response.evicted.len(), 1);
+        assert_eq!(decoded_response.rehydration_queue.len(), 1);
         assert_eq!(decoded_response.traces.len(), 1);
         assert_eq!(decoded_response.semantic_consolidation.is_some(), true);
     }
@@ -1142,6 +1833,8 @@ mod tests {
         let request = SourceMemoryRequest {
             project: Some("memd".to_string()),
             namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
             source_agent: Some("codex".to_string()),
             source_system: Some("cli".to_string()),
             limit: Some(10),
@@ -1152,6 +1845,8 @@ mod tests {
                 source_system: Some("cli".to_string()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
                 item_count: 12,
                 active_count: 10,
                 candidate_count: 2,
@@ -1171,5 +1866,124 @@ mod tests {
         let decoded_response: SourceMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.source_agent, request.source_agent);
         assert_eq!(decoded_response.sources[0].trust_score, 0.91);
+    }
+
+    #[test]
+    fn workspace_memory_roundtrips() {
+        let request = WorkspaceMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            source_agent: Some("obsidian".to_string()),
+            source_system: Some("obsidian".to_string()),
+            limit: Some(8),
+        };
+        let response = WorkspaceMemoryResponse {
+            workspaces: vec![WorkspaceMemoryRecord {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 12,
+                active_count: 10,
+                candidate_count: 1,
+                contested_count: 1,
+                source_lane_count: 2,
+                avg_confidence: 0.86,
+                trust_score: 0.9,
+                last_seen_at: Some(Utc::now()),
+                tags: vec!["obsidian".to_string(), "shared".to_string()],
+            }],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: WorkspaceMemoryRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: WorkspaceMemoryResponse =
+            serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.workspace, request.workspace);
+        assert_eq!(decoded_response.workspaces.len(), 1);
+        assert_eq!(decoded_response.workspaces[0].source_lane_count, 2);
+    }
+
+    #[test]
+    fn procedural_and_self_model_enums_roundtrip() {
+        let kind_json = serde_json::to_string(&MemoryKind::Procedural).unwrap();
+        let intent_json = serde_json::to_string(&RetrievalIntent::SelfModel).unwrap();
+
+        assert_eq!(kind_json, "\"procedural\"");
+        assert_eq!(intent_json, "\"self_model\"");
+        assert_eq!(
+            serde_json::from_str::<MemoryKind>(&kind_json).unwrap(),
+            MemoryKind::Procedural
+        );
+        assert_eq!(
+            serde_json::from_str::<RetrievalIntent>(&intent_json).unwrap(),
+            RetrievalIntent::SelfModel
+        );
+    }
+
+    #[test]
+    fn repair_contract_roundtrips() {
+        let request = RepairMemoryRequest {
+            id: Uuid::new_v4(),
+            mode: MemoryRepairMode::CorrectMetadata,
+            confidence: Some(0.91),
+            status: Some(MemoryStatus::Active),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: Some("/tmp/memd".to_string()),
+            source_quality: Some(SourceQuality::Canonical),
+            content: Some("repaired memory content".to_string()),
+            tags: Some(vec!["repair".to_string(), "audit".to_string()]),
+            supersedes: vec![Uuid::new_v4(), Uuid::new_v4()],
+        };
+        let response = RepairMemoryResponse {
+            item: MemoryItem {
+                id: request.id,
+                content: "repaired memory content".to_string(),
+                redundancy_key: Some("dedupe:key".to_string()),
+                belief_branch: Some("mainline".to_string()),
+                preferred: false,
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                source_agent: request.source_agent.clone(),
+                source_system: request.source_system.clone(),
+                source_path: request.source_path.clone(),
+                source_quality: request.source_quality,
+                confidence: 0.91,
+                ttl_seconds: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                last_verified_at: Some(Utc::now()),
+                supersedes: request.supersedes.clone(),
+                tags: vec!["repair".to_string(), "audit".to_string()],
+                status: MemoryStatus::Active,
+                stage: MemoryStage::Canonical,
+            },
+            mode: request.mode,
+            reasons: vec![
+                "mode=correct_metadata".to_string(),
+                "source_agent_updated".to_string(),
+                "content_repaired".to_string(),
+            ],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: RepairMemoryRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: RepairMemoryResponse = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.mode, MemoryRepairMode::CorrectMetadata);
+        assert_eq!(decoded_request.tags.as_ref().unwrap().len(), 2);
+        assert_eq!(decoded_response.mode, MemoryRepairMode::CorrectMetadata);
+        assert_eq!(decoded_response.item.status, MemoryStatus::Active);
+        assert_eq!(decoded_response.reasons.len(), 3);
     }
 }

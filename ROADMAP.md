@@ -4,6 +4,9 @@
 
 `memd` is a universal memory substrate for agents and agent-powered applications.
 
+Priority 1 is Codex memory: if Codex cannot persist, retrieve, and inspect its
+own state across sessions, the system is not doing its job.
+
 It should solve memory as infrastructure:
 
 - token-efficient delivery is the first constraint
@@ -29,33 +32,109 @@ It should solve memory as infrastructure:
 
 The target is not a feature. The target is an open-source platform.
 
+## Product Standard
+
+`memd` only wins if it feels like real memory instead of memory tooling.
+
+The product standard is:
+
+- zero-friction memory
+- epistemic memory
+- short-term-first memory
+- native multi-agent interoperability
+- inspectable memory
+- token-efficient memory by default
+
+In practical terms:
+
+- resume should feel automatic
+- short-term state should stay sharp without transcript bloat
+- verified, inferred, claimed, stale, and contested memory should stay explicit
+- Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
+- users should be able to inspect what the system remembers, why, and what changed
+- the default path should avoid expensive rereads, oversized reinjection, and stale-session rebuild waste
+- when legitimately huge context is required, the system should make those passes deliberate, structured, and higher-yield instead of paying giant-context cost on every turn
+
 ## Current Status
 
-`memd` is past the core platform build. The remaining roadmap is now about
-making the platform feel inevitable to use:
+`memd` is no longer a simple phase-by-phase project. It is becoming the
+agent's own memory substrate.
 
-- the core still works without RAG
+The first practical consumer is Codex, so the memory stack should be optimized
+for Codex continuity before broader integrations get the same polish.
+
+The roadmap now starts with repository foundations so the project can be
+worked on cleanly in public before the memory stack keeps expanding.
+
+The right way to track progress now is by capability versions:
+
+- `v0`: OSS-ready project foundations
+- `v1`: human-inspired memory OS
+- `v2`: superhuman AI brain
+- `v3`: federated and collective memory
+- `v4`: self-optimizing memory
+- `v5`: memory-native cognition infrastructure
+
+Current version state:
+
+- `v0`: complete
+- `v1`: complete enough to build past
+- `v2`: complete
+- `v3`: complete
+- `v4`: complete
+- `v5`: in progress
+
+What is already real in the repo:
+
+- the core works without RAG
 - LightRAG is the intended long-term semantic backend
+- Obsidian vault ingest already exists as a filesystem-first source lane
+- Obsidian compiled evidence pages now exist as a first-class workspace lane
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
-- the next layer is human-like memory behavior under a strict token budget
-- the following layer is a brain-inspired memory stack with attention, salience,
-  association, rehearsal, and forgetting
+- a first MCP-native peer coordination bridge now sits on top of the brokered backend substrate
+- graph/entity primitives exist
+- salience, rehearsal, decay, and consolidation exist
+- explain, inbox, maintenance, and policy inspection exist
+- branchable belief lanes exist for competing durable memory records
+- `memd gap` now emits evidence-driven improvement candidates from eval, resume, and coordination lanes
 
-Phase summary:
+## Deployment Tiers
 
-- Phase 0: done
-- Phase 1: done
-- Phase 2: done
-- Phase 3: mostly done
-- Phase 4: mostly done
-- Phase 5: in progress
-- Phase 6: in progress
-- Phase 7: partially seeded
-- Phase 8: in progress
-- Phase 8.1: in progress
-- Phase 8.2: not started
-- Phase 8.3: not started
+The memory stack should scale in layers instead of forcing the heaviest setup
+from day one.
+
+### Tier 1: Obsidian Only
+
+- raw source material
+- compiled entity/relationship wiki artifacts
+- markdown wiki pages
+- compiled output pages
+- direct file browsing and backlinks
+- no semantic backend required
+
+### Tier 2: Shared Sync
+
+- everything in Obsidian-only
+- shared vault sync
+- shared workspace lanes
+- private/workspace/public visibility
+- resumable handoff bundles across agents and humans
+
+### Tier 3: LightRAG
+
+- everything in shared sync
+- semantic retrieval
+- concept graph traversal
+- long-range relatedness
+- multimodal retrieval at larger scale
+
+What is still missing before `v1` is truly complete:
+
+- deeper repair tooling
+- provenance drilldown from summaries to raw artifacts
+- stricter working-memory admission and eviction behavior
+- more explicit episodic, procedural, self-model, and source-trust layers
 
 ## Product Shape
 
@@ -66,6 +145,8 @@ Backends and producers work behind it:
 - local memory
 - short-term sync
 - auto-dream / consolidation
+- Obsidian vault and compiled markdown wiki workflows
+- compiled knowledge graphs and reusable intermediate artifacts
 - semantic retrieval
 - graph relationships
 - verification workers
@@ -84,209 +165,382 @@ Clients consume it through one API:
 - OpenClaw
 - generic HTTP/CLI users
 
-## Phases
+Artifact classes should also be first-class:
 
-### Phase 0: Specs
+- operational memory
+- evidence memory
+- compiled knowledge/wiki artifacts
+- graph/entity artifacts
+- design memory:
+  - design systems
+  - visual rules
+  - component constraints
+  - anti-slop guidance
+  - harness-specific UI strengths and weaknesses
 
-Deliver:
+## Versions
 
-- architecture
-- schema
-- promotion policy
-- retrieval policy
-- OSS positioning
+### v0: OSS-Ready Project Foundations
 
-Success:
+Goal:
 
-- storage tiers are defined
-- write authority is defined
-- retrieval order is defined
-
-### Phase 1: Rust Core
-
-Deliver:
-
-- Rust workspace
-- core schema crate
-- core policy crate
-- basic server crate
-- SQLite-backed local mode
-
-Success:
-
-- structured memory can be stored, searched, and expired
-
-### Phase 2: Retrieval Layer
+- move the repository onto a real branch strategy before the larger memory
+  stack keeps growing
 
 Deliver:
 
-- compact context builder
-- scope-aware ranking
-- budgeted retrieval
-- current-project first policy
+- a dedicated working branch strategy for active development and release cuts
+- file splitting where it improves reuse and maintenance
+- version history conventions for phased work and releases
+- branch flow for development and future public contributions
+- contribution rules, review expectations, and security guidance
+- public project documentation that is separate from internal planning
 
 Success:
 
-- context packages are small, relevant, and deterministic
+- active work happens on a branch by default
+- new contributors can find the rules, the branches, and the release shape
+- the repo stops depending on oral context for basic collaboration
+- large files are split only where the seam is real, not to chase line counts
 
-### Phase 3: Short-Term Sync
+### v1: Human-Inspired Memory OS
+
+Goal:
+
+- build a durable, brain-inspired memory substrate that already beats naive
+  chat history and basic RAG
 
 Deliver:
 
-- synced manifests for active state
-- client adapters for shared short-term state
-- TTL-based short-term memory lifecycle
+- architecture, schema, retrieval policy, and promotion policy
+- Rust core with SQLite-backed local mode
+- compact retrieval and budgeted context delivery
+- shared short-term sync
+- dream/candidate ingestion and promotion gates
+- Obsidian vault bridge for markdown-native ingest and writeback
+- compiled-wiki workflow support where raw sources and derived notes can live in the same knowledge workspace
+- compiled graph workflow support where raw evidence can be transformed once into reusable entity/relationship artifacts
+- long-document and large-context workflow support:
+  - global brief/spec extraction
+  - glossary and terminology memory
+  - entity/reference sheets
+  - chunk-local working windows
+  - cross-chunk consistency memory
+  - final reconciliation passes that use broad context only when needed
+- LightRAG adapter and bundle-first backend configuration
+- tiered deployment shape:
+  - Obsidian-only
+  - shared sync
+  - LightRAG-augmented retrieval
+- backend stack contract for `rag-sidecar`, `MinerU`, and `RAGAnything`
+- one-command attach flow for Claude Code, Codex, Mission Control, and OpenClaw
+- freshness, contradiction surfacing, inbox, explain, and maintenance views
+- graph/entity primitives, salience, rehearsal, decay, and consolidation
+- provenance-typed graph edges for compiled knowledge:
+  - extracted
+  - inferred
+  - ambiguous
+- design memory as a typed artifact lane:
+  - `DESIGN.md`-style specs
+  - reusable visual system prompts and constraints
+  - harness-aware design guidance such as frontend strengths, weaknesses, and portability
+- working memory, timeline traces, and policy inspection
 
 Success:
 
-- active work can move across machines without becoming long-term sludge
+- agents can carry context across sessions and machines without drowning in
+  transcripts
+- memory remains compact, typed, inspectable, and evidence-backed
+- markdown-native research and wiki workflows can stay in Obsidian without giving up typed memory, provenance, or agent automation
+- the same knowledge base can scale from solo file-native use to shared sync to semantic retrieval
+- repeated raw rereads can be replaced by cheaper compiled graph/wiki retrieval at small and medium scales
+- reusable design guidance can be recalled like memory instead of re-explained in every UI task
+- long-form work such as books, corpora, or large migrations can preserve coherence without paying maximum context cost on every intermediate step
+- the substrate behaves like a brain-inspired control plane, not a bag of notes
 
-### Phase 4: Dream Pipeline
+Implementation history:
+
+- Phase 0: specs
+- Phase 1: Rust core
+- Phase 2: retrieval layer
+- Phase 3: short-term sync
+- Phase 4: dream pipeline
+- Phase 5: long-term memory backend
+- Phase 5.1: RAG adapter hardening
+- Phase 5.2: backend stack contract
+- Phase 6.1: agent attach automation
+- Phase 7.1: memory quality enforcement
+- Phase 8.1: graph and learning
+- Phase 8.2: human-like memory model
+- Phase 8.3: brain-inspired memory stack
+- Phase 8.4: memory operations and explainability
+
+Current gaps:
+
+- repair actions are still shallow
+- provenance drilldown is not deep enough
+- working-memory admission and eviction policy is not explicit enough
+- procedural, self-model, and source-trust layers are still incomplete
+
+### v2: Superhuman AI Brain
+
+Goal:
+
+- stop copying biological limits and turn memory into a machine-advantaged
+  reasoning substrate
 
 Deliver:
 
-- candidate-memory ingest
-- project dream pass
-- cross-project dream pass
-- promotion gates
+- branchable world models for unresolved contradictions and competing beliefs
+- reversible compression with summary-first retrieval and raw evidence recovery
+- provenance-native memory where every durable belief carries source,
+  freshness, trust, and verification state
+- compiled wiki material and Obsidian evidence pages can be treated as first-class evidence lanes, not only as loose note text
+- raw folders can be compiled into reusable graph/wiki intermediates so the system queries compiled knowledge before cold-reading source files again
+- explicit working-memory admission, eviction, and rehydration policy
+- retrieval as a learned control loop instead of a fixed heuristic table
+- trust-weighted source memory across humans, agents, tools, files, and sensors
+- parallel recall of multiple candidate explanations instead of one-thread
+  fetch
+- explicit uncertainty handling so low-confidence memories do not masquerade as
+  truth
 
 Success:
 
-- dream output becomes candidate facts, not canonical truth
+- `memd` uses biology for structure without inheriting biological bottlenecks
+- the system can remember far more than it keeps hot without becoming incoherent
+- contradictions remain navigable instead of being flattened away
+- Obsidian-scale knowledge bases can stay markdown-native at small/medium scale, with semantic backends added only when retrieval pressure demands it
+- retrieval becomes part of cognition instead of an accessory to storage
 
-### Phase 5: Long-Term Memory Backend
+### v3: Federated and Collective Memory
+
+Goal:
+
+- let many agents and humans share memory without destroying scope, privacy, or
+  trust
 
 Deliver:
 
-- LightRAG adapter
-- project namespace
-- global namespace
-- compact-summary plus raw-doc strategy
-- optional backend configuration in the project bundle
+- shared workspace and org-level namespaces
+- permission-aware memory visibility
+- trust tiers for source and agent provenance
+- handoff memory for delegation across agents and humans
+- shared sync as a first-class deployment tier
+- private/local memory boundaries that do not leak into shared state
+- explicit merge and divergence handling between local and shared truth
 
 Success:
 
-- long-term memory is searchable and evidence-backed without becoming the hot path
+- teams can share useful memory without flattening private and public context
+- handoffs preserve reasoning state instead of forcing re-derivation
+- organizational memory stays scoped, attributable, and auditable
 
-### Phase 5.1: RAG Adapter Hardening
+### v4: Self-Optimizing Memory
+
+Goal:
+
+- make the memory system improve its own policies from evidence and outcomes
+- make dream, autodream, and autoresearch native parts of the memory lifecycle rather than external wrappers
 
 Deliver:
 
-- stronger `memd rag` sync/search behavior
-- bundle-level RAG configuration
-- clear enabled/disabled/healthy state
-- deterministic export of canonical memory into the semantic backend
+- evaluation harnesses for routing, retrieval, promotion, and repair quality
+- adaptive policy tuning from usage feedback
+- automatic rehearsal, decay, and consolidation scheduling
+- native dream and autodream subsystems for:
+  - consolidation queue management
+  - promotion candidate handling
+  - pruning and decay
+  - accepted-research intake
+- budget enforcement for token and storage growth
+- A/B routing for competing memory strategies
+- regression detection for memory quality, not just system health
+- evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
+- tier-aware policy evolution so Obsidian-only, shared sync, and LightRAG setups can tune differently
+- harness-aware promotion so learned skills, CLIs, and harnesses carry compatibility, strengths, weaknesses, and portability class across agents
+- automatic short-term memory management:
+  - capture meaningful task-state changes without transcript dumping
+  - keep the hot lane fresh with minimal manual effort
+  - let dream and autodream consolidate high-signal short-term memory into durable memory
+- operator-facing hot-lane inspectability:
+  - show what changed since last resume
+  - keep current focus, pressure, and next recovery visible across prompt, bundle, and status surfaces
+- operator-facing token efficiency observability:
+  - attribute context footprint by source:
+    - system/tool surface
+    - memory injection
+    - hook payloads
+    - file reads
+    - shell output
+  - detect redundant rereads and repeated high-bloat command patterns
+  - surface cache-cliff and idle-gap risk before an expensive resumed turn
+- anti-waste control policies:
+  - prefer hot-lane and compiled artifacts before cold raw rereads
+  - suppress repeated same-session file rereads when prior evidence is still valid
+  - budget context injection per surface
+  - recommend fresh-session handoff when stale-session continuation would be more expensive than a compact resume
+  - optimize legitimate large-context jobs by splitting them into:
+    - durable global state
+    - compact local windows
+    - explicit reconciliation passes
+- universal design memory evolution:
+  - learn reusable UI/system specs from stable project outputs
+  - promote accepted design memory into portable design artifacts
+  - keep harness-native and adapter-required design guidance explicit
+
+Evolution Engine:
+
+- capture repeated traces, commands, and repair loops from real work
+- mine recurring workflows that are expensive, fragile, or over-reasoned
+- promote stable patterns into skills, wrappers, dedicated CLIs, or other tools
+- record which harnesses and agents each promoted abstraction helps, hurts, only partially fits, or is native to
+- keep lineage, quality metrics, and rollback history for every promoted abstraction
+- share proven improvements across agents when the scope is safe
+- retire or downgrade abstractions that stop paying for themselves
+- require measured gains in success rate, token cost, or cycle time before promotion
 
 Success:
 
-- RAG feels like part of the product, not a sidecar script
+- memory policy improves from usage instead of hand tuning
+- regressions are detectable before they become user pain
+- the system can self-correct under load and over time
+- repeated work gets cheaper because the system learns and promotes the right abstractions
+- the memory loop feels alive: capture, resume, inspect, consolidate, repeat
+- dream/autodream/autoresearch live inside `memd`, with skills, CLI, MCP, and UI acting as surfaces over the same subsystem
+- token optimization is a competitive advantage of the substrate, not an accidental side effect
 
-### Phase 5.2: Backend Stack Contract
+### v5: Memory-Native Cognition Infrastructure
+
+Goal:
+
+- make memory an active substrate for reasoning, planning, and long-horizon
+  agent identity
 
 Deliver:
 
-- explicit integration contract for `rag-sidecar`
-- document `MinerU` as the document extraction dependency
-- document `RAGAnything` as the multimodal retrieval dependency
-- backend capability matrix for text, video, PDF, image, table, and equation flows
+- memory-backed long-horizon planning loops
+- branch-aware execution state tied to world-model memory
+- reflective self-model memory for strengths, weaknesses, and strategy
+- durable goal and subgoal memory with continuity across sessions
+- memory-aware tool selection and verification planning
+- simulation and replay support for counterfactual reasoning
+- skill invocation as part of planning, not just a post-hoc helper lookup
+- first-class inspectability surfaces for:
+  - knowledge workspace
+  - memory systems view
+  - eventual brain-view telemetry hooks for `braind`
+- provenance-native cognition behavior where verified evidence outranks narrative continuity
 
 Success:
 
-- the repo clearly distinguishes `memd` core from the external LightRAG stack
-- the full stack contract is explicitly multimodal, not text-only
+- the agent does not just store context; it thinks through memory
+- identity, goals, plans, and evidence remain coherent over long horizons
+- `memd` becomes part of the cognition stack, not just a support service
+- cognition can select, compose, and learn skills as part of normal reasoning
+- the system becomes less confidently wrong, not just less forgetful
 
-### Phase 6.1: Agent Attach Automation
+### v6: Measured Self-Improvement
+
+Goal:
+
+- let `memd` improve itself through bounded experiments that are scored,
+  reversible, and evidence-backed
 
 Deliver:
 
-- one-command project attach flow
-- per-agent launch snippets for Claude Code, Codex, Mission Control, and OpenClaw
-- automatic bundle loading for project defaults
+- scenario harnesses for real memory workflows:
+  - resume after pause
+  - cross-agent handoff
+  - shared-project coworking
+  - stale-session recovery
+  - verified evidence outranking synthetic continuity
+- a composite scorer that combines:
+  - hard correctness gates
+  - short-term memory quality
+  - coordination quality
+  - operator friction
+  - latency and bloat
+- an experiment runner that:
+  - works on temp branches
+  - measures baseline vs candidate
+  - accepts only winning changes
+  - discards regressions automatically
+- tiered experiment safety:
+  - safe auto-accept changes
+  - eval-gated behavioral changes
+  - human-review-only trust/provenance changes
+- a promotion registry for learned abstractions that stores:
+  - strengths
+  - weaknesses
+  - portability class:
+    - portable
+    - harness-native
+    - adapter-required
+  - compatible harnesses
+  - risky harnesses
+  - promotion evidence
+  - rollback history
+- accepted-learning consolidation into durable project memory and autodream inputs
+- explicit autoresearch -> autodream flow:
+  - autoresearch runs first to find gaps and test bounded improvements
+  - autodream runs after to consolidate accepted learnings, not speculative failures
+- token and context observability for agent sessions:
+  - transcript/session import into a compact local audit store
+  - cost and bloat attribution by turn, workflow, tool class, and memory payload class
+  - cache-cliff, idle-gap, and resume-rebuild warnings
+  - repeated read/output waste detection
+  - hooks that can warn, compact, fork, or recommend fresh-session resume when context cost is about to spike
 
 Success:
 
-- an agent can start a task with the right memory context without manual wiring
+- `memd` learns by winning measured experiments, not by silently changing truth
+- repeated quality improvements become cheaper and more reliable over time
+- the system can improve hot-path memory and coordination behavior overnight without unsafe drift
+- learning lives in the substrate, while promoted abstractions can be marked portable, harness-native, or adapter-required instead of being forced into false universality
+- operators can see where token budget is being burned instead of guessing after rate limits hit
 
-### Phase 7.1: Memory Quality Enforcement
+Core loop:
+
+- discover the highest-value gap from repo state, planning artifacts, eval outputs, and recent work
+- replay stable memory and coordination scenarios
+- score baseline vs candidate on correctness, quality, latency, and bloat
+- accept only bounded winning changes
+- promote only the abstractions whose strengths and weaknesses are understood per harness
+- consolidate accepted learnings back into durable project memory
+- let autodream compress accepted research outcomes into durable procedures, lessons, and future experiment seeds
+
+### v7: OSS-Ready Project Infrastructure
+
+Goal:
+
+- make the repo easy for other people to understand, branch, review, release,
+  and extend without inheriting the current work-in-progress sprawl
 
 Deliver:
 
-- stronger freshness checks
-- contradiction surfacing
-- inbox triage for contested memories
-- verification-based promotion and demotion
+- a clean branch and version-history strategy for phased work
+- contribution guidelines that reflect the actual engineering workflow
+- review, release, and changelog conventions that support outside contributors
+- repository rules for scope, file splitting, and when refactors should happen
+- documentation that separates public project guidance from internal planning
 
 Success:
 
-- memory stops drifting into stale truth
-
-### Phase 8.1: Graph and Learning
-
-Deliver:
-
-- entity and relationship layer
-- associative recall over the entity graph
-- retrieval feedback loops
-- adaptive ranking by agent and task
-
-Success:
-
-- memory becomes graph-aware, self-improving, and association-driven
-
-### Phase 8.2: Human-Like Memory Model
-
-Deliver:
-
-- attention gating and task-aware retrieval
-- salience scoring and rehearsal counters
-- stable entity identity with changing state
-- event records with time, place, and provenance
-- contextual validity windows for facts
-- object permanence across rename/move/split/merge
-- retrieval that prefers the smallest useful slice
-- contextual validity by project, host, branch, agent, and timestamp
-- preference memory and source memory
-
-Success:
-
-- agents remember like a mind, but retrieve like a machine
-- identity persists while state changes
-- context stays compact and token efficient
-
-### Phase 8.3: Brain-Inspired Memory Stack
-
-Deliver:
-
-- working-memory buffer with explicit token budget
-- episodic traces that record what happened and when
-- semantic consolidation from repeated or verified traces
-- procedural memory for runbooks and workflows
-- associative graph recall across people, files, projects, and decisions
-- self-model memory for agent preferences and style
-- social/source memory with provenance and trust weighting
-- adaptive forgetting, decay, and rehearsal loops
-- replay-based consolidation during downtime
-- pattern-completion retrieval for partial cues
-
-Success:
-
-- memory behaves like a mind while staying token budgeted
-- repeated use strengthens the right traces
-- stale or low-value traces decay away automatically
+- the project can be picked up by someone new without needing oral context
+- phased work maps cleanly to branches and versioned releases
+- contribution and review expectations are explicit enough to run in the open
+- the repo reads like a maintained open-source project, not a private scratchpad
 
 ## Immediate Next Steps
 
-1. Finish bundle-first LightRAG defaults and adapter behavior.
-2. Wire the external multimodal backend stack contract:
-   - `rag-sidecar`
-   - `MinerU`
-   - `RAGAnything`
-   - video, PDF, image, table, equation flow validation
-3. Finish agent attach automation for Claude Code, Codex, Mission Control, and OpenClaw.
-4. Tighten freshness and contradiction resolution.
-5. Add human-like entity/event memory primitives with strict token budgets.
-6. Add brain-inspired attention, salience, rehearsal, and forgetting loops.
-7. Add graph-aware memory only after the core lifecycle is stable.
+1. Add automatic short-term memory management so important state transitions get captured without transcript bloat.
+2. Keep the hot lane sharp with better replacement, cleanup, and branch/workspace-aware current-task state.
+3. Make epistemic state first-class in retrieval behavior: verified, inferred, claimed, stale, contested.
+4. Tighten native multi-agent bridges so switching clients feels like changing terminals, not losing the brain.
+5. Expand inspectability from bundle files into richer workspace and UI surfaces.
+6. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
+7. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
 
 ## Non-Goals
 

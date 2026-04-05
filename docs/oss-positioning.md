@@ -3,9 +3,11 @@
 ## Goal
 
 `memd` should be usable by anyone, not only by one homelab or one agent stack.
+It should also be easy to branch, review, and release without private context.
 
 ## Requirements
 
+- branch-first development workflow
 - standalone repo
 - cross-platform core binaries for Linux, macOS, and Windows
 - clean HTTP API
@@ -16,6 +18,7 @@
 - reusable Rust SDKs
 - a small CLI for humans and agent runners
 - examples for common agent setups
+- public release and contribution workflow that does not rely on oral context
 
 ## First Shipping Story
 

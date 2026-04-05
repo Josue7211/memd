@@ -4,6 +4,28 @@
 
 It gives AI systems one place to store, route, compact, explain, and verify memory without turning every session into a transcript dump.
 
+The direction is not just “store more memory.” `memd` is also being shaped to
+support measured self-improvement: detect quality gaps, replay real memory and
+coordination scenarios, run bounded experiments, and keep only changes that win
+against explicit gates.
+
+That loop should work together with autodream:
+
+- autoresearch finds gaps, runs bounded experiments, and records accepted wins
+- autodream consolidates those accepted learnings into durable memory and future procedure
+
+If you are using Codex or another agent day to day, `memd` should be the
+default memory substrate: retrieve working state from `memd`, inspect evidence
+with `memd explain`, and write compiled knowledge back into the workspace when
+the task is worth keeping.
+
+The shortest default loop is:
+
+- `memd resume --output .memd`
+- `memd remember --output .memd --kind <kind> --content <text>`
+- `memd handoff --output .memd --prompt`
+- read `.memd/MEMD_MEMORY.md` or `.memd/agents/CODEX_MEMORY.md`
+
 Supported platforms:
 
 - Linux
@@ -18,6 +40,7 @@ Supported platforms:
 - collapses duplicate and near-duplicate facts
 - preserves source quality and provenance
 - exposes inbox and explain views for review
+- keeps short-term and long-term memory usable across sessions
 - includes a built-in dashboard for inspection
 - keeps compaction separate from durable memory
 - supports LightRAG or another semantic backend for optional long-term retrieval
@@ -45,6 +68,12 @@ They are either:
 - External backend stack: `rag-sidecar`, `MinerU`, `RAGAnything`, `LightRAG`
 
 The core binaries are cross-platform. Linux-only deploy helpers live under `deploy/systemd/`.
+
+## Environment Facts
+
+If you are making claims about tunnels, domains, VMs, or public reachability,
+use [Infrastructure Facts](./docs/infra-facts.md) as the local truth source and
+verify locally before stating anything as true.
 
 ## Key Features
 
@@ -80,10 +109,116 @@ Request compact context:
 cargo run -p memd-client --bin memd -- context --project demo --agent codex --compact
 ```
 
+Inspect working memory and evidence:
+
+```bash
+cargo run -p memd-client --bin memd -- working --project demo --agent codex --follow
+cargo run -p memd-client --bin memd -- explain --id <uuid> --follow
+```
+
 Bootstrap a project bundle:
 
 ```bash
-cargo run -p memd-client --bin memd -- init --project demo --agent codex
+cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex
+```
+
+Resume the default memory snapshot from that bundle:
+
+```bash
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
+```
+
+This hot path stays local and bundle-backed by default so short-term memory
+resume is fast.
+
+Pull semantic fallback only when you explicitly want deeper recall:
+
+```bash
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task --semantic
+```
+
+That also refreshes:
+
+- `.memd/MEMD_MEMORY.md`
+- `.memd/agents/CODEX_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/CLAUDE_IMPORTS.md`
+- `.memd/agents/OPENCLAW_MEMORY.md`
+- `.memd/agents/OPENCODE_MEMORY.md`
+
+For Claude Code, import the generated bridge from your project `CLAUDE.md`:
+
+```md
+@.memd/agents/CLAUDE_IMPORTS.md
+```
+
+Then run `/memory` in Claude Code to confirm the memd files are loaded through
+Claude's native memory system.
+
+Persist a durable memory into the same bundle defaults:
+
+```bash
+cargo run -p memd-client --bin memd -- remember --output .memd --kind decision --content "Prefer memd resume for Codex startup."
+```
+
+Capture short-term current-task memory with hot defaults:
+
+```bash
+cargo run -p memd-client --bin memd -- checkpoint --output .memd --content "Current blocker: workspace handoff still needs better ranking."
+```
+
+`checkpoint` stores short-lived `status` memory with current-task tags and a
+default one-day TTL so short-term state is easy to keep fresh. It also refreshes
+the bundle memory files immediately after the write.
+
+Resume with a shared workspace lane:
+
+```bash
+cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex --workspace team-alpha --visibility workspace
+cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
+```
+
+Emit a compact shared handoff bundle for delegation or resume:
+
+```bash
+cargo run -p memd-client --bin memd -- handoff --output .memd --prompt
+```
+
+Keep handoff hot by default, and opt into semantic fallback only when needed:
+
+```bash
+cargo run -p memd-client --bin memd -- handoff --output .memd --prompt --semantic
+```
+
+Write that handoff into the Obsidian workspace:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian handoff --vault ~/vault --project demo --workspace team-alpha --visibility workspace --apply --open
+```
+
+Switch between clients on the same bundle with the generated scripts:
+
+```bash
+.memd/agents/codex.sh
+.memd/agents/claude-code.sh
+.memd/agents/openclaw.sh
+.memd/agents/opencode.sh
+```
+
+Or ask the CLI for the exact bundle-backed entrypoints and memory files:
+
+```bash
+cargo run -p memd-client --bin memd -- agent --output .memd --summary
+```
+
+The Claude profile now also reports the native import hint so the bundle can be
+loaded through `CLAUDE.md` instead of treating memd as an unrelated markdown
+scratch file.
+
+Switch the active bundle agent and refresh the bundle memory files in one step:
+
+```bash
+cargo run -p memd-client --bin memd -- agent --output .memd --name claude-code --apply --summary
 ```
 
 Bootstrap a project bundle with LightRAG configured:
@@ -92,10 +227,98 @@ Bootstrap a project bundle with LightRAG configured:
 cargo run -p memd-client --bin memd -- init --project demo --agent codex --rag-url http://127.0.0.1:9000
 ```
 
+When you are still building the memory loop, keep `memd` as the source of
+truth and treat LightRAG as an optional semantic backend behind the control
+plane.
+
 Check bundle health:
 
 ```bash
 cargo run -p memd-client --bin memd -- status --output .memd
+```
+
+`status` now previews the same fast local `current_task` resume lane that the
+default attach and agent launch surfaces use.
+
+Evaluate the quality of the current bundle-backed memory lane:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --summary
+```
+
+Persist the evaluation as bundle artifacts for later comparison:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --write --summary
+```
+
+Fail fast when memory quality drops below an automation gate:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-below 80
+cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-on-regression
+```
+
+Find the next highest-priority memory and coordination improvement gaps:
+
+```bash
+cargo run -p memd-client --bin memd -- gap --output .memd
+cargo run -p memd-client --bin memd -- gap --output .memd --write --summary
+```
+
+Use `--write` to persist artifacts and get a diff against the latest report:
+
+```bash
+cargo run -p memd-client --bin memd -- gap --output .memd --write --limit 12 --recent-commits 24
+```
+
+`memd gap` writes:
+
+- `.memd/gaps/latest.json`
+- `.memd/gaps/latest.md`
+- timestamped snapshots in `.memd/gaps/`
+
+`latest.md` includes candidate count, top priorities, and concrete recommendation
+steps, plus `changes` summary when a prior gap report exists.
+
+Run a bounded self-improvement loop that can apply a bounded set of actions back
+into the memory/coordination flow:
+
+```bash
+cargo run -p memd-client --bin memd -- improve --output .memd
+cargo run -p memd-client --bin memd -- improve --output .memd --apply
+cargo run -p memd-client --bin memd -- improve --output .memd --apply --max-iterations 5
+```
+
+`memd improve` writes:
+
+- `.memd/improvements/latest.json`
+- `.memd/improvements/latest.md`
+- timestamped snapshots in `.memd/improvements/`
+
+`--summary` shows a concise execution view; default output is full machine-readable
+JSON.
+
+Eval summaries and markdown snapshots now include concrete recommendations based
+on the live resume lane, not just raw findings.
+
+Dream and autodream should feed the same bundle-backed memory surfaces after
+consolidation so short-term, durable, and imported native memory stay aligned.
+
+That writes:
+
+- `.memd/evals/latest.json`
+- `.memd/evals/latest.md`
+- timestamped snapshots under `.memd/evals/`
+
+When the server is reachable, `status` also includes a lightweight resume
+preview so you can see whether the default memory lane is actually returning
+working records, inbox items, workspace lanes, and semantic hit count.
+
+Print the attach snippet that points agents at the bundle-backed resume flow:
+
+```bash
+cargo run -p memd-client --bin memd -- attach --output .memd
 ```
 
 Open the built-in dashboard:
@@ -135,7 +358,11 @@ cargo run -p memd-client --bin memd -- explain --id <uuid>
 - [Source Policy](./docs/source-policy.md)
 - [Redundancy Policy](./docs/redundancy.md)
 - [Platform Support](./docs/platforms.md)
+- [Branching Model](./docs/branching.md)
+- [Maintainer Workflow](./docs/maintainer-workflow.md)
 - [Release Process](./docs/release-process.md)
+- [Changelog](./CHANGELOG.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Hook Kit](./integrations/hooks/README.md)
 - [Hook Kit Installers](./integrations/hooks/README.md)
 - [OpenClaw Integration](./integrations/openclaw/README.md)

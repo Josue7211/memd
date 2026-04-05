@@ -63,6 +63,10 @@ Before promotion, check:
 - confidence threshold
 - redundancy key collision
 
+If the item is still useful but not yet canonical, it can stay visible in inbox or working memory with explicit policy reasons instead of being silently dropped.
+
+The same rule applies to retrieval policy: expose the visible hooks first, then learn from them later.
+
 See [Source Policy](./source-policy.md) for what counts as acceptable input in the first place.
 
 ## Dream Policy

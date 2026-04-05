@@ -6,10 +6,17 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, SourceMemoryRecord,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerClaimAcquireRequest,
+    PeerClaimRecord, PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest,
+    PeerClaimsRequest, PeerClaimsResponse, PeerCoordinationInboxRequest,
+    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+    PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest,
+    PeerTasksResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::keys::redundancy_key;
@@ -131,6 +138,64 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_memory_agent_profiles_updated_at
               ON memory_agent_profiles(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_messages (
+              id TEXT PRIMARY KEY,
+              to_session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              acknowledged_at TEXT,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_messages_session
+              ON peer_messages(to_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_messages_project_namespace
+              ON peer_messages(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_claims (
+              scope TEXT PRIMARY KEY,
+              session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              expires_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_claims_session
+              ON peer_claims(session, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_claims_project_namespace
+              ON peer_claims(project, namespace, expires_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_tasks (
+              task_id TEXT PRIMARY KEY,
+              session TEXT,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              status TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_tasks_session
+              ON peer_tasks(session, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_tasks_project_namespace
+              ON peer_tasks(project, namespace, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_coordination_receipts (
+              id TEXT PRIMARY KEY,
+              actor_session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_actor
+              ON peer_coordination_receipts(actor_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_project_namespace
+              ON peer_coordination_receipts(project, namespace, created_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -372,6 +437,10 @@ impl SqliteStore {
                         .context
                         .as_ref()
                         .and_then(|context| context.namespace.clone()),
+                    workspace: entity
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.workspace.clone()),
                     source_agent: entity
                         .context
                         .as_ref()
@@ -865,6 +934,19 @@ impl SqliteStore {
                 continue;
             }
             if request
+                .workspace
+                .as_ref()
+                .is_some_and(|value| item.workspace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .visibility
+                .is_some_and(|value| item.visibility != value)
+            {
+                continue;
+            }
+            if request
                 .source_agent
                 .as_ref()
                 .is_some_and(|value| item.source_agent.as_ref() != Some(value))
@@ -884,6 +966,8 @@ impl SqliteStore {
                 item.source_system.clone(),
                 item.project.clone(),
                 item.namespace.clone(),
+                item.workspace.clone(),
+                item.visibility,
             );
             let aggregate = grouped.entry(key).or_default();
             aggregate.observe(&item);
@@ -892,12 +976,17 @@ impl SqliteStore {
         let mut sources = grouped
             .into_iter()
             .map(
-                |((source_agent, source_system, project, namespace), aggregate)| {
+                |(
+                    (source_agent, source_system, project, namespace, workspace, visibility),
+                    aggregate,
+                )| {
                     SourceMemoryRecord {
                         source_agent,
                         source_system,
                         project,
                         namespace,
+                        workspace,
+                        visibility,
                         item_count: aggregate.item_count,
                         active_count: aggregate.active_count,
                         candidate_count: aggregate.candidate_count,
@@ -930,6 +1019,124 @@ impl SqliteStore {
         let limit = request.limit.unwrap_or(20).min(100);
         sources.truncate(limit);
         Ok(SourceMemoryResponse { sources })
+    }
+
+    pub fn workspace_memory(
+        &self,
+        request: &WorkspaceMemoryRequest,
+    ) -> anyhow::Result<WorkspaceMemoryResponse> {
+        let mut grouped: std::collections::BTreeMap<WorkspaceKey, WorkspaceAggregate> =
+            std::collections::BTreeMap::new();
+
+        for item in self.list()? {
+            if request
+                .project
+                .as_ref()
+                .is_some_and(|value| item.project.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .namespace
+                .as_ref()
+                .is_some_and(|value| item.namespace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .workspace
+                .as_ref()
+                .is_some_and(|value| item.workspace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .visibility
+                .is_some_and(|value| item.visibility != value)
+            {
+                continue;
+            }
+            if request
+                .source_agent
+                .as_ref()
+                .is_some_and(|value| item.source_agent.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .source_system
+                .as_ref()
+                .is_some_and(|value| item.source_system.as_ref() != Some(value))
+            {
+                continue;
+            }
+
+            let key = (
+                item.project.clone(),
+                item.namespace.clone(),
+                item.workspace.clone(),
+                item.visibility,
+            );
+            let aggregate = grouped.entry(key).or_default();
+            aggregate.observe(&item);
+        }
+
+        let mut workspaces = grouped
+            .into_iter()
+            .map(
+                |((project, namespace, workspace, visibility), aggregate)| WorkspaceMemoryRecord {
+                    project,
+                    namespace,
+                    workspace,
+                    visibility,
+                    item_count: aggregate.source.item_count,
+                    active_count: aggregate.source.active_count,
+                    candidate_count: aggregate.source.candidate_count,
+                    contested_count: aggregate.source.contested_count,
+                    source_lane_count: aggregate.source_lanes.len(),
+                    avg_confidence: aggregate.source.avg_confidence(),
+                    trust_score: source_trust_score(
+                        aggregate.source.item_count,
+                        aggregate.source.active_count,
+                        aggregate.source.candidate_count,
+                        aggregate.source.derived_count,
+                        aggregate.source.synthetic_count,
+                        aggregate.source.contested_count,
+                        aggregate.source.avg_confidence(),
+                    ),
+                    last_seen_at: aggregate.source.last_seen_at,
+                    tags: aggregate.source.tags(6),
+                },
+            )
+            .collect::<Vec<_>>();
+
+        workspaces.sort_by(|a, b| {
+            b.trust_score
+                .total_cmp(&a.trust_score)
+                .then_with(|| b.item_count.cmp(&a.item_count))
+                .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+                .then_with(|| a.workspace.cmp(&b.workspace))
+        });
+        let limit = request.limit.unwrap_or(20).min(100);
+        workspaces.truncate(limit);
+        Ok(WorkspaceMemoryResponse { workspaces })
+    }
+
+    pub fn trust_score_for_item(&self, item: &MemoryItem) -> anyhow::Result<f32> {
+        let response = self.source_memory(&SourceMemoryRequest {
+            project: item.project.clone(),
+            namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
+            visibility: Some(item.visibility),
+            source_agent: item.source_agent.clone(),
+            source_system: item.source_system.clone(),
+            limit: Some(1),
+        })?;
+        Ok(response
+            .sources
+            .first()
+            .map(|source| source.trust_score)
+            .unwrap_or(0.5))
     }
 
     pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
@@ -1098,6 +1305,7 @@ impl SqliteStore {
         occurred_at: chrono::DateTime<chrono::Utc>,
         project: Option<String>,
         namespace: Option<String>,
+        workspace: Option<String>,
         source_agent: Option<String>,
         source_system: Option<String>,
         source_path: Option<String>,
@@ -1119,6 +1327,7 @@ impl SqliteStore {
             salience_score,
             project,
             namespace,
+            workspace,
             source_agent,
             source_system,
             source_path,
@@ -1181,6 +1390,778 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
+    pub fn send_peer_message(
+        &self,
+        request: &PeerMessageSendRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let message = PeerMessageRecord {
+            id: Uuid::new_v4().to_string(),
+            kind: request.kind.trim().to_string(),
+            from_session: request.from_session.trim().to_string(),
+            from_agent: request
+                .from_agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            to_session: request.to_session.trim().to_string(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            content: request.content.trim().to_string(),
+            created_at: chrono::Utc::now(),
+            acknowledged_at: None,
+        };
+        let payload_json =
+            serde_json::to_string(&message).context("serialize peer message payload")?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO peer_messages (
+              id, to_session, project, namespace, workspace, created_at, acknowledged_at, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                &message.id,
+                &message.to_session,
+                &message.project,
+                &message.namespace,
+                &message.workspace,
+                message.created_at.to_rfc3339(),
+                Option::<String>::None,
+                payload_json,
+            ],
+        )
+        .context("insert peer message")?;
+
+        Ok(PeerMessagesResponse {
+            messages: vec![message],
+        })
+    }
+
+    pub fn peer_inbox(
+        &self,
+        request: &PeerMessageInboxRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let include_acknowledged = request.include_acknowledged.unwrap_or(false);
+        let limit = request.limit.unwrap_or(64).clamp(1, 512) as i64;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_messages
+                WHERE to_session = ?1
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 1 OR acknowledged_at IS NULL)
+                ORDER BY created_at DESC
+                LIMIT ?6
+                "#,
+            )
+            .context("prepare peer inbox query")?;
+
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.trim(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if include_acknowledged { 1 } else { 0 },
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer inbox")?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer inbox row")?;
+            messages.push(
+                serde_json::from_str::<PeerMessageRecord>(&payload)
+                    .context("deserialize peer inbox payload")?,
+            );
+        }
+
+        Ok(PeerMessagesResponse { messages })
+    }
+
+    pub fn ack_peer_message(
+        &self,
+        request: &PeerMessageAckRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_messages WHERE id = ?1 AND to_session = ?2",
+                params![request.id.trim(), request.session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer message for ack")?;
+
+        let Some(payload) = payload else {
+            return Ok(PeerMessagesResponse {
+                messages: Vec::new(),
+            });
+        };
+
+        let mut message: PeerMessageRecord =
+            serde_json::from_str(&payload).context("deserialize peer message for ack")?;
+        message.acknowledged_at = Some(chrono::Utc::now());
+        let updated_payload =
+            serde_json::to_string(&message).context("serialize acked peer message")?;
+
+        conn.execute(
+            "UPDATE peer_messages SET acknowledged_at = ?2, payload_json = ?3 WHERE id = ?1",
+            params![
+                &message.id,
+                message
+                    .acknowledged_at
+                    .as_ref()
+                    .map(chrono::DateTime::to_rfc3339),
+                updated_payload,
+            ],
+        )
+        .context("ack peer message")?;
+
+        Ok(PeerMessagesResponse {
+            messages: vec![message],
+        })
+    }
+
+    pub fn acquire_peer_claim(
+        &self,
+        request: &PeerClaimAcquireRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let expires_at =
+            chrono::Utc::now() + chrono::TimeDelta::seconds(request.ttl_seconds.max(1) as i64);
+        let claim = PeerClaimRecord {
+            scope: request.scope.trim().to_string(),
+            session: request.session.trim().to_string(),
+            agent: request.agent.clone(),
+            effective_agent: request.effective_agent.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            host: request.host.clone(),
+            pid: request.pid,
+            acquired_at: chrono::Utc::now(),
+            expires_at,
+        };
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let existing = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1",
+                params![claim.scope.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch existing peer claim")?;
+        if let Some(payload) = existing {
+            let existing_claim: PeerClaimRecord =
+                serde_json::from_str(&payload).context("deserialize existing peer claim")?;
+            if existing_claim.session != claim.session
+                && existing_claim.expires_at > chrono::Utc::now()
+            {
+                anyhow::bail!(
+                    "scope '{}' already claimed by {}",
+                    claim.scope,
+                    existing_claim
+                        .effective_agent
+                        .as_deref()
+                        .unwrap_or(existing_claim.session.as_str())
+                );
+            }
+        }
+
+        let payload_json = serde_json::to_string(&claim).context("serialize peer claim")?;
+        conn.execute(
+            r#"
+            INSERT INTO peer_claims (scope, session, project, namespace, workspace, expires_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(scope) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              expires_at = excluded.expires_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                claim.scope.as_str(),
+                claim.session.as_str(),
+                &claim.project,
+                &claim.namespace,
+                &claim.workspace,
+                claim.expires_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert peer claim")?;
+
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
+    }
+
+    pub fn release_peer_claim(
+        &self,
+        request: &PeerClaimReleaseRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for release")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+        let claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for release")?;
+        conn.execute(
+            "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+            params![request.scope.trim(), request.session.trim()],
+        )
+        .context("release peer claim")?;
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
+    }
+
+    pub fn transfer_peer_claim(
+        &self,
+        request: &PeerClaimTransferRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for transfer")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+
+        let mut claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for transfer")?;
+        claim.session = request.to_session.trim().to_string();
+        claim.agent = request.to_agent.clone();
+        claim.effective_agent = request.to_effective_agent.clone();
+        let updated_payload =
+            serde_json::to_string(&claim).context("serialize transferred peer claim")?;
+        conn.execute(
+            r#"
+            UPDATE peer_claims
+            SET session = ?2, payload_json = ?3
+            WHERE scope = ?1 AND session = ?4
+            "#,
+            params![
+                request.scope.trim(),
+                claim.session.as_str(),
+                updated_payload,
+                request.from_session.trim(),
+            ],
+        )
+        .context("transfer peer claim")?;
+        Ok(PeerClaimsResponse {
+            claims: vec![claim],
+        })
+    }
+
+    pub fn recover_peer_claim(
+        &self,
+        request: &PeerClaimRecoverRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for recovery")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+
+        let mut claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for recovery")?;
+
+        if let Some(to_session) = request
+            .to_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            claim.session = to_session.to_string();
+            claim.agent = request.to_agent.clone();
+            claim.effective_agent = request.to_effective_agent.clone();
+            let updated_payload =
+                serde_json::to_string(&claim).context("serialize recovered peer claim")?;
+            conn.execute(
+                r#"
+                UPDATE peer_claims
+                SET session = ?2, payload_json = ?3
+                WHERE scope = ?1 AND session = ?4
+                "#,
+                params![
+                    request.scope.trim(),
+                    claim.session.as_str(),
+                    updated_payload,
+                    request.from_session.trim(),
+                ],
+            )
+            .context("recover peer claim into new owner")?;
+            Ok(PeerClaimsResponse {
+                claims: vec![claim],
+            })
+        } else {
+            conn.execute(
+                "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+            )
+            .context("delete peer claim during recovery")?;
+            Ok(PeerClaimsResponse {
+                claims: vec![claim],
+            })
+        }
+    }
+
+    pub fn peer_claims(&self, request: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let limit = request.limit.unwrap_or(256).clamp(1, 1024) as i64;
+        let active_only = request.active_only.unwrap_or(true);
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_claims
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 0 OR expires_at > ?6)
+                ORDER BY expires_at DESC
+                LIMIT ?7
+                "#,
+            )
+            .context("prepare peer claims query")?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if active_only { 1 } else { 0 },
+                    now,
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer claims")?;
+
+        let mut claims = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer claim row")?;
+            claims.push(
+                serde_json::from_str::<PeerClaimRecord>(&payload)
+                    .context("deserialize peer claim payload")?,
+            );
+        }
+        Ok(PeerClaimsResponse { claims })
+    }
+
+    pub fn upsert_peer_task(
+        &self,
+        request: &PeerTaskUpsertRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let existing = conn
+            .query_row(
+                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                params![request.task_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch existing peer task")?;
+
+        let now = chrono::Utc::now();
+        let mut task = if let Some(payload) = existing {
+            let mut task: PeerTaskRecord =
+                serde_json::from_str(&payload).context("deserialize existing peer task")?;
+            task.title = request.title.trim().to_string();
+            task.description = request
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            if let Some(mode) = request.coordination_mode.as_deref() {
+                let trimmed = mode.trim();
+                if !trimmed.is_empty() {
+                    task.coordination_mode = trimmed.to_string();
+                }
+            }
+            if let Some(status) = request.status.as_deref() {
+                let trimmed = status.trim();
+                if !trimmed.is_empty() {
+                    task.status = trimmed.to_string();
+                }
+            }
+            task.session = request.session.clone().or(task.session);
+            task.agent = request.agent.clone().or(task.agent);
+            task.effective_agent = request.effective_agent.clone().or(task.effective_agent);
+            task.project = request.project.clone().or(task.project);
+            task.namespace = request.namespace.clone().or(task.namespace);
+            task.workspace = request.workspace.clone().or(task.workspace);
+            if !request.claim_scopes.is_empty() {
+                task.claim_scopes = request
+                    .claim_scopes
+                    .iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect();
+            }
+            if let Some(value) = request.help_requested {
+                task.help_requested = value;
+            }
+            if let Some(value) = request.review_requested {
+                task.review_requested = value;
+            }
+            task.updated_at = now;
+            task
+        } else {
+            PeerTaskRecord {
+                task_id: request.task_id.trim().to_string(),
+                title: request.title.trim().to_string(),
+                description: request
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
+                status: request
+                    .status
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("active")
+                    .to_string(),
+                coordination_mode: request
+                    .coordination_mode
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("exclusive_write")
+                    .to_string(),
+                session: request.session.clone(),
+                agent: request.agent.clone(),
+                effective_agent: request.effective_agent.clone(),
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                claim_scopes: request
+                    .claim_scopes
+                    .iter()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect(),
+                help_requested: request.help_requested.unwrap_or(false),
+                review_requested: request.review_requested.unwrap_or(false),
+                created_at: now,
+                updated_at: now,
+            }
+        };
+
+        if task.status.trim().is_empty() {
+            task.status = "active".to_string();
+        }
+
+        let payload_json = serde_json::to_string(&task).context("serialize peer task")?;
+        conn.execute(
+            r#"
+            INSERT INTO peer_tasks (task_id, session, project, namespace, workspace, status, updated_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(task_id) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              status = excluded.status,
+              updated_at = excluded.updated_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                task.task_id.as_str(),
+                &task.session,
+                &task.project,
+                &task.namespace,
+                &task.workspace,
+                task.status.as_str(),
+                task.updated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert peer task")?;
+
+        Ok(PeerTasksResponse { tasks: vec![task] })
+    }
+
+    pub fn assign_peer_task(
+        &self,
+        request: &PeerTaskAssignRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                params![request.task_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer task for assignment")?;
+        let Some(payload) = payload else {
+            return Ok(PeerTasksResponse { tasks: Vec::new() });
+        };
+
+        let mut task: PeerTaskRecord =
+            serde_json::from_str(&payload).context("deserialize peer task for assignment")?;
+        if let Some(from_session) = request
+            .from_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if task.session.as_deref() != Some(from_session) {
+                anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
+            }
+        }
+        task.session = Some(request.to_session.trim().to_string());
+        task.agent = request.to_agent.clone();
+        task.effective_agent = request.to_effective_agent.clone();
+        task.status = "assigned".to_string();
+        task.updated_at = chrono::Utc::now();
+        let payload_json = serde_json::to_string(&task).context("serialize assigned peer task")?;
+        conn.execute(
+            r#"
+            UPDATE peer_tasks
+            SET session = ?2, status = ?3, updated_at = ?4, payload_json = ?5
+            WHERE task_id = ?1
+            "#,
+            params![
+                task.task_id.as_str(),
+                &task.session,
+                task.status.as_str(),
+                task.updated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("assign peer task")?;
+        Ok(PeerTasksResponse { tasks: vec![task] })
+    }
+
+    pub fn peer_tasks(&self, request: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let active_only = request.active_only.unwrap_or(true);
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_tasks
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 0 OR status NOT IN ('done', 'closed'))
+                ORDER BY updated_at DESC
+                LIMIT ?6
+                "#,
+            )
+            .context("prepare peer tasks query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if active_only { 1 } else { 0 },
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer tasks")?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer task row")?;
+            tasks.push(
+                serde_json::from_str::<PeerTaskRecord>(&payload)
+                    .context("deserialize peer task payload")?,
+            );
+        }
+        Ok(PeerTasksResponse { tasks })
+    }
+
+    pub fn peer_coordination_inbox(
+        &self,
+        request: &PeerCoordinationInboxRequest,
+    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        let messages = self
+            .peer_inbox(&PeerMessageInboxRequest {
+                session: request.session.clone(),
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                include_acknowledged: Some(false),
+                limit: request.limit,
+            })?
+            .messages;
+
+        let tasks = self
+            .peer_tasks(&PeerTasksRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                active_only: Some(true),
+                limit: request.limit,
+            })?
+            .tasks;
+
+        let mut owned_tasks = Vec::new();
+        let mut help_tasks = Vec::new();
+        let mut review_tasks = Vec::new();
+        for task in tasks {
+            if task.session.as_deref() == Some(request.session.as_str()) {
+                owned_tasks.push(task.clone());
+            }
+            if task.help_requested {
+                help_tasks.push(task.clone());
+            }
+            if task.review_requested {
+                review_tasks.push(task);
+            }
+        }
+
+        Ok(PeerCoordinationInboxResponse {
+            messages,
+            owned_tasks,
+            help_tasks,
+            review_tasks,
+        })
+    }
+
+    pub fn record_peer_coordination_receipt(
+        &self,
+        request: &PeerCoordinationReceiptRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        let receipt = PeerCoordinationReceiptRecord {
+            id: Uuid::new_v4().to_string(),
+            kind: request.kind.trim().to_string(),
+            actor_session: request.actor_session.trim().to_string(),
+            actor_agent: request.actor_agent.clone(),
+            target_session: request.target_session.clone(),
+            task_id: request.task_id.clone(),
+            scope: request.scope.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            summary: request.summary.trim().to_string(),
+            created_at: chrono::Utc::now(),
+        };
+        let payload_json =
+            serde_json::to_string(&receipt).context("serialize coordination receipt")?;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO peer_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![
+                receipt.id.as_str(),
+                receipt.actor_session.as_str(),
+                &receipt.project,
+                &receipt.namespace,
+                &receipt.workspace,
+                receipt.created_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("insert coordination receipt")?;
+        Ok(PeerCoordinationReceiptsResponse {
+            receipts: vec![receipt],
+        })
+    }
+
+    pub fn peer_coordination_receipts(
+        &self,
+        request: &PeerCoordinationReceiptsRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_coordination_receipts
+                WHERE (?1 IS NULL OR actor_session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                ORDER BY created_at DESC
+                LIMIT ?5
+                "#,
+            )
+            .context("prepare coordination receipts query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query coordination receipts")?;
+        let mut receipts = Vec::new();
+        for row in rows {
+            let payload = row.context("read coordination receipt row")?;
+            receipts.push(
+                serde_json::from_str::<PeerCoordinationReceiptRecord>(&payload)
+                    .context("deserialize coordination receipt payload")?,
+            );
+        }
+        Ok(PeerCoordinationReceiptsResponse { receipts })
+    }
+
     pub fn find_duplicate(
         &self,
         redundancy_key: &str,
@@ -1190,6 +2171,16 @@ impl SqliteStore {
     ) -> anyhow::Result<Option<DuplicateMatch>> {
         self.find_by_any_key(redundancy_key, canonical_key, stage)
             .map(|found| found.filter(|duplicate| duplicate.id != exclude_id))
+    }
+
+    fn prune_expired_peer_claims(&self) -> anyhow::Result<()> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            "DELETE FROM peer_claims WHERE expires_at <= ?1",
+            params![chrono::Utc::now().to_rfc3339()],
+        )
+        .context("prune expired peer claims")?;
+        Ok(())
     }
 
     fn find_by_any_key(
@@ -1358,6 +2349,7 @@ fn new_entity_record(item: &MemoryItem) -> MemoryEntityRecord {
             at: Some(item.updated_at),
             project: item.project.clone(),
             namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
             repo: item.source_system.clone(),
             host: None,
             branch: None,
@@ -1402,6 +2394,10 @@ fn update_entity_record(mut record: MemoryEntityRecord, item: &MemoryItem) -> Me
         at: Some(item.updated_at),
         project: item.project.clone().or(previous_project),
         namespace: item.namespace.clone().or(previous_namespace),
+        workspace: item
+            .workspace
+            .clone()
+            .or(previous.and_then(|context| context.workspace)),
         repo: item.source_system.clone().or(previous_repo),
         host: previous_host,
         branch: previous_branch,
@@ -1458,6 +2454,15 @@ type SourceKey = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    memd_schema::MemoryVisibility,
+);
+
+type WorkspaceKey = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    memd_schema::MemoryVisibility,
 );
 
 #[derive(Default)]
@@ -1516,6 +2521,20 @@ impl SourceAggregate {
             .collect::<Vec<_>>();
         tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         tags.into_iter().take(limit).map(|(tag, _)| tag).collect()
+    }
+}
+
+#[derive(Default)]
+struct WorkspaceAggregate {
+    source: SourceAggregate,
+    source_lanes: std::collections::BTreeSet<(Option<String>, Option<String>)>,
+}
+
+impl WorkspaceAggregate {
+    fn observe(&mut self, item: &MemoryItem) {
+        self.source.observe(item);
+        self.source_lanes
+            .insert((item.source_agent.clone(), item.source_system.clone()));
     }
 }
 
@@ -1834,6 +2853,7 @@ mod tests {
                 at: Some(chrono::Utc::now()),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
                 repo: Some("memd".to_string()),
                 host: Some("laptop".to_string()),
                 branch: Some("main".to_string()),

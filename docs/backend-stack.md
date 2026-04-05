@@ -41,6 +41,7 @@ Acceptance criteria:
 
 - accepts uploads and retrieval requests over HTTP
 - preserves chunk/source metadata through the pipeline
+- preserves MIME type, byte size, source path, and tags through ingestion
 - routes requests to text, multimodal, or graph retrieval modes
 - supports video-aware retrieval modes when video inputs are present
 - returns a health check that includes backend connectivity
@@ -62,6 +63,7 @@ Acceptance criteria:
 - expands retrieval across text, video, image, table, and equation content
 - supports multimodal query routing
 - preserves links between extracted source fragments
+- keeps MIME/size metadata available for downstream extraction and indexing
 - can fall back to text-only retrieval when no multimodal signals exist
 
 ### `LightRAG`

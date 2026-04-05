@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
     time::SystemTime,
 };
 
@@ -9,10 +10,12 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use memd_schema::{
     CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, ExplainMemoryResponse,
-    MemoryContextFrame, MemoryKind, MemoryScope, SourceQuality,
+    MemoryContextFrame, MemoryKind, MemoryScope, MemoryVisibility, SearchMemoryResponse,
+    SourceMemoryResponse, SourceQuality,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use url::form_urlencoded::byte_serialize;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -24,6 +27,8 @@ pub struct ObsidianVaultScan {
     pub vault: PathBuf,
     pub project: Option<String>,
     pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: MemoryVisibility,
     pub note_count: usize,
     pub sensitive_count: usize,
     pub skipped_count: usize,
@@ -119,6 +124,8 @@ pub fn scan_vault(
     vault: impl AsRef<Path>,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     max_notes: Option<usize>,
     include_attachments: bool,
     max_attachments: Option<usize>,
@@ -237,6 +244,8 @@ pub fn scan_vault(
         vault: vault.to_path_buf(),
         project,
         namespace,
+        workspace,
+        visibility: visibility.unwrap_or_default(),
         note_count: notes.len(),
         sensitive_count,
         skipped_count,
@@ -305,6 +314,8 @@ pub fn build_import_preview(
             note,
             scan.project.clone(),
             scan.namespace.clone(),
+            scan.workspace.clone(),
+            Some(scan.visibility),
             scan.vault.clone(),
             entry.and_then(|entry| entry.item_id),
         ));
@@ -410,6 +421,8 @@ pub fn build_attachment_request(
     attachment: &ObsidianAttachment,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     vault: PathBuf,
     linked_note: Option<&ObsidianNote>,
     sidecar_track_id: Option<Uuid>,
@@ -461,6 +474,9 @@ pub fn build_attachment_request(
         scope,
         project,
         namespace,
+        workspace,
+        visibility,
+        belief_branch: None,
         source_agent: Some("obsidian".to_string()),
         source_system: Some("obsidian".to_string()),
         source_path: Some(source_path),
@@ -482,7 +498,133 @@ pub fn default_writeback_path(vault: &Path, explain: &ExplainMemoryResponse) -> 
         .join(format!("{kind}-{short_id}.md"))
 }
 
+pub fn default_compiled_note_path(vault: &Path, query: &str) -> PathBuf {
+    vault
+        .join(".memd")
+        .join("compiled")
+        .join(format!("{}.md", slugify(query)))
+}
+
+pub fn default_compiled_memory_path(vault: &Path, explain: &ExplainMemoryResponse) -> PathBuf {
+    let base = explain
+        .item
+        .tags
+        .first()
+        .cloned()
+        .unwrap_or_else(|| format!("{:?}", explain.item.kind).to_lowercase());
+    let slug = slugify(&format!("{base}-{}", short_uuid(explain.item.id)));
+    vault
+        .join(".memd")
+        .join("compiled")
+        .join("memory")
+        .join(format!("{slug}.md"))
+}
+
+pub fn default_compiled_index_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("compiled").join("INDEX.md")
+}
+
+pub fn default_handoff_path(vault: &Path, snapshot: &crate::ResumeSnapshot) -> PathBuf {
+    let base = snapshot
+        .workspace
+        .clone()
+        .or_else(|| snapshot.project.clone())
+        .unwrap_or_else(|| "shared-handoff".to_string());
+    let slug = slugify(&format!("{base}-{}", Utc::now().format("%Y%m%d-%H%M%S")));
+    vault
+        .join(".memd")
+        .join("handoffs")
+        .join(format!("{slug}.md"))
+}
+
+pub fn resolve_open_path(vault: &Path, target: &Path) -> PathBuf {
+    if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        vault.join(target)
+    }
+}
+
+pub fn build_open_uri(path: &Path, pane_type: Option<&str>) -> anyhow::Result<String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("read current directory for obsidian uri")?
+            .join(path)
+    };
+    let mut uri = format!(
+        "obsidian://open?path={}",
+        encode_uri_component(&absolute.to_string_lossy())
+    );
+    if let Some(pane_type) = pane_type {
+        let normalized = pane_type.trim();
+        if !normalized.is_empty() {
+            uri.push_str("&paneType=");
+            uri.push_str(&encode_uri_component(normalized));
+        }
+    }
+    Ok(uri)
+}
+
+fn encode_uri_component(value: &str) -> String {
+    byte_serialize(value.as_bytes()).collect()
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in value.trim().chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            slug.push(normalized);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+pub fn open_uri(uri: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(uri);
+        command
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(uri);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", uri]);
+        command
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        anyhow::bail!("opening Obsidian URIs is not supported on this platform");
+    }
+
+    let status = command
+        .status()
+        .with_context(|| format!("launch Obsidian URI {uri}"))?;
+    if !status.success() {
+        anyhow::bail!("Obsidian URI launcher exited with status {status}");
+    }
+    Ok(())
+}
+
 pub fn build_writeback_markdown(
+    vault: &Path,
     explain: &ExplainMemoryResponse,
     entity: Option<&memd_schema::MemoryEntityRecord>,
 ) -> (String, String) {
@@ -505,6 +647,13 @@ pub fn build_writeback_markdown(
     if let Some(namespace) = explain.item.namespace.as_deref() {
         markdown.push_str(&format!("namespace: {}\n", namespace));
     }
+    if let Some(workspace) = explain.item.workspace.as_deref() {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    markdown.push_str(&format!(
+        "visibility: {}\n",
+        format_visibility(explain.item.visibility)
+    ));
     if let Some(source_system) = explain.item.source_system.as_deref() {
         markdown.push_str(&format!("source_system: {}\n", source_system));
     }
@@ -528,9 +677,31 @@ pub fn build_writeback_markdown(
     markdown.push_str(&format!("# {}\n\n", title));
     markdown.push_str("## Summary\n\n");
     markdown.push_str(&explain.item.content);
+    if let Some(source_link) = explain
+        .item
+        .source_path
+        .as_deref()
+        .and_then(|path| source_wikilink_for_path(vault, Path::new(path)))
+    {
+        markdown.push_str("\n\n## Source Note\n\n");
+        markdown.push_str(&format!("- {}\n", source_link));
+    }
     markdown.push_str("\n\n## Why This Exists\n\n");
     for reason in &explain.reasons {
         markdown.push_str(&format!("- {}\n", reason));
+    }
+    markdown.push_str(&format!(
+        "- visibility: {}\n",
+        format_visibility(explain.item.visibility)
+    ));
+    if let Some(workspace) = explain.item.workspace.as_deref() {
+        markdown.push_str(&format!("- workspace: {}\n", workspace));
+    }
+    if !explain.policy_hooks.is_empty() {
+        markdown.push_str("\n## Policy Hooks\n\n");
+        for hook in &explain.policy_hooks {
+            markdown.push_str(&format!("- {}\n", hook));
+        }
     }
     if let Some(entity) = entity {
         markdown.push_str("\n## Entity\n\n");
@@ -551,13 +722,433 @@ pub fn build_writeback_markdown(
             ));
         }
     }
+    if !explain.sources.is_empty() {
+        markdown.push_str("\n## Source Lanes\n\n");
+        for source in explain.sources.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {} / {} | workspace {} | visibility {} | trust {:.2} | avg confidence {:.2} | items {}\n",
+                source.source_agent.as_deref().unwrap_or("none"),
+                source.source_system.as_deref().unwrap_or("none"),
+                source.workspace.as_deref().unwrap_or("none"),
+                format_visibility(source.visibility),
+                source.trust_score,
+                source.avg_confidence,
+                source.item_count
+            ));
+        }
+    }
+    if !explain.branch_siblings.is_empty() {
+        markdown.push_str("\n## Sibling Branches\n\n");
+        for sibling in explain.branch_siblings.iter().take(5) {
+            markdown.push_str(&format!(
+                "- {} | {} | confidence {:.2} | status {:?} | {}\n",
+                sibling.belief_branch.as_deref().unwrap_or("none"),
+                sibling.id,
+                sibling.confidence,
+                sibling.status,
+                if sibling.preferred {
+                    "preferred"
+                } else {
+                    "candidate"
+                }
+            ));
+        }
+    }
+    if !explain.rehydration.is_empty() {
+        markdown.push_str("\n## Rehydration Lane\n\n");
+        for artifact in explain.rehydration.iter().take(8) {
+            markdown.push_str(&format!(
+                "- **{}** {}: {}\n",
+                artifact.kind, artifact.label, artifact.summary
+            ));
+            if let Some(reason) = artifact.reason.as_deref() {
+                markdown.push_str(&format!("  - reason: {}\n", reason));
+            }
+            if artifact.source_path.is_some()
+                || artifact.source_agent.is_some()
+                || artifact.source_system.is_some()
+            {
+                markdown.push_str("  - source: ");
+                markdown.push_str(artifact.source_agent.as_deref().unwrap_or("none"));
+                markdown.push_str(" / ");
+                markdown.push_str(artifact.source_system.as_deref().unwrap_or("none"));
+                if let Some(path) = artifact.source_path.as_deref() {
+                    markdown.push_str(" / ");
+                    markdown.push_str(path);
+                }
+                markdown.push('\n');
+            }
+            if let Some(path) = artifact.source_path.as_deref() {
+                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
+                    markdown.push_str(&format!("  - wiki: {}\n", link));
+                }
+            }
+        }
+    }
     (title, markdown)
+}
+
+pub fn build_compiled_note_markdown(
+    vault: &Path,
+    query: &str,
+    response: &SearchMemoryResponse,
+    semantic: Option<&memd_rag::RagRetrieveResponse>,
+) -> (String, String) {
+    let title = query.trim().to_string();
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str(&format!("route: {:?}\n", response.route).to_lowercase());
+    markdown.push_str(&format!("intent: {:?}\n", response.intent).to_lowercase());
+    markdown.push_str(&format!("items: {}\n", response.items.len()));
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Query\n\n");
+    markdown.push_str(query);
+    markdown.push_str("\n\n## Matching Memory\n\n");
+    for item in response.items.iter().take(16) {
+        markdown.push_str(&format!(
+            "### {} `{}`\n\n",
+            item.tags
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("{:?}", item.kind).to_lowercase()),
+            item.id
+        ));
+        markdown.push_str(
+            &format!(
+                "- kind: {:?}\n- scope: {:?}\n- status: {:?}\n- confidence: {:.2}\n",
+                item.kind, item.scope, item.status, item.confidence
+            )
+            .to_lowercase(),
+        );
+        if let Some(project) = item.project.as_deref() {
+            markdown.push_str(&format!("- project: {}\n", project));
+        }
+        if let Some(namespace) = item.namespace.as_deref() {
+            markdown.push_str(&format!("- namespace: {}\n", namespace));
+        }
+        if let Some(workspace) = item.workspace.as_deref() {
+            markdown.push_str(&format!("- workspace: {}\n", workspace));
+        }
+        markdown.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(item.visibility)
+        ));
+        if let Some(branch) = item.belief_branch.as_deref() {
+            markdown.push_str(&format!("- belief_branch: {}\n", branch));
+        }
+        if let Some(source_path) = item.source_path.as_deref() {
+            markdown.push_str(&format!("- source_path: {}\n", source_path));
+            if let Some(link) = source_wikilink_for_path(vault, Path::new(source_path)) {
+                markdown.push_str(&format!("- source_note: {}\n", link));
+            }
+        }
+        markdown.push('\n');
+        markdown.push_str(&item.content);
+        markdown.push_str("\n\n");
+    }
+    if let Some(semantic) = semantic.filter(|semantic| !semantic.items.is_empty()) {
+        markdown.push_str("## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {}{}\n",
+                compact_markdown_text(&item.content, 220),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_markdown_text(source, 64)))
+                    .unwrap_or_default()
+            ));
+            markdown.push_str(&format!("  - score: {:.2}\n", item.score));
+        }
+        markdown.push('\n');
+    }
+    (title, markdown)
+}
+
+pub fn build_compiled_memory_markdown(
+    vault: &Path,
+    explain: &ExplainMemoryResponse,
+) -> (String, String) {
+    let title = format!(
+        "{} {}",
+        explain
+            .item
+            .tags
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("{:?}", explain.item.kind).to_lowercase()),
+        short_uuid(explain.item.id)
+    );
+    let (_, body) = build_writeback_markdown(vault, explain, explain.entity.as_ref());
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str("compiled_from: explain\n");
+    markdown.push_str(&format!("memory_id: {}\n", explain.item.id));
+    markdown.push_str("---\n\n");
+    markdown.push_str("# Compiled Memory Page\n\n");
+    markdown.push_str(&format!(
+        "- memory: `{}`\n- branch: {}\n- visibility: {}\n- workspace: {}\n- confidence: {:.2}\n- rehydration: {}\n\n",
+        explain.item.id,
+        explain.item.belief_branch.as_deref().unwrap_or("none"),
+        format_visibility(explain.item.visibility),
+        explain.item.workspace.as_deref().unwrap_or("none"),
+        explain.item.confidence,
+        explain.rehydration.len()
+    ));
+    markdown.push_str(&body);
+    (title, markdown)
+}
+
+pub fn build_compiled_index_markdown(
+    existing: Option<&str>,
+    entry_kind: &str,
+    title: &str,
+    note_path: &Path,
+    item_count: usize,
+) -> String {
+    let note_title = note_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(title);
+    let entry = format!(
+        "- [[{}]] | {}: {} | items: {}",
+        note_title, entry_kind, title, item_count
+    );
+    let mut entries = existing
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.starts_with("- [["))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.retain(|line| !line.contains(&format!("[[{note_title}]]")));
+    entries.push(entry);
+    entries.sort();
+
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str("title: Compiled Wiki Index\n");
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    markdown.push_str("---\n\n");
+    markdown.push_str("# Compiled Wiki Index\n\n");
+    markdown.push_str("Generated pages built from `memd` search and explain flows.\n\n");
+    for entry in entries {
+        markdown.push_str(&entry);
+        markdown.push('\n');
+    }
+    markdown
+}
+
+pub fn build_handoff_markdown(
+    vault: &Path,
+    snapshot: &crate::ResumeSnapshot,
+    sources: &SourceMemoryResponse,
+) -> (String, String) {
+    let title = format!(
+        "Handoff {} {}",
+        snapshot.workspace.as_deref().unwrap_or("shared"),
+        Utc::now().format("%Y-%m-%d %H:%M")
+    );
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    if let Some(project) = snapshot.project.as_deref() {
+        markdown.push_str(&format!("project: {}\n", project));
+    }
+    if let Some(namespace) = snapshot.namespace.as_deref() {
+        markdown.push_str(&format!("namespace: {}\n", namespace));
+    }
+    if let Some(workspace) = snapshot.workspace.as_deref() {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = snapshot.visibility.as_deref() {
+        markdown.push_str(&format!("visibility: {}\n", visibility));
+    }
+    markdown.push_str(&format!("route: {}\n", snapshot.route));
+    markdown.push_str(&format!("intent: {}\n", snapshot.intent));
+    markdown.push_str(&format!(
+        "working_items: {}\n",
+        snapshot.working.records.len()
+    ));
+    markdown.push_str(&format!(
+        "rehydration_items: {}\n",
+        snapshot.working.rehydration_queue.len()
+    ));
+    markdown.push_str(&format!("inbox_items: {}\n", snapshot.inbox.items.len()));
+    markdown.push_str(&format!(
+        "workspace_lanes: {}\n",
+        snapshot.workspaces.workspaces.len()
+    ));
+    markdown.push_str(&format!(
+        "semantic_hits: {}\n",
+        snapshot
+            .semantic
+            .as_ref()
+            .map(|semantic| semantic.items.len())
+            .unwrap_or(0)
+    ));
+    markdown.push_str(&format!("source_lanes: {}\n", sources.sources.len()));
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Resume Frame\n\n");
+    markdown.push_str(&format!(
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        snapshot.route,
+        snapshot.intent
+    ));
+
+    markdown.push_str("\n## Working Memory\n\n");
+    if snapshot.working.records.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for record in snapshot.working.records.iter().take(10) {
+            markdown.push_str(&format!("- {}\n", record.record));
+        }
+    }
+
+    if !snapshot.working.rehydration_queue.is_empty() {
+        markdown.push_str("\n## Rehydration Queue\n\n");
+        for artifact in snapshot.working.rehydration_queue.iter().take(8) {
+            markdown.push_str(&format!(
+                "- **{}** {}: {}\n",
+                artifact.kind, artifact.label, artifact.summary
+            ));
+            if let Some(path) = artifact.source_path.as_deref() {
+                markdown.push_str(&format!("  - source_path: {}\n", path));
+                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
+                    markdown.push_str(&format!("  - source_note: {}\n", link));
+                }
+            }
+            if let Some(reason) = artifact.reason.as_deref() {
+                markdown.push_str(&format!("  - reason: {}\n", reason));
+            }
+        }
+    }
+
+    if !snapshot.inbox.items.is_empty() {
+        markdown.push_str("\n## Inbox Pressure\n\n");
+        for item in snapshot.inbox.items.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {:?} {:?} | confidence {:.2} | {}\n",
+                item.item.kind, item.item.status, item.item.confidence, item.item.content
+            ));
+            if !item.reasons.is_empty() {
+                markdown.push_str(&format!("  - reasons: {}\n", item.reasons.join(", ")));
+            }
+        }
+    }
+
+    if !snapshot.workspaces.workspaces.is_empty() {
+        markdown.push_str("\n## Workspace Lanes\n\n");
+        for workspace in snapshot.workspaces.workspaces.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {} / {} / {} | visibility {} | items {} | sources {} | trust {:.2} | confidence {:.2}\n",
+                workspace.project.as_deref().unwrap_or("none"),
+                workspace.namespace.as_deref().unwrap_or("none"),
+                workspace.workspace.as_deref().unwrap_or("none"),
+                format_visibility(workspace.visibility),
+                workspace.item_count,
+                workspace.source_lane_count,
+                workspace.trust_score,
+                workspace.avg_confidence
+            ));
+        }
+    }
+
+    if let Some(semantic) = snapshot
+        .semantic
+        .as_ref()
+        .filter(|semantic| !semantic.items.is_empty())
+    {
+        markdown.push_str("\n## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(6) {
+            markdown.push_str(&format!(
+                "- {}{}\n",
+                compact_markdown_text(&item.content, 220),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_markdown_text(source, 64)))
+                    .unwrap_or_default()
+            ));
+            markdown.push_str(&format!("  - score: {:.2}\n", item.score));
+        }
+    }
+
+    if !sources.sources.is_empty() {
+        markdown.push_str("\n## Source Lanes\n\n");
+        for source in sources.sources.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
+                source.source_agent.as_deref().unwrap_or("none"),
+                source.source_system.as_deref().unwrap_or("none"),
+                source.workspace.as_deref().unwrap_or("none"),
+                format_visibility(source.visibility),
+                source.item_count,
+                source.trust_score,
+                source.avg_confidence
+            ));
+        }
+    }
+
+    (title, markdown)
+}
+
+fn compact_markdown_text(value: &str, max_chars: usize) -> String {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+
+    let mut output = String::new();
+    for ch in collapsed.chars() {
+        if output.chars().count() >= max_chars.saturating_sub(1) {
+            break;
+        }
+        output.push(ch);
+    }
+    output.push('…');
+    output
+}
+
+fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(vault).ok()?;
+    let title = relative
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| value.replace(['[', ']'], ""))?;
+    Some(format!("[[{}]]", title))
+}
+
+fn format_visibility(value: MemoryVisibility) -> &'static str {
+    match value {
+        MemoryVisibility::Private => "private",
+        MemoryVisibility::Workspace => "workspace",
+        MemoryVisibility::Public => "public",
+    }
 }
 
 pub fn build_note_mirror_markdown(
     note: &ObsidianNote,
     item_id: Option<Uuid>,
     entity_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> (String, String) {
     let title = note.title.clone();
     let mut markdown = String::new();
@@ -570,6 +1161,12 @@ pub fn build_note_mirror_markdown(
     }
     if let Some(entity_id) = entity_id {
         markdown.push_str(&format!("entity_id: {}\n", entity_id));
+    }
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!("visibility: {}\n", format_visibility(visibility)));
     }
     if let Some(folder_path) = note.folder_path.as_deref() {
         markdown.push_str(&format!("folder: {}\n", folder_path));
@@ -586,6 +1183,18 @@ pub fn build_note_mirror_markdown(
     markdown.push_str(&format!("# {}\n\n", note.title));
     markdown.push_str("## Excerpt\n\n");
     markdown.push_str(&note.excerpt);
+    if workspace.is_some() || visibility.is_some() {
+        markdown.push_str("\n\n## Shared Lane\n\n");
+        if let Some(workspace) = workspace {
+            markdown.push_str(&format!("- workspace: {}\n", workspace));
+        }
+        if let Some(visibility) = visibility {
+            markdown.push_str(&format!(
+                "- visibility: {}\n",
+                format_visibility(visibility)
+            ));
+        }
+    }
     if !note.aliases.is_empty() {
         markdown.push_str("\n\n## Aliases\n\n");
         for alias in &note.aliases {
@@ -613,6 +1222,8 @@ pub fn build_attachment_mirror_markdown(
     entity_id: Option<Uuid>,
     linked_note: Option<&ObsidianNote>,
     track_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> (String, String) {
     let title = Path::new(&attachment.relative_path)
         .file_name()
@@ -641,6 +1252,12 @@ pub fn build_attachment_mirror_markdown(
     if let Some(track_id) = track_id {
         markdown.push_str(&format!("track_id: {}\n", track_id));
     }
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!("visibility: {}\n", format_visibility(visibility)));
+    }
     if let Some(note) = linked_note {
         markdown.push_str(&format!("linked_note: {}\n", note.title));
         markdown.push_str(&format!("linked_note_path: {}\n", note.relative_path));
@@ -652,6 +1269,15 @@ pub fn build_attachment_mirror_markdown(
     markdown.push_str("## Attachment\n\n");
     markdown.push_str(&format!("- path: {}\n", attachment.relative_path));
     markdown.push_str(&format!("- kind: {}\n", attachment.asset_kind));
+    if let Some(workspace) = workspace {
+        markdown.push_str(&format!("- workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        markdown.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(visibility)
+        ));
+    }
     if let Some(folder_path) = attachment.folder_path.as_deref() {
         markdown.push_str(&format!("- folder: {}\n", folder_path));
     }
@@ -674,6 +1300,8 @@ pub fn build_roundtrip_annotation(
     note: &ObsidianNote,
     item_id: Option<Uuid>,
     entity_id: Option<Uuid>,
+    workspace: Option<&str>,
+    visibility: Option<MemoryVisibility>,
 ) -> String {
     let mut block = String::new();
     block.push_str(MEMD_ROUNDTRIP_BEGIN);
@@ -687,6 +1315,15 @@ pub fn build_roundtrip_annotation(
     }
     if let Some(entity_id) = entity_id {
         block.push_str(&format!("- entity_id: {}\n", entity_id));
+    }
+    if let Some(workspace) = workspace {
+        block.push_str(&format!("- workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = visibility {
+        block.push_str(&format!(
+            "- visibility: {}\n",
+            format_visibility(visibility)
+        ));
     }
     if !note.links.is_empty() {
         block.push_str(&format!("- links: {}\n", note.links.join(", ")));
@@ -802,6 +1439,8 @@ pub fn build_note_request(
     note: &ObsidianNote,
     project: Option<String>,
     namespace: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<MemoryVisibility>,
     vault: PathBuf,
     supersedes_item_id: Option<Uuid>,
 ) -> CandidateMemoryRequest {
@@ -850,6 +1489,9 @@ pub fn build_note_request(
         scope,
         project,
         namespace,
+        workspace,
+        visibility,
+        belief_branch: None,
         source_agent: Some("obsidian".to_string()),
         source_system: Some("obsidian".to_string()),
         source_path: Some(source_path),
@@ -877,6 +1519,7 @@ pub fn build_entity_link_request(
             at: Some(Utc::now()),
             project: None,
             namespace: None,
+            workspace: None,
             repo: Some("obsidian".to_string()),
             host: None,
             branch: None,
@@ -1479,6 +2122,7 @@ fn build_excerpt(body: &str, max_lines: usize, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memd_schema::MemoryItem;
     use std::io::Write;
 
     fn temp_file(name: &str, contents: &str) -> PathBuf {
@@ -1533,6 +2177,8 @@ mod tests {
             &vault,
             Some("notes".to_string()),
             None,
+            None,
+            None,
             Some(10),
             false,
             None,
@@ -1563,6 +2209,8 @@ mod tests {
 
         let scan = scan_vault(
             &vault,
+            None,
+            None,
             None,
             None,
             Some(10),
@@ -1610,6 +2258,8 @@ mod tests {
             &vault,
             None,
             None,
+            None,
+            None,
             Some(10),
             false,
             None,
@@ -1634,6 +2284,8 @@ mod tests {
 
         let scan = scan_vault(
             &vault,
+            None,
+            None,
             None,
             None,
             Some(10),
@@ -1674,7 +2326,13 @@ mod tests {
             modified_at: None,
             content_hash: "abc123".to_string(),
         };
-        let block = build_roundtrip_annotation(&note, Some(Uuid::nil()), Some(Uuid::nil()));
+        let block = build_roundtrip_annotation(
+            &note,
+            Some(Uuid::nil()),
+            Some(Uuid::nil()),
+            Some("core"),
+            Some(MemoryVisibility::Workspace),
+        );
         let updated =
             upsert_markdown_block(content, MEMD_ROUNDTRIP_BEGIN, MEMD_ROUNDTRIP_END, &block);
         assert!(updated.contains("memd sync"));
@@ -1747,5 +2405,296 @@ mod tests {
                 .join("attachments")
                 .join("assets/image.md")
         );
+    }
+
+    #[test]
+    fn builds_obsidian_open_uri() {
+        let uri = build_open_uri(Path::new("/tmp/vault/writeback/note.md"), Some("split")).unwrap();
+        assert!(uri.starts_with("obsidian://open?path=%2Ftmp%2Fvault%2Fwriteback%2Fnote.md"));
+        assert!(uri.contains("&paneType=split"));
+    }
+
+    #[test]
+    fn builds_compiled_note_path() {
+        let path = default_compiled_note_path(Path::new("/tmp/vault"), "Rust Memory Patterns");
+        assert_eq!(
+            path,
+            Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md")
+        );
+    }
+
+    #[test]
+    fn builds_compiled_memory_path() {
+        let now = Utc::now();
+        let explain = ExplainMemoryResponse {
+            route: memd_schema::RetrievalRoute::ProjectFirst,
+            intent: memd_schema::RetrievalIntent::Fact,
+            item: MemoryItem {
+                id: Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap(),
+                content: "Bundle-first memory config".to_string(),
+                redundancy_key: Some("fact:bundle-first".to_string()),
+                belief_branch: Some("mainline".to_string()),
+                preferred: true,
+                kind: MemoryKind::Fact,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: memd_schema::MemoryVisibility::Workspace,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("/tmp/vault/wiki/bundle.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: 0.9,
+                ttl_seconds: None,
+                created_at: now,
+                updated_at: now,
+                last_verified_at: Some(now),
+                supersedes: Vec::new(),
+                tags: vec!["bundle".to_string()],
+                status: memd_schema::MemoryStatus::Active,
+                stage: memd_schema::MemoryStage::Canonical,
+            },
+            canonical_key: "fact:bundle-first".to_string(),
+            redundancy_key: "fact:bundle-first".to_string(),
+            reasons: vec!["route=project_first".to_string()],
+            entity: None,
+            events: Vec::new(),
+            sources: Vec::new(),
+            retrieval_feedback: memd_schema::RetrievalFeedbackSummary {
+                total_retrievals: 0,
+                last_retrieved_at: None,
+                by_surface: Vec::new(),
+                recent_policy_hooks: Vec::new(),
+            },
+            branch_siblings: Vec::new(),
+            rehydration: Vec::new(),
+            policy_hooks: Vec::new(),
+        };
+
+        let path = default_compiled_memory_path(Path::new("/tmp/vault"), &explain);
+        assert_eq!(
+            path,
+            Path::new("/tmp/vault/.memd/compiled/memory/bundle-12345678.md")
+        );
+    }
+
+    #[test]
+    fn builds_compiled_index_path() {
+        let path = default_compiled_index_path(Path::new("/tmp/vault"));
+        assert_eq!(path, Path::new("/tmp/vault/.memd/compiled/INDEX.md"));
+    }
+
+    #[test]
+    fn builds_handoff_path() {
+        let snapshot = crate::ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 0,
+                used_chars: 0,
+                remaining_chars: 0,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            semantic: None,
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+        let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
+        assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
+        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("md"));
+    }
+
+    #[test]
+    fn builds_handoff_markdown() {
+        let snapshot = crate::ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 32,
+                remaining_chars: 1568,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: Uuid::new_v4(),
+                    record: "Remember the active handoff lane".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 2,
+                    avg_confidence: 0.86,
+                    trust_score: 0.92,
+                    last_seen_at: None,
+                    tags: vec!["handoff".to_string()],
+                }],
+            },
+            semantic: Some(memd_rag::RagRetrieveResponse {
+                status: "ok".to_string(),
+                mode: memd_rag::RagRetrieveMode::Auto,
+                items: vec![memd_rag::RagRetrieveItem {
+                    content:
+                        "Shared workspace notes mention the same handoff lane and recovery path."
+                            .to_string(),
+                    source: Some("vault/wiki/team-alpha.md".to_string()),
+                    score: 0.93,
+                }],
+            }),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+        let sources = SourceMemoryResponse {
+            sources: vec![memd_schema::SourceMemoryRecord {
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 2,
+                active_count: 2,
+                candidate_count: 0,
+                derived_count: 0,
+                synthetic_count: 0,
+                contested_count: 0,
+                avg_confidence: 0.88,
+                trust_score: 0.94,
+                last_seen_at: None,
+                tags: vec!["handoff".to_string()],
+            }],
+        };
+
+        let (_, markdown) = build_handoff_markdown(Path::new("/tmp/vault"), &snapshot, &sources);
+        assert!(markdown.contains("# Handoff"));
+        assert!(markdown.contains("## Working Memory"));
+        assert!(markdown.contains("## Workspace Lanes"));
+        assert!(markdown.contains("## Semantic Recall"));
+        assert!(markdown.contains("## Source Lanes"));
+        assert!(markdown.contains("team-alpha"));
+    }
+
+    #[test]
+    fn updates_compiled_index_entries() {
+        let existing = "# Compiled Wiki Index\n\n- [[old-note]] | query: old note | items: 3\n";
+        let markdown = build_compiled_index_markdown(
+            Some(existing),
+            "query",
+            "Rust Memory Patterns",
+            Path::new("/tmp/vault/.memd/compiled/rust-memory-patterns.md"),
+            7,
+        );
+        assert!(markdown.contains("[[old-note]]"));
+        assert!(
+            markdown.contains("[[rust-memory-patterns]] | query: Rust Memory Patterns | items: 7")
+        );
+    }
+
+    #[test]
+    fn updates_compiled_memory_index_entries() {
+        let markdown = build_compiled_index_markdown(
+            None,
+            "memory",
+            "bundle-first fact 12345678",
+            Path::new("/tmp/vault/.memd/compiled/memory/bundle-first-fact-12345678.md"),
+            1,
+        );
+        assert!(markdown.contains(
+            "[[bundle-first-fact-12345678]] | memory: bundle-first fact 12345678 | items: 1"
+        ));
+    }
+
+    #[test]
+    fn derives_wikilink_for_vault_path() {
+        let link = source_wikilink_for_path(
+            Path::new("/tmp/vault"),
+            Path::new("/tmp/vault/wiki/Topic Note.md"),
+        );
+        assert_eq!(link.as_deref(), Some("[[Topic Note]]"));
+    }
+
+    #[test]
+    fn resolves_relative_open_paths_under_vault() {
+        let vault = PathBuf::from("/tmp/vault");
+        let resolved = resolve_open_path(&vault, Path::new("wiki/topic.md"));
+        assert_eq!(resolved, vault.join("wiki/topic.md"));
+    }
+
+    #[test]
+    fn preserves_absolute_open_paths() {
+        let absolute = PathBuf::from("/tmp/elsewhere/topic.md");
+        let resolved = resolve_open_path(Path::new("/tmp/vault"), &absolute);
+        assert_eq!(resolved, absolute);
     }
 }

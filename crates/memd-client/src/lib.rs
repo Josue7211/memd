@@ -8,10 +8,17 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
-    SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
-    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse,
+    MemoryPolicyResponse, PeerClaimAcquireRequest, PeerClaimRecoverRequest,
+    PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
+    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest,
+    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -68,6 +75,10 @@ impl MemdClient {
 
     pub async fn verify(&self, req: &VerifyMemoryRequest) -> anyhow::Result<VerifyMemoryResponse> {
         self.post_json("/memory/verify", req).await
+    }
+
+    pub async fn repair(&self, req: &RepairMemoryRequest) -> anyhow::Result<RepairMemoryResponse> {
+        self.post_json("/memory/repair", req).await
     }
 
     pub async fn search(&self, req: &SearchMemoryRequest) -> anyhow::Result<SearchMemoryResponse> {
@@ -159,6 +170,10 @@ impl MemdClient {
             .await
     }
 
+    pub async fn policy(&self) -> anyhow::Result<MemoryPolicyResponse> {
+        self.get_json("/memory/policy").await
+    }
+
     pub async fn agent_profile(
         &self,
         req: &AgentProfileRequest,
@@ -178,6 +193,107 @@ impl MemdClient {
         req: &SourceMemoryRequest,
     ) -> anyhow::Result<SourceMemoryResponse> {
         self.get_json_with_query("/memory/source", req).await
+    }
+
+    pub async fn workspace_memory(
+        &self,
+        req: &WorkspaceMemoryRequest,
+    ) -> anyhow::Result<WorkspaceMemoryResponse> {
+        self.get_json_with_query("/memory/workspaces", req).await
+    }
+
+    pub async fn send_peer_message(
+        &self,
+        req: &PeerMessageSendRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.post_json("/coordination/messages/send", req).await
+    }
+
+    pub async fn peer_inbox(
+        &self,
+        req: &PeerMessageInboxRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.get_json_with_query("/coordination/messages/inbox", req)
+            .await
+    }
+
+    pub async fn ack_peer_message(
+        &self,
+        req: &PeerMessageAckRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.post_json("/coordination/messages/ack", req).await
+    }
+
+    pub async fn acquire_peer_claim(
+        &self,
+        req: &PeerClaimAcquireRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/acquire", req).await
+    }
+
+    pub async fn release_peer_claim(
+        &self,
+        req: &PeerClaimReleaseRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/release", req).await
+    }
+
+    pub async fn transfer_peer_claim(
+        &self,
+        req: &PeerClaimTransferRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/transfer", req).await
+    }
+
+    pub async fn recover_peer_claim(
+        &self,
+        req: &PeerClaimRecoverRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/recover", req).await
+    }
+
+    pub async fn peer_claims(&self, req: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
+        self.get_json_with_query("/coordination/claims", req).await
+    }
+
+    pub async fn upsert_peer_task(
+        &self,
+        req: &PeerTaskUpsertRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        self.post_json("/coordination/tasks/upsert", req).await
+    }
+
+    pub async fn assign_peer_task(
+        &self,
+        req: &PeerTaskAssignRequest,
+    ) -> anyhow::Result<PeerTasksResponse> {
+        self.post_json("/coordination/tasks/assign", req).await
+    }
+
+    pub async fn peer_tasks(&self, req: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+        self.get_json_with_query("/coordination/tasks", req).await
+    }
+
+    pub async fn peer_coordination_inbox(
+        &self,
+        req: &PeerCoordinationInboxRequest,
+    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        self.get_json_with_query("/coordination/inbox", req).await
+    }
+
+    pub async fn record_peer_coordination_receipt(
+        &self,
+        req: &PeerCoordinationReceiptRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        self.post_json("/coordination/receipts/record", req).await
+    }
+
+    pub async fn peer_coordination_receipts(
+        &self,
+        req: &PeerCoordinationReceiptsRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        self.get_json_with_query("/coordination/receipts", req)
+            .await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

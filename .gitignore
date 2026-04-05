@@ -9,3 +9,4 @@
 *.sqlite-shm
 *.sqlite-wal
 *.log
+/.monitor
