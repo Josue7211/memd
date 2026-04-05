@@ -937,6 +937,9 @@ struct BundleArgs {
     output: PathBuf,
 
     #[arg(long)]
+    base_url: Option<String>,
+
+    #[arg(long)]
     auto_short_term_capture: Option<bool>,
 
     #[arg(long)]
@@ -1312,19 +1315,28 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Bundle(args) => {
+            if let Some(value) = args.base_url.as_deref() {
+                set_bundle_base_url(&args.output, value)?;
+            }
             if let Some(value) = args.auto_short_term_capture {
                 set_bundle_auto_short_term_capture(&args.output, value)?;
             }
             let status = read_bundle_status(&args.output, &base_url).await?;
             if args.summary {
+                let base_url = status
+                    .get("defaults")
+                    .and_then(|value| value.get("base_url"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none");
                 let enabled = status
                     .get("defaults")
                     .and_then(|value| value.get("auto_short_term_capture"))
                     .and_then(|value| value.as_bool())
                     .unwrap_or(true);
                 println!(
-                    "bundle={} auto_short_term_capture={}",
+                    "bundle={} base_url={} auto_short_term_capture={}",
                     args.output.display(),
+                    base_url,
                     if enabled { "true" } else { "false" }
                 );
             } else {
@@ -4613,6 +4625,7 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
     let scan_root = fs::canonicalize(&scan_root).unwrap_or(scan_root);
 
     let mut entries = Vec::new();
+    let mut base_url_counts = std::collections::BTreeMap::<String, usize>::new();
     for child in fs::read_dir(&scan_root)
         .with_context(|| format!("read awareness root {}", scan_root.display()))?
     {
@@ -4670,6 +4683,7 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
                 .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
             agent: runtime.agent,
             session: runtime.session,
+            base_url: runtime.base_url.clone(),
             workspace: runtime.workspace,
             visibility: runtime.visibility,
             focus: state.as_ref().and_then(|value| value.focus.clone()),
@@ -4677,23 +4691,41 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             next_recovery: state.as_ref().and_then(|value| value.next_recovery.clone()),
             last_updated,
         });
+        if let Some(url) = entries
+            .last()
+            .and_then(|entry| entry.base_url.as_ref())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            *base_url_counts.entry(url).or_insert(0) += 1;
+        }
     }
 
     entries.sort_by(|left, right| left.project_dir.cmp(&right.project_dir));
+    let collisions = base_url_counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(url, count)| format!("base_url {} used by {} bundles", url, count))
+        .collect::<Vec<_>>();
 
     Ok(ProjectAwarenessResponse {
         root: scan_root.display().to_string(),
         current_bundle: current_bundle.display().to_string(),
+        collisions,
         entries,
     })
 }
 
 fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> String {
     let mut lines = vec![format!(
-        "awareness root={} bundles={}",
+        "awareness root={} bundles={} collisions={}",
         response.root,
-        response.entries.len()
+        response.entries.len(),
+        response.collisions.len()
     )];
+    for collision in &response.collisions {
+        lines.push(format!("! {}", collision));
+    }
     for entry in &response.entries {
         let focus = entry
             .focus
@@ -4706,7 +4738,7 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | ns={} agent={} session={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} | ns={} agent={} session={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
             entry.namespace.as_deref().unwrap_or("none"),
             entry.effective_agent
@@ -4714,6 +4746,7 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
                 .or(entry.agent.as_deref())
                 .unwrap_or("none"),
             entry.session.as_deref().unwrap_or("none"),
+            entry.base_url.as_deref().unwrap_or("none"),
             entry.workspace.as_deref().unwrap_or("none"),
             entry.visibility.as_deref().unwrap_or("all"),
             focus,
@@ -5569,6 +5602,37 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn set_bundle_base_url(output: &Path, base_url: &str) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.base_url = Some(base_url.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_BASE_URL=",
+        &format!("MEMD_BASE_URL={base_url}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_BASE_URL = ",
+        &format!("$env:MEMD_BASE_URL = \"{}\"\n", escape_ps1(base_url)),
+    )?;
+
+    Ok(())
+}
+
 fn set_bundle_auto_short_term_capture(output: &Path, enabled: bool) -> anyhow::Result<()> {
     let config_path = output.join("config.json");
     if !config_path.exists() {
@@ -5978,6 +6042,7 @@ struct ProjectAwarenessEntry {
     agent: Option<String>,
     session: Option<String>,
     effective_agent: Option<String>,
+    base_url: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
     focus: Option<String>,
@@ -5990,6 +6055,7 @@ struct ProjectAwarenessEntry {
 struct ProjectAwarenessResponse {
     root: String,
     current_bundle: String,
+    collisions: Vec<String>,
     entries: Vec<ProjectAwarenessEntry>,
 }
 
@@ -6735,6 +6801,7 @@ mod tests {
         let response = ProjectAwarenessResponse {
             root: "/tmp/projects".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
             entries: vec![ProjectAwarenessEntry {
                 project_dir: "/tmp/projects/sibling".to_string(),
                 bundle_root: "/tmp/projects/sibling/.memd".to_string(),
@@ -6743,6 +6810,7 @@ mod tests {
                 agent: Some("claude-code".to_string()),
                 session: Some("claude-a".to_string()),
                 effective_agent: Some("claude-code@claude-a".to_string()),
+                base_url: None,
                 workspace: Some("research".to_string()),
                 visibility: Some("workspace".to_string()),
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
@@ -6753,12 +6821,95 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("awareness root=/tmp/projects bundles=1"));
+        assert!(summary.contains("awareness root=/tmp/projects bundles=1 collisions=0"));
         assert!(summary.contains(
-            "sibling | ns=main agent=claude-code@claude-a session=claude-a workspace=research"
+            "sibling | ns=main agent=claude-code@claude-a session=claude-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
+    }
+
+    #[test]
+    fn project_awareness_surfaces_base_url_collisions() {
+        let response = ProjectAwarenessResponse {
+            root: "/tmp/projects".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: vec!["base_url http://127.0.0.1:8787 used by 2 bundles".to_string()],
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/a".to_string(),
+                    bundle_root: "/tmp/projects/a/.memd".to_string(),
+                    project: Some("a".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("codex-a".to_string()),
+                    effective_agent: Some("codex@codex-a".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    workspace: Some("a".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/b".to_string(),
+                    bundle_root: "/tmp/projects/b/.memd".to_string(),
+                    project: Some("b".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("claude-code".to_string()),
+                    session: Some("claude-b".to_string()),
+                    effective_agent: Some("claude-code@claude-b".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    workspace: Some("b".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("! base_url http://127.0.0.1:8787 used by 2 bundles"));
+    }
+
+    #[test]
+    fn set_bundle_base_url_updates_config_and_env_files() {
+        let dir = std::env::temp_dir().join(format!("memd-bundle-base-url-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_BASE_URL=http://127.0.0.1:8787\n").expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_BASE_URL = \"http://127.0.0.1:8787\"\n",
+        )
+        .expect("write env.ps1");
+
+        set_bundle_base_url(&dir, "http://127.0.0.1:9797").expect("set bundle base url");
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""base_url": "http://127.0.0.1:9797""#));
+        assert!(env.contains("MEMD_BASE_URL=http://127.0.0.1:9797"));
+        assert!(env_ps1.contains("$env:MEMD_BASE_URL = \"http://127.0.0.1:9797\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
