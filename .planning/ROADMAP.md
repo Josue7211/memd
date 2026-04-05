@@ -404,7 +404,7 @@ Success:
 - avoid transcript dumping by storing only high-signal task changes
 - keep the hot lane fresh while leaving dream/autodream to consolidate durable signal later
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -416,11 +416,26 @@ Success:
 - keep inferred, claimed, stale, and contested memory explicit in hot and deep recall
 - reduce false confidence by making epistemic state affect ranking and inspection
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - `memd` helps agents remember more while also being wrong less often
+
+### Milestone 5: Start `v5`
+
+#### Phase 33: `v5` Peer Coordination MCP Foundations
+
+- expose backend-brokered peer coordination through a stable MCP-facing contract
+- reuse the shared message and claim backend instead of inventing bundle-local coordination again
+- preserve session-qualified identity, assignment semantics, and claim safety across agent peers
+- keep the first slice narrow around coordination primitives before richer orchestration layers
+
+Status: Planned
+
+Success:
+
+- agent sessions can coordinate through `memd` natively instead of only through CLI wrappers
 
 ---
 *Last updated: 2026-04-05 after aligning roadmap to the real-memory product standard*

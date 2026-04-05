@@ -76,10 +76,10 @@ Current version state:
 
 - `v0`: complete
 - `v1`: complete enough to build past
-- `v2`: in progress
-- `v3`: not started
-- `v4`: not started
-- `v5`: not started
+- `v2`: complete
+- `v3`: complete
+- `v4`: complete
+- `v5`: in progress
 
 What is already real in the repo:
 

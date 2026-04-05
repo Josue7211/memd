@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next short-term memory slice after agent-safe memory surface names.
+**Current focus:** Start `v5` peer coordination MCP foundations on top of the brokered backend substrate.
 
 ## Current Status
 
@@ -36,14 +36,20 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - bundle status preview now mirrors the same current-task hot path
 - the installed hook-context path now defaults to `current_task` intent too
 - bundle root memory is now written to `MEMD_MEMORY.md` to avoid collisions with agent-native `MEMORY.md` files
+- Claude-native bundle imports now bridge `memd` into `CLAUDE.md` and `/memory`
+- resume surfaces now show a current-task snapshot and compact change summaries
+- durable `remember` writes now refresh visible bundle memory immediately
+- automatic short-term capture now records meaningful coordination transitions
+- retrieval ranking now prefers verified canonical evidence over unverified synthetic continuity
+- peer coordination now has brokered messages, claims, claim transfer, and assignment-friendly handoff primitives
 
 ## Open Loops
 
-- planning roadmap needs the next `v4` phase queued from the strategic roadmap
+- planning roadmap now needs the first `v5` MCP coordination execution slice carried forward from phase 33
 
 ## Next Command
 
-Queue the next `v4` self-optimizing memory phase after evaluation gates, then continue execution.
+Execute phase 33 so the brokered coordination substrate becomes a first-class MCP-facing peer layer.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

@@ -65,17 +65,14 @@ real memory:
 - [x] Persist short-term resume deltas and surface them through prompt, bundle, and status views.
 - [x] Refresh bundle memory files immediately after durable `remember` writes.
 - [x] Make one-line `resume --summary` reflect the active hot lane instead of only counts.
+- [x] Capture meaningful short-term coordination transitions automatically.
+- [x] Make retrieval behavior prefer verified canonical evidence over unverified synthetic continuity.
 
 ### Next Product Priorities
 
-- [ ] Add automatic short-term memory capture for meaningful task-state changes.
+- [ ] Expose the brokered coordination substrate through a first-class peer MCP surface.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
-- [ ] Make epistemic state first-class in retrieval behavior:
-  - verified
-  - inferred
-  - claimed
-  - stale
-  - contested
+- [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
 - [ ] Expand inspectability from bundle files into richer workspace and UI surfaces.
 
@@ -158,4 +155,4 @@ The product direction is now explicit:
 | `memd` must feel like real memory, not memory tooling | Product success depends on low-friction continuity, inspectability, and truthfulness | — In Progress |
 
 ---
-*Last updated: 2026-04-05 after GSD phase 25 completion*
+*Last updated: 2026-04-05 after GSD phases 26-32 reconciliation and completion*
