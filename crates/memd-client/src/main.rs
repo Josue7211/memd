@@ -995,6 +995,15 @@ struct MessagesArgs {
     kind: Option<String>,
 
     #[arg(long)]
+    request_help: bool,
+
+    #[arg(long)]
+    request_review: bool,
+
+    #[arg(long)]
+    scope: Option<String>,
+
+    #[arg(long)]
     content: Option<String>,
 
     #[arg(long)]
@@ -4416,12 +4425,8 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         let from_session = current_session
             .as_deref()
             .context("messages --send requires a configured bundle session")?;
-        let content = args
-            .content
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .context("messages --send requires --content")?;
+        let (kind, content) = derive_outbound_message(args)
+            .context("messages --send requires --content or a request helper")?;
         let target = resolve_target_session_bundle(&args.output, target_session)?
             .context("target session not found in awareness")?;
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
@@ -4433,17 +4438,14 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         let client = MemdClient::new(&target_base_url)?;
         let response = client
             .send_peer_message(&PeerMessageSendRequest {
-                kind: args
-                    .kind
-                    .clone()
-                    .unwrap_or_else(|| "handoff".to_string()),
+                kind,
                 from_session: from_session.to_string(),
                 from_agent: current_agent.clone(),
                 to_session: target_session.to_string(),
                 project: current_project.clone(),
                 namespace: current_namespace.clone(),
                 workspace: current_workspace.clone(),
-                content: content.to_string(),
+                content,
             })
             .await?;
         return Ok(MessagesResponse {
@@ -4487,6 +4489,42 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         current_session,
         messages,
     })
+}
+
+fn derive_outbound_message(args: &MessagesArgs) -> Option<(String, String)> {
+    let scope = args
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let explicit_content = args
+        .content
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if args.request_help {
+        let content = explicit_content.or_else(|| {
+            scope.map(|scope| format!("Need help on {scope}. Please coordinate before changing it."))
+        })?;
+        return Some(("help_request".to_string(), content));
+    }
+
+    if args.request_review {
+        let content = explicit_content.or_else(|| {
+            scope.map(|scope| format!("Need review on {scope}. Please inspect before I hand it off."))
+        })?;
+        return Some(("review_request".to_string(), content));
+    }
+
+    let content = explicit_content?;
+    Some((
+        args.kind
+            .clone()
+            .unwrap_or_else(|| "handoff".to_string()),
+        content,
+    ))
 }
 
 fn render_messages_summary(response: &MessagesResponse) -> String {
@@ -6913,6 +6951,48 @@ mod tests {
     }
 
     #[test]
+    fn derives_help_request_message_from_scope() {
+        let message = derive_outbound_message(&MessagesArgs {
+            output: PathBuf::from(".memd"),
+            send: true,
+            inbox: false,
+            ack: None,
+            target_session: Some("claude-b".to_string()),
+            kind: None,
+            request_help: true,
+            request_review: false,
+            scope: Some("file:src/main.rs".to_string()),
+            content: None,
+            summary: false,
+        })
+        .expect("derive help request");
+
+        assert_eq!(message.0, "help_request");
+        assert!(message.1.contains("file:src/main.rs"));
+    }
+
+    #[test]
+    fn derives_review_request_message_from_scope() {
+        let message = derive_outbound_message(&MessagesArgs {
+            output: PathBuf::from(".memd"),
+            send: true,
+            inbox: false,
+            ack: None,
+            target_session: Some("claude-b".to_string()),
+            kind: None,
+            request_help: false,
+            request_review: true,
+            scope: Some("task:parser-refactor".to_string()),
+            content: None,
+            summary: false,
+        })
+        .expect("derive review request");
+
+        assert_eq!(message.0, "review_request");
+        assert!(message.1.contains("task:parser-refactor"));
+    }
+
+    #[test]
     fn resolves_nested_bundle_rag_config() {
         let config = BundleConfigFile {
             project: None,
@@ -7889,6 +7969,9 @@ mod tests {
             ack: None,
             target_session: Some("claude-b".to_string()),
             kind: Some("handoff".to_string()),
+            request_help: false,
+            request_review: false,
+            scope: None,
             content: Some("Pick up the parser refactor".to_string()),
             summary: false,
         }, &current_base_url)
@@ -7904,6 +7987,9 @@ mod tests {
             ack: None,
             target_session: None,
             kind: None,
+            request_help: false,
+            request_review: false,
+            scope: None,
             content: None,
             summary: false,
         }, &target_base_url)
@@ -7919,6 +8005,9 @@ mod tests {
             ack: Some(message_id),
             target_session: None,
             kind: None,
+            request_help: false,
+            request_review: false,
+            scope: None,
             content: None,
             summary: false,
         }, &target_base_url)
