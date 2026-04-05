@@ -45,6 +45,7 @@ evidence, and inspect its own working memory across sessions.
 - [x] Add bundle memory evaluation snapshots and regression diffs.
 - [x] Add automation failure gates for bundle memory evaluation.
 - [x] Turn evaluation findings into concrete operator recommendations.
+- [x] Keep short-term resume and handoff fast by making semantic fallback opt-in.
 
 ### Out of Scope
 
@@ -77,6 +78,9 @@ evaluation now supports saved baselines, regression diffs, and explicit failure
 gates so memory quality can drive automation instead of only human inspection.
 It now also emits concrete corrective recommendations derived from live resume
 state, so weak memory signals can map directly to next actions.
+Short-term memory is now also protected as the default hot path: bundle-backed
+resume and handoff stay local and fast unless semantic fallback is explicitly
+requested.
 The deployment shape is now explicitly tiered:
 
 - Tier 1: Obsidian-only
@@ -105,4 +109,4 @@ LightRAG stays optional for larger-scale semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-05 after GSD phase 18 completion*
+*Last updated: 2026-04-05 after GSD phase 19 completion*

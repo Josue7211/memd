@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation recommendations.
+**Current focus:** Queue the next short-term memory slice after hot-path resume defaults.
 
 ## Current Status
 
@@ -29,6 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - bundle evaluation now compares against the latest baseline and reports drift
 - bundle evaluation can now fail on score thresholds or regressions for automation use
 - bundle evaluation now emits concrete corrective recommendations from live resume state
+- bundle resume and handoff now keep semantic recall off the hot path unless explicitly requested
 
 ## Open Loops
 

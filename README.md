@@ -118,9 +118,14 @@ Resume the default memory snapshot from that bundle:
 cargo run -p memd-client --bin memd -- resume --output .memd
 ```
 
-If the bundle has a LightRAG-compatible backend configured, `resume` also pulls
-a bounded semantic recall lane and writes it into the memory files without
-replacing typed `memd` working memory.
+This hot path stays local and bundle-backed by default so short-term memory
+resume is fast.
+
+Pull semantic fallback only when you explicitly want deeper recall:
+
+```bash
+cargo run -p memd-client --bin memd -- resume --output .memd --semantic
+```
 
 That also refreshes:
 
@@ -149,8 +154,11 @@ Emit a compact shared handoff bundle for delegation or resume:
 cargo run -p memd-client --bin memd -- handoff --output .memd --prompt
 ```
 
-With RAG configured, `handoff` carries the same bounded semantic recall lane so
-cross-agent resumes get both typed state and semantic fallback.
+Keep handoff hot by default, and opt into semantic fallback only when needed:
+
+```bash
+cargo run -p memd-client --bin memd -- handoff --output .memd --prompt --semantic
+```
 
 Write that handoff into the Obsidian workspace:
 

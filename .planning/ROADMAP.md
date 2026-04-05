@@ -254,5 +254,17 @@ Success:
 
 - bundle evaluation tells operators what to do next, not only what is broken
 
+#### Phase 19: `v4` Hot-Path Memory Defaults
+
+- keep bundle-backed short-term memory on the critical path
+- move semantic recall behind explicit opt-in flags for resume and handoff
+- align generated bundle docs and operator docs with the fast-default contract
+
+Status: Complete
+
+Success:
+
+- default resume and handoff stay fast and local while deeper semantic recall remains available on demand
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

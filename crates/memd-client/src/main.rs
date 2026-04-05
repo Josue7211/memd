@@ -994,6 +994,9 @@ struct ResumeArgs {
     rehydration_limit: Option<usize>,
 
     #[arg(long)]
+    semantic: bool,
+
+    #[arg(long)]
     prompt: bool,
 
     #[arg(long)]
@@ -1034,6 +1037,9 @@ struct HandoffArgs {
 
     #[arg(long)]
     source_limit: Option<usize>,
+
+    #[arg(long)]
+    semantic: bool,
 
     #[arg(long)]
     prompt: bool,
@@ -1254,6 +1260,7 @@ async fn main() -> anyhow::Result<()> {
                         intent: None,
                         limit: Some(8),
                         rehydration_limit: Some(4),
+                        semantic: false,
                         prompt: false,
                         summary: false,
                     },
@@ -2580,6 +2587,7 @@ async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Re
             limit: args.limit,
             rehydration_limit: Some(4),
             source_limit: Some(6),
+            semantic: true,
             prompt: false,
             summary: false,
         },
@@ -3667,7 +3675,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` to refresh the markdown memory files for Codex and other agents. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
+            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Files\n\n- `config.json`\n- `env`\n- `env.ps1`\n- `MEMORY.md`\n- `agents/CODEX_MEMORY.md`\n- `agents/CLAUDE_CODE_MEMORY.md`\n- `agents/OPENCLAW_MEMORY.md`\n- `agents/OPENCODE_MEMORY.md`\n- `agents/codex.sh`\n- `agents/claude-code.sh`\n- `agents/openclaw.sh`\n- `agents/opencode.sh`\n- `hooks/`\n\n## Usage\n\nSource `env` or `env.ps1` before running the hook kit, or point your agent integration at these values directly. Run `memd resume --output {bundle}` or `memd handoff --output {bundle}` for the fast local short-term memory path. Add `--semantic` only when you want deeper LightRAG fallback. Use the agent-specific scripts in `agents/` when switching between clients on the same bundle.\n",
             project = args.project,
             bundle = output.display(),
         ),
@@ -3708,7 +3716,9 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     markdown.push_str("This file is maintained by `memd` for agents that do not have built-in durable memory.\n\n");
     markdown.push_str("Refresh it with:\n\n");
     markdown.push_str(&format!(
-        "- `memd resume --output {}`\n- `memd handoff --output {}`\n\n",
+        "- `memd resume --output {}`\n- `memd resume --output {} --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
+        output.display(),
+        output.display(),
         output.display(),
         output.display()
     ));
@@ -3724,8 +3734,9 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
         config.intent,
     ));
     markdown.push_str("\n## Notes\n\n");
-    markdown.push_str("- `resume` keeps the active working memory fresh.\n");
+    markdown.push_str("- `resume` keeps the active working memory fresh on the fast local hot path.\n");
     markdown.push_str("- `handoff` adds shared workspace, source-lane, and delegation state.\n");
+    markdown.push_str("- add `--semantic` only when you want slower deep recall from the semantic backend.\n");
     markdown.push_str("- future dream/consolidation output should flow back into this same memory surface.\n");
     write_memory_markdown_files(output, &markdown)
 }
@@ -4036,6 +4047,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 intent: None,
                 limit: Some(4),
                 rehydration_limit: Some(2),
+                semantic: false,
                 prompt: false,
                 summary: false,
             },
@@ -4277,27 +4289,31 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         })
         .await?;
     let semantic = if let Some(rag) = maybe_rag_client_for_bundle(&args.output)? {
-        let query = build_resume_rag_query(
-            project.as_deref(),
-            workspace.as_deref(),
-            &intent_raw,
-            &working,
-            &context,
-        );
-        if query.trim().is_empty() {
-            None
+        if args.semantic {
+            let query = build_resume_rag_query(
+                project.as_deref(),
+                workspace.as_deref(),
+                &intent_raw,
+                &working,
+                &context,
+            );
+            if query.trim().is_empty() {
+                None
+            } else {
+                rag.retrieve(&RagRetrieveRequest {
+                    query,
+                    project: project.clone(),
+                    namespace: namespace.clone(),
+                    mode: RagRetrieveMode::Auto,
+                    limit: Some(4),
+                    include_cross_modal: false,
+                })
+                .await
+                .ok()
+                .filter(|response| !response.items.is_empty())
+            }
         } else {
-            rag.retrieve(&RagRetrieveRequest {
-                query,
-                project: project.clone(),
-                namespace: namespace.clone(),
-                mode: RagRetrieveMode::Auto,
-                limit: Some(4),
-                include_cross_modal: false,
-            })
-            .await
-            .ok()
-            .filter(|response| !response.items.is_empty())
+            None
         }
     } else {
         None
@@ -4332,6 +4348,7 @@ async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Resu
             intent: args.intent.clone(),
             limit: args.limit,
             rehydration_limit: args.rehydration_limit,
+            semantic: args.semantic,
             prompt: false,
             summary: false,
         },
@@ -4385,6 +4402,7 @@ async fn eval_bundle_memory(
             intent: None,
             limit: args.limit.or(Some(8)),
             rehydration_limit: args.rehydration_limit.or(Some(4)),
+            semantic: true,
             prompt: false,
             summary: false,
         },
@@ -5249,6 +5267,48 @@ mod tests {
         assert_eq!(json["workspace"], "team-alpha");
         assert_eq!(json["visibility"], "workspace");
         assert_eq!(json["rag_url"], "http://127.0.0.1:9000");
+    }
+
+    #[test]
+    fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-bundle-placeholder-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        let config = BundleConfig {
+            schema_version: 2,
+            project: "demo".to_string(),
+            namespace: Some("main".to_string()),
+            agent: "codex".to_string(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            backend: BundleBackendConfig {
+                rag: BundleRagConfig {
+                    enabled: true,
+                    provider: "lightrag-compatible".to_string(),
+                    url: Some("http://127.0.0.1:9000".to_string()),
+                },
+            },
+            hooks: BundleHooksConfig {
+                context: "hooks/memd-context.sh".to_string(),
+                spill: "hooks/memd-spill.sh".to_string(),
+                context_ps1: "hooks/memd-context.ps1".to_string(),
+                spill_ps1: "hooks/memd-spill.ps1".to_string(),
+            },
+            rag_url: Some("http://127.0.0.1:9000".to_string()),
+        };
+
+        write_bundle_memory_placeholder(&dir, &config).expect("write placeholder");
+
+        let markdown = fs::read_to_string(dir.join("MEMORY.md")).expect("read placeholder");
+        assert!(markdown.contains("memd resume --output"));
+        assert!(markdown.contains("--semantic"));
+        assert!(markdown.contains("fast local hot path"));
+        assert!(markdown.contains("slower deep recall"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
