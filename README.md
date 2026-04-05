@@ -9,6 +9,11 @@ default memory substrate: retrieve working state from `memd`, inspect evidence
 with `memd explain`, and write compiled knowledge back into the workspace when
 the task is worth keeping.
 
+The shortest default loop is:
+
+- `memd resume --output .memd`
+- `memd remember --output .memd --kind <kind> --content <text>`
+
 Supported platforms:
 
 - Linux
@@ -103,6 +108,12 @@ Resume the default memory snapshot from that bundle:
 
 ```bash
 cargo run -p memd-client --bin memd -- resume --output .memd
+```
+
+Persist a durable memory into the same bundle defaults:
+
+```bash
+cargo run -p memd-client --bin memd -- remember --output .memd --kind decision --content "Prefer memd resume for Codex startup."
 ```
 
 Resume with a shared workspace lane:

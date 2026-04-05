@@ -64,6 +64,7 @@ enum Commands {
     Status(StatusArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
+    Remember(RememberArgs),
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
     Ingest(IngestArgs),
@@ -935,6 +936,60 @@ struct ResumeArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct RememberArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    kind: Option<String>,
+
+    #[arg(long)]
+    scope: Option<String>,
+
+    #[arg(long)]
+    source_agent: Option<String>,
+
+    #[arg(long)]
+    source_system: Option<String>,
+
+    #[arg(long)]
+    source_path: Option<String>,
+
+    #[arg(long)]
+    source_quality: Option<String>,
+
+    #[arg(long)]
+    confidence: Option<f32>,
+
+    #[arg(long)]
+    ttl_seconds: Option<u64>,
+
+    #[arg(long, value_name = "TEXT")]
+    tag: Vec<String>,
+
+    #[arg(long)]
+    content: Option<String>,
+
+    #[arg(long)]
+    input: Option<PathBuf>,
+
+    #[arg(long)]
+    stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct RagArgs {
     #[arg(long)]
     rag_url: Option<String>,
@@ -1084,6 +1139,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 print_json(&snapshot)?;
             }
+        }
+        Commands::Remember(args) => {
+            let response = remember_with_bundle_defaults(&args, &base_url).await?;
+            print_json(&response)?;
         }
         Commands::Rag(args) => {
             let rag_url =
@@ -3544,6 +3603,100 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         inbox,
         workspaces,
     })
+}
+
+async fn remember_with_bundle_defaults(
+    args: &RememberArgs,
+    base_url: &str,
+) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let project = args
+        .project
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+    let workspace = args
+        .workspace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone()));
+    let visibility_raw = args
+        .visibility
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.visibility.clone()));
+    let base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+    let source_agent = args
+        .source_agent
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()));
+
+    let content = if let Some(content) = &args.content {
+        content.clone()
+    } else if let Some(path) = &args.input {
+        fs::read_to_string(path)
+            .with_context(|| format!("read remember input file {}", path.display()))?
+    } else if args.stdin {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .context("read remember payload from stdin")?;
+        buffer
+    } else {
+        anyhow::bail!("provide --content, --input, or --stdin");
+    };
+
+    let kind = args
+        .kind
+        .as_deref()
+        .map(parse_memory_kind_value)
+        .transpose()?
+        .unwrap_or(MemoryKind::Fact);
+    let scope = args
+        .scope
+        .as_deref()
+        .map(parse_memory_scope_value)
+        .transpose()?
+        .unwrap_or_else(|| {
+            if project.is_some() {
+                MemoryScope::Project
+            } else {
+                MemoryScope::Synced
+            }
+        });
+    let source_quality = args
+        .source_quality
+        .as_deref()
+        .map(parse_source_quality_value)
+        .transpose()?;
+    let visibility = visibility_raw
+        .as_deref()
+        .map(parse_memory_visibility_value)
+        .transpose()?;
+
+    let client = MemdClient::new(&base_url)?;
+    client
+        .store(&memd_schema::StoreMemoryRequest {
+            content,
+            kind,
+            scope,
+            project,
+            namespace: args.namespace.clone(),
+            workspace,
+            visibility,
+            belief_branch: None,
+            source_agent,
+            source_system: args.source_system.clone().or(Some("codex".to_string())),
+            source_path: args.source_path.clone(),
+            source_quality,
+            confidence: args.confidence,
+            ttl_seconds: args.ttl_seconds,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: args.tag.clone(),
+            status: Some(MemoryStatus::Active),
+        })
+        .await
 }
 
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {

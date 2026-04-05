@@ -26,6 +26,12 @@ Resume the default memory snapshot from the bundle:
 memd resume --output .memd
 ```
 
+Persist a memory into the same bundle lane:
+
+```bash
+memd remember --output .memd --kind decision --content "Store the outcome worth keeping."
+```
+
 ## Environment
 
 Set:
