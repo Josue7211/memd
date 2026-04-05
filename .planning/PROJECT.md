@@ -70,6 +70,12 @@ raw sources and derived markdown pages can live in the same workspace, with
 surface. Compiled memory/evidence pages are now a first-class Obsidian lane.
 Workspace handoff pages and lane-correction repair are now in place so shared
 memory can be resumed and corrected inside both the CLI and the vault.
+The deployment shape is now explicitly tiered:
+
+- Tier 1: Obsidian-only
+- Tier 2: shared sync
+- Tier 3: LightRAG
+
 LightRAG stays optional for larger-scale semantic recall.
 
 ## Constraints

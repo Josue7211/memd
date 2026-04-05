@@ -1134,18 +1134,13 @@ fn build_context(
             .filter(|entry| plan.allows(entry.item.scope))
             .filter(|entry| entry.item.scope == scope)
             .filter(|entry| entry.item.status == MemoryStatus::Active)
-            .filter(|entry| match (&req.project, &entry.item.project, scope) {
+        .filter(|entry| match (&req.project, &entry.item.project, scope) {
                 (Some(project), Some(item_project), MemoryScope::Project) => {
                     item_project == project
                 }
                 (Some(project), Some(item_project), MemoryScope::Synced) => item_project == project,
                 (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
                 _ => true,
-            })
-            .filter(|entry| {
-                req.workspace
-                    .as_ref()
-                    .is_none_or(|workspace| entry.item.workspace.as_ref() == Some(workspace))
             })
             .filter(|entry| {
                 req.visibility
@@ -1994,6 +1989,8 @@ fn context_score(
         }
     }
 
+    score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
+
     score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
     score += trust_rank_adjustment(source_trust_score);
 
@@ -2072,6 +2069,18 @@ fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
         0.12
     } else {
         0.0
+    }
+}
+
+fn workspace_rank_adjustment(
+    requested_workspace: Option<&String>,
+    item_workspace: Option<&String>,
+) -> f32 {
+    match (requested_workspace, item_workspace) {
+        (Some(requested), Some(item)) if requested == item => 0.85,
+        (Some(_), Some(_)) => -0.18,
+        (Some(_), None) => -0.08,
+        _ => 0.0,
     }
 }
 
@@ -2191,4 +2200,61 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
         reasons.push("unresolved-contradiction".to_string());
     }
     reasons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
+        let now = Utc::now();
+        MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: "workspace-ranked memory".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: workspace.map(|value| value.to_string()),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex".to_string()),
+            source_system: Some("cli".to_string()),
+            source_path: None,
+            source_quality: Some(SourceQuality::Canonical),
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: Some(now),
+            supersedes: Vec::new(),
+            tags: vec!["workspace".to_string()],
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+        }
+    }
+
+    #[test]
+    fn matching_workspace_ranks_above_other_shared_workspace() {
+        let req = ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+        };
+        let plan = RetrievalPlan::resolve(req.route, req.intent);
+        let matching = sample_memory_item(Some("team-alpha"));
+        let unrelated = sample_memory_item(Some("team-beta"));
+
+        assert!(
+            context_score(&matching, None, 0.9, &req, &plan)
+                > context_score(&unrelated, None, 0.9, &req, &plan)
+        );
+    }
 }

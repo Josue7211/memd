@@ -3,6 +3,16 @@
 `memd` keeps the memory control plane in Rust and treats long-term semantic
 storage as an optional backend.
 
+## Tier Position
+
+RAG is the third deployment tier, not the starting requirement:
+
+- Tier 1: Obsidian-only markdown-native knowledge
+- Tier 2: shared sync and shared memory lanes
+- Tier 3: LightRAG semantic retrieval
+
+The markdown/file layer stays first-class even after the semantic backend is attached.
+
 For daily work, the flow should be:
 
 1. store and inspect state in `memd`
@@ -67,6 +77,7 @@ The sync path is intentionally explicit:
 - `memd` remains the source of truth for typed memory and policy
 - the backend receives compact records
 - duplicate and near-duplicate suppression still happens in `memd`
+- the semantic layer augments the markdown/file layer instead of replacing it
 
 ## Product Positioning
 

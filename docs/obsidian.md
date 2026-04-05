@@ -15,6 +15,16 @@ That means Obsidian is not only an ingest source. It can also be the markdown
 frontend for a compiled knowledge base, while `memd` remains the memory control
 plane behind it.
 
+## Tier Position
+
+Obsidian is the first deployment tier of the memory stack:
+
+- Tier 1: Obsidian only
+- Tier 2: shared sync on top of the same vault structure
+- Tier 3: LightRAG layered on top when scale demands semantic retrieval
+
+The later tiers should extend the same file structure instead of replacing it.
+
 For the working loop, the usual pattern is:
 
 - capture or sync source material into the vault
@@ -229,6 +239,15 @@ At the product level, this supports a compiled-wiki workflow:
 - generated outputs such as reports, slides, and analysis notes can be filed back into the vault
 - `memd` can index those files without forcing a separate semantic backend for small and medium knowledge bases
 
+The intended file shape is:
+
+- `raw/`
+- `wiki/`
+- `output/`
+
+with `memd` preserving typed memory, provenance, lanes, and handoffs around
+that markdown workspace.
+
 If `--link-notes` is enabled, wiki links like `[[Other Note]]` are resolved
 against imported note titles and written as entity links.
 
@@ -313,6 +332,12 @@ Use the optional semantic backend when:
 - the vault or source corpus grows beyond comfortable direct file navigation
 - semantic recall across larger corpora becomes necessary
 - multimodal retrieval pressure is high enough that a dedicated backend pays for itself
+
+This is the tier progression:
+
+- Obsidian-only for direct file-native knowledge
+- shared sync for cross-agent and cross-device continuity
+- LightRAG when semantic depth and scale are needed
 
 The intended shape is:
 

@@ -74,6 +74,35 @@ What is already real in the repo:
 - explain, inbox, maintenance, and policy inspection exist
 - branchable belief lanes exist for competing durable memory records
 
+## Deployment Tiers
+
+The memory stack should scale in layers instead of forcing the heaviest setup
+from day one.
+
+### Tier 1: Obsidian Only
+
+- raw source material
+- markdown wiki pages
+- compiled output pages
+- direct file browsing and backlinks
+- no semantic backend required
+
+### Tier 2: Shared Sync
+
+- everything in Obsidian-only
+- shared vault sync
+- shared workspace lanes
+- private/workspace/public visibility
+- resumable handoff bundles across agents and humans
+
+### Tier 3: LightRAG
+
+- everything in shared sync
+- semantic retrieval
+- concept graph traversal
+- long-range relatedness
+- multimodal retrieval at larger scale
+
 What is still missing before `v1` is truly complete:
 
 - deeper repair tooling
@@ -151,6 +180,10 @@ Deliver:
 - Obsidian vault bridge for markdown-native ingest and writeback
 - compiled-wiki workflow support where raw sources and derived notes can live in the same knowledge workspace
 - LightRAG adapter and bundle-first backend configuration
+- tiered deployment shape:
+  - Obsidian-only
+  - shared sync
+  - LightRAG-augmented retrieval
 - backend stack contract for `rag-sidecar`, `MinerU`, and `RAGAnything`
 - one-command attach flow for Claude Code, Codex, Mission Control, and OpenClaw
 - freshness, contradiction surfacing, inbox, explain, and maintenance views
@@ -163,6 +196,7 @@ Success:
   transcripts
 - memory remains compact, typed, inspectable, and evidence-backed
 - markdown-native research and wiki workflows can stay in Obsidian without giving up typed memory, provenance, or agent automation
+- the same knowledge base can scale from solo file-native use to shared sync to semantic retrieval
 - the substrate behaves like a brain-inspired control plane, not a bag of notes
 
 Implementation history:
@@ -232,6 +266,7 @@ Deliver:
 - permission-aware memory visibility
 - trust tiers for source and agent provenance
 - handoff memory for delegation across agents and humans
+- shared sync as a first-class deployment tier
 - private/local memory boundaries that do not leak into shared state
 - explicit merge and divergence handling between local and shared truth
 
@@ -256,6 +291,7 @@ Deliver:
 - A/B routing for competing memory strategies
 - regression detection for memory quality, not just system health
 - evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
+- tier-aware policy evolution so Obsidian-only, shared sync, and LightRAG setups can tune differently
 
 Evolution Engine:
 

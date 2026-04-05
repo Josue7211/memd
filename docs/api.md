@@ -219,7 +219,9 @@ Rules:
 - route and intent are resolved before retrieval
 - returns active items only
 - bounded by a small default limit
-- optional workspace and visibility filters narrow the hot path without changing route resolution
+- optional visibility filters narrow the hot path without changing route resolution
+- when `workspace` is provided, matching workspace memory is preferred in ranking instead of acting as a strict exclusion wall
+- cross-workspace shared memory can still appear when it remains relevant
 - project-scoped items outrank unrelated global memory
 - item content is compacted before response
 - TTL-expired items are automatically demoted before retrieval
