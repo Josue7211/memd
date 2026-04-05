@@ -1072,6 +1072,9 @@ struct CoordinationArgs {
     output: PathBuf,
 
     #[arg(long)]
+    view: Option<String>,
+
+    #[arg(long)]
     recover_session: Option<String>,
 
     #[arg(long)]
@@ -1515,7 +1518,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Coordination(args) => {
             let response = run_coordination_command(&args, &base_url).await?;
             if args.summary {
-                println!("{}", render_coordination_summary(&response));
+                println!(
+                    "{}",
+                    render_coordination_summary(&response, args.view.as_deref())
+                );
             } else {
                 print_json(&response)?;
             }
@@ -5517,110 +5523,158 @@ async fn run_coordination_command(
     })
 }
 
-fn render_coordination_summary(response: &CoordinationResponse) -> String {
-    let mut lines = vec![format!(
-        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={} recommendations={} receipts={}",
-        response.bundle_root,
-        response.current_session,
-        response.inbox.messages.len(),
-        response.inbox.owned_tasks.len(),
-        response.inbox.help_tasks.len(),
-        response.inbox.review_tasks.len(),
-        response.recovery.stale_peers.len(),
-        response.recovery.reclaimable_claims.len(),
-        response.recovery.stalled_tasks.len(),
-        response.policy_conflicts.len(),
-        response.boundary_recommendations.len(),
-        response.receipts.len(),
-    )];
-    for message in response.inbox.messages.iter().take(6) {
-        lines.push(format!(
-            "- msg {} [{}] {}",
-            &message.id[..8.min(message.id.len())],
-            message.kind,
-            compact_inline(&message.content, 90)
-        ));
+fn render_coordination_summary(response: &CoordinationResponse, view: Option<&str>) -> String {
+    let view = view.unwrap_or("all");
+    let mut lines = vec![
+        format!(
+            "coordination bundle={} session={}",
+            response.bundle_root, response.current_session
+        ),
+        format!(
+            "pressure messages={} owned={} help={} review={}",
+            response.inbox.messages.len(),
+            response.inbox.owned_tasks.len(),
+            response.inbox.help_tasks.len(),
+            response.inbox.review_tasks.len(),
+        ),
+        format!(
+            "recovery stale_peers={} reclaimable_claims={} stalled_tasks={}",
+            response.recovery.stale_peers.len(),
+            response.recovery.reclaimable_claims.len(),
+            response.recovery.stalled_tasks.len(),
+        ),
+        format!(
+            "policy conflicts={} recommendations={} receipts={}",
+            response.policy_conflicts.len(),
+            response.boundary_recommendations.len(),
+            response.receipts.len(),
+        ),
+    ];
+    if matches!(view, "all" | "overview" | "inbox") {
+        lines.push("".to_string());
+        lines.push("## Inbox".to_string());
     }
-    for task in response.inbox.owned_tasks.iter().take(6) {
-        lines.push(format!(
-            "- own {} [{}] {}",
-            task.task_id,
-            task.status,
-            compact_inline(&task.title, 90)
-        ));
-    }
-    for task in response.inbox.help_tasks.iter().take(4) {
-        lines.push(format!(
-            "- help {} [{}] owner={}",
-            task.task_id,
-            task.status,
-            task.effective_agent
-                .as_deref()
-                .or(task.session.as_deref())
-                .unwrap_or("none")
-        ));
-    }
-    for task in response.inbox.review_tasks.iter().take(4) {
-        lines.push(format!(
-            "- review {} [{}] owner={}",
-            task.task_id,
-            task.status,
-            task.effective_agent
-                .as_deref()
-                .or(task.session.as_deref())
-                .unwrap_or("none")
-        ));
-    }
-    for entry in response.recovery.stale_peers.iter().take(4) {
-        lines.push(format!(
-            "- stale session={} agent={} presence={} focus=\"{}\"",
-            entry.session.as_deref().unwrap_or("none"),
-            entry
-                .effective_agent
-                .as_deref()
-                .or(entry.agent.as_deref())
-                .unwrap_or("none"),
-            entry.presence,
-            compact_inline(entry.focus.as_deref().unwrap_or("none"), 72),
-        ));
-    }
-    for claim in response.recovery.reclaimable_claims.iter().take(6) {
-        lines.push(format!(
-            "- reclaimable claim {} owner={}",
-            claim.scope,
-            claim
-                .effective_agent
-                .as_deref()
-                .or(claim.session.as_deref())
-                .unwrap_or("none")
-        ));
-    }
-    for task in response.recovery.stalled_tasks.iter().take(6) {
-        lines.push(format!(
-            "- stalled task {} [{}] owner={}",
-            task.task_id,
-            task.status,
-            task.effective_agent
-                .as_deref()
-                .or(task.session.as_deref())
-                .unwrap_or("none")
-        ));
-    }
-    for conflict in response.policy_conflicts.iter().take(6) {
-        lines.push(format!("- policy {}", compact_inline(conflict, 96)));
-    }
-    for recommendation in response.boundary_recommendations.iter().take(6) {
-        lines.push(format!("- recommend {}", compact_inline(recommendation, 96)));
-    }
-    for receipt in response.receipts.iter().take(6) {
-        lines.push(format!(
-            "- receipt {} [{}] {}",
-            &receipt.id[..8.min(receipt.id.len())],
-            receipt.kind,
-            compact_inline(&receipt.summary, 96)
-        ));
-    }
+    append_coordination_sections(&mut lines, response, view);
     lines.join("\n")
+}
+
+fn append_coordination_sections(lines: &mut Vec<String>, response: &CoordinationResponse, view: &str) {
+    let show_all = matches!(view, "all" | "overview");
+    let show_inbox = show_all || view == "inbox";
+    let show_requests = show_all || view == "requests";
+    let show_recovery = show_all || view == "recovery";
+    let show_policy = show_all || view == "policy";
+    let show_history = show_all || view == "history";
+
+    if show_inbox {
+        for message in response.inbox.messages.iter().take(6) {
+            lines.push(format!(
+                "- msg {} [{}] {}",
+                &message.id[..8.min(message.id.len())],
+                message.kind,
+                compact_inline(&message.content, 90)
+            ));
+        }
+        for task in response.inbox.owned_tasks.iter().take(6) {
+            lines.push(format!(
+                "- own {} [{}] {}",
+                task.task_id,
+                task.status,
+                compact_inline(&task.title, 90)
+            ));
+        }
+    }
+    if show_requests && (!response.inbox.help_tasks.is_empty() || !response.inbox.review_tasks.is_empty()) {
+        lines.push("".to_string());
+        lines.push("## Requests".to_string());
+        for task in response.inbox.help_tasks.iter().take(6) {
+            lines.push(format!(
+                "- help {} [{}] owner={}",
+                task.task_id,
+                task.status,
+                task.effective_agent
+                    .as_deref()
+                    .or(task.session.as_deref())
+                    .unwrap_or("none")
+            ));
+        }
+        for task in response.inbox.review_tasks.iter().take(6) {
+            lines.push(format!(
+                "- review {} [{}] owner={}",
+                task.task_id,
+                task.status,
+                task.effective_agent
+                    .as_deref()
+                    .or(task.session.as_deref())
+                    .unwrap_or("none")
+            ));
+        }
+    }
+    if show_recovery
+        && (!response.recovery.stale_peers.is_empty()
+            || !response.recovery.reclaimable_claims.is_empty()
+            || !response.recovery.stalled_tasks.is_empty())
+    {
+        lines.push("".to_string());
+        lines.push("## Recovery".to_string());
+        for entry in response.recovery.stale_peers.iter().take(6) {
+            lines.push(format!(
+                "- stale session={} agent={} presence={} focus=\"{}\"",
+                entry.session.as_deref().unwrap_or("none"),
+                entry
+                    .effective_agent
+                    .as_deref()
+                    .or(entry.agent.as_deref())
+                    .unwrap_or("none"),
+                entry.presence,
+                compact_inline(entry.focus.as_deref().unwrap_or("none"), 72),
+            ));
+        }
+        for claim in response.recovery.reclaimable_claims.iter().take(6) {
+            lines.push(format!(
+                "- reclaimable claim {} owner={}",
+                claim.scope,
+                claim
+                    .effective_agent
+                    .as_deref()
+                    .or(claim.session.as_deref())
+                    .unwrap_or("none")
+            ));
+        }
+        for task in response.recovery.stalled_tasks.iter().take(6) {
+            lines.push(format!(
+                "- stalled task {} [{}] owner={}",
+                task.task_id,
+                task.status,
+                task.effective_agent
+                    .as_deref()
+                    .or(task.session.as_deref())
+                    .unwrap_or("none")
+            ));
+        }
+    }
+    if show_policy && (!response.policy_conflicts.is_empty() || !response.boundary_recommendations.is_empty()) {
+        lines.push("".to_string());
+        lines.push("## Policy".to_string());
+        for conflict in response.policy_conflicts.iter().take(6) {
+            lines.push(format!("- policy {}", compact_inline(conflict, 96)));
+        }
+        for recommendation in response.boundary_recommendations.iter().take(6) {
+            lines.push(format!("- recommend {}", compact_inline(recommendation, 96)));
+        }
+    }
+    if show_history && !response.receipts.is_empty() {
+        lines.push("".to_string());
+        lines.push("## History".to_string());
+        for receipt in response.receipts.iter().take(8) {
+            lines.push(format!(
+                "- receipt {} [{}] {}",
+                &receipt.id[..8.min(receipt.id.len())],
+                receipt.kind,
+                compact_inline(&receipt.summary, 96)
+            ));
+        }
+    }
 }
 
 fn suggest_boundary_recommendations(

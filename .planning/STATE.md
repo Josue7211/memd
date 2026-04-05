@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` coordination dashboard and history views on top of the receipt-aware coworking substrate.
+**Current focus:** Start `v5` coordination watch and alert surfaces on top of the drilldown-aware coworking substrate.
 
 ## Current Status
 
@@ -52,11 +52,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 ## Open Loops
 
-- planning roadmap now needs phase 40 execution so coordination state becomes easier to inspect live and historically
+- planning roadmap now needs phase 42 execution so operators can keep live coordination pressure visible without constant manual refresh
 
 ## Next Command
 
-Execute phase 40 so coordination pressure and history are easier to inspect live.
+Execute phase 42 so coordination pressure can stay visible as it changes during active coworking.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

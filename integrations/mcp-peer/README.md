@@ -18,6 +18,8 @@ It does not create a second coordination store.
 - `list_peers`
 - `check_inbox`
 - `coordination_inbox`
+- `coordination_dashboard`
+  - optional `view`: `all`, `inbox`, `requests`, `recovery`, `policy`, `history`
 - `recover_stale_session`
 - `recommend_boundaries`
 - `send_message`
@@ -69,3 +71,5 @@ npm install
 - message and claim operations use the shared `memd-server` backend routes
 - claims, tasks, and assignments preserve session-qualified ownership instead
   of collapsing everyone into one lane
+- dashboard drilldowns reuse the same bounded coordination categories as the
+  CLI summary surface

@@ -77,7 +77,9 @@ real memory:
 - [x] Add explicit coordination policy so exclusive-write and collaborative lanes are distinguishable before conflict.
 - [x] Add advisory branch and scope recommendations so simultaneous sessions split work more cleanly.
 - [x] Add compact coordination receipts so coworking transitions stay inspectable over time.
-- [ ] Add cleaner dashboard/history views so operators can inspect live and recent coordination state faster.
+- [x] Add cleaner dashboard/history views so operators can inspect live and recent coordination state faster.
+- [x] Add coordination drilldown and filter views so operators can isolate the right sessions, requests, and receipts faster under load.
+- [ ] Add live coordination watch and alert views so operators can keep pressure visible during active coworking instead of polling manually.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.

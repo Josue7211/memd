@@ -522,11 +522,37 @@ Success:
 - keep the first slice compatible with existing CLI and MCP surfaces
 - preserve compactness and inspectability over verbosity
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - operators can inspect live coworking pressure and recent history faster than raw coordination data
+
+#### Phase 41: `v5` Coordination Drilldown and Filter Views
+
+- add bounded drilldown surfaces for the most relevant coordination slices
+- let operators isolate inbox, requests, recovery pressure, policy conflicts, and receipts faster
+- keep the first slice compatible with the current CLI and MCP dashboard surfaces
+- preserve compactness and operator control instead of introducing a noisy activity feed
+
+Status: Complete
+
+Success:
+
+- operators can move from overview to the exact coordination slice they need without rereading the full dashboard
+
+#### Phase 42: `v5` Coordination Watch and Alert Views
+
+- add bounded watch surfaces for coordination pressure that changes during active coworking
+- keep the first slice focused on live refresh and compact alertable summaries instead of a noisy activity feed
+- preserve compatibility with the current CLI and MCP coordination categories
+- make active pressure easier to notice before operators have to manually poll for it
+
+Status: Planned
+
+Success:
+
+- operators can keep coordination pressure visible as it changes instead of repeatedly rerunning the same static summary
 
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*

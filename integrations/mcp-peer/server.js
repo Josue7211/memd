@@ -98,6 +98,56 @@ function listPeerBundles(bundleRoot) {
   return peers;
 }
 
+function matchesIdentityScope(peer, identity) {
+  return (
+    peer.project === (identity.project ?? null) &&
+    peer.namespace === (identity.namespace ?? null) &&
+    peer.workspace === (identity.workspace ?? null)
+  );
+}
+
+function recommendBoundaries(tasks = []) {
+  const lines = [];
+  for (const task of tasks) {
+    const branchPrefix =
+      task.coordination_mode === "shared_review"
+        ? "review"
+        : task.coordination_mode === "help_only"
+          ? "help"
+          : "feat";
+    const branchSuffix = String(task.task_id || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const scopeHint =
+      Array.isArray(task.claim_scopes) && task.claim_scopes.length > 0
+        ? task.claim_scopes.join(", ")
+        : "define a narrower scope";
+    lines.push(
+      `${task.task_id} [${task.coordination_mode}] -> ${branchPrefix}/${branchSuffix || "task"} | scopes ${scopeHint}`
+    );
+  }
+  return lines;
+}
+
+function policyConflicts(tasks = [], claims = []) {
+  const lines = [];
+  for (const task of tasks) {
+    if (task.coordination_mode !== "exclusive_write") continue;
+    for (const scope of task.claim_scopes ?? []) {
+      const claim = claims.find((entry) => entry.scope === scope);
+      const claimOwner = claim?.session ?? null;
+      const taskOwner = task?.session ?? null;
+      if (claimOwner && claimOwner !== taskOwner) {
+        lines.push(
+          `task ${task.task_id} requires exclusive_write but scope ${scope} is held by ${claim.effective_agent || claim.session || "none"}`
+        );
+      }
+    }
+  }
+  return lines;
+}
+
 async function memdGet(baseUrl, route, query = null) {
   const url = new URL(route, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   if (query) {
@@ -194,6 +244,20 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "coordination_dashboard",
+    description: "Render a compact dashboard-style view of current coordination pressure and recent history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view: {
+          type: "string",
+          description: "all, inbox, requests, recovery, policy, or history",
+          default: "all",
+        },
+      },
     },
   },
   {
@@ -437,6 +501,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return textResult(lines);
     }
 
+    case "coordination_dashboard": {
+      if (!identity.session) throw new Error("Bundle session is required for coordination dashboard.");
+      const view = args.view || "all";
+      const inbox = await memdGet(identity.baseUrl, "/coordination/inbox", {
+        session: identity.session,
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        limit: 32,
+      });
+      const receipts = await memdGet(identity.baseUrl, "/coordination/receipts", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        limit: 12,
+      });
+      const claims = await memdGet(identity.baseUrl, "/coordination/claims", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: true,
+        limit: 256,
+      });
+      const tasks = await memdGet(identity.baseUrl, "/coordination/tasks", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: true,
+        limit: 256,
+      });
+      const peers = listPeerBundles(bundleRoot).filter((peer) => matchesIdentityScope(peer, identity));
+      const stalePeers = peers.filter(
+        (peer) => peer.session && peer.session !== identity.session && (peer.presence === "stale" || peer.presence === "dead")
+      );
+      const reclaimableClaims = (claims.claims ?? []).filter((claim) =>
+        stalePeers.some((peer) => peer.session === claim.session)
+      );
+      const stalledTasks = (tasks.tasks ?? []).filter((task) =>
+        stalePeers.some((peer) => peer.session === task.session)
+      );
+      const conflicts = policyConflicts(tasks.tasks ?? [], claims.claims ?? []);
+      const recommendations = recommendBoundaries(tasks.tasks ?? []);
+      const lines = [
+        "## Coordination",
+        `messages=${inbox.messages?.length ?? 0} owned=${inbox.owned_tasks?.length ?? 0} help=${inbox.help_tasks?.length ?? 0} review=${inbox.review_tasks?.length ?? 0}`,
+        `recovery stale=${stalePeers.length} reclaimable=${reclaimableClaims.length} stalled=${stalledTasks.length}`,
+        `policy conflicts=${conflicts.length} recommendations=${recommendations.length} receipts=${receipts.receipts?.length ?? 0}`,
+      ];
+      const showAll = view === "all" || view === "overview";
+      if (showAll || view === "inbox") {
+        lines.push("", "## Inbox");
+        for (const message of inbox.messages ?? []) {
+          lines.push(`- ${message.kind}: ${compact(message.content, 96)}`);
+        }
+        for (const task of inbox.owned_tasks ?? []) {
+          lines.push(`- own ${task.task_id}: ${compact(task.title, 96)}`);
+        }
+      }
+      if (showAll || view === "requests") {
+        lines.push("", "## Requests");
+        for (const task of inbox.help_tasks ?? []) {
+          lines.push(`- help ${task.task_id}: owner=${task.effective_agent || task.session || "none"}`);
+        }
+        for (const task of inbox.review_tasks ?? []) {
+          lines.push(`- review ${task.task_id}: owner=${task.effective_agent || task.session || "none"}`);
+        }
+      }
+      if (showAll || view === "recovery") {
+        lines.push("", "## Recovery");
+        for (const peer of stalePeers) {
+          lines.push(
+            `- stale session=${peer.session || "none"} agent=${peer.effective_agent || peer.agent || "none"} presence=${peer.presence} focus="${compact(peer.focus || "none", 72)}"`
+          );
+        }
+        for (const claim of reclaimableClaims) {
+          lines.push(`- reclaimable claim ${claim.scope}: owner=${claim.effective_agent || claim.session || "none"}`);
+        }
+        for (const task of stalledTasks) {
+          lines.push(`- stalled task ${task.task_id}: owner=${task.effective_agent || task.session || "none"}`);
+        }
+      }
+      if (showAll || view === "policy") {
+        lines.push("", "## Policy");
+        for (const line of conflicts) {
+          lines.push(`- policy ${compact(line, 96)}`);
+        }
+        for (const line of recommendations) {
+          lines.push(`- recommend ${compact(line, 96)}`);
+        }
+      }
+      if (showAll || view === "history") {
+        lines.push("", "## Recent Receipts");
+        for (const receipt of receipts.receipts ?? []) {
+          lines.push(`- ${receipt.kind}: ${compact(receipt.summary, 96)}`);
+        }
+      }
+      return textResult(lines);
+    }
+
     case "recover_stale_session": {
       if (!identity.session) throw new Error("Bundle session is required for stale-session recovery.");
       const stale = peerBySession.get(args.stale_session);
@@ -504,26 +667,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         active_only: true,
         limit: 128,
       });
-      const lines = [];
-      for (const task of tasks.tasks ?? []) {
-        const branchPrefix =
-          task.coordination_mode === "shared_review"
-            ? "review"
-            : task.coordination_mode === "help_only"
-              ? "help"
-              : "feat";
-        const branchSuffix = String(task.task_id)
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "");
-        const scopeHint =
-          Array.isArray(task.claim_scopes) && task.claim_scopes.length > 0
-            ? task.claim_scopes.join(", ")
-            : "define a narrower scope";
-        lines.push(
-          `- ${task.task_id} [${task.coordination_mode}] -> ${branchPrefix}/${branchSuffix || "task"} | scopes ${scopeHint}`
-        );
-      }
+      const lines = recommendBoundaries(tasks.tasks ?? []);
       return textResult([`recommendations=${lines.length}`, ...lines]);
     }
 
