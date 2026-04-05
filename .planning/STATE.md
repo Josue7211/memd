@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Phase 10 `v3` Shared Workspace Foundations.
+**Current focus:** Phase 11 `v3` Workspace Handoff Bundles.
 
 ## Current Status
 
@@ -24,11 +24,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 ## Open Loops
 
-- phase 10 shared workspace foundations are planned but not fully implemented
+- phase 11 workspace handoff bundles are ready to implement on top of shared workspace lanes
 
 ## Next Command
 
-Run `gsd-execute-phase 10`.
+Run `gsd-execute-phase 11`.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

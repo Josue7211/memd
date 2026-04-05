@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use memd_schema::{
     CandidateMemoryRequest, EntityLinkRequest, EntityRelationKind, ExplainMemoryResponse,
     MemoryContextFrame, MemoryKind, MemoryScope, MemoryVisibility, SearchMemoryResponse,
-    SourceQuality,
+    SourceMemoryResponse, SourceQuality,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -524,6 +524,19 @@ pub fn default_compiled_index_path(vault: &Path) -> PathBuf {
     vault.join(".memd").join("compiled").join("INDEX.md")
 }
 
+pub fn default_handoff_path(vault: &Path, snapshot: &crate::ResumeSnapshot) -> PathBuf {
+    let base = snapshot
+        .workspace
+        .clone()
+        .or_else(|| snapshot.project.clone())
+        .unwrap_or_else(|| "shared-handoff".to_string());
+    let slug = slugify(&format!("{base}-{}", Utc::now().format("%Y%m%d-%H%M%S")));
+    vault
+        .join(".memd")
+        .join("handoffs")
+        .join(format!("{slug}.md"))
+}
+
 pub fn resolve_open_path(vault: &Path, target: &Path) -> PathBuf {
     if target.is_absolute() {
         target.to_path_buf()
@@ -915,6 +928,136 @@ pub fn build_compiled_index_markdown(
         markdown.push('\n');
     }
     markdown
+}
+
+pub fn build_handoff_markdown(
+    vault: &Path,
+    snapshot: &crate::ResumeSnapshot,
+    sources: &SourceMemoryResponse,
+) -> (String, String) {
+    let title = format!(
+        "Handoff {} {}",
+        snapshot.workspace.as_deref().unwrap_or("shared"),
+        Utc::now().format("%Y-%m-%d %H:%M")
+    );
+    let mut markdown = String::new();
+    markdown.push_str("---\n");
+    markdown.push_str(&format!("title: {}\n", title));
+    markdown.push_str("source_system: memd\n");
+    markdown.push_str("source_agent: memd\n");
+    if let Some(project) = snapshot.project.as_deref() {
+        markdown.push_str(&format!("project: {}\n", project));
+    }
+    if let Some(namespace) = snapshot.namespace.as_deref() {
+        markdown.push_str(&format!("namespace: {}\n", namespace));
+    }
+    if let Some(workspace) = snapshot.workspace.as_deref() {
+        markdown.push_str(&format!("workspace: {}\n", workspace));
+    }
+    if let Some(visibility) = snapshot.visibility.as_deref() {
+        markdown.push_str(&format!("visibility: {}\n", visibility));
+    }
+    markdown.push_str(&format!("route: {}\n", snapshot.route));
+    markdown.push_str(&format!("intent: {}\n", snapshot.intent));
+    markdown.push_str(&format!("working_items: {}\n", snapshot.working.records.len()));
+    markdown.push_str(&format!("rehydration_items: {}\n", snapshot.working.rehydration_queue.len()));
+    markdown.push_str(&format!("inbox_items: {}\n", snapshot.inbox.items.len()));
+    markdown.push_str(&format!("workspace_lanes: {}\n", snapshot.workspaces.workspaces.len()));
+    markdown.push_str(&format!("source_lanes: {}\n", sources.sources.len()));
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!("# {}\n\n", title));
+    markdown.push_str("## Resume Frame\n\n");
+    markdown.push_str(&format!(
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        snapshot.route,
+        snapshot.intent
+    ));
+
+    markdown.push_str("\n## Working Memory\n\n");
+    if snapshot.working.records.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for record in snapshot.working.records.iter().take(10) {
+            markdown.push_str(&format!("- {}\n", record.record));
+        }
+    }
+
+    if !snapshot.working.rehydration_queue.is_empty() {
+        markdown.push_str("\n## Rehydration Queue\n\n");
+        for artifact in snapshot.working.rehydration_queue.iter().take(8) {
+            markdown.push_str(&format!(
+                "- **{}** {}: {}\n",
+                artifact.kind,
+                artifact.label,
+                artifact.summary
+            ));
+            if let Some(path) = artifact.source_path.as_deref() {
+                markdown.push_str(&format!("  - source_path: {}\n", path));
+                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
+                    markdown.push_str(&format!("  - source_note: {}\n", link));
+                }
+            }
+            if let Some(reason) = artifact.reason.as_deref() {
+                markdown.push_str(&format!("  - reason: {}\n", reason));
+            }
+        }
+    }
+
+    if !snapshot.inbox.items.is_empty() {
+        markdown.push_str("\n## Inbox Pressure\n\n");
+        for item in snapshot.inbox.items.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {:?} {:?} | confidence {:.2} | {}\n",
+                item.item.kind,
+                item.item.status,
+                item.item.confidence,
+                item.item.content
+            ));
+            if !item.reasons.is_empty() {
+                markdown.push_str(&format!("  - reasons: {}\n", item.reasons.join(", ")));
+            }
+        }
+    }
+
+    if !snapshot.workspaces.workspaces.is_empty() {
+        markdown.push_str("\n## Workspace Lanes\n\n");
+        for workspace in snapshot.workspaces.workspaces.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {} / {} / {} | visibility {} | items {} | sources {} | trust {:.2} | confidence {:.2}\n",
+                workspace.project.as_deref().unwrap_or("none"),
+                workspace.namespace.as_deref().unwrap_or("none"),
+                workspace.workspace.as_deref().unwrap_or("none"),
+                format_visibility(workspace.visibility),
+                workspace.item_count,
+                workspace.source_lane_count,
+                workspace.trust_score,
+                workspace.avg_confidence
+            ));
+        }
+    }
+
+    if !sources.sources.is_empty() {
+        markdown.push_str("\n## Source Lanes\n\n");
+        for source in sources.sources.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
+                source.source_agent.as_deref().unwrap_or("none"),
+                source.source_system.as_deref().unwrap_or("none"),
+                source.workspace.as_deref().unwrap_or("none"),
+                format_visibility(source.visibility),
+                source.item_count,
+                source.trust_score,
+                source.avg_confidence
+            ));
+        }
+    }
+
+    (title, markdown)
 }
 
 fn source_wikilink_for_path(vault: &Path, path: &Path) -> Option<String> {
@@ -2265,6 +2408,147 @@ mod tests {
     fn builds_compiled_index_path() {
         let path = default_compiled_index_path(Path::new("/tmp/vault"));
         assert_eq!(path, Path::new("/tmp/vault/.memd/compiled/INDEX.md"));
+    }
+
+    #[test]
+    fn builds_handoff_path() {
+        let snapshot = crate::ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 0,
+                used_chars: 0,
+                remaining_chars: 0,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+        };
+        let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
+        assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
+        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("md"));
+    }
+
+    #[test]
+    fn builds_handoff_markdown() {
+        let snapshot = crate::ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "general".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 32,
+                remaining_chars: 1568,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: Uuid::new_v4(),
+                    record: "Remember the active handoff lane".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::General,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 2,
+                    avg_confidence: 0.86,
+                    trust_score: 0.92,
+                    last_seen_at: None,
+                    tags: vec!["handoff".to_string()],
+                }],
+            },
+        };
+        let sources = SourceMemoryResponse {
+            sources: vec![memd_schema::SourceMemoryRecord {
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 2,
+                active_count: 2,
+                candidate_count: 0,
+                derived_count: 0,
+                synthetic_count: 0,
+                contested_count: 0,
+                avg_confidence: 0.88,
+                trust_score: 0.94,
+                last_seen_at: None,
+                tags: vec!["handoff".to_string()],
+            }],
+        };
+
+        let (_, markdown) = build_handoff_markdown(Path::new("/tmp/vault"), &snapshot, &sources);
+        assert!(markdown.contains("# Handoff"));
+        assert!(markdown.contains("## Working Memory"));
+        assert!(markdown.contains("## Workspace Lanes"));
+        assert!(markdown.contains("## Source Lanes"));
+        assert!(markdown.contains("team-alpha"));
     }
 
     #[test]

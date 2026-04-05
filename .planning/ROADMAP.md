@@ -148,15 +148,28 @@ Success:
 - keep handoff memory and trust tiers explicit across projects and collaborators
 - preserve scope, provenance, and auditability when memory moves between agents
 
-Status: Ready
+Status: Complete
 
 Success:
 
 - teams can share memory without flattening private and public context
 
+#### Phase 11: `v3` Workspace Handoff Bundles
+
+- package shared working memory, inbox pressure, workspace summaries, and recent evidence into resumable handoff bundles
+- make agent and human handoff output preserve provenance, trust, visibility, and rehydration state
+- add a shared handoff surface that can be emitted as both CLI output and compiled Obsidian pages
+- keep handoff retrieval bounded so delegation does not become a transcript dump
+
+Status: Ready
+
+Success:
+
+- shared work can be resumed from a compact handoff bundle instead of rebuilding state from scratch
+
 ## Immediate Next Phase
 
-Phase 10: `v3` Shared Workspace Foundations
+Phase 11: `v3` Workspace Handoff Bundles
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

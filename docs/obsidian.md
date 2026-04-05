@@ -19,6 +19,7 @@ For the working loop, the usual pattern is:
 
 - capture or sync source material into the vault
 - use `memd search`, `memd working`, and `memd explain` to inspect state
+- emit compact shared handoff bundles with `memd handoff` when another agent or human needs to pick work up
 - compile durable evidence pages with `obsidian compile`
 - keep writeback pages and compiled evidence pages indexed inside `.memd/`
 - add LightRAG only if markdown-native retrieval is no longer enough
@@ -140,6 +141,24 @@ cargo run -p memd-client --bin memd -- obsidian compile --vault ~/vault --id 123
 This is the preferred shape when you want an item to become part of the
 Obsidian knowledge base instead of only a transient writeback note.
 
+Preview a shared workspace handoff bundle in the terminal:
+
+```bash
+cargo run -p memd-client --bin memd -- handoff --output .memd --prompt
+```
+
+Write a shared workspace handoff bundle into the vault:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian handoff --vault ~/vault --project notes --workspace team-alpha --visibility workspace --apply
+```
+
+Write it and open it immediately in Obsidian:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian handoff --vault ~/vault --project notes --workspace team-alpha --visibility workspace --apply --open
+```
+
 The Obsidian commands that read or compile memory can also take
 `--workspace <name>` and `--visibility <private|workspace|public>` so compiled
 pages line up with the same safe shared-memory boundaries as the rest of the
@@ -148,6 +167,15 @@ control plane.
 Generated writeback and compiled memory pages now include workspace and
 visibility metadata in their frontmatter and summary sections so handoff state
 stays visible inside the vault, not only in API responses.
+
+Handoff pages land under `<vault>/.memd/handoffs/` by default and package:
+
+- the active resume frame
+- working memory
+- rehydration queue
+- inbox pressure
+- workspace lanes
+- source lanes
 
 Mirror notes and roundtrip annotations produced by `obsidian sync` /
 `obsidian roundtrip` also carry workspace and visibility when those flags are

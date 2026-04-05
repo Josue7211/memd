@@ -38,6 +38,8 @@ evidence, and inspect its own working memory across sessions.
 - [x] Make procedural and self-model memory explicit.
 - [x] Add reversible compression and evidence rehydration.
 - [x] Keep procedural, self-model, and source-trust surfaces explicit as `v2` grows.
+- [x] Establish shared workspace and visibility lanes for `v3`.
+- [ ] Add resumable workspace handoff bundles for shared memory.
 
 ### Out of Scope
 
@@ -56,16 +58,17 @@ capability versions `v1` through `v5`.
 
 Recent work tightened bundle-first backend wiring, sidecar metadata fidelity,
 policy inspection, explicit repair, provenance drilldown, managed
-working-memory state, and branchable belief lanes. The repo is usable now, and
-`v2` is active with explicit trust, artifact, sibling-branch, retrieval-feedback,
-trust-weighted ranking, contradiction resolution, and first-class procedural and
-self-model memory surfaces.
+working-memory state, shared workspace lanes, and branchable belief lanes. The
+repo is usable now, with `v2` complete enough to support `v3` shared-memory
+work and bundle-backed Codex startup/resume flows already in place.
 
 The product direction now explicitly includes an Obsidian compiled-wiki mode:
 raw sources and derived markdown pages can live in the same workspace, with
 `memd` preserving typed memory, provenance, and policy around that markdown
 surface. Compiled memory/evidence pages are now a first-class Obsidian lane.
-LightRAG stays optional for larger-scale semantic recall.
+Workspace handoff pages are the next step so shared memory can be resumed
+inside both the CLI and the vault. LightRAG stays optional for larger-scale
+semantic recall.
 
 ## Constraints
 
@@ -87,4 +90,4 @@ LightRAG stays optional for larger-scale semantic recall.
 | Treat working memory as a managed buffer, not just compact retrieval | Needed for eventual superhuman short-term memory | — Pending |
 
 ---
-*Last updated: 2026-04-04 after GSD phase 1 completion*
+*Last updated: 2026-04-04 after GSD phase 11 kickoff*

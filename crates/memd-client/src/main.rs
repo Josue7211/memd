@@ -11,6 +11,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
+use chrono::{DateTime, Utc};
 use memd_client::MemdClient;
 use memd_core::{
     build_compaction_packet, derive_compaction_spill, derive_compaction_spill_with_options,
@@ -43,7 +44,7 @@ use render::{
     render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
     render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
     render_repair_summary, render_resume_prompt, render_source_summary, render_timeline_summary,
-    render_working_summary, render_workspace_summary, short_uuid,
+    render_working_summary, render_workspace_summary, render_handoff_prompt, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +65,7 @@ enum Commands {
     Status(StatusArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
+    Handoff(HandoffArgs),
     Remember(RememberArgs),
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
@@ -655,6 +657,7 @@ enum ObsidianMode {
     Import,
     Sync,
     Compile,
+    Handoff,
     Open,
     Writeback,
     Roundtrip,
@@ -945,6 +948,48 @@ struct ResumeArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct HandoffArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    rehydration_limit: Option<usize>,
+
+    #[arg(long)]
+    source_limit: Option<usize>,
+
+    #[arg(long)]
+    prompt: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct RememberArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1147,6 +1192,28 @@ async fn main() -> anyhow::Result<()> {
                     snapshot.working.records.len(),
                     snapshot.inbox.items.len(),
                     snapshot.workspaces.workspaces.len()
+                );
+            } else {
+                print_json(&snapshot)?;
+            }
+        }
+        Commands::Handoff(args) => {
+            let snapshot = read_bundle_handoff(&args, &base_url).await?;
+            if args.prompt {
+                println!("{}", render_handoff_prompt(&snapshot));
+            } else if args.summary {
+                println!(
+                    "handoff project={} namespace={} agent={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={}",
+                    snapshot.resume.project.as_deref().unwrap_or("none"),
+                    snapshot.resume.namespace.as_deref().unwrap_or("none"),
+                    snapshot.resume.agent.as_deref().unwrap_or("none"),
+                    snapshot.resume.workspace.as_deref().unwrap_or("none"),
+                    snapshot.resume.visibility.as_deref().unwrap_or("all"),
+                    snapshot.resume.working.records.len(),
+                    snapshot.resume.inbox.items.len(),
+                    snapshot.resume.workspaces.workspaces.len(),
+                    snapshot.sources.sources.len(),
+                    snapshot.resume.working.rehydration_queue.len(),
                 );
             } else {
                 print_json(&snapshot)?;
@@ -1756,6 +1823,9 @@ async fn main() -> anyhow::Result<()> {
             ObsidianMode::Compile => {
                 run_obsidian_compile(&client, &args).await?;
             }
+            ObsidianMode::Handoff => {
+                run_obsidian_handoff(&args, &base_url).await?;
+            }
             ObsidianMode::Writeback => {
                 run_obsidian_writeback(&client, &args).await?;
             }
@@ -2361,6 +2431,68 @@ async fn run_obsidian_writeback(client: &MemdClient, args: &ObsidianArgs) -> any
         "reasons": explain.reasons.clone(),
         "entity": explain.entity.as_ref().map(|entity| entity.id),
         "events": explain.events.len(),
+        "apply": args.apply,
+    });
+
+    if !args.apply {
+        print_json(&preview)?;
+        return Ok(());
+    }
+
+    if output_path.exists() && !args.overwrite {
+        anyhow::bail!(
+            "{} already exists; pass --overwrite to replace it",
+            output_path.display()
+        );
+    }
+    obsidian::write_markdown(&output_path, &markdown)?;
+    if args.open {
+        let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
+        obsidian::open_uri(&uri)?;
+    }
+    print_json(&preview)?;
+    Ok(())
+}
+
+async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Result<()> {
+    let snapshot = read_bundle_handoff(
+        &HandoffArgs {
+            output: resolve_default_bundle_root()?.unwrap_or_else(|| PathBuf::from(".memd")),
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            agent: None,
+            workspace: args.workspace.clone(),
+            visibility: args.visibility.clone(),
+            route: args.route.clone(),
+            intent: args.intent.clone(),
+            limit: args.limit,
+            rehydration_limit: Some(4),
+            source_limit: Some(6),
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| obsidian::default_handoff_path(&args.vault, &snapshot.resume));
+    let (title, markdown) =
+        obsidian::build_handoff_markdown(&args.vault, &snapshot.resume, &snapshot.sources);
+    let preview = serde_json::json!({
+        "output_path": output_path.display().to_string(),
+        "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+        "title": title,
+        "project": snapshot.resume.project,
+        "namespace": snapshot.resume.namespace,
+        "workspace": snapshot.resume.workspace,
+        "visibility": snapshot.resume.visibility,
+        "working": snapshot.resume.working.records.len(),
+        "inbox": snapshot.resume.inbox.items.len(),
+        "workspaces": snapshot.resume.workspaces.workspaces.len(),
+        "sources": snapshot.sources.sources.len(),
         "apply": args.apply,
     });
 
@@ -3673,6 +3805,55 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
     })
 }
 
+async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Result<HandoffSnapshot> {
+    let resume = read_bundle_resume(
+        &ResumeArgs {
+            output: args.output.clone(),
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            agent: args.agent.clone(),
+            workspace: args.workspace.clone(),
+            visibility: args.visibility.clone(),
+            route: args.route.clone(),
+            intent: args.intent.clone(),
+            limit: args.limit,
+            rehydration_limit: args.rehydration_limit,
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
+    let client = MemdClient::new(&base_url)?;
+    let sources = client
+        .source_memory(&SourceMemoryRequest {
+            project: resume.project.clone(),
+            namespace: resume.namespace.clone(),
+            workspace: resume.workspace.clone(),
+            visibility: resume
+                .visibility
+                .as_deref()
+                .map(parse_memory_visibility_value)
+                .transpose()?,
+            source_agent: None,
+            source_system: None,
+            limit: args.source_limit.or(Some(6)),
+        })
+        .await?;
+
+    Ok(HandoffSnapshot {
+        generated_at: Utc::now(),
+        resume,
+        sources,
+    })
+}
+
 async fn remember_with_bundle_defaults(
     args: &RememberArgs,
     base_url: &str,
@@ -3919,6 +4100,13 @@ struct ResumeSnapshot {
     working: memd_schema::WorkingMemoryResponse,
     inbox: memd_schema::MemoryInboxResponse,
     workspaces: memd_schema::WorkspaceMemoryResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HandoffSnapshot {
+    generated_at: DateTime<Utc>,
+    resume: ResumeSnapshot,
+    sources: memd_schema::SourceMemoryResponse,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

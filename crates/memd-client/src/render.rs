@@ -599,6 +599,94 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     output
 }
 
+pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String {
+    let mut output = String::new();
+    output.push_str("# memd handoff\n\n");
+    output.push_str(&format!(
+        "- generated_at: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        snapshot.generated_at.to_rfc3339(),
+        snapshot.resume.project.as_deref().unwrap_or("none"),
+        snapshot.resume.namespace.as_deref().unwrap_or("none"),
+        snapshot.resume.agent.as_deref().unwrap_or("none"),
+        snapshot.resume.workspace.as_deref().unwrap_or("none"),
+        snapshot.resume.visibility.as_deref().unwrap_or("all"),
+        snapshot.resume.route,
+        snapshot.resume.intent,
+    ));
+
+    output.push_str("\n## Working Memory\n\n");
+    if snapshot.resume.working.records.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for record in snapshot.resume.working.records.iter().take(8) {
+            output.push_str(&format!("- {}\n", compact_inline(&record.record, 220)));
+        }
+    }
+
+    if !snapshot.resume.working.rehydration_queue.is_empty() {
+        output.push_str("\n## Rehydration Queue\n\n");
+        for artifact in snapshot.resume.working.rehydration_queue.iter().take(5) {
+            output.push_str(&format!(
+                "- {}: {}\n",
+                artifact.label,
+                compact_inline(&artifact.summary, 180)
+            ));
+        }
+    }
+
+    if !snapshot.resume.inbox.items.is_empty() {
+        output.push_str("\n## Inbox Pressure\n\n");
+        for item in snapshot.resume.inbox.items.iter().take(5) {
+            let reasons = if item.reasons.is_empty() {
+                "none".to_string()
+            } else {
+                compact_inline(&item.reasons.join(", "), 100)
+            };
+            output.push_str(&format!(
+                "- {:?} {:?}: {} | reasons: {}\n",
+                item.item.kind,
+                item.item.status,
+                compact_inline(&item.item.content, 160),
+                reasons
+            ));
+        }
+    }
+
+    if !snapshot.resume.workspaces.workspaces.is_empty() {
+        output.push_str("\n## Workspace Lanes\n\n");
+        for workspace in snapshot.resume.workspaces.workspaces.iter().take(5) {
+            output.push_str(&format!(
+                "- {} / {} / {} | visibility {} | items {} | sources {} | trust {:.2}\n",
+                workspace.project.as_deref().unwrap_or("none"),
+                workspace.namespace.as_deref().unwrap_or("none"),
+                workspace.workspace.as_deref().unwrap_or("none"),
+                format_visibility(workspace.visibility),
+                workspace.item_count,
+                workspace.source_lane_count,
+                workspace.trust_score
+            ));
+        }
+    }
+
+    if !snapshot.sources.sources.is_empty() {
+        output.push_str("\n## Source Lanes\n\n");
+        for source in snapshot.sources.sources.iter().take(5) {
+            output.push_str(&format!(
+                "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
+                source.source_agent.as_deref().unwrap_or("none"),
+                source.source_system.as_deref().unwrap_or("none"),
+                source.workspace.as_deref().unwrap_or("none"),
+                format_visibility(source.visibility),
+                source.item_count,
+                source.trust_score,
+                source.avg_confidence
+            ));
+        }
+    }
+
+    output
+}
+
 pub(crate) fn render_consolidate_summary(
     response: &memd_schema::MemoryConsolidationResponse,
     follow: bool,

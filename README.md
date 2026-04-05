@@ -13,6 +13,7 @@ The shortest default loop is:
 
 - `memd resume --output .memd`
 - `memd remember --output .memd --kind <kind> --content <text>`
+- `memd handoff --output .memd --prompt`
 
 Supported platforms:
 
@@ -121,6 +122,18 @@ Resume with a shared workspace lane:
 ```bash
 cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex --workspace team-alpha --visibility workspace
 cargo run -p memd-client --bin memd -- resume --output .memd
+```
+
+Emit a compact shared handoff bundle for delegation or resume:
+
+```bash
+cargo run -p memd-client --bin memd -- handoff --output .memd --prompt
+```
+
+Write that handoff into the Obsidian workspace:
+
+```bash
+cargo run -p memd-client --bin memd -- obsidian handoff --vault ~/vault --project demo --workspace team-alpha --visibility workspace --apply --open
 ```
 
 Bootstrap a project bundle with LightRAG configured:
