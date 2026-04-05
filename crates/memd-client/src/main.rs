@@ -1333,8 +1333,20 @@ async fn main() -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else if args.summary {
+                let focus = snapshot
+                    .working
+                    .records
+                    .first()
+                    .map(|record| compact_inline(&record.record, 72))
+                    .unwrap_or_else(|| "none".to_string());
+                let pressure = snapshot
+                    .inbox
+                    .items
+                    .first()
+                    .map(|item| compact_inline(&item.item.content, 72))
+                    .unwrap_or_else(|| "none".to_string());
                 println!(
-                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={}",
+                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} focus=\"{}\" pressure=\"{}\"",
                     snapshot.project.as_deref().unwrap_or("none"),
                     snapshot.namespace.as_deref().unwrap_or("none"),
                     snapshot.agent.as_deref().unwrap_or("none"),
@@ -1343,7 +1355,10 @@ async fn main() -> anyhow::Result<()> {
                     snapshot.context.records.len(),
                     snapshot.working.records.len(),
                     snapshot.inbox.items.len(),
-                    snapshot.workspaces.workspaces.len()
+                    snapshot.workspaces.workspaces.len(),
+                    snapshot.change_summary.len(),
+                    focus,
+                    pressure,
                 );
             } else {
                 print_json(&snapshot)?;
