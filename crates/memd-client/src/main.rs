@@ -4746,4 +4746,29 @@ mod tests {
         assert_eq!(json["visibility"], "workspace");
         assert_eq!(json["rag_url"], "http://127.0.0.1:9000");
     }
+
+    #[test]
+    fn builds_bundle_agent_profiles_for_known_agents() {
+        let response = build_bundle_agent_profiles(Path::new("/tmp/.memd"), None, Some("bash"))
+            .expect("agent profiles");
+        assert_eq!(response.agents.len(), 4);
+        assert_eq!(response.shell, "bash");
+        assert_eq!(response.agents[0].name, "codex");
+        assert!(response.agents[0].memory_file.ends_with("agents/CODEX_MEMORY.md"));
+        assert!(response.agents[0].launch_hint.contains("codex.sh"));
+    }
+
+    #[test]
+    fn filters_bundle_agent_profiles_by_name() {
+        let response = build_bundle_agent_profiles(
+            Path::new("/tmp/.memd"),
+            Some("claude-code"),
+            Some("pwsh"),
+        )
+        .expect("agent profiles");
+        assert_eq!(response.agents.len(), 1);
+        assert_eq!(response.selected.as_deref(), Some("claude-code"));
+        assert_eq!(response.agents[0].name, "claude-code");
+        assert!(response.agents[0].launch_hint.contains("claude-code.ps1"));
+    }
 }
