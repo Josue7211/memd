@@ -139,6 +139,10 @@ Check bundle health:
 cargo run -p memd-client --bin memd -- status --output .memd
 ```
 
+When the server is reachable, `status` also includes a lightweight resume
+preview so you can see whether the default memory lane is actually returning
+working records, inbox items, and workspace lanes.
+
 Print the attach snippet that points agents at the bundle-backed resume flow:
 
 ```bash

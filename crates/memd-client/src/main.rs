@@ -3401,6 +3401,44 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let client = MemdClient::new(base_url)?;
     let health = client.healthz().await.ok();
     let runtime = read_bundle_runtime_config(output)?;
+    let resume_preview = if output.join("config.json").exists() && health.is_some() {
+        let preview = read_bundle_resume(
+            &ResumeArgs {
+                output: output.to_path_buf(),
+                project: None,
+                namespace: None,
+                agent: None,
+                workspace: None,
+                visibility: None,
+                route: None,
+                intent: None,
+                limit: Some(4),
+                rehydration_limit: Some(2),
+                summary: false,
+            },
+            base_url,
+        )
+        .await
+        .ok();
+        preview.map(|snapshot| {
+            serde_json::json!({
+                "project": snapshot.project,
+                "namespace": snapshot.namespace,
+                "agent": snapshot.agent,
+                "workspace": snapshot.workspace,
+                "visibility": snapshot.visibility,
+                "route": snapshot.route,
+                "intent": snapshot.intent,
+                "context_records": snapshot.context.records.len(),
+                "working_records": snapshot.working.records.len(),
+                "inbox_items": snapshot.inbox.items.len(),
+                "workspace_lanes": snapshot.workspaces.workspaces.len(),
+                "rehydration_queue": snapshot.working.rehydration_queue.len(),
+            })
+        })
+    } else {
+        None
+    };
     let rag_config = read_bundle_rag_config(output)?;
     let rag = match rag_config {
         Some(config) if config.enabled => {
@@ -3471,6 +3509,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "workspace": config.workspace,
             "visibility": config.visibility,
         })),
+        "resume_preview": resume_preview,
         "server": health,
         "rag": rag.unwrap_or_else(|| serde_json::json!({
             "configured": false,
