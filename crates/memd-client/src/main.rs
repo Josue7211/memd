@@ -4342,6 +4342,15 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
                 ttl_seconds: args.ttl_secs,
             })
             .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "claims",
+            format!("Claimed scope {scope} for active work."),
+            vec!["claims".to_string(), "auto-checkpoint".to_string()],
+            0.82,
+        )
+        .await?;
         let cache = SessionClaimsState {
             claims: client
                 .peer_claims(&memd_schema::PeerClaimsRequest {
@@ -4393,6 +4402,19 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
                 to_effective_agent: target.as_ref().and_then(|entry| entry.effective_agent.clone()),
             })
             .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "claims",
+            format!("Transferred scope {scope} to session {target_session}."),
+            vec![
+                "claims".to_string(),
+                "assignment".to_string(),
+                "auto-checkpoint".to_string(),
+            ],
+            0.84,
+        )
+        .await?;
         let cache = SessionClaimsState {
             claims: client
                 .peer_claims(&memd_schema::PeerClaimsRequest {
@@ -4435,6 +4457,15 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
                 session: session.to_string(),
             })
             .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "claims",
+            format!("Released scope {scope} after finishing or handing off work."),
+            vec!["claims".to_string(), "auto-checkpoint".to_string()],
+            0.78,
+        )
+        .await?;
         let cache = SessionClaimsState {
             claims: client
                 .peer_claims(&memd_schema::PeerClaimsRequest {
@@ -4584,6 +4615,32 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
                 workspace: current_workspace.clone(),
                 content,
             })
+            .await?;
+        let summary = if let Some(assign_scope) = args
+            .assign_scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            format!("Assigned scope {assign_scope} to session {target_session}.")
+        } else if args.request_help {
+            format!("Requested help from session {target_session}.")
+        } else if args.request_review {
+            format!("Requested review from session {target_session}.")
+        } else {
+            format!("Sent {} message to session {target_session}.", response.messages[0].kind)
+        };
+        let mut tags = vec!["messages".to_string(), "auto-checkpoint".to_string()];
+        if args.request_help {
+            tags.push("help-request".to_string());
+        }
+        if args.request_review {
+            tags.push("review-request".to_string());
+        }
+        if args.assign_scope.is_some() {
+            tags.push("assignment".to_string());
+        }
+        auto_checkpoint_bundle_event(&args.output, &current_base_url, "messages", summary, tags, 0.8)
             .await?;
         return Ok(MessagesResponse {
             bundle_root: args.output.display().to_string(),
@@ -6132,6 +6189,66 @@ async fn checkpoint_with_bundle_defaults(
     remember_with_bundle_defaults(&translated, base_url).await
 }
 
+async fn auto_checkpoint_bundle_event(
+    output: &Path,
+    base_url: &str,
+    source_path: &str,
+    content: String,
+    tags: Vec<String>,
+    confidence: f32,
+) -> anyhow::Result<()> {
+    if read_bundle_runtime_config(output)?.is_none() {
+        return Ok(());
+    }
+    if !bundle_auto_short_term_capture_enabled(output)? {
+        return Ok(());
+    }
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+
+    checkpoint_with_bundle_defaults(
+        &CheckpointArgs {
+            output: output.to_path_buf(),
+            project: None,
+            namespace: None,
+            workspace: None,
+            visibility: None,
+            source_path: Some(source_path.to_string()),
+            confidence: Some(confidence),
+            ttl_seconds: Some(86_400),
+            tag: tags,
+            content: Some(content),
+            input: None,
+            stdin: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    let snapshot = read_bundle_resume(
+        &ResumeArgs {
+            output: output.to_path_buf(),
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some("current_task".to_string()),
+            limit: Some(8),
+            rehydration_limit: Some(4),
+            semantic: false,
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+    write_bundle_memory_files(output, &snapshot, None).await?;
+    Ok(())
+}
+
 async fn auto_checkpoint_compaction_packet(
     packet: &CompactionPacket,
     base_url: &str,
@@ -7216,6 +7333,7 @@ mod tests {
         tokio::spawn(async move {
             axum::serve(listener, app).await.expect("serve mock peer server");
         });
+        tokio::time::sleep(Duration::from_millis(25)).await;
         format!("http://{}", addr)
     }
 
@@ -8154,6 +8272,7 @@ mod tests {
   "session": "codex-a",
   "workspace": "shared",
   "base_url": "{}",
+  "auto_short_term_capture": false,
   "route": "auto",
   "intent": "general"
 }}
@@ -8237,6 +8356,7 @@ mod tests {
   "session": "codex-a",
   "workspace": "shared",
   "base_url": "{}",
+  "auto_short_term_capture": false,
   "route": "auto",
   "intent": "general"
 }}
@@ -8278,6 +8398,7 @@ mod tests {
   "session": "claude-b",
   "workspace": "shared",
   "base_url": "{}",
+  "auto_short_term_capture": false,
   "route": "auto",
   "intent": "general"
 }}
@@ -8365,6 +8486,7 @@ mod tests {
   "session": "codex-a",
   "workspace": "shared",
   "base_url": "{}",
+  "auto_short_term_capture": false,
   "route": "auto",
   "intent": "general"
 }}
@@ -8382,6 +8504,7 @@ mod tests {
   "session": "claude-b",
   "workspace": "shared",
   "base_url": "{}",
+  "auto_short_term_capture": false,
   "route": "auto",
   "intent": "general"
 }}

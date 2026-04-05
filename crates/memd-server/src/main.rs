@@ -2114,6 +2114,7 @@ fn context_score(
 
     score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
     score += trust_rank_adjustment(source_trust_score);
+    score += epistemic_rank_adjustment(item);
 
     if item.status == MemoryStatus::Stale {
         score -= 1.5;
@@ -2159,6 +2160,7 @@ fn search_score(
     score += plan.intent_scope_bonus(item.scope) * 0.75;
     score += entity_attention_bonus(item, entity) * 0.75;
     score += trust_rank_adjustment(source_trust_score) * 0.8;
+    score += epistemic_rank_adjustment(item) * 0.85;
 
     if let Some(query) = query {
         let content = item.content.to_ascii_lowercase();
@@ -2191,6 +2193,42 @@ fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
     } else {
         0.0
     }
+}
+
+fn epistemic_rank_adjustment(item: &MemoryItem) -> f32 {
+    let mut score = match item.source_quality {
+        Some(SourceQuality::Canonical) => 0.4,
+        Some(SourceQuality::Derived) => 0.1,
+        Some(SourceQuality::Synthetic) => -0.4,
+        None => 0.0,
+    };
+
+    score += match item.last_verified_at {
+        Some(verified_at) => {
+            let verified_days = Utc::now()
+                .signed_duration_since(verified_at)
+                .num_days()
+                .max(0);
+            if verified_days <= 7 {
+                0.45
+            } else if verified_days <= 30 {
+                0.2
+            } else if verified_days <= 90 {
+                0.05
+            } else {
+                -0.15
+            }
+        }
+        None => -0.2,
+    };
+
+    if item.confidence < 0.6 {
+        score -= 0.25;
+    } else if item.confidence >= 0.9 {
+        score += 0.08;
+    }
+
+    score
 }
 
 fn workspace_rank_adjustment(
@@ -2376,6 +2414,39 @@ mod tests {
         assert!(
             context_score(&matching, None, 0.9, &req, &plan)
                 > context_score(&unrelated, None, 0.9, &req, &plan)
+        );
+    }
+
+    #[test]
+    fn verified_canonical_memory_ranks_above_unverified_synthetic_memory() {
+        let req = ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+        };
+        let plan = RetrievalPlan::resolve(req.route, req.intent);
+        let mut verified = sample_memory_item(Some("team-alpha"));
+        verified.source_quality = Some(SourceQuality::Canonical);
+        verified.last_verified_at = Some(Utc::now());
+        verified.confidence = 0.88;
+
+        let mut inferred = sample_memory_item(Some("team-alpha"));
+        inferred.source_quality = Some(SourceQuality::Synthetic);
+        inferred.last_verified_at = None;
+        inferred.confidence = 0.88;
+
+        assert!(
+            context_score(&verified, None, 0.7, &req, &plan)
+                > context_score(&inferred, None, 0.7, &req, &plan)
+        );
+        assert!(
+            search_score(&verified, None, 0.7, &Some("workspace".to_string()), &plan)
+                > search_score(&inferred, None, 0.7, &Some("workspace".to_string()), &plan)
         );
     }
 }
