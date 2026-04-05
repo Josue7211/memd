@@ -27,12 +27,25 @@ MEMD_AGENT="${MEMD_AGENT:?MEMD_AGENT is required}"
 MEMD_ROUTE="${MEMD_ROUTE:-auto}"
 MEMD_INTENT="${MEMD_INTENT:-general}"
 MEMD_LIMIT="${MEMD_LIMIT:-8}"
-MEMD_MAX_CHARS="${MEMD_MAX_CHARS:-280}"
+MEMD_REHYDRATION_LIMIT="${MEMD_REHYDRATION_LIMIT:-4}"
 
-exec memd --base-url "$MEMD_BASE_URL" hook context \
-  --project "$MEMD_PROJECT" \
-  --agent "$MEMD_AGENT" \
-  --route "$MEMD_ROUTE" \
-  --intent "$MEMD_INTENT" \
-  --limit "$MEMD_LIMIT" \
-  --max-chars-per-item "$MEMD_MAX_CHARS"
+args=(
+  --base-url "$MEMD_BASE_URL"
+  resume
+  --output "${MEMD_BUNDLE_ROOT:-.memd}"
+  --project "$MEMD_PROJECT"
+  --agent "$MEMD_AGENT"
+  --route "$MEMD_ROUTE"
+  --intent "$MEMD_INTENT"
+  --limit "$MEMD_LIMIT"
+  --rehydration-limit "$MEMD_REHYDRATION_LIMIT"
+)
+
+if [ -n "${MEMD_WORKSPACE:-}" ]; then
+  args+=(--workspace "$MEMD_WORKSPACE")
+fi
+if [ -n "${MEMD_VISIBILITY:-}" ]; then
+  args+=(--visibility "$MEMD_VISIBILITY")
+fi
+
+exec memd "${args[@]}"

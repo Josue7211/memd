@@ -4,7 +4,7 @@ These scripts are the default agent loop integration for `memd`.
 
 Use them when a client wants:
 
-- compact context before work starts
+- a bundle-backed resume snapshot before work starts
 - durable spill at a compaction boundary
 - a single stable path into the memory manager
 
@@ -46,6 +46,9 @@ Set:
 ```bash
 ./memd-context.sh
 ```
+
+This now calls `memd resume` under the bundle defaults instead of only the
+older compact-context surface.
 
 ## Install on Unix
 
