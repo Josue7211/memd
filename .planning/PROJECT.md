@@ -70,7 +70,8 @@ real memory:
 
 ### Next Product Priorities
 
-- [ ] Expose the brokered coordination substrate through a first-class peer MCP surface.
+- [x] Expose the brokered coordination substrate through a first-class peer MCP surface.
+- [ ] Expand peer coordination from MCP primitives into richer shared-task orchestration.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
@@ -125,6 +126,9 @@ The deployment shape is now explicitly tiered:
 - Tier 3: LightRAG
 
 LightRAG stays optional for larger-scale semantic recall.
+The first peer MCP bridge is now also in place under `integrations/mcp-peer/`,
+so brokered messages, claims, assignments, and inbox flows can be consumed as
+agent-native coordination tools instead of only CLI calls.
 
 The product direction is now explicit:
 
@@ -155,4 +159,4 @@ The product direction is now explicit:
 | `memd` must feel like real memory, not memory tooling | Product success depends on low-friction continuity, inspectability, and truthfulness | — In Progress |
 
 ---
-*Last updated: 2026-04-05 after GSD phases 26-32 reconciliation and completion*
+*Last updated: 2026-04-05 after shipping the first `v5` peer MCP bridge*

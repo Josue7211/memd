@@ -89,6 +89,7 @@ What is already real in the repo:
 - Obsidian compiled evidence pages now exist as a first-class workspace lane
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
+- a first MCP-native peer coordination bridge now sits on top of the brokered backend substrate
 - graph/entity primitives exist
 - salience, rehearsal, decay, and consolidation exist
 - explain, inbox, maintenance, and policy inspection exist

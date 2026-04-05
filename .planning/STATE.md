@@ -2,10 +2,10 @@
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-04-04)
+See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` peer coordination MCP foundations on top of the brokered backend substrate.
+**Current focus:** Start `v5` shared-task orchestration on top of the new peer MCP bridge.
 
 ## Current Status
 
@@ -42,14 +42,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - automatic short-term capture now records meaningful coordination transitions
 - retrieval ranking now prefers verified canonical evidence over unverified synthetic continuity
 - peer coordination now has brokered messages, claims, claim transfer, and assignment-friendly handoff primitives
+- the first MCP-native peer coordination bridge now exposes brokered coworking tools directly to agent clients
 
 ## Open Loops
 
-- planning roadmap now needs the first `v5` MCP coordination execution slice carried forward from phase 33
+- planning roadmap now needs phase 34 execution so peer coordination grows into explicit shared-task orchestration
 
 ## Next Command
 
-Execute phase 33 so the brokered coordination substrate becomes a first-class MCP-facing peer layer.
+Execute phase 34 so peer coordination grows from MCP primitives into shared-task orchestration.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

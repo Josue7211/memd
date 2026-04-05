@@ -431,11 +431,24 @@ Success:
 - preserve session-qualified identity, assignment semantics, and claim safety across agent peers
 - keep the first slice narrow around coordination primitives before richer orchestration layers
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - agent sessions can coordinate through `memd` natively instead of only through CLI wrappers
 
+#### Phase 34: `v5` Shared Task Orchestration
+
+- turn peer coordination primitives into explicit shared-task orchestration
+- group assignment, help, review, and ownership around named shared tasks
+- preserve session-qualified ownership and claim safety while making coworking easier to inspect
+- keep the first orchestration slice narrow before heavier automation and planning layers
+
+Status: Planned
+
+Success:
+
+- simultaneous agent sessions can coordinate through explicit shared tasks instead of only raw messages and scope claims
+
 ---
-*Last updated: 2026-04-05 after aligning roadmap to the real-memory product standard*
+*Last updated: 2026-04-05 after shipping the first `v5` peer MCP bridge*
