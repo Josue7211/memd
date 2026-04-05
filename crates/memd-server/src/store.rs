@@ -7,7 +7,8 @@ use memd_schema::{
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerCoordinationInboxRequest,
-    PeerCoordinationInboxResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
+    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
+    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
     PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest,
     PeerClaimRecord, PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest,
     PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord,
@@ -181,6 +182,20 @@ impl SqliteStore {
               ON peer_tasks(session, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_peer_tasks_project_namespace
               ON peer_tasks(project, namespace, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_coordination_receipts (
+              id TEXT PRIMARY KEY,
+              actor_session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_actor
+              ON peer_coordination_receipts(actor_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_project_namespace
+              ON peer_coordination_receipts(project, namespace, created_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -2045,6 +2060,91 @@ impl SqliteStore {
             help_tasks,
             review_tasks,
         })
+    }
+
+    pub fn record_peer_coordination_receipt(
+        &self,
+        request: &PeerCoordinationReceiptRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        let receipt = PeerCoordinationReceiptRecord {
+            id: Uuid::new_v4().to_string(),
+            kind: request.kind.trim().to_string(),
+            actor_session: request.actor_session.trim().to_string(),
+            actor_agent: request.actor_agent.clone(),
+            target_session: request.target_session.clone(),
+            task_id: request.task_id.clone(),
+            scope: request.scope.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            summary: request.summary.trim().to_string(),
+            created_at: chrono::Utc::now(),
+        };
+        let payload_json =
+            serde_json::to_string(&receipt).context("serialize coordination receipt")?;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO peer_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![
+                receipt.id.as_str(),
+                receipt.actor_session.as_str(),
+                &receipt.project,
+                &receipt.namespace,
+                &receipt.workspace,
+                receipt.created_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("insert coordination receipt")?;
+        Ok(PeerCoordinationReceiptsResponse {
+            receipts: vec![receipt],
+        })
+    }
+
+    pub fn peer_coordination_receipts(
+        &self,
+        request: &PeerCoordinationReceiptsRequest,
+    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_coordination_receipts
+                WHERE (?1 IS NULL OR actor_session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                ORDER BY created_at DESC
+                LIMIT ?5
+                "#,
+            )
+            .context("prepare coordination receipts query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query coordination receipts")?;
+        let mut receipts = Vec::new();
+        for row in rows {
+            let payload = row.context("read coordination receipt row")?;
+            receipts.push(
+                serde_json::from_str::<PeerCoordinationReceiptRecord>(&payload)
+                    .context("deserialize coordination receipt payload")?,
+            );
+        }
+        Ok(PeerCoordinationReceiptsResponse { receipts })
     }
 
     pub fn find_duplicate(

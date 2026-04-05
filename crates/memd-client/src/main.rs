@@ -31,6 +31,7 @@ use memd_schema::{
     EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus,
     PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerMessageAckRequest,
+    PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerClaimRecoverRequest,
     PeerClaimsRequest, PeerTaskAssignRequest, PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest,
     PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
@@ -4722,6 +4723,32 @@ async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Re
         }
         auto_checkpoint_bundle_event(&args.output, &current_base_url, "messages", summary, tags, 0.8)
             .await?;
+        emit_coordination_receipt(
+            &client,
+            if args.assign_scope.is_some() {
+                "assignment"
+            } else if args.request_help {
+                "help_request"
+            } else if args.request_review {
+                "review_request"
+            } else {
+                "message"
+            },
+            from_session,
+            current_agent.clone(),
+            Some(target_session.to_string()),
+            None,
+            args.assign_scope.clone().or(args.scope.clone()),
+            current_project.clone(),
+            current_namespace.clone(),
+            current_workspace.clone(),
+            response
+                .messages
+                .first()
+                .map(|message| message.content.clone())
+                .unwrap_or_else(|| "coordination message sent".to_string()),
+        )
+        .await?;
         return Ok(MessagesResponse {
             bundle_root: args.output.display().to_string(),
             current_session,
@@ -4833,6 +4860,36 @@ fn render_messages_summary(response: &MessagesResponse) -> String {
     lines.join("\n")
 }
 
+async fn emit_coordination_receipt(
+    client: &MemdClient,
+    kind: &str,
+    actor_session: &str,
+    actor_agent: Option<String>,
+    target_session: Option<String>,
+    task_id: Option<String>,
+    scope: Option<String>,
+    project: Option<String>,
+    namespace: Option<String>,
+    workspace: Option<String>,
+    summary: String,
+) -> anyhow::Result<()> {
+    client
+        .record_peer_coordination_receipt(&PeerCoordinationReceiptRequest {
+            kind: kind.to_string(),
+            actor_session: actor_session.to_string(),
+            actor_agent,
+            target_session,
+            task_id,
+            scope,
+            project,
+            namespace,
+            workspace,
+            summary,
+        })
+        .await?;
+    Ok(())
+}
+
 async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<TasksResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let current_session = runtime
@@ -4893,6 +4950,20 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             format!("Updated shared task {task_id}."),
             vec!["tasks".to_string(), "auto-checkpoint".to_string()],
             0.83,
+        )
+        .await?;
+        emit_coordination_receipt(
+            &client,
+            "task_update",
+            current_session.as_deref().unwrap_or("unknown"),
+            current_effective_agent.clone(),
+            None,
+            Some(task_id.to_string()),
+            args.scope.first().cloned(),
+            current_project.clone(),
+            current_namespace.clone(),
+            current_workspace.clone(),
+            format!("Updated shared task {task_id}."),
         )
         .await?;
         return Ok(TasksResponse {
@@ -4965,6 +5036,20 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
                 "auto-checkpoint".to_string(),
             ],
             0.85,
+        )
+        .await?;
+        emit_coordination_receipt(
+            &client,
+            "task_assignment",
+            session,
+            current_effective_agent.clone(),
+            Some(target_session.to_string()),
+            Some(task_id.to_string()),
+            None,
+            current_project.clone(),
+            current_namespace.clone(),
+            current_workspace.clone(),
+            format!("Assigned shared task {task_id} to session {target_session}."),
         )
         .await?;
         return Ok(TasksResponse {
@@ -5071,6 +5156,27 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             0.81,
         )
         .await?;
+        emit_coordination_receipt(
+            &client,
+            if args.request_help {
+                "task_help_request"
+            } else {
+                "task_review_request"
+            },
+            from_session,
+            current_effective_agent.clone(),
+            Some(target_session.to_string()),
+            Some(task_id.to_string()),
+            args.scope.first().cloned(),
+            current_project.clone(),
+            current_namespace.clone(),
+            current_workspace.clone(),
+            format!(
+                "{} requested on shared task {task_id} from session {target_session}.",
+                if args.request_help { "Help" } else { "Review" }
+            ),
+        )
+        .await?;
         return Ok(TasksResponse {
             bundle_root: args.output.display().to_string(),
             current_session,
@@ -5139,6 +5245,12 @@ async fn run_coordination_command(
         .as_ref()
         .and_then(|config| config.base_url.clone())
         .unwrap_or_else(|| base_url.to_string());
+    let current_effective_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
     let client = MemdClient::new(&current_base_url)?;
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
@@ -5275,6 +5387,26 @@ async fn run_coordination_command(
             0.86,
         )
         .await?;
+        emit_coordination_receipt(
+            &client,
+            "stale_session_recovery",
+            &current_session,
+            current_effective_agent.clone(),
+            destination.session.clone(),
+            None,
+            None,
+            runtime.as_ref().and_then(|config| config.project.clone()),
+            runtime.as_ref().and_then(|config| config.namespace.clone()),
+            runtime.as_ref().and_then(|config| config.workspace.clone()),
+            format!(
+                "Recovered {} claims and {} tasks from {} session {}.",
+                recover_claims.len(),
+                recover_tasks.len(),
+                stale_entry.presence,
+                recover_session
+            ),
+        )
+        .await?;
     }
 
     let response = client
@@ -5311,6 +5443,16 @@ async fn run_coordination_command(
         })
         .await?
         .tasks;
+    let receipts = client
+        .peer_coordination_receipts(&PeerCoordinationReceiptsRequest {
+            session: None,
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            limit: Some(32),
+        })
+        .await?
+        .receipts;
     let policy_conflicts = tasks
         .iter()
         .filter(|task| task.coordination_mode == "exclusive_write")
@@ -5371,12 +5513,13 @@ async fn run_coordination_command(
         },
         policy_conflicts,
         boundary_recommendations: suggest_boundary_recommendations(&tasks, &claims, &current_session),
+        receipts,
     })
 }
 
 fn render_coordination_summary(response: &CoordinationResponse) -> String {
     let mut lines = vec![format!(
-        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={} recommendations={}",
+        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={} policy_conflicts={} recommendations={} receipts={}",
         response.bundle_root,
         response.current_session,
         response.inbox.messages.len(),
@@ -5388,6 +5531,7 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
         response.recovery.stalled_tasks.len(),
         response.policy_conflicts.len(),
         response.boundary_recommendations.len(),
+        response.receipts.len(),
     )];
     for message in response.inbox.messages.iter().take(6) {
         lines.push(format!(
@@ -5467,6 +5611,14 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
     }
     for recommendation in response.boundary_recommendations.iter().take(6) {
         lines.push(format!("- recommend {}", compact_inline(recommendation, 96)));
+    }
+    for receipt in response.receipts.iter().take(6) {
+        lines.push(format!(
+            "- receipt {} [{}] {}",
+            &receipt.id[..8.min(receipt.id.len())],
+            receipt.kind,
+            compact_inline(&receipt.summary, 96)
+        ));
     }
     lines.join("\n")
 }
@@ -7820,6 +7972,7 @@ struct CoordinationResponse {
     recovery: CoordinationRecoverySummary,
     policy_conflicts: Vec<String>,
     boundary_recommendations: Vec<String>,
+    receipts: Vec<PeerCoordinationReceiptRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -7929,6 +8082,8 @@ mod tests {
         routing::{get, post},
     };
     use memd_schema::{
+        PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
+        PeerCoordinationReceiptsResponse,
         PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest,
         PeerClaimsRequest, PeerClaimsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
         PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
@@ -7938,6 +8093,7 @@ mod tests {
     struct MockPeerState {
         messages: Arc<Mutex<Vec<PeerMessageRecord>>>,
         claims: Arc<Mutex<Vec<PeerClaimRecord>>>,
+        receipts: Arc<Mutex<Vec<PeerCoordinationReceiptRecord>>>,
     }
 
     async fn mock_send_peer_message(
@@ -8109,12 +8265,41 @@ mod tests {
         Json(PeerClaimsResponse { claims })
     }
 
+    async fn mock_record_receipt(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerCoordinationReceiptRequest>,
+    ) -> Json<PeerCoordinationReceiptsResponse> {
+        let receipt = PeerCoordinationReceiptRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: req.kind,
+            actor_session: req.actor_session,
+            actor_agent: req.actor_agent,
+            target_session: req.target_session,
+            task_id: req.task_id,
+            scope: req.scope,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            summary: req.summary,
+            created_at: Utc::now(),
+        };
+        state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .push(receipt.clone());
+        Json(PeerCoordinationReceiptsResponse {
+            receipts: vec![receipt],
+        })
+    }
+
     async fn spawn_mock_peer_server() -> String {
         let state = MockPeerState::default();
         let app = Router::new()
             .route("/coordination/messages/send", post(mock_send_peer_message))
             .route("/coordination/messages/inbox", get(mock_peer_inbox))
             .route("/coordination/messages/ack", post(mock_peer_ack))
+            .route("/coordination/receipts/record", post(mock_record_receipt))
             .route("/coordination/claims/acquire", post(mock_claim_acquire))
             .route("/coordination/claims/release", post(mock_claim_release))
             .route("/coordination/claims/transfer", post(mock_claim_transfer))

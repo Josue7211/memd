@@ -39,6 +39,7 @@ use memd_schema::{
     PeerClaimAcquireRequest, PeerClaimRecoverRequest, PeerClaimReleaseRequest,
     PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
     PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse,
     PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse,
 };
 use routing::RetrievalPlan;
@@ -243,6 +244,8 @@ async fn main() {
         .route("/coordination/messages/inbox", get(get_peer_inbox))
         .route("/coordination/messages/ack", post(post_peer_ack))
         .route("/coordination/inbox", get(get_peer_coordination_inbox))
+        .route("/coordination/receipts/record", post(post_peer_coordination_receipt))
+        .route("/coordination/receipts", get(get_peer_coordination_receipts))
         .route("/coordination/claims/acquire", post(post_peer_claim_acquire))
         .route("/coordination/claims/release", post(post_peer_claim_release))
         .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
@@ -740,6 +743,40 @@ async fn get_peer_coordination_inbox(
     let response = state
         .store
         .peer_coordination_inbox(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_coordination_receipt(
+    State(state): State<AppState>,
+    Json(req): Json<PeerCoordinationReceiptRequest>,
+) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    if req.kind.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "kind must not be empty".to_string()));
+    }
+    if req.actor_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "actor_session must not be empty".to_string(),
+        ));
+    }
+    if req.summary.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "summary must not be empty".to_string()));
+    }
+    let response = state
+        .store
+        .record_peer_coordination_receipt(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_coordination_receipts(
+    State(state): State<AppState>,
+    Query(req): Query<PeerCoordinationReceiptsRequest>,
+) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .peer_coordination_receipts(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }

@@ -691,6 +691,50 @@ pub struct PeerCoordinationInboxResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptRecord {
+    pub id: String,
+    pub kind: String,
+    pub actor_session: String,
+    pub actor_agent: Option<String>,
+    pub target_session: Option<String>,
+    pub task_id: Option<String>,
+    pub scope: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptRequest {
+    pub kind: String,
+    pub actor_session: String,
+    pub actor_agent: Option<String>,
+    pub target_session: Option<String>,
+    pub task_id: Option<String>,
+    pub scope: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerCoordinationReceiptsRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerCoordinationReceiptsResponse {
+    pub receipts: Vec<PeerCoordinationReceiptRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,

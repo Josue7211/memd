@@ -509,11 +509,24 @@ Success:
 - keep the first slice structured and compact instead of transcript-like logging
 - preserve compatibility with the current peer coordination model
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - operators can inspect recent coworking transitions without reconstructing them from raw state
 
+#### Phase 40: `v5` Coordination Dashboard and History Views
+
+- add cleaner dashboard-like coordination views for current pressure
+- expose bounded history views over recent receipts
+- keep the first slice compatible with existing CLI and MCP surfaces
+- preserve compactness and inspectability over verbosity
+
+Status: Planned
+
+Success:
+
+- operators can inspect live coworking pressure and recent history faster than raw coordination data
+
 ---
-*Last updated: 2026-04-05 after shipping `v5` branch and scope recommendations*
+*Last updated: 2026-04-05 after shipping `v5` coordination receipts*
