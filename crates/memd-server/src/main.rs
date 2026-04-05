@@ -1734,6 +1734,21 @@ fn dashboard_html() -> String {
         </div>
         <div class="grid-2">
           <div>
+            <label>Workspace</label>
+            <input id="workspace" placeholder="team-alpha">
+          </div>
+          <div>
+            <label>Visibility</label>
+            <select id="visibility">
+              <option value="">all</option>
+              <option value="private">private</option>
+              <option value="workspace">workspace</option>
+              <option value="public">public</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
             <label>Route</label>
             <select id="route">
               <option value="auto">auto</option>
@@ -1777,6 +1792,8 @@ fn dashboard_html() -> String {
           <button onclick="loadContext()">Load context</button>
           <button onclick="loadInbox()">Load inbox</button>
           <button onclick="loadSearch()">Search</button>
+          <button onclick="loadWorkspaces()">Workspaces</button>
+          <button class="secondary" onclick="loadSources()">Sources</button>
           <button class="secondary" onclick="loadExplain()">Explain</button>
         </div>
         <div class="note" id="healthNote">Loading health...</div>
@@ -1794,6 +1811,8 @@ fn dashboard_html() -> String {
     const healthNote = document.getElementById('healthNote');
     const qs = () => ({
       project: document.getElementById('project').value.trim(),
+      workspace: document.getElementById('workspace').value.trim(),
+      visibility: document.getElementById('visibility').value,
       agent: document.getElementById('agent').value.trim(),
       route: document.getElementById('route').value,
       intent: document.getElementById('intent').value,
@@ -1813,6 +1832,8 @@ fn dashboard_html() -> String {
       const q = qs();
       const params = new URLSearchParams();
       if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
       if (q.agent) params.set('agent', q.agent);
       if (q.route !== 'auto') params.set('route', q.route);
       if (q.intent !== 'general') params.set('intent', q.intent);
@@ -1823,6 +1844,8 @@ fn dashboard_html() -> String {
       const q = qs();
       const params = new URLSearchParams();
       if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
       if (q.agent) params.set('agent', q.agent);
       if (q.route !== 'auto') params.set('route', q.route);
       if (q.intent !== 'general') params.set('intent', q.intent);
@@ -1834,6 +1857,8 @@ fn dashboard_html() -> String {
       const body = {
         query: q.query || undefined,
         project: q.project || undefined,
+        workspace: q.workspace || undefined,
+        visibility: q.visibility || undefined,
         route: q.route,
         intent: q.intent,
       };
@@ -1842,6 +1867,24 @@ fn dashboard_html() -> String {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
       });
+      pretty(await res.json());
+    }
+    async function loadWorkspaces() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
+      const res = await fetch('/memory/workspaces?' + params.toString());
+      pretty(await res.json());
+    }
+    async function loadSources() {
+      const q = qs();
+      const params = new URLSearchParams();
+      if (q.project) params.set('project', q.project);
+      if (q.workspace) params.set('workspace', q.workspace);
+      if (q.visibility) params.set('visibility', q.visibility);
+      const res = await fetch('/memory/source?' + params.toString());
       pretty(await res.json());
     }
     async function loadExplain() {
