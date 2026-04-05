@@ -4000,6 +4000,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "env_ps1": output.join("env.ps1").exists(),
         "hooks": output.join("hooks").exists(),
         "agents": output.join("agents").exists(),
+        "active_agent": runtime.as_ref().and_then(|config| config.agent.clone()),
         "defaults": runtime.as_ref().map(|config| serde_json::json!({
             "project": config.project,
             "namespace": config.namespace,
