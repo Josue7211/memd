@@ -2515,6 +2515,7 @@ mod tests {
                 workspaces: Vec::new(),
             },
             semantic: None,
+            change_summary: Vec::new(),
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -2591,6 +2592,7 @@ mod tests {
                     score: 0.93,
                 }],
             }),
+            change_summary: Vec::new(),
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {

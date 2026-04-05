@@ -549,6 +549,13 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         output.push_str(&current_task);
     }
 
+    if !snapshot.change_summary.is_empty() {
+        output.push_str("\n## Since Last Resume\n\n");
+        for change in snapshot.change_summary.iter().take(6) {
+            output.push_str(&format!("- {}\n", compact_inline(change, 180)));
+        }
+    }
+
     output.push_str("\n## Working Memory\n\n");
     if snapshot.working.records.is_empty() {
         output.push_str("- none\n");

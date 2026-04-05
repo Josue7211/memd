@@ -3816,7 +3816,98 @@ fn write_bundle_memory_files(
     handoff: Option<&HandoffSnapshot>,
 ) -> anyhow::Result<()> {
     let markdown = render_bundle_memory_markdown(snapshot, handoff);
-    write_memory_markdown_files(output, &markdown)
+    write_memory_markdown_files(output, &markdown)?;
+    write_bundle_resume_state(output, snapshot)
+}
+
+fn bundle_resume_state_path(output: &Path) -> PathBuf {
+    output.join("state").join("last-resume.json")
+}
+
+fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
+    let path = bundle_resume_state_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let state = serde_json::from_str::<BundleResumeState>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(state))
+}
+
+fn write_bundle_resume_state(output: &Path, snapshot: &ResumeSnapshot) -> anyhow::Result<()> {
+    let path = bundle_resume_state_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let state = BundleResumeState::from_snapshot(snapshot);
+    fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn describe_resume_state_changes(
+    previous: Option<&BundleResumeState>,
+    current: &BundleResumeState,
+) -> Vec<String> {
+    let Some(previous) = previous else {
+        return Vec::new();
+    };
+
+    let mut changes = Vec::new();
+
+    if previous.focus != current.focus && let Some(focus) = current.focus.as_deref() {
+        changes.push(format!("focus -> {}", compact_inline(focus, 120)));
+    }
+    if previous.pressure != current.pressure && let Some(pressure) = current.pressure.as_deref() {
+        changes.push(format!("pressure -> {}", compact_inline(pressure, 120)));
+    }
+    if previous.next_recovery != current.next_recovery
+        && let Some(next_recovery) = current.next_recovery.as_deref()
+    {
+        changes.push(format!(
+            "next_recovery -> {}",
+            compact_inline(next_recovery, 120)
+        ));
+    }
+    if previous.lane != current.lane && let Some(lane) = current.lane.as_deref() {
+        changes.push(format!("lane -> {}", compact_inline(lane, 120)));
+    }
+    if previous.working_records != current.working_records {
+        changes.push(format!(
+            "working {} -> {}",
+            previous.working_records, current.working_records
+        ));
+    }
+    if previous.inbox_items != current.inbox_items {
+        changes.push(format!(
+            "inbox {} -> {}",
+            previous.inbox_items, current.inbox_items
+        ));
+    }
+    if previous.rehydration_items != current.rehydration_items {
+        changes.push(format!(
+            "rehydration {} -> {}",
+            previous.rehydration_items, current.rehydration_items
+        ));
+    }
+
+    changes
+}
+
+fn compact_inline(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+
+    let mut compact = String::with_capacity(max_chars + 3);
+    for ch in normalized.chars().take(max_chars.saturating_sub(3)) {
+        compact.push(ch);
+    }
+    compact.push_str("...");
+    compact
 }
 
 fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
@@ -3992,6 +4083,15 @@ fn render_bundle_memory_markdown(
     if !current_task.is_empty() {
         markdown.push_str("\n## Current Task Snapshot\n\n");
         markdown.push_str(&current_task);
+    }
+
+    if !snapshot.change_summary.is_empty() {
+        markdown.push_str("\n## Since Last Resume\n\n");
+        for change in snapshot.change_summary.iter().take(6) {
+            markdown.push_str("- ");
+            markdown.push_str(change.trim());
+            markdown.push('\n');
+        }
     }
 
     markdown.push_str("\n## Working Memory\n\n");
@@ -4458,6 +4558,28 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         None
     };
 
+    let current_state = BundleResumeState {
+        focus: working.records.first().map(|record| record.record.clone()),
+        pressure: inbox.items.first().map(|item| item.item.content.clone()),
+        next_recovery: working
+            .rehydration_queue
+            .first()
+            .map(|item| format!("{}: {}", item.label, item.summary)),
+        lane: workspaces.workspaces.first().map(|lane| {
+            format!(
+                "{} / {} / {}",
+                lane.project.as_deref().unwrap_or("none"),
+                lane.namespace.as_deref().unwrap_or("none"),
+                lane.workspace.as_deref().unwrap_or("none")
+            )
+        }),
+        working_records: working.records.len(),
+        inbox_items: inbox.items.len(),
+        rehydration_items: working.rehydration_queue.len(),
+    };
+    let previous_state = read_bundle_resume_state(&args.output)?;
+    let change_summary = describe_resume_state_changes(previous_state.as_ref(), &current_state);
+
     Ok(ResumeSnapshot {
         project,
         namespace,
@@ -4471,6 +4593,7 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         inbox,
         workspaces,
         semantic,
+        change_summary,
     })
 }
 
@@ -5352,7 +5475,47 @@ struct BundleRuntimeConfig {
     visibility: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleResumeState {
+    focus: Option<String>,
+    pressure: Option<String>,
+    next_recovery: Option<String>,
+    lane: Option<String>,
+    working_records: usize,
+    inbox_items: usize,
+    rehydration_items: usize,
+}
+
+impl BundleResumeState {
+    fn from_snapshot(snapshot: &ResumeSnapshot) -> Self {
+        Self {
+            focus: snapshot.working.records.first().map(|record| record.record.clone()),
+            pressure: snapshot
+                .inbox
+                .items
+                .first()
+                .map(|item| item.item.content.clone()),
+            next_recovery: snapshot
+                .working
+                .rehydration_queue
+                .first()
+                .map(|item| format!("{}: {}", item.label, item.summary)),
+            lane: snapshot.workspaces.workspaces.first().map(|lane| {
+                format!(
+                    "{} / {} / {}",
+                    lane.project.as_deref().unwrap_or("none"),
+                    lane.namespace.as_deref().unwrap_or("none"),
+                    lane.workspace.as_deref().unwrap_or("none")
+                )
+            }),
+            working_records: snapshot.working.records.len(),
+            inbox_items: snapshot.inbox.items.len(),
+            rehydration_items: snapshot.working.rehydration_queue.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ResumeSnapshot {
     project: Option<String>,
     namespace: Option<String>,
@@ -5366,6 +5529,7 @@ struct ResumeSnapshot {
     inbox: memd_schema::MemoryInboxResponse,
     workspaces: memd_schema::WorkspaceMemoryResponse,
     semantic: Option<RagRetrieveResponse>,
+    change_summary: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5757,10 +5921,12 @@ mod tests {
                 }],
             },
             semantic: None,
+            change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
         };
 
         let markdown = render_bundle_memory_markdown(&snapshot, None);
         assert!(markdown.contains("## Current Task Snapshot"));
+        assert!(markdown.contains("## Since Last Resume"));
         assert!(markdown.contains("Finish the resume snapshot renderer"));
         assert!(markdown.contains("Repair one stale workspace lane"));
         assert!(markdown.contains("Check the latest handoff note"));
@@ -5879,14 +6045,47 @@ mod tests {
                 }],
             },
             semantic: None,
+            change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
         };
 
         let prompt = crate::render::render_resume_prompt(&snapshot);
         assert!(prompt.contains("## Current Task Snapshot"));
+        assert!(prompt.contains("## Since Last Resume"));
         assert!(prompt.contains("Follow the active current-task lane"));
         assert!(prompt.contains("One review item is still open"));
         assert!(prompt.contains("Reload the shared workspace handoff"));
         assert!(prompt.contains("team-alpha"));
+    }
+
+    #[test]
+    fn resume_state_changes_capture_hot_lane_deltas() {
+        let previous = BundleResumeState {
+            focus: Some("old focus".to_string()),
+            pressure: Some("old pressure".to_string()),
+            next_recovery: Some("artifact: old".to_string()),
+            lane: Some("demo / main / alpha".to_string()),
+            working_records: 2,
+            inbox_items: 1,
+            rehydration_items: 1,
+        };
+        let current = BundleResumeState {
+            focus: Some("new focus".to_string()),
+            pressure: Some("new pressure".to_string()),
+            next_recovery: Some("artifact: new".to_string()),
+            lane: Some("demo / main / beta".to_string()),
+            working_records: 4,
+            inbox_items: 0,
+            rehydration_items: 2,
+        };
+
+        let changes = describe_resume_state_changes(Some(&previous), &current);
+        assert!(changes.iter().any(|value| value.contains("focus -> new focus")));
+        assert!(changes.iter().any(|value| value.contains("pressure -> new pressure")));
+        assert!(changes.iter().any(|value| value.contains("next_recovery -> artifact: new")));
+        assert!(changes.iter().any(|value| value.contains("lane -> demo / main / beta")));
+        assert!(changes.iter().any(|value| value.contains("working 2 -> 4")));
+        assert!(changes.iter().any(|value| value.contains("inbox 1 -> 0")));
+        assert!(changes.iter().any(|value| value.contains("rehydration 1 -> 2")));
     }
 
     #[test]
@@ -6130,6 +6329,7 @@ mod tests {
                     score: 0.9,
                 }],
             }),
+            change_summary: Vec::new(),
         };
 
         let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -6305,6 +6505,7 @@ mod tests {
                 mode: memd_rag::RagRetrieveMode::Auto,
                 items: Vec::new(),
             }),
+            change_summary: Vec::new(),
         };
 
         let recommendations = build_eval_recommendations(&snapshot, 62);
