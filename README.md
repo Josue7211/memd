@@ -161,6 +161,12 @@ Switch between clients on the same bundle with the generated scripts:
 .memd/agents/opencode.sh
 ```
 
+Or ask the CLI for the exact bundle-backed entrypoints and memory files:
+
+```bash
+cargo run -p memd-client --bin memd -- agent --output .memd --summary
+```
+
 Bootstrap a project bundle with LightRAG configured:
 
 ```bash

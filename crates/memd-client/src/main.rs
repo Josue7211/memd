@@ -65,6 +65,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
     Handoff(HandoffArgs),
@@ -917,6 +918,21 @@ struct AttachArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct AgentArgs {
+    #[arg(long, default_value = ".memd")]
+    output: PathBuf,
+
+    #[arg(long)]
+    name: Option<String>,
+
+    #[arg(long)]
+    shell: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct ResumeArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
@@ -1177,6 +1193,18 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
+        Commands::Agent(args) => {
+            let response = build_bundle_agent_profiles(
+                &args.output,
+                args.name.as_deref(),
+                args.shell.as_deref(),
+            )?;
+            if args.summary {
+                println!("{}", render_bundle_agent_profiles_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Attach(args) => {
             let shell = args
                 .shell
@@ -4307,6 +4335,100 @@ memd resume --output $env:MEMD_BUNDLE_ROOT
             "unsupported shell '{other}'; expected bash, zsh, sh, powershell, or pwsh"
         ),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleAgentProfile {
+    name: String,
+    env_agent: String,
+    memory_file: String,
+    shell_entrypoint: String,
+    powershell_entrypoint: String,
+    launch_hint: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleAgentProfilesResponse {
+    bundle_root: String,
+    shell: String,
+    selected: Option<String>,
+    agents: Vec<BundleAgentProfile>,
+}
+
+fn build_bundle_agent_profiles(
+    output: &Path,
+    name: Option<&str>,
+    shell: Option<&str>,
+) -> anyhow::Result<BundleAgentProfilesResponse> {
+    let shell = shell
+        .map(|value| value.trim().to_ascii_lowercase())
+        .or_else(detect_shell)
+        .unwrap_or_else(|| "bash".to_string());
+    let mut agents = vec![
+        ("codex", "codex", "CODEX_MEMORY.md"),
+        ("claude-code", "claude-code", "CLAUDE_CODE_MEMORY.md"),
+        ("openclaw", "openclaw", "OPENCLAW_MEMORY.md"),
+        ("opencode", "opencode", "OPENCODE_MEMORY.md"),
+    ]
+    .into_iter()
+    .map(|(name, env_agent, memory_file)| BundleAgentProfile {
+        name: name.to_string(),
+        env_agent: env_agent.to_string(),
+        memory_file: output
+            .join("agents")
+            .join(memory_file)
+            .display()
+            .to_string(),
+        shell_entrypoint: output
+            .join("agents")
+            .join(format!("{name}.sh"))
+            .display()
+            .to_string(),
+        powershell_entrypoint: output
+            .join("agents")
+            .join(format!("{name}.ps1"))
+            .display()
+            .to_string(),
+        launch_hint: String::new(),
+    })
+    .collect::<Vec<_>>();
+
+    for agent in &mut agents {
+        agent.launch_hint = match shell.as_str() {
+            "powershell" | "pwsh" => format!(". \"{}\"", agent.powershell_entrypoint),
+            _ => format!("\"{}\"", agent.shell_entrypoint),
+        };
+    }
+
+    let selected = name.map(|value| value.trim().to_ascii_lowercase());
+    if let Some(selected_name) = selected.as_deref() {
+        agents.retain(|agent| agent.name == selected_name);
+        if agents.is_empty() {
+            anyhow::bail!("unknown agent profile '{selected_name}'");
+        }
+    }
+
+    Ok(BundleAgentProfilesResponse {
+        bundle_root: output.display().to_string(),
+        shell,
+        selected,
+        agents,
+    })
+}
+
+fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "bundle={} shell={}\n",
+        response.bundle_root, response.shell
+    ));
+    for agent in &response.agents {
+        output.push_str(&format!(
+            "- {} | memory {} | launch {}\n",
+            agent.name, agent.memory_file, agent.launch_hint
+        ));
+    }
+    output.trim_end().to_string()
 }
 
 fn detect_shell() -> Option<String> {
