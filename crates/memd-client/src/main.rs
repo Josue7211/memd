@@ -882,6 +882,9 @@ struct InitArgs {
     #[arg(long)]
     agent: String,
 
+    #[arg(long)]
+    session: Option<String>,
+
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
 
@@ -983,6 +986,9 @@ struct AgentArgs {
 
     #[arg(long)]
     shell: Option<String>,
+
+    #[arg(long)]
+    session: Option<String>,
 
     #[arg(long)]
     apply: bool,
@@ -1345,6 +1351,9 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::bail!("memd agent --apply requires --name <agent>");
                 };
                 set_bundle_agent(&args.output, name)?;
+                if let Some(session) = args.session.as_deref() {
+                    set_bundle_session(&args.output, session)?;
+                }
                 let snapshot = read_bundle_resume(
                     &ResumeArgs {
                         output: args.output.clone(),
@@ -1365,6 +1374,8 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?;
                 write_bundle_memory_files(&args.output, &snapshot, None)?;
+            } else if let Some(session) = args.session.as_deref() {
+                set_bundle_session(&args.output, session)?;
             }
             let response = build_bundle_agent_profiles(
                 &args.output,
@@ -3726,6 +3737,21 @@ fn default_auto_short_term_capture() -> bool {
     true
 }
 
+fn default_bundle_session() -> String {
+    format!("session-{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+}
+
+fn compose_agent_identity(agent: &str, session: Option<&str>) -> String {
+    let agent = agent.trim();
+    let session = session
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match session {
+        Some(session) => format!("{agent}@{session}"),
+        None => agent.to_string(),
+    }
+}
+
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let output = &args.output;
     if output.exists() && !args.force {
@@ -3740,11 +3766,18 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::create_dir_all(output.join("agents"))
         .with_context(|| format!("create {}", output.join("agents").display()))?;
 
+    let session = args
+        .session
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(default_bundle_session);
+
     let config = BundleConfig {
         schema_version: 2,
         project: args.project.clone(),
         namespace: args.namespace.clone(),
         agent: args.agent.clone(),
+        session: session.clone(),
         base_url: args.base_url.clone(),
         route: args.route.clone(),
         intent: args.intent.clone(),
@@ -3777,14 +3810,15 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_SESSION={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
             args.base_url,
             args.project,
             args.namespace
                 .as_ref()
                 .map(|value| format!("MEMD_NAMESPACE={value}\n"))
                 .unwrap_or_default(),
-            args.agent,
+            compose_agent_identity(&args.agent, Some(&session)),
+            session,
             args.route,
             args.intent,
             if config.auto_short_term_capture { "true" } else { "false" },
@@ -3807,14 +3841,15 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&args.project),
             args.namespace
                 .as_ref()
                 .map(|value| format!("$env:MEMD_NAMESPACE = \"{}\"\n", escape_ps1(value)))
                 .unwrap_or_default(),
-            escape_ps1(&args.agent),
+            escape_ps1(&compose_agent_identity(&args.agent, Some(&session))),
+            escape_ps1(&session),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
             if config.auto_short_term_capture { "true" } else { "false" },
@@ -4400,6 +4435,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "project": snapshot.project,
                 "namespace": snapshot.namespace,
                 "agent": snapshot.agent,
+                "session": runtime.as_ref().and_then(|config| config.session.clone()),
                 "workspace": snapshot.workspace,
                 "visibility": snapshot.visibility,
                 "route": snapshot.route,
@@ -4484,6 +4520,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "project": config.project,
             "namespace": config.namespace,
             "agent": config.agent,
+            "session": config.session,
+            "effective_agent": config.agent.as_ref().map(|agent| compose_agent_identity(agent, config.session.as_deref())),
             "base_url": config.base_url,
             "route": config.route,
             "intent": config.intent,
@@ -4528,6 +4566,7 @@ fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRunt
         project: config.project,
         namespace: config.namespace,
         agent: config.agent,
+        session: config.session,
         base_url: config.base_url,
         route: config.route,
         intent: config.intent,
@@ -4598,6 +4637,7 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             project: None,
             namespace: None,
             agent: None,
+            session: None,
             base_url: None,
             route: None,
             intent: None,
@@ -4624,7 +4664,12 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             bundle_root: bundle_root.display().to_string(),
             project: runtime.project,
             namespace: runtime.namespace,
+            effective_agent: runtime
+                .agent
+                .as_deref()
+                .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
             agent: runtime.agent,
+            session: runtime.session,
             workspace: runtime.workspace,
             visibility: runtime.visibility,
             focus: state.as_ref().and_then(|value| value.focus.clone()),
@@ -4661,10 +4706,14 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | ns={} agent={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} | ns={} agent={} session={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
             entry.namespace.as_deref().unwrap_or("none"),
-            entry.agent.as_deref().unwrap_or("none"),
+            entry.effective_agent
+                .as_deref()
+                .or(entry.agent.as_deref())
+                .unwrap_or("none"),
+            entry.session.as_deref().unwrap_or("none"),
             entry.workspace.as_deref().unwrap_or("none"),
             entry.visibility.as_deref().unwrap_or("all"),
             focus,
@@ -4676,6 +4725,11 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
 
 async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result<ResumeSnapshot> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let base_agent = args
+        .agent
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()));
+    let session = runtime.as_ref().and_then(|config| config.session.clone());
     let project = args
         .project
         .clone()
@@ -4684,10 +4738,9 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         .namespace
         .clone()
         .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
-    let agent = args
-        .agent
-        .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()));
+    let agent = base_agent
+        .as_deref()
+        .map(|value| compose_agent_identity(value, session.as_deref()));
     let workspace = args
         .workspace
         .clone()
@@ -5157,6 +5210,7 @@ async fn remember_with_bundle_defaults(
     base_url: &str,
 ) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let session = runtime.as_ref().and_then(|config| config.session.clone());
     let project = args
         .project
         .clone()
@@ -5180,7 +5234,9 @@ async fn remember_with_bundle_defaults(
     let source_agent = args
         .source_agent
         .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()));
+        .or_else(|| runtime.as_ref().and_then(|config| config.agent.clone()))
+        .as_deref()
+        .map(|value| compose_agent_identity(value, session.as_deref()));
 
     let content = if let Some(content) = &args.content {
         content.clone()
@@ -5454,11 +5510,60 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
-    rewrite_env_assignment(&output.join("env"), "MEMD_AGENT=", &format!("MEMD_AGENT={agent}\n"))?;
+    let session = config.session.clone();
+    let effective_agent = compose_agent_identity(agent, session.as_deref());
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AGENT=",
+        &format!("MEMD_AGENT={effective_agent}\n"),
+    )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_AGENT = ",
-        &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(agent)),
+        &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(&effective_agent)),
+    )?;
+
+    Ok(())
+}
+
+fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.session = Some(session.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    let agent = config.agent.as_deref().unwrap_or("unknown");
+    let effective_agent = compose_agent_identity(agent, Some(session));
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_SESSION=",
+        &format!("MEMD_SESSION={session}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AGENT=",
+        &format!("MEMD_AGENT={effective_agent}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_SESSION = ",
+        &format!("$env:MEMD_SESSION = \"{}\"\n", escape_ps1(session)),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AGENT = ",
+        &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(&effective_agent)),
     )?;
 
     Ok(())
@@ -5535,6 +5640,8 @@ fn rewrite_env_assignment(path: &Path, prefix: &str, replacement: &str) -> anyho
 struct BundleAgentProfile {
     name: String,
     env_agent: String,
+    session: Option<String>,
+    effective_agent: String,
     memory_file: String,
     shell_entrypoint: String,
     powershell_entrypoint: String,
@@ -5547,6 +5654,7 @@ struct BundleAgentProfilesResponse {
     bundle_root: String,
     shell: String,
     current: Option<String>,
+    current_session: Option<String>,
     selected: Option<String>,
     agents: Vec<BundleAgentProfile>,
 }
@@ -5556,7 +5664,9 @@ fn build_bundle_agent_profiles(
     name: Option<&str>,
     shell: Option<&str>,
 ) -> anyhow::Result<BundleAgentProfilesResponse> {
-    let current = read_bundle_runtime_config(output)?.and_then(|config| config.agent);
+    let runtime = read_bundle_runtime_config(output)?;
+    let current = runtime.as_ref().and_then(|config| config.agent.clone());
+    let current_session = runtime.as_ref().and_then(|config| config.session.clone());
     let shell = shell
         .map(|value| value.trim().to_ascii_lowercase())
         .or_else(detect_shell)
@@ -5571,6 +5681,8 @@ fn build_bundle_agent_profiles(
     .map(|(name, env_agent, memory_file)| BundleAgentProfile {
         name: name.to_string(),
         env_agent: env_agent.to_string(),
+        session: current_session.clone(),
+        effective_agent: compose_agent_identity(env_agent, current_session.as_deref()),
         memory_file: output
             .join("agents")
             .join(memory_file)
@@ -5615,6 +5727,7 @@ fn build_bundle_agent_profiles(
         bundle_root: output.display().to_string(),
         shell,
         current,
+        current_session,
         selected,
         agents,
     })
@@ -5623,20 +5736,22 @@ fn build_bundle_agent_profiles(
 fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) -> String {
     let mut output = String::new();
     output.push_str(&format!(
-        "bundle={} shell={} current={}\n",
+        "bundle={} shell={} current={} session={}\n",
         response.bundle_root,
         response.shell,
-        response.current.as_deref().unwrap_or("none")
+        response.current.as_deref().unwrap_or("none"),
+        response.current_session.as_deref().unwrap_or("none")
     ));
     for agent in &response.agents {
         output.push_str(&format!(
-            "- {}{} | memory {} | launch {}\n",
+            "- {}{} | effective {} | memory {} | launch {}\n",
             agent.name,
             if response.current.as_deref() == Some(agent.name.as_str()) {
                 " [active]"
             } else {
                 ""
             },
+            agent.effective_agent,
             agent.memory_file,
             agent.launch_hint
         ));
@@ -5693,6 +5808,7 @@ struct BundleConfig {
     project: String,
     namespace: Option<String>,
     agent: String,
+    session: String,
     base_url: String,
     route: String,
     intent: String,
@@ -5733,6 +5849,8 @@ struct BundleConfigFile {
     #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
     base_url: Option<String>,
     #[serde(default)]
     route: Option<String>,
@@ -5755,6 +5873,7 @@ struct BundleRuntimeConfig {
     project: Option<String>,
     namespace: Option<String>,
     agent: Option<String>,
+    session: Option<String>,
     base_url: Option<String>,
     route: Option<String>,
     intent: Option<String>,
@@ -5857,6 +5976,8 @@ struct ProjectAwarenessEntry {
     project: Option<String>,
     namespace: Option<String>,
     agent: Option<String>,
+    session: Option<String>,
+    effective_agent: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
     focus: Option<String>,
@@ -5971,6 +6092,7 @@ mod tests {
             project: None,
             namespace: None,
             agent: None,
+            session: None,
             base_url: None,
             route: None,
             intent: None,
@@ -5999,6 +6121,7 @@ mod tests {
             project: None,
             namespace: None,
             agent: None,
+            session: None,
             base_url: None,
             route: None,
             intent: None,
@@ -6023,6 +6146,7 @@ mod tests {
             project: "demo".to_string(),
             namespace: Some("main".to_string()),
             agent: "codex".to_string(),
+            session: "session-demo".to_string(),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
             intent: "general".to_string(),
@@ -6066,6 +6190,7 @@ mod tests {
             project: "demo".to_string(),
             namespace: Some("main".to_string()),
             agent: "codex".to_string(),
+            session: "session-demo".to_string(),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
             intent: "general".to_string(),
@@ -6616,6 +6741,8 @@ mod tests {
                 project: Some("sibling".to_string()),
                 namespace: Some("main".to_string()),
                 agent: Some("claude-code".to_string()),
+                session: Some("claude-a".to_string()),
+                effective_agent: Some("claude-code@claude-a".to_string()),
                 workspace: Some("research".to_string()),
                 visibility: Some("workspace".to_string()),
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
@@ -6627,7 +6754,9 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("awareness root=/tmp/projects bundles=1"));
-        assert!(summary.contains("sibling | ns=main agent=claude-code workspace=research"));
+        assert!(summary.contains(
+            "sibling | ns=main agent=claude-code@claude-a session=claude-a workspace=research"
+        ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
     }
