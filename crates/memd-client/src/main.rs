@@ -4329,6 +4329,10 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "workspace_lanes": snapshot.workspaces.workspaces.len(),
                 "rehydration_queue": snapshot.working.rehydration_queue.len(),
                 "semantic_hits": snapshot.semantic.as_ref().map(|semantic| semantic.items.len()).unwrap_or(0),
+                "change_summary": snapshot.change_summary,
+                "focus": snapshot.working.records.first().map(|record| record.record.clone()),
+                "pressure": snapshot.inbox.items.first().map(|item| item.item.content.clone()),
+                "next_recovery": snapshot.working.rehydration_queue.first().map(|item| format!("{}: {}", item.label, item.summary)),
             })
         })
     } else {
