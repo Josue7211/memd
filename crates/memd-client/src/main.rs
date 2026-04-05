@@ -31,10 +31,10 @@ use memd_schema::{
     EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus,
     PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerTaskAssignRequest,
-    PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
-    StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerClaimRecoverRequest,
+    PeerClaimsRequest, PeerTaskAssignRequest, PeerTaskRecord, PeerTasksRequest, PeerTaskUpsertRequest,
+    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1066,6 +1066,12 @@ struct TasksArgs {
 struct CoordinationArgs {
     #[arg(long, default_value = ".memd")]
     output: PathBuf,
+
+    #[arg(long)]
+    recover_session: Option<String>,
+
+    #[arg(long)]
+    to_session: Option<String>,
 
     #[arg(long)]
     summary: bool,
@@ -5124,31 +5130,219 @@ async fn run_coordination_command(
         .and_then(|config| config.base_url.clone())
         .unwrap_or_else(|| base_url.to_string());
     let client = MemdClient::new(&current_base_url)?;
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+    let current_project = runtime.as_ref().and_then(|config| config.project.clone());
+    let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let claims = client
+        .peer_claims(&PeerClaimsRequest {
+            session: None,
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await?
+        .claims
+        .into_iter()
+        .map(session_claim_from_record)
+        .collect::<Vec<_>>();
+    let tasks = client
+        .peer_tasks(&PeerTasksRequest {
+            session: None,
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await?
+        .tasks;
+
+    let stale_peers = awareness
+        .entries
+        .iter()
+        .filter(|entry| entry.session.as_deref() != Some(current_session.as_str()))
+        .filter(|entry| entry.presence == "stale" || entry.presence == "dead")
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if let Some(recover_session) = args
+        .recover_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let stale_entry = stale_peers
+            .iter()
+            .find(|entry| entry.session.as_deref() == Some(recover_session))
+            .cloned()
+            .context("recover_session must target a stale or dead session")?;
+        let destination = if let Some(to_session) = args
+            .to_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            awareness
+                .entries
+                .iter()
+                .find(|entry| entry.session.as_deref() == Some(to_session))
+                .cloned()
+                .context("to_session not found in awareness")?
+        } else {
+            awareness
+                .entries
+                .iter()
+                .find(|entry| entry.session.as_deref() == Some(current_session.as_str()))
+                .cloned()
+                .context("current session missing from awareness")?
+        };
+
+        let recover_claims = claims
+            .iter()
+            .filter(|claim| claim.session.as_deref() == Some(recover_session))
+            .cloned()
+            .collect::<Vec<_>>();
+        let recover_tasks = tasks
+            .iter()
+            .filter(|task| task.session.as_deref() == Some(recover_session))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for claim in &recover_claims {
+            client
+                .recover_peer_claim(&PeerClaimRecoverRequest {
+                    scope: claim.scope.clone(),
+                    from_session: recover_session.to_string(),
+                    to_session: destination.session.clone(),
+                    to_agent: destination.agent.clone(),
+                    to_effective_agent: destination.effective_agent.clone(),
+                })
+                .await?;
+        }
+        for task in &recover_tasks {
+            client
+                .assign_peer_task(&PeerTaskAssignRequest {
+                    task_id: task.task_id.clone(),
+                    from_session: Some(recover_session.to_string()),
+                    to_session: destination
+                        .session
+                        .clone()
+                        .context("destination session missing for recovery")?,
+                    to_agent: destination.agent.clone(),
+                    to_effective_agent: destination.effective_agent.clone(),
+                    note: Some(format!(
+                        "Recovered from {} session {}",
+                        stale_entry.presence,
+                        recover_session
+                    )),
+                })
+                .await?;
+        }
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "coordination",
+            format!(
+                "Recovered {} claims and {} tasks from {} session {}.",
+                recover_claims.len(),
+                recover_tasks.len(),
+                stale_entry.presence,
+                recover_session
+            ),
+            vec![
+                "coordination".to_string(),
+                "recovery".to_string(),
+                "auto-checkpoint".to_string(),
+            ],
+            0.86,
+        )
+        .await?;
+    }
+
     let response = client
         .peer_coordination_inbox(&PeerCoordinationInboxRequest {
             session: current_session.clone(),
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
             limit: Some(128),
         })
         .await?;
+    let claims = client
+        .peer_claims(&PeerClaimsRequest {
+            session: None,
+            project: current_project,
+            namespace: current_namespace,
+            workspace: current_workspace,
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await?
+        .claims
+        .into_iter()
+        .map(session_claim_from_record)
+        .collect::<Vec<_>>();
+    let tasks = client
+        .peer_tasks(&PeerTasksRequest {
+            session: None,
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await?
+        .tasks;
     Ok(CoordinationResponse {
         bundle_root: args.output.display().to_string(),
         current_session,
         inbox: response,
+        recovery: CoordinationRecoverySummary {
+            stale_peers: stale_peers.clone(),
+            reclaimable_claims: claims
+                .into_iter()
+                .filter(|claim| {
+                    claim.session.as_deref().is_some_and(|session| {
+                        stale_peers
+                            .iter()
+                            .any(|entry| entry.session.as_deref() == Some(session))
+                    })
+                })
+                .collect(),
+            stalled_tasks: tasks
+                .into_iter()
+                .filter(|task| {
+                    task.session.as_deref().is_some_and(|session| {
+                        stale_peers
+                            .iter()
+                            .any(|entry| entry.session.as_deref() == Some(session))
+                    })
+                })
+                .collect(),
+        },
     })
 }
 
 fn render_coordination_summary(response: &CoordinationResponse) -> String {
     let mut lines = vec![format!(
-        "coordination bundle={} session={} messages={} owned={} help={} review={}",
+        "coordination bundle={} session={} messages={} owned={} help={} review={} stale_peers={} reclaimable_claims={} stalled_tasks={}",
         response.bundle_root,
         response.current_session,
         response.inbox.messages.len(),
         response.inbox.owned_tasks.len(),
         response.inbox.help_tasks.len(),
         response.inbox.review_tasks.len(),
+        response.recovery.stale_peers.len(),
+        response.recovery.reclaimable_claims.len(),
+        response.recovery.stalled_tasks.len(),
     )];
     for message in response.inbox.messages.iter().take(6) {
         lines.push(format!(
@@ -5180,6 +5374,41 @@ fn render_coordination_summary(response: &CoordinationResponse) -> String {
     for task in response.inbox.review_tasks.iter().take(4) {
         lines.push(format!(
             "- review {} [{}] owner={}",
+            task.task_id,
+            task.status,
+            task.effective_agent
+                .as_deref()
+                .or(task.session.as_deref())
+                .unwrap_or("none")
+        ));
+    }
+    for entry in response.recovery.stale_peers.iter().take(4) {
+        lines.push(format!(
+            "- stale session={} agent={} presence={} focus=\"{}\"",
+            entry.session.as_deref().unwrap_or("none"),
+            entry
+                .effective_agent
+                .as_deref()
+                .or(entry.agent.as_deref())
+                .unwrap_or("none"),
+            entry.presence,
+            compact_inline(entry.focus.as_deref().unwrap_or("none"), 72),
+        ));
+    }
+    for claim in response.recovery.reclaimable_claims.iter().take(6) {
+        lines.push(format!(
+            "- reclaimable claim {} owner={}",
+            claim.scope,
+            claim
+                .effective_agent
+                .as_deref()
+                .or(claim.session.as_deref())
+                .unwrap_or("none")
+        ));
+    }
+    for task in response.recovery.stalled_tasks.iter().take(6) {
+        lines.push(format!(
+            "- stalled task {} [{}] owner={}",
             task.task_id,
             task.status,
             task.effective_agent
@@ -7485,6 +7714,14 @@ struct CoordinationResponse {
     bundle_root: String,
     current_session: String,
     inbox: PeerCoordinationInboxResponse,
+    recovery: CoordinationRecoverySummary,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CoordinationRecoverySummary {
+    stale_peers: Vec<ProjectAwarenessEntry>,
+    reclaimable_claims: Vec<SessionClaim>,
+    stalled_tasks: Vec<PeerTaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

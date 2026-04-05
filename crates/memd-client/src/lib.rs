@@ -10,7 +10,7 @@ use memd_schema::{
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
     MemoryPolicyResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
     PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest, PeerClaimReleaseRequest,
-    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest,
+    PeerClaimRecoverRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest,
     PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, RepairMemoryRequest,
     RepairMemoryResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
@@ -242,6 +242,13 @@ impl MemdClient {
         req: &PeerClaimTransferRequest,
     ) -> anyhow::Result<PeerClaimsResponse> {
         self.post_json("/coordination/claims/transfer", req).await
+    }
+
+    pub async fn recover_peer_claim(
+        &self,
+        req: &PeerClaimRecoverRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.post_json("/coordination/claims/recover", req).await
     }
 
     pub async fn peer_claims(

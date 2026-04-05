@@ -18,6 +18,7 @@ It does not create a second coordination store.
 - `list_peers`
 - `check_inbox`
 - `coordination_inbox`
+- `recover_stale_session`
 - `send_message`
 - `ack_message`
 - `list_claims`

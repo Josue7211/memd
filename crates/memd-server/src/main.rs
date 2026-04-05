@@ -36,8 +36,9 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
     PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
-    PeerClaimAcquireRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
-    PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
+    PeerClaimAcquireRequest, PeerClaimRecoverRequest, PeerClaimReleaseRequest,
+    PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
+    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
     PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse,
 };
 use routing::RetrievalPlan;
@@ -245,6 +246,7 @@ async fn main() {
         .route("/coordination/claims/acquire", post(post_peer_claim_acquire))
         .route("/coordination/claims/release", post(post_peer_claim_release))
         .route("/coordination/claims/transfer", post(post_peer_claim_transfer))
+        .route("/coordination/claims/recover", post(post_peer_claim_recover))
         .route("/coordination/claims", get(get_peer_claims))
         .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
         .route("/coordination/tasks/assign", post(post_peer_task_assign))
@@ -784,6 +786,28 @@ async fn post_peer_claim_transfer(
         ));
     }
     let response = state.store.transfer_peer_claim(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_claim_recover(
+    State(state): State<AppState>,
+    Json(req): Json<PeerClaimRecoverRequest>,
+) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    if req.scope.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "scope must not be empty".to_string()));
+    }
+    if req.from_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session must not be empty".to_string(),
+        ));
+    }
+    if let Some(to_session) = req.to_session.as_deref()
+        && to_session.trim().is_empty()
+    {
+        return Err((StatusCode::BAD_REQUEST, "to_session must not be empty".to_string()));
+    }
+    let response = state.store.recover_peer_claim(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

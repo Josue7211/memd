@@ -197,6 +197,18 @@ const tools = [
     },
   },
   {
+    name: "recover_stale_session",
+    description: "Recover claims and shared tasks from a stale or dead session into the current session or another target session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stale_session: { type: "string" },
+        target_session: { type: "string" },
+      },
+      required: ["stale_session"],
+    },
+  },
+  {
     name: "send_message",
     description: "Send a direct coordination message to another session.",
     inputSchema: {
@@ -414,6 +426,65 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         lines.push(`- own ${task.task_id} [${task.status}] ${compact(task.title, 96)}`);
       }
       return textResult(lines);
+    }
+
+    case "recover_stale_session": {
+      if (!identity.session) throw new Error("Bundle session is required for stale-session recovery.");
+      const stale = peerBySession.get(args.stale_session);
+      if (!stale) throw new Error(`Unknown stale session: ${args.stale_session}`);
+      if (stale.presence === "active") {
+        throw new Error(`Session ${args.stale_session} is still active.`);
+      }
+      const targetSession = args.target_session ?? identity.session;
+      const target = peerBySession.get(targetSession);
+      if (!target) throw new Error(`Unknown target session: ${targetSession}`);
+
+      const claims = await memdGet(identity.baseUrl, "/coordination/claims", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: true,
+        limit: 256,
+      });
+      const tasks = await memdGet(identity.baseUrl, "/coordination/tasks", {
+        project: identity.project,
+        namespace: identity.namespace,
+        workspace: identity.workspace,
+        active_only: true,
+        limit: 256,
+      });
+
+      const reclaimableClaims = (claims.claims ?? []).filter((claim) => claim.session === args.stale_session);
+      const stalledTasks = (tasks.tasks ?? []).filter((task) => task.session === args.stale_session);
+
+      for (const claim of reclaimableClaims) {
+        await memdPost(identity.baseUrl, "/coordination/claims/recover", {
+          scope: claim.scope,
+          from_session: args.stale_session,
+          to_session: targetSession,
+          to_agent: target.agent ?? null,
+          to_effective_agent: target.effective_agent ?? null,
+        });
+      }
+
+      for (const task of stalledTasks) {
+        await memdPost(identity.baseUrl, "/coordination/tasks/assign", {
+          task_id: task.task_id,
+          from_session: args.stale_session,
+          to_session: targetSession,
+          to_agent: target.agent ?? null,
+          to_effective_agent: target.effective_agent ?? null,
+          note: `Recovered from ${stale.presence} session ${args.stale_session}`,
+        });
+      }
+
+      return textResult([
+        `recovered_session=${args.stale_session}`,
+        `presence=${stale.presence}`,
+        `target_session=${targetSession}`,
+        `claims=${reclaimableClaims.length}`,
+        `tasks=${stalledTasks.length}`,
+      ]);
     }
 
     case "send_message": {

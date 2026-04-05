@@ -9,9 +9,9 @@ use memd_schema::{
     MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerCoordinationInboxRequest,
     PeerCoordinationInboxResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
     PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse, PeerClaimAcquireRequest,
-    PeerClaimRecord, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
-    PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest,
-    PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
+    PeerClaimRecord, PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest,
+    PeerClaimsRequest, PeerClaimsResponse, PeerTaskAssignRequest, PeerTaskRecord,
+    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, SourceMemoryRecord,
     SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -1656,6 +1656,64 @@ impl SqliteStore {
         )
         .context("transfer peer claim")?;
         Ok(PeerClaimsResponse { claims: vec![claim] })
+    }
+
+    pub fn recover_peer_claim(
+        &self,
+        request: &PeerClaimRecoverRequest,
+    ) -> anyhow::Result<PeerClaimsResponse> {
+        self.prune_expired_peer_claims()?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer claim for recovery")?;
+        let Some(payload) = payload else {
+            return Ok(PeerClaimsResponse { claims: Vec::new() });
+        };
+
+        let mut claim: PeerClaimRecord =
+            serde_json::from_str(&payload).context("deserialize peer claim for recovery")?;
+
+        if let Some(to_session) = request
+            .to_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            claim.session = to_session.to_string();
+            claim.agent = request.to_agent.clone();
+            claim.effective_agent = request.to_effective_agent.clone();
+            let updated_payload =
+                serde_json::to_string(&claim).context("serialize recovered peer claim")?;
+            conn.execute(
+                r#"
+                UPDATE peer_claims
+                SET session = ?2, payload_json = ?3
+                WHERE scope = ?1 AND session = ?4
+                "#,
+                params![
+                    request.scope.trim(),
+                    claim.session.as_str(),
+                    updated_payload,
+                    request.from_session.trim(),
+                ],
+            )
+            .context("recover peer claim into new owner")?;
+            Ok(PeerClaimsResponse { claims: vec![claim] })
+        } else {
+            conn.execute(
+                "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                params![request.scope.trim(), request.from_session.trim()],
+            )
+            .context("delete peer claim during recovery")?;
+            Ok(PeerClaimsResponse { claims: vec![claim] })
+        }
     }
 
     pub fn peer_claims(&self, request: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {

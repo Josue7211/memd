@@ -470,11 +470,24 @@ Success:
 - add safe recovery paths for rerouting blocked coworking lanes
 - keep the first automation slice operator-visible and ownership-safe
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - active sessions can recover blocked shared work without silent ownership drift
 
+#### Phase 37: `v5` Coordination Policy and Ownership Guards
+
+- define lightweight coordination modes such as exclusive write, shared review, and help-only
+- surface policy mismatches before overlapping work turns into conflict
+- keep the first policy slice compatible with existing claims, tasks, inbox, and recovery flows
+- preserve explicit operator-visible ownership rules instead of hidden heuristics
+
+Status: Planned
+
+Success:
+
+- simultaneous sessions can distinguish exclusive ownership from collaborative support lanes before conflict occurs
+
 ---
-*Last updated: 2026-04-05 after shipping `v5` coordination inbox and task presence*
+*Last updated: 2026-04-05 after shipping `v5` stale-session recovery*

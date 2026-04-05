@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Start `v5` claim recovery and coordination automation on top of the new coordination inbox.
+**Current focus:** Start `v5` coordination policy and ownership guards on top of the recovery-capable coworking substrate.
 
 ## Current Status
 
@@ -45,14 +45,15 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - the first MCP-native peer coordination bridge now exposes brokered coworking tools directly to agent clients
 - shared-task orchestration now exists across backend, CLI, and MCP surfaces
 - coordination inbox and task presence now exist as a compact coworking surface
+- stale-session recovery now exists across backend, CLI, and MCP surfaces
 
 ## Open Loops
 
-- planning roadmap now needs phase 36 execution so stale-session recovery becomes safe and visible
+- planning roadmap now needs phase 37 execution so ownership policy becomes explicit before overlap turns into conflict
 
 ## Next Command
 
-Execute phase 36 so active sessions can recover blocked coworking lanes without ownership drift.
+Execute phase 37 so sessions can distinguish exclusive ownership from collaborative work lanes before conflict occurs.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

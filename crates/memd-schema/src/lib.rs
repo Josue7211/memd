@@ -581,6 +581,15 @@ pub struct PeerClaimTransferRequest {
     pub to_effective_agent: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerClaimRecoverRequest {
+    pub scope: String,
+    pub from_session: String,
+    pub to_session: Option<String>,
+    pub to_agent: Option<String>,
+    pub to_effective_agent: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeerClaimsRequest {
     pub session: Option<String>,
