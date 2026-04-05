@@ -42,7 +42,7 @@ use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
     render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
     render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
-    render_repair_summary, render_source_summary, render_timeline_summary,
+    render_repair_summary, render_resume_prompt, render_source_summary, render_timeline_summary,
     render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
@@ -938,6 +938,9 @@ struct ResumeArgs {
     rehydration_limit: Option<usize>,
 
     #[arg(long)]
+    prompt: bool,
+
+    #[arg(long)]
     summary: bool,
 }
 
@@ -1130,7 +1133,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Resume(args) => {
             let snapshot = read_bundle_resume(&args, &base_url).await?;
-            if args.summary {
+            if args.prompt {
+                println!("{}", render_resume_prompt(&snapshot));
+            } else if args.summary {
                 println!(
                     "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={}",
                     snapshot.project.as_deref().unwrap_or("none"),
@@ -3402,7 +3407,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let health = client.healthz().await.ok();
     let runtime = read_bundle_runtime_config(output)?;
     let resume_preview = if output.join("config.json").exists() && health.is_some() {
-        let preview = read_bundle_resume(
+            let preview = read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,
@@ -3414,6 +3419,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 intent: None,
                 limit: Some(4),
                 rehydration_limit: Some(2),
+                prompt: false,
                 summary: false,
             },
             base_url,

@@ -529,6 +529,76 @@ pub(crate) fn render_workspace_summary(
     output
 }
 
+pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
+    let mut output = String::new();
+    output.push_str("# memd resume\n\n");
+    output.push_str(&format!(
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        snapshot.route,
+        snapshot.intent,
+    ));
+
+    output.push_str("\n## Working Memory\n\n");
+    if snapshot.working.records.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for record in snapshot.working.records.iter().take(8) {
+            output.push_str(&format!("- {}\n", compact_inline(&record.record, 220)));
+        }
+    }
+
+    if !snapshot.working.rehydration_queue.is_empty() {
+        output.push_str("\n## Rehydration Queue\n\n");
+        for artifact in snapshot.working.rehydration_queue.iter().take(4) {
+            output.push_str(&format!(
+                "- {}: {}\n",
+                artifact.label,
+                compact_inline(&artifact.summary, 180)
+            ));
+        }
+    }
+
+    if !snapshot.inbox.items.is_empty() {
+        output.push_str("\n## Inbox\n\n");
+        for item in snapshot.inbox.items.iter().take(5) {
+            let reasons = if item.reasons.is_empty() {
+                "none".to_string()
+            } else {
+                compact_inline(&item.reasons.join(", "), 100)
+            };
+            output.push_str(&format!(
+                "- {:?} {:?}: {} | reasons: {}\n",
+                item.item.kind,
+                item.item.status,
+                compact_inline(&item.item.content, 160),
+                reasons
+            ));
+        }
+    }
+
+    if !snapshot.workspaces.workspaces.is_empty() {
+        output.push_str("\n## Workspace Lanes\n\n");
+        for workspace in snapshot.workspaces.workspaces.iter().take(4) {
+            output.push_str(&format!(
+                "- {} / {} / {} | items {} | sources {} | trust {:.2}\n",
+                workspace.project.as_deref().unwrap_or("none"),
+                workspace.namespace.as_deref().unwrap_or("none"),
+                workspace.workspace.as_deref().unwrap_or("none"),
+                workspace.item_count,
+                workspace.source_lane_count,
+                workspace.trust_score
+            ));
+        }
+    }
+
+    output
+}
+
 pub(crate) fn render_consolidate_summary(
     response: &memd_schema::MemoryConsolidationResponse,
     follow: bool,

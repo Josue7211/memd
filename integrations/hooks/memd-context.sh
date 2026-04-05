@@ -23,6 +23,7 @@ load_bundle_env
 
 MEMD_BASE_URL="${MEMD_BASE_URL:-http://127.0.0.1:8787}"
 MEMD_PROJECT="${MEMD_PROJECT:?MEMD_PROJECT is required}"
+MEMD_NAMESPACE="${MEMD_NAMESPACE:-}"
 MEMD_AGENT="${MEMD_AGENT:?MEMD_AGENT is required}"
 MEMD_ROUTE="${MEMD_ROUTE:-auto}"
 MEMD_INTENT="${MEMD_INTENT:-general}"
@@ -39,8 +40,12 @@ args=(
   --intent "$MEMD_INTENT"
   --limit "$MEMD_LIMIT"
   --rehydration-limit "$MEMD_REHYDRATION_LIMIT"
+  --prompt
 )
 
+if [ -n "$MEMD_NAMESPACE" ]; then
+  args+=(--namespace "$MEMD_NAMESPACE")
+fi
 if [ -n "${MEMD_WORKSPACE:-}" ]; then
   args+=(--workspace "$MEMD_WORKSPACE")
 fi
