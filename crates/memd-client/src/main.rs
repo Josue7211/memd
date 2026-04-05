@@ -860,6 +860,9 @@ struct InitArgs {
     project: String,
 
     #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
     agent: String,
 
     #[arg(long, default_value = ".memd")]
@@ -909,6 +912,9 @@ struct ResumeArgs {
 
     #[arg(long)]
     project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
 
     #[arg(long)]
     agent: Option<String>,
@@ -1126,8 +1132,9 @@ async fn main() -> anyhow::Result<()> {
             let snapshot = read_bundle_resume(&args, &base_url).await?;
             if args.summary {
                 println!(
-                    "resume project={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={}",
+                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={}",
                     snapshot.project.as_deref().unwrap_or("none"),
+                    snapshot.namespace.as_deref().unwrap_or("none"),
                     snapshot.agent.as_deref().unwrap_or("none"),
                     snapshot.workspace.as_deref().unwrap_or("none"),
                     snapshot.visibility.as_deref().unwrap_or("all"),
@@ -3220,6 +3227,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let config = BundleConfig {
         schema_version: 2,
         project: args.project.clone(),
+        namespace: args.namespace.clone(),
         agent: args.agent.clone(),
         base_url: args.base_url.clone(),
         route: args.route.clone(),
@@ -3252,9 +3260,13 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\nMEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}{}{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\n{}{}{}",
             args.base_url,
             args.project,
+            args.namespace
+                .as_ref()
+                .map(|value| format!("MEMD_NAMESPACE={value}\n"))
+                .unwrap_or_default(),
             args.agent,
             args.route,
             args.intent,
@@ -3277,9 +3289,13 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&args.project),
+            args.namespace
+                .as_ref()
+                .map(|value| format!("$env:MEMD_NAMESPACE = \"{}\"\n", escape_ps1(value)))
+                .unwrap_or_default(),
             escape_ps1(&args.agent),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
@@ -3447,6 +3463,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "agents": output.join("agents").exists(),
         "defaults": runtime.as_ref().map(|config| serde_json::json!({
             "project": config.project,
+            "namespace": config.namespace,
             "agent": config.agent,
             "base_url": config.base_url,
             "route": config.route,
@@ -3488,6 +3505,7 @@ fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRunt
         serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
     Ok(Some(BundleRuntimeConfig {
         project: config.project,
+        namespace: config.namespace,
         agent: config.agent,
         base_url: config.base_url,
         route: config.route,
@@ -3503,6 +3521,10 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         .project
         .clone()
         .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+    let namespace = args
+        .namespace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
     let agent = args
         .agent
         .clone()
@@ -3570,7 +3592,7 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
     let inbox = client
         .inbox(&memd_schema::MemoryInboxRequest {
             project: project.clone(),
-            namespace: None,
+            namespace: namespace.clone(),
             workspace: workspace.clone(),
             visibility,
             belief_branch: None,
@@ -3582,7 +3604,7 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
     let workspaces = client
         .workspace_memory(&memd_schema::WorkspaceMemoryRequest {
             project: project.clone(),
-            namespace: None,
+            namespace: namespace.clone(),
             workspace: workspace.clone(),
             visibility,
             source_agent: None,
@@ -3593,6 +3615,7 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
 
     Ok(ResumeSnapshot {
         project,
+        namespace,
         agent,
         workspace,
         visibility: visibility_raw,
@@ -3614,6 +3637,10 @@ async fn remember_with_bundle_defaults(
         .project
         .clone()
         .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+    let namespace = args
+        .namespace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
     let workspace = args
         .workspace
         .clone()
@@ -3681,7 +3708,7 @@ async fn remember_with_bundle_defaults(
             kind,
             scope,
             project,
-            namespace: args.namespace.clone(),
+            namespace,
             workspace,
             visibility,
             belief_branch: None,
@@ -3766,6 +3793,7 @@ fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
 struct BundleConfig {
     schema_version: u32,
     project: String,
+    namespace: Option<String>,
     agent: String,
     base_url: String,
     route: String,
@@ -3802,6 +3830,8 @@ struct BundleConfigFile {
     #[serde(default)]
     project: Option<String>,
     #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
     base_url: Option<String>,
@@ -3822,6 +3852,7 @@ struct BundleConfigFile {
 #[derive(Debug, Clone)]
 struct BundleRuntimeConfig {
     project: Option<String>,
+    namespace: Option<String>,
     agent: Option<String>,
     base_url: Option<String>,
     route: Option<String>,
@@ -3833,6 +3864,7 @@ struct BundleRuntimeConfig {
 #[derive(Debug, Clone, Serialize)]
 struct ResumeSnapshot {
     project: Option<String>,
+    namespace: Option<String>,
     agent: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
@@ -3933,6 +3965,7 @@ mod tests {
     fn resolves_nested_bundle_rag_config() {
         let config = BundleConfigFile {
             project: None,
+            namespace: None,
             agent: None,
             base_url: None,
             route: None,
@@ -3959,6 +3992,7 @@ mod tests {
     fn resolves_legacy_bundle_rag_url() {
         let config = BundleConfigFile {
             project: None,
+            namespace: None,
             agent: None,
             base_url: None,
             route: None,
@@ -3981,6 +4015,7 @@ mod tests {
         let config = BundleConfig {
             schema_version: 2,
             project: "demo".to_string(),
+            namespace: Some("main".to_string()),
             agent: "codex".to_string(),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
@@ -4005,6 +4040,7 @@ mod tests {
 
         let json = serde_json::to_value(config).expect("serialize bundle config");
         assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["namespace"], "main");
         assert_eq!(json["backend"]["rag"]["enabled"], true);
         assert_eq!(json["backend"]["rag"]["provider"], "lightrag-compatible");
         assert_eq!(json["backend"]["rag"]["url"], "http://127.0.0.1:9000");

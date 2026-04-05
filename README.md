@@ -101,7 +101,7 @@ cargo run -p memd-client --bin memd -- explain --id <uuid> --follow
 Bootstrap a project bundle:
 
 ```bash
-cargo run -p memd-client --bin memd -- init --project demo --agent codex
+cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex
 ```
 
 Resume the default memory snapshot from that bundle:
@@ -119,7 +119,7 @@ cargo run -p memd-client --bin memd -- remember --output .memd --kind decision -
 Resume with a shared workspace lane:
 
 ```bash
-cargo run -p memd-client --bin memd -- init --project demo --agent codex --workspace team-alpha --visibility workspace
+cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex --workspace team-alpha --visibility workspace
 cargo run -p memd-client --bin memd -- resume --output .memd
 ```
 

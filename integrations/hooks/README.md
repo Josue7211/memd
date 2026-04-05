@@ -11,7 +11,7 @@ Use them when a client wants:
 For per-project bootstrap, use:
 
 ```bash
-memd init --project <project> --agent <agent>
+memd init --project <project> --namespace <namespace> --agent <agent>
 ```
 
 Check bundle health with:
@@ -38,6 +38,7 @@ Set:
 
 - `MEMD_BASE_URL` - defaults to `http://127.0.0.1:8787`
 - `MEMD_PROJECT` - required for context fetches
+- `MEMD_NAMESPACE` - optional namespace lane inside the project
 - `MEMD_AGENT` - required for context fetches
 - `MEMD_ROUTE` - defaults to `auto`
 - `MEMD_INTENT` - defaults to `general`
