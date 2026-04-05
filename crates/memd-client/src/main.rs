@@ -2565,11 +2565,13 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
         let Some(query) = args.query.as_ref() else {
             anyhow::bail!("obsidian compile requires --query <text> or --id <uuid>");
         };
+        let route = parse_retrieval_route(args.route.clone())?;
+        let intent = parse_retrieval_intent(args.intent.clone())?;
         let response = client
             .search(&SearchMemoryRequest {
                 query: Some(query.clone()),
-                route: parse_retrieval_route(args.route.clone())?,
-                intent: parse_retrieval_intent(args.intent.clone())?,
+                route,
+                intent,
                 scopes: vec![MemoryScope::Project, MemoryScope::Global, MemoryScope::Synced],
                 kinds: vec![],
                 statuses: vec![MemoryStatus::Active, MemoryStatus::Stale, MemoryStatus::Contested],
@@ -2589,19 +2591,39 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
                 max_chars_per_item: Some(800),
             })
             .await?;
+        let semantic = if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
+            rag.retrieve(&RagRetrieveRequest {
+                query: query.clone(),
+                project: args.project.clone(),
+                namespace: args.namespace.clone(),
+                mode: RagRetrieveMode::Auto,
+                limit: Some(6),
+                include_cross_modal: false,
+            })
+            .await
+            .ok()
+            .filter(|response| !response.items.is_empty())
+        } else {
+            None
+        };
 
         let output_path = args
             .output
             .clone()
             .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
-        let (title, markdown) =
-            obsidian::build_compiled_note_markdown(&args.vault, query, &response);
+        let (title, markdown) = obsidian::build_compiled_note_markdown(
+            &args.vault,
+            query,
+            &response,
+            semantic.as_ref(),
+        );
         let preview = serde_json::json!({
             "output_path": output_path.display().to_string(),
             "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
             "title": title,
             "query": query,
             "items": response.items.len(),
+            "semantic_hits": semantic.as_ref().map(|response| response.items.len()).unwrap_or(0),
             "apply": args.apply,
         });
         (title, markdown, output_path, preview, response.items.len(), "query")

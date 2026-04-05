@@ -790,6 +790,7 @@ pub fn build_compiled_note_markdown(
     vault: &Path,
     query: &str,
     response: &SearchMemoryResponse,
+    semantic: Option<&memd_rag::RagRetrieveResponse>,
 ) -> (String, String) {
     let title = query.trim().to_string();
     let mut markdown = String::new();
@@ -846,6 +847,21 @@ pub fn build_compiled_note_markdown(
         markdown.push('\n');
         markdown.push_str(&item.content);
         markdown.push_str("\n\n");
+    }
+    if let Some(semantic) = semantic.filter(|semantic| !semantic.items.is_empty()) {
+        markdown.push_str("## Semantic Recall\n\n");
+        for item in semantic.items.iter().take(8) {
+            markdown.push_str(&format!(
+                "- {}{}\n",
+                compact_markdown_text(&item.content, 220),
+                item.source
+                    .as_deref()
+                    .map(|source| format!(" | source {}", compact_markdown_text(source, 64)))
+                    .unwrap_or_default()
+            ));
+            markdown.push_str(&format!("  - score: {:.2}\n", item.score));
+        }
+        markdown.push('\n');
     }
     (title, markdown)
 }

@@ -201,6 +201,9 @@ Each applied compile also updates:
 so generated wiki pages accumulate into a browsable vault index instead of
 staying as isolated one-off files. Query pages land under `.memd/compiled/`
 and compiled memory evidence pages land under `.memd/compiled/memory/`.
+When the active bundle has RAG enabled, compiled query pages also include a
+bounded `Semantic Recall` section so the vault view matches the hybrid
+markdown-plus-semantic retrieval lane used by `memd resume` and `memd handoff`.
 
 Round-trip a vault and annotate source notes in place:
 
