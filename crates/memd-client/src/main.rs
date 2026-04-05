@@ -929,6 +929,9 @@ struct AgentArgs {
     shell: Option<String>,
 
     #[arg(long)]
+    apply: bool,
+
+    #[arg(long)]
     summary: bool,
 }
 
@@ -1194,6 +1197,31 @@ async fn main() -> anyhow::Result<()> {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
         Commands::Agent(args) => {
+            if args.apply {
+                let Some(name) = args.name.as_deref() else {
+                    anyhow::bail!("memd agent --apply requires --name <agent>");
+                };
+                set_bundle_agent(&args.output, name)?;
+                let snapshot = read_bundle_resume(
+                    &ResumeArgs {
+                        output: args.output.clone(),
+                        project: None,
+                        namespace: None,
+                        agent: Some(name.to_string()),
+                        workspace: None,
+                        visibility: None,
+                        route: None,
+                        intent: None,
+                        limit: Some(8),
+                        rehydration_limit: Some(4),
+                        prompt: false,
+                        summary: false,
+                    },
+                    &base_url,
+                )
+                .await?;
+                write_bundle_memory_files(&args.output, &snapshot, None)?;
+            }
             let response = build_bundle_agent_profiles(
                 &args.output,
                 args.name.as_deref(),
@@ -4337,6 +4365,63 @@ memd resume --output $env:MEMD_BUNDLE_ROOT
     }
 }
 
+fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.agent = Some(agent.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(&output.join("env"), "MEMD_AGENT=", &format!("MEMD_AGENT={agent}\n"))?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AGENT = ",
+        &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(agent)),
+    )?;
+
+    Ok(())
+}
+
+fn rewrite_env_assignment(path: &Path, prefix: &str, replacement: &str) -> anyhow::Result<()> {
+    let mut lines = if path.exists() {
+        fs::read_to_string(path)
+            .with_context(|| format!("read {}", path.display()))?
+            .lines()
+            .map(|line| format!("{line}\n"))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    let mut replaced = false;
+    for line in &mut lines {
+        if line.starts_with(prefix) {
+            *line = replacement.to_string();
+            replaced = true;
+        }
+    }
+    if !replaced {
+        lines.push(replacement.to_string());
+    }
+
+    let mut output = String::new();
+    for line in lines {
+        output.push_str(&line);
+    }
+    fs::write(path, output).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct BundleAgentProfile {
     name: String,
@@ -4507,7 +4592,7 @@ struct BundleHooksConfig {
     spill_ps1: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BundleConfigFile {
     #[serde(default)]
     project: Option<String>,
@@ -4566,13 +4651,13 @@ struct HandoffSnapshot {
     sources: memd_schema::SourceMemoryResponse,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BundleBackendConfigFile {
     #[serde(default)]
     rag: Option<BundleRagConfigFile>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BundleRagConfigFile {
     #[serde(default)]
     enabled: Option<bool>,
@@ -4770,5 +4855,37 @@ mod tests {
         assert_eq!(response.selected.as_deref(), Some("claude-code"));
         assert_eq!(response.agents[0].name, "claude-code");
         assert!(response.agents[0].launch_hint.contains("claude-code.ps1"));
+    }
+
+    #[test]
+    fn set_bundle_agent_updates_config_and_env_files() {
+        let dir = std::env::temp_dir().join(format!("memd-agent-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_AGENT=codex\n").expect("write env");
+        fs::write(dir.join("env.ps1"), "$env:MEMD_AGENT = \"codex\"\n").expect("write env.ps1");
+
+        set_bundle_agent(&dir, "openclaw").expect("set bundle agent");
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""agent": "openclaw""#));
+        assert!(env.contains("MEMD_AGENT=openclaw"));
+        assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 }

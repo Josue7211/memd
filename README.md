@@ -167,6 +167,12 @@ Or ask the CLI for the exact bundle-backed entrypoints and memory files:
 cargo run -p memd-client --bin memd -- agent --output .memd --summary
 ```
 
+Switch the active bundle agent and refresh the bundle memory files in one step:
+
+```bash
+cargo run -p memd-client --bin memd -- agent --output .memd --name claude-code --apply --summary
+```
+
 Bootstrap a project bundle with LightRAG configured:
 
 ```bash
