@@ -1067,6 +1067,9 @@ struct HandoffArgs {
     output: PathBuf,
 
     #[arg(long)]
+    target_session: Option<String>,
+
+    #[arg(long)]
     project: Option<String>,
 
     #[arg(long)]
@@ -1491,7 +1494,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", render_handoff_prompt(&snapshot));
             } else if args.summary {
                 println!(
-                    "handoff project={} namespace={} agent={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={}",
+                    "handoff project={} namespace={} agent={} workspace={} visibility={} working={} inbox={} workspaces={} sources={} rehydration={} target_session={} target_bundle={}",
                     snapshot.resume.project.as_deref().unwrap_or("none"),
                     snapshot.resume.namespace.as_deref().unwrap_or("none"),
                     snapshot.resume.agent.as_deref().unwrap_or("none"),
@@ -1502,6 +1505,8 @@ async fn main() -> anyhow::Result<()> {
                     snapshot.resume.workspaces.workspaces.len(),
                     snapshot.sources.sources.len(),
                     snapshot.resume.working.rehydration_queue.len(),
+                    snapshot.target_session.as_deref().unwrap_or("none"),
+                    snapshot.target_bundle.as_deref().unwrap_or("none"),
                 );
             } else {
                 print_json(&snapshot)?;
@@ -2800,6 +2805,7 @@ async fn run_obsidian_handoff(args: &ObsidianArgs, base_url: &str) -> anyhow::Re
     let snapshot = read_bundle_handoff(
         &HandoffArgs {
             output: resolve_default_bundle_root()?.unwrap_or_else(|| PathBuf::from(".memd")),
+            target_session: None,
             project: args.project.clone(),
             namespace: args.namespace.clone(),
             agent: None,
@@ -4989,6 +4995,28 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
     lines.join("\n")
 }
 
+fn resolve_target_session_bundle(
+    output: &Path,
+    target_session: &str,
+) -> anyhow::Result<Option<ProjectAwarenessEntry>> {
+    let current_project = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(output)
+    };
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: current_project,
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+
+    Ok(awareness.entries.into_iter().find(|entry| {
+        entry.session.as_deref() == Some(target_session)
+            || entry.effective_agent.as_deref() == Some(target_session)
+    }))
+}
+
 async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result<ResumeSnapshot> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let base_agent = args
@@ -5161,9 +5189,19 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
 }
 
 async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Result<HandoffSnapshot> {
+    let target = if let Some(target_session) = args.target_session.as_deref() {
+        resolve_target_session_bundle(&args.output, target_session)?
+    } else {
+        None
+    };
+    let target_bundle = target
+        .as_ref()
+        .map(|entry| PathBuf::from(&entry.bundle_root))
+        .unwrap_or_else(|| args.output.clone());
+
     let resume = read_bundle_resume(
         &ResumeArgs {
-            output: args.output.clone(),
+            output: target_bundle.clone(),
             project: args.project.clone(),
             namespace: args.namespace.clone(),
             agent: args.agent.clone(),
@@ -5181,7 +5219,7 @@ async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Resu
     )
     .await?;
 
-    let runtime = read_bundle_runtime_config(&args.output)?;
+    let runtime = read_bundle_runtime_config(&target_bundle)?;
     let base_url = runtime
         .as_ref()
         .and_then(|config| config.base_url.clone())
@@ -5207,6 +5245,8 @@ async fn read_bundle_handoff(args: &HandoffArgs, base_url: &str) -> anyhow::Resu
         generated_at: Utc::now(),
         resume,
         sources,
+        target_session: target.and_then(|entry| entry.session),
+        target_bundle: Some(target_bundle.display().to_string()),
     })
 }
 
@@ -6241,6 +6281,8 @@ struct HandoffSnapshot {
     generated_at: DateTime<Utc>,
     resume: ResumeSnapshot,
     sources: memd_schema::SourceMemoryResponse,
+    target_session: Option<String>,
+    target_bundle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7189,6 +7231,75 @@ mod tests {
         assert!(summary.contains("presence=active"));
         assert!(summary.contains("focus=\"Finish the live heartbeat lane\""));
         assert!(summary.contains("pressure=\"Avoid memory drift\""));
+    }
+
+    #[test]
+    fn resolve_target_session_bundle_finds_matching_session() {
+        let root =
+            std::env::temp_dir().join(format!("memd-target-session-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        fs::create_dir_all(current_project.join(".memd").join("state")).expect("create current");
+        fs::create_dir_all(target_project.join(".memd").join("state")).expect("create target");
+
+        fs::write(
+            current_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "current",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            target_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "target",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "base_url": "http://127.0.0.1:9797",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write target config");
+        fs::write(
+            target_project.join(".memd").join("state").join("heartbeat.json"),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                project: Some("target".to_string()),
+                namespace: None,
+                workspace: Some("research".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:9797".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                focus: Some("Handle the delegated task".to_string()),
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            })
+            .expect("serialize heartbeat"),
+        )
+        .expect("write heartbeat");
+
+        let resolved = resolve_target_session_bundle(&current_project.join(".memd"), "claude-b")
+            .expect("resolve target")
+            .expect("matching session");
+        assert_eq!(resolved.project.as_deref(), Some("target"));
+        assert_eq!(resolved.session.as_deref(), Some("claude-b"));
+        assert_eq!(resolved.bundle_root, target_project.join(".memd").display().to_string());
+
+        fs::remove_dir_all(root).expect("cleanup target-session root");
     }
 
     #[test]
