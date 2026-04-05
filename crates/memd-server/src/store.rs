@@ -6,11 +6,12 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, SourceMemoryRecord,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, WorkspaceMemoryRecord,
-    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::keys::redundancy_key;
@@ -132,6 +133,21 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_memory_agent_profiles_updated_at
               ON memory_agent_profiles(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_messages (
+              id TEXT PRIMARY KEY,
+              to_session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              acknowledged_at TEXT,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_messages_session
+              ON peer_messages(to_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_messages_project_namespace
+              ON peer_messages(project, namespace, created_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -1321,6 +1337,148 @@ impl SqliteStore {
             .query_row("SELECT COUNT(*) FROM memory_items", [], |row| row.get(0))
             .context("count memory items")?;
         Ok(count as usize)
+    }
+
+    pub fn send_peer_message(
+        &self,
+        request: &PeerMessageSendRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let message = PeerMessageRecord {
+            id: Uuid::new_v4().to_string(),
+            kind: request.kind.trim().to_string(),
+            from_session: request.from_session.trim().to_string(),
+            from_agent: request
+                .from_agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            to_session: request.to_session.trim().to_string(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            content: request.content.trim().to_string(),
+            created_at: chrono::Utc::now(),
+            acknowledged_at: None,
+        };
+        let payload_json =
+            serde_json::to_string(&message).context("serialize peer message payload")?;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO peer_messages (
+              id, to_session, project, namespace, workspace, created_at, acknowledged_at, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                &message.id,
+                &message.to_session,
+                &message.project,
+                &message.namespace,
+                &message.workspace,
+                message.created_at.to_rfc3339(),
+                Option::<String>::None,
+                payload_json,
+            ],
+        )
+        .context("insert peer message")?;
+
+        Ok(PeerMessagesResponse {
+            messages: vec![message],
+        })
+    }
+
+    pub fn peer_inbox(
+        &self,
+        request: &PeerMessageInboxRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let include_acknowledged = request.include_acknowledged.unwrap_or(false);
+        let limit = request.limit.unwrap_or(64).clamp(1, 512) as i64;
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_messages
+                WHERE to_session = ?1
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 1 OR acknowledged_at IS NULL)
+                ORDER BY created_at DESC
+                LIMIT ?6
+                "#,
+            )
+            .context("prepare peer inbox query")?;
+
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.trim(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if include_acknowledged { 1 } else { 0 },
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer inbox")?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer inbox row")?;
+            messages.push(
+                serde_json::from_str::<PeerMessageRecord>(&payload)
+                    .context("deserialize peer inbox payload")?,
+            );
+        }
+
+        Ok(PeerMessagesResponse { messages })
+    }
+
+    pub fn ack_peer_message(
+        &self,
+        request: &PeerMessageAckRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let payload = conn
+            .query_row(
+                "SELECT payload_json FROM peer_messages WHERE id = ?1 AND to_session = ?2",
+                params![request.id.trim(), request.session.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .context("fetch peer message for ack")?;
+
+        let Some(payload) = payload else {
+            return Ok(PeerMessagesResponse { messages: Vec::new() });
+        };
+
+        let mut message: PeerMessageRecord =
+            serde_json::from_str(&payload).context("deserialize peer message for ack")?;
+        message.acknowledged_at = Some(chrono::Utc::now());
+        let updated_payload =
+            serde_json::to_string(&message).context("serialize acked peer message")?;
+
+        conn.execute(
+            "UPDATE peer_messages SET acknowledged_at = ?2, payload_json = ?3 WHERE id = ?1",
+            params![
+                &message.id,
+                message
+                    .acknowledged_at
+                    .as_ref()
+                    .map(chrono::DateTime::to_rfc3339),
+                updated_payload,
+            ],
+        )
+        .context("ack peer message")?;
+
+        Ok(PeerMessagesResponse {
+            messages: vec![message],
+        })
     }
 
     pub fn find_duplicate(

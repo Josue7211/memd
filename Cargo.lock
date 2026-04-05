@@ -1002,6 +1002,7 @@ name = "memd-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "clap",
  "memd-core",

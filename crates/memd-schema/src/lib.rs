@@ -490,6 +490,54 @@ pub struct WorkspaceMemoryResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageRecord {
+    pub id: String,
+    pub kind: String,
+    pub from_session: String,
+    pub from_agent: Option<String>,
+    pub to_session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub acknowledged_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageSendRequest {
+    pub kind: String,
+    pub from_session: String,
+    pub from_agent: Option<String>,
+    pub to_session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessageAckRequest {
+    pub id: String,
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerMessageInboxRequest {
+    pub session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub include_acknowledged: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerMessagesResponse {
+    pub messages: Vec<PeerMessageRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,

@@ -29,12 +29,13 @@ use memd_schema::{
     MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
     MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PromoteMemoryRequest,
-    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
-    TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
-    ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest,
+    SourceMemoryResponse, SourceQuality, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -234,6 +235,9 @@ async fn main() {
         .route("/memory/source", get(get_source_memory))
         .route("/memory/workspaces", get(get_workspace_memory))
         .route("/memory/explain", get(get_explain))
+        .route("/coordination/messages/send", post(post_peer_message))
+        .route("/coordination/messages/inbox", get(get_peer_inbox))
+        .route("/coordination/messages/ack", post(post_peer_ack))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
@@ -649,6 +653,64 @@ async fn get_workspace_memory(
     Query(req): Query<WorkspaceMemoryRequest>,
 ) -> Result<Json<WorkspaceMemoryResponse>, (StatusCode, String)> {
     let response = state.store.workspace_memory(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_message(
+    State(state): State<AppState>,
+    Json(req): Json<PeerMessageSendRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.from_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "from_session must not be empty".to_string(),
+        ));
+    }
+    if req.to_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
+    if req.content.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "content must not be empty".to_string(),
+        ));
+    }
+
+    let response = state.store.send_peer_message(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_inbox(
+    State(state): State<AppState>,
+    Query(req): Query<PeerMessageInboxRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.peer_inbox(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_ack(
+    State(state): State<AppState>,
+    Json(req): Json<PeerMessageAckRequest>,
+) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    if req.id.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
+    }
+    let response = state.store.ack_peer_message(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

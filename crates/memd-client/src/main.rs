@@ -29,9 +29,10 @@ use memd_schema::{
     CompactionSession, CompactionSpillOptions, CompactionSpillResult, ContextRequest,
     EntityLinkRequest, EntityLinksRequest, ExpireMemoryRequest, ExplainMemoryRequest,
     EntitySearchRequest, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SourceMemoryRequest,
-    StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    MemoryMaintenanceReportRequest, MemoryScope, MemoryStage, MemoryStatus, PeerMessageAckRequest,
+    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PromoteMemoryRequest,
+    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1416,7 +1417,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Messages(args) => {
-            let response = run_messages_command(&args)?;
+            let response = run_messages_command(&args, &base_url).await?;
             if args.summary {
                 println!("{}", render_messages_summary(&response));
             } else {
@@ -4093,10 +4094,6 @@ fn bundle_claims_state_path(output: &Path) -> PathBuf {
     output.join("state").join("claims.json")
 }
 
-fn bundle_messages_state_path(output: &Path) -> PathBuf {
-    output.join("state").join("messages.json")
-}
-
 fn read_bundle_resume_state(output: &Path) -> anyhow::Result<Option<BundleResumeState>> {
     let path = bundle_resume_state_path(output);
     if !path.exists() {
@@ -4156,27 +4153,6 @@ fn write_bundle_claims(output: &Path, state: &SessionClaimsState) -> anyhow::Res
 fn prune_expired_claims(state: &mut SessionClaimsState) {
     let now = Utc::now();
     state.claims.retain(|claim| claim.expires_at > now);
-}
-
-fn read_bundle_messages(output: &Path) -> anyhow::Result<SessionMessagesState> {
-    let path = bundle_messages_state_path(output);
-    if !path.exists() {
-        return Ok(SessionMessagesState::default());
-    }
-    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let state = serde_json::from_str::<SessionMessagesState>(&raw)
-        .with_context(|| format!("parse {}", path.display()))?;
-    Ok(state)
-}
-
-fn write_bundle_messages(output: &Path, state: &SessionMessagesState) -> anyhow::Result<()> {
-    let path = bundle_messages_state_path(output);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    fs::write(&path, serde_json::to_string_pretty(state)? + "\n")
-        .with_context(|| format!("write {}", path.display()))?;
-    Ok(())
 }
 
 fn detect_host_name() -> Option<String> {
@@ -4410,10 +4386,25 @@ fn render_claims_summary(response: &ClaimsResponse) -> String {
     lines.join("\n")
 }
 
-fn run_messages_command(args: &MessagesArgs) -> anyhow::Result<MessagesResponse> {
+async fn run_messages_command(args: &MessagesArgs, base_url: &str) -> anyhow::Result<MessagesResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
-    let current_session = runtime.as_ref().and_then(|config| config.session.clone());
-    let mut state = read_bundle_messages(&args.output)?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty());
+    let current_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let current_project = runtime.as_ref().and_then(|config| config.project.clone());
+    let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let current_base_url = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.clone())
+        .unwrap_or_else(|| base_url.to_string());
 
     if args.send {
         let target_session = args
@@ -4422,57 +4413,73 @@ fn run_messages_command(args: &MessagesArgs) -> anyhow::Result<MessagesResponse>
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .context("messages --send requires --target-session")?;
+        let from_session = current_session
+            .as_deref()
+            .context("messages --send requires a configured bundle session")?;
         let content = args
             .content
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .context("messages --send requires --content")?;
-        state.messages.push(SessionMessage {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: args
-                .kind
-                .clone()
-                .unwrap_or_else(|| "handoff".to_string()),
-            from_session: current_session.clone(),
-            from_agent: runtime.as_ref().and_then(|config| {
-                config
-                    .agent
-                    .as_deref()
-                    .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
-            }),
-            to_session: target_session.to_string(),
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
-            content: content.to_string(),
-            created_at: Utc::now(),
-            acknowledged_at: None,
-        });
-        write_bundle_messages(&args.output, &state)?;
-    }
-
-    if let Some(ack) = args.ack.as_deref() {
-        for message in &mut state.messages {
-            if message.id == ack && message.to_session == current_session.clone().unwrap_or_default() {
-                message.acknowledged_at = Some(Utc::now());
-            }
-        }
-        write_bundle_messages(&args.output, &state)?;
-    }
-
-    let messages = if args.inbox || !args.send {
-        state.messages
-            .into_iter()
-            .filter(|message| {
-                if let Some(current_session) = current_session.as_deref() {
-                    message.to_session == current_session
-                } else {
-                    true
-                }
+        let target = resolve_target_session_bundle(&args.output, target_session)?
+            .context("target session not found in awareness")?;
+        let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
+        let target_base_url = target_runtime
+            .as_ref()
+            .and_then(|config| config.base_url.clone())
+            .or(target.base_url.clone())
+            .unwrap_or_else(|| current_base_url.clone());
+        let client = MemdClient::new(&target_base_url)?;
+        let response = client
+            .send_peer_message(&PeerMessageSendRequest {
+                kind: args
+                    .kind
+                    .clone()
+                    .unwrap_or_else(|| "handoff".to_string()),
+                from_session: from_session.to_string(),
+                from_agent: current_agent.clone(),
+                to_session: target_session.to_string(),
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                content: content.to_string(),
             })
-            .collect::<Vec<_>>()
+            .await?;
+        return Ok(MessagesResponse {
+            bundle_root: args.output.display().to_string(),
+            current_session,
+            messages: response.messages,
+        });
+    }
+
+    let client = MemdClient::new(&current_base_url)?;
+    let messages = if let Some(ack) = args.ack.as_deref() {
+        let session = current_session
+            .as_deref()
+            .context("messages --ack requires a configured bundle session")?;
+        client
+            .ack_peer_message(&PeerMessageAckRequest {
+                id: ack.trim().to_string(),
+                session: session.to_string(),
+            })
+            .await?
+            .messages
     } else {
-        state.messages
+        let session = current_session
+            .as_deref()
+            .context("messages --inbox requires a configured bundle session")?;
+        client
+            .peer_inbox(&PeerMessageInboxRequest {
+                session: session.to_string(),
+                project: current_project,
+                namespace: current_namespace,
+                workspace: current_workspace,
+                include_acknowledged: Some(false),
+                limit: Some(128),
+            })
+            .await?
+            .messages
     };
 
     Ok(MessagesResponse {
@@ -6703,30 +6710,11 @@ struct ClaimsResponse {
     claims: Vec<SessionClaim>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SessionMessage {
-    id: String,
-    kind: String,
-    from_session: Option<String>,
-    from_agent: Option<String>,
-    to_session: String,
-    project: Option<String>,
-    workspace: Option<String>,
-    content: String,
-    created_at: DateTime<Utc>,
-    acknowledged_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SessionMessagesState {
-    messages: Vec<SessionMessage>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct MessagesResponse {
     bundle_root: String,
     current_session: Option<String>,
-    messages: Vec<SessionMessage>,
+    messages: Vec<PeerMessageRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -6821,6 +6809,108 @@ fn set_executable_if_shell_script(path: &Path, file_name: &str) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    use axum::{
+        Json, Router,
+        extract::{Query, State},
+        routing::{get, post},
+    };
+    use memd_schema::{
+        PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest,
+        PeerMessagesResponse,
+    };
+
+    #[derive(Clone, Default)]
+    struct MockPeerState {
+        messages: Arc<Mutex<Vec<PeerMessageRecord>>>,
+    }
+
+    async fn mock_send_peer_message(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerMessageSendRequest>,
+    ) -> Json<PeerMessagesResponse> {
+        let message = PeerMessageRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: req.kind,
+            from_session: req.from_session,
+            from_agent: req.from_agent,
+            to_session: req.to_session,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            content: req.content,
+            created_at: Utc::now(),
+            acknowledged_at: None,
+        };
+        state.messages.lock().expect("lock messages").push(message.clone());
+        Json(PeerMessagesResponse {
+            messages: vec![message],
+        })
+    }
+
+    async fn mock_peer_inbox(
+        State(state): State<MockPeerState>,
+        Query(req): Query<PeerMessageInboxRequest>,
+    ) -> Json<PeerMessagesResponse> {
+        let messages = state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .iter()
+            .filter(|message| {
+                message.to_session == req.session
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|project| message.project.as_ref() == Some(project))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| message.namespace.as_ref() == Some(namespace))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| message.workspace.as_ref() == Some(workspace))
+                    && (req.include_acknowledged.unwrap_or(false)
+                        || message.acknowledged_at.is_none())
+            })
+            .cloned()
+            .collect();
+        Json(PeerMessagesResponse { messages })
+    }
+
+    async fn mock_peer_ack(
+        State(state): State<MockPeerState>,
+        Json(req): Json<PeerMessageAckRequest>,
+    ) -> Json<PeerMessagesResponse> {
+        let mut messages = state.messages.lock().expect("lock messages");
+        let mut acked = Vec::new();
+        for message in messages.iter_mut() {
+            if message.id == req.id && message.to_session == req.session {
+                message.acknowledged_at = Some(Utc::now());
+                acked.push(message.clone());
+            }
+        }
+        Json(PeerMessagesResponse { messages: acked })
+    }
+
+    async fn spawn_mock_peer_server() -> String {
+        let state = MockPeerState::default();
+        let app = Router::new()
+            .route("/coordination/messages/send", post(mock_send_peer_message))
+            .route("/coordination/messages/inbox", get(mock_peer_inbox))
+            .route("/coordination/messages/ack", post(mock_peer_ack))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock peer server");
+        let addr = listener.local_addr().expect("mock peer server addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve mock peer server");
+        });
+        format!("http://{}", addr)
+    }
 
     #[test]
     fn resolves_nested_bundle_rag_config() {
@@ -7745,27 +7835,55 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup claims dir");
     }
 
-    #[test]
-    fn messages_send_and_ack_for_target_session() {
-        let dir = std::env::temp_dir().join(format!("memd-messages-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).expect("create messages dir");
+    #[tokio::test]
+    async fn messages_send_and_ack_for_target_session() {
+        let root = std::env::temp_dir().join(format!("memd-messages-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        let current_base_url = spawn_mock_peer_server().await;
+        let target_base_url = spawn_mock_peer_server().await;
+
         fs::write(
-            dir.join("config.json"),
-            r#"{
+            current_bundle.join("config.json"),
+            format!(
+                r#"{{
   "project": "demo",
   "agent": "codex",
   "session": "codex-a",
   "workspace": "shared",
-  "base_url": "http://127.0.0.1:8787",
+  "base_url": "{}",
   "route": "auto",
   "intent": "general"
-}
+}}
 "#,
+                current_base_url
+            ),
         )
         .expect("write config");
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "general"
+}}
+"#,
+                target_base_url
+            ),
+        )
+        .expect("write target config");
 
         let sent = run_messages_command(&MessagesArgs {
-            output: dir.clone(),
+            output: current_bundle.clone(),
             send: true,
             inbox: false,
             ack: None,
@@ -7773,28 +7891,14 @@ mod tests {
             kind: Some("handoff".to_string()),
             content: Some("Pick up the parser refactor".to_string()),
             summary: false,
-        })
+        }, &current_base_url)
+        .await
         .expect("send message");
         assert_eq!(sent.messages.len(), 1);
         assert_eq!(sent.messages[0].to_session, "claude-b");
 
-        fs::write(
-            dir.join("config.json"),
-            r#"{
-  "project": "demo",
-  "agent": "claude-code",
-  "session": "claude-b",
-  "workspace": "shared",
-  "base_url": "http://127.0.0.1:9797",
-  "route": "auto",
-  "intent": "general"
-}
-"#,
-        )
-        .expect("rewrite config");
-
         let inbox = run_messages_command(&MessagesArgs {
-            output: dir.clone(),
+            output: target_bundle.clone(),
             send: false,
             inbox: true,
             ack: None,
@@ -7802,13 +7906,14 @@ mod tests {
             kind: None,
             content: None,
             summary: false,
-        })
+        }, &target_base_url)
+        .await
         .expect("read inbox");
         assert_eq!(inbox.messages.len(), 1);
         let message_id = inbox.messages[0].id.clone();
 
         let acked = run_messages_command(&MessagesArgs {
-            output: dir.clone(),
+            output: target_bundle.clone(),
             send: false,
             inbox: true,
             ack: Some(message_id),
@@ -7816,11 +7921,12 @@ mod tests {
             kind: None,
             content: None,
             summary: false,
-        })
+        }, &target_base_url)
+        .await
         .expect("ack message");
         assert!(acked.messages[0].acknowledged_at.is_some());
 
-        fs::remove_dir_all(dir).expect("cleanup messages dir");
+        fs::remove_dir_all(root).expect("cleanup messages dir");
     }
 
     #[test]

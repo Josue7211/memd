@@ -8,7 +8,8 @@ use memd_schema::{
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
     MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, RepairMemoryRequest, RepairMemoryResponse,
+    MemoryPolicyResponse, PeerMessageAckRequest, PeerMessageInboxRequest, PeerMessageSendRequest,
+    PeerMessagesResponse, RepairMemoryRequest, RepairMemoryResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
@@ -195,6 +196,28 @@ impl MemdClient {
         req: &WorkspaceMemoryRequest,
     ) -> anyhow::Result<WorkspaceMemoryResponse> {
         self.get_json_with_query("/memory/workspaces", req).await
+    }
+
+    pub async fn send_peer_message(
+        &self,
+        req: &PeerMessageSendRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.post_json("/coordination/messages/send", req).await
+    }
+
+    pub async fn peer_inbox(
+        &self,
+        req: &PeerMessageInboxRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.get_json_with_query("/coordination/messages/inbox", req)
+            .await
+    }
+
+    pub async fn ack_peer_message(
+        &self,
+        req: &PeerMessageAckRequest,
+    ) -> anyhow::Result<PeerMessagesResponse> {
+        self.post_json("/coordination/messages/ack", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>
