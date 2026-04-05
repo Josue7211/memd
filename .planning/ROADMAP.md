@@ -548,11 +548,24 @@ Success:
 - preserve compatibility with the current CLI and MCP coordination categories
 - make active pressure easier to notice before operators have to manually poll for it
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - operators can keep coordination pressure visible as it changes instead of repeatedly rerunning the same static summary
+
+#### Phase 43: `v5` Coordination Subscription and Hook Surfaces
+
+- expose compact coordination change feeds that other surfaces can reuse
+- keep the first slice hook-friendly and bounded instead of inventing a heavyweight event system
+- preserve compatibility with the current dashboard, drilldown, and watch categories
+- reduce bespoke polling logic across CLI, MCP, and future UI surfaces
+
+Status: Planned
+
+Success:
+
+- coordination pressure can feed other agent and operator surfaces through one stable change surface instead of one-off watchers
 
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*

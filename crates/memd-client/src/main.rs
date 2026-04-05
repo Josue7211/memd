@@ -1075,6 +1075,12 @@ struct CoordinationArgs {
     view: Option<String>,
 
     #[arg(long)]
+    watch: bool,
+
+    #[arg(long, default_value_t = 30)]
+    interval_secs: u64,
+
+    #[arg(long)]
     recover_session: Option<String>,
 
     #[arg(long)]
@@ -1516,14 +1522,47 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Coordination(args) => {
-            let response = run_coordination_command(&args, &base_url).await?;
-            if args.summary {
-                println!(
-                    "{}",
-                    render_coordination_summary(&response, args.view.as_deref())
-                );
+            if args.watch {
+                let interval = Duration::from_secs(args.interval_secs.max(1));
+                let mut previous: Option<CoordinationResponse> = None;
+                loop {
+                    let response = run_coordination_command(&args, &base_url).await?;
+                    if args.summary {
+                        let alerts = render_coordination_alerts(
+                            previous.as_ref(),
+                            &response,
+                            args.view.as_deref(),
+                        );
+                        if previous.is_none() || !alerts.is_empty() {
+                            println!(
+                                "[{}]",
+                                Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+                            );
+                            for line in alerts {
+                                println!("{line}");
+                            }
+                            println!(
+                                "{}",
+                                render_coordination_summary(&response, args.view.as_deref())
+                            );
+                            println!();
+                        }
+                    } else {
+                        print_json(&response)?;
+                    }
+                    previous = Some(response);
+                    tokio::time::sleep(interval).await;
+                }
             } else {
-                print_json(&response)?;
+                let response = run_coordination_command(&args, &base_url).await?;
+                if args.summary {
+                    println!(
+                        "{}",
+                        render_coordination_summary(&response, args.view.as_deref())
+                    );
+                } else {
+                    print_json(&response)?;
+                }
             }
         }
         Commands::Bundle(args) => {
@@ -5675,6 +5714,83 @@ fn append_coordination_sections(lines: &mut Vec<String>, response: &Coordination
             ));
         }
     }
+}
+
+fn render_coordination_alerts(
+    previous: Option<&CoordinationResponse>,
+    current: &CoordinationResponse,
+    view: Option<&str>,
+) -> Vec<String> {
+    let Some(previous) = previous else {
+        return vec!["alert initial coordination snapshot".to_string()];
+    };
+
+    let view = view.unwrap_or("all");
+    let show_all = matches!(view, "all" | "overview");
+    let mut alerts = Vec::new();
+
+    if show_all || view == "inbox" {
+        let prev_messages = previous.inbox.messages.len();
+        let curr_messages = current.inbox.messages.len();
+        let prev_owned = previous.inbox.owned_tasks.len();
+        let curr_owned = current.inbox.owned_tasks.len();
+        if prev_messages != curr_messages || prev_owned != curr_owned {
+            alerts.push(format!(
+                "alert inbox messages {}->{} owned {}->{}",
+                prev_messages, curr_messages, prev_owned, curr_owned
+            ));
+        }
+    }
+    if show_all || view == "requests" {
+        let prev_help = previous.inbox.help_tasks.len();
+        let curr_help = current.inbox.help_tasks.len();
+        let prev_review = previous.inbox.review_tasks.len();
+        let curr_review = current.inbox.review_tasks.len();
+        if prev_help != curr_help || prev_review != curr_review {
+            alerts.push(format!(
+                "alert requests help {}->{} review {}->{}",
+                prev_help, curr_help, prev_review, curr_review
+            ));
+        }
+    }
+    if show_all || view == "recovery" {
+        let prev_stale = previous.recovery.stale_peers.len();
+        let curr_stale = current.recovery.stale_peers.len();
+        let prev_claims = previous.recovery.reclaimable_claims.len();
+        let curr_claims = current.recovery.reclaimable_claims.len();
+        let prev_tasks = previous.recovery.stalled_tasks.len();
+        let curr_tasks = current.recovery.stalled_tasks.len();
+        if prev_stale != curr_stale || prev_claims != curr_claims || prev_tasks != curr_tasks {
+            alerts.push(format!(
+                "alert recovery stale {}->{} reclaimable {}->{} stalled {}->{}",
+                prev_stale, curr_stale, prev_claims, curr_claims, prev_tasks, curr_tasks
+            ));
+        }
+    }
+    if show_all || view == "policy" {
+        let prev_conflicts = previous.policy_conflicts.len();
+        let curr_conflicts = current.policy_conflicts.len();
+        let prev_recs = previous.boundary_recommendations.len();
+        let curr_recs = current.boundary_recommendations.len();
+        if prev_conflicts != curr_conflicts || prev_recs != curr_recs {
+            alerts.push(format!(
+                "alert policy conflicts {}->{} recommendations {}->{}",
+                prev_conflicts, curr_conflicts, prev_recs, curr_recs
+            ));
+        }
+    }
+    if show_all || view == "history" {
+        let prev_receipts = previous.receipts.first().map(|receipt| receipt.id.as_str());
+        let curr_receipts = current.receipts.first().map(|receipt| receipt.id.as_str());
+        if prev_receipts != curr_receipts {
+            alerts.push(format!(
+                "alert history latest_receipt={}",
+                curr_receipts.unwrap_or("none")
+            ));
+        }
+    }
+
+    alerts
 }
 
 fn suggest_boundary_recommendations(
