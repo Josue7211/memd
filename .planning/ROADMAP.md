@@ -230,5 +230,17 @@ Success:
 
 - bundle evaluation can distinguish stable memory health from regression or improvement
 
+#### Phase 17: `v4` Evaluation Failure Gates
+
+- make bundle evaluation usable in automation instead of only operator review
+- add explicit score-threshold and regression-failure gates to the CLI
+- keep the first gate slice local, deterministic, and easy to wire into hooks, cron, or CI
+
+Status: Complete
+
+Success:
+
+- `memd eval` can fail fast when memory quality drops below a required floor or regresses from baseline
+
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

@@ -925,6 +925,12 @@ struct EvalArgs {
     write: bool,
 
     #[arg(long)]
+    fail_below: Option<u8>,
+
+    #[arg(long)]
+    fail_on_regression: bool,
+
+    #[arg(long)]
     summary: bool,
 }
 
@@ -1225,6 +1231,9 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", render_eval_summary(&response));
             } else {
                 print_json(&response)?;
+            }
+            if let Some(reason) = eval_failure_reason(&response, args.fail_below, args.fail_on_regression) {
+                anyhow::bail!(reason);
             }
         }
         Commands::Agent(args) => {
@@ -4527,6 +4536,35 @@ fn describe_eval_changes(
     changes
 }
 
+fn eval_failure_reason(
+    response: &BundleEvalResponse,
+    fail_below: Option<u8>,
+    fail_on_regression: bool,
+) -> Option<String> {
+    if let Some(threshold) = fail_below {
+        if response.score < threshold {
+            return Some(format!(
+                "bundle evaluation score {} fell below required threshold {}",
+                response.score, threshold
+            ));
+        }
+    }
+
+    if fail_on_regression && response.score_delta.is_some_and(|delta| delta < 0) {
+        let baseline = response
+            .baseline_score
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let delta = response.score_delta.unwrap_or_default();
+        return Some(format!(
+            "bundle evaluation regressed from baseline {} to {} (delta {})",
+            baseline, response.score, delta
+        ));
+    }
+
+    None
+}
+
 async fn remember_with_bundle_defaults(
     args: &RememberArgs,
     base_url: &str,
@@ -5390,5 +5428,88 @@ mod tests {
         assert!(changes.iter().any(|value| value.contains("inbox 3 -> 0")));
         assert!(changes.iter().any(|value| value.contains("lanes 1 -> 2")));
         assert!(changes.iter().any(|value| value.contains("semantic 0 -> 1")));
+    }
+
+    #[test]
+    fn eval_failure_reason_respects_score_threshold() {
+        let response = BundleEvalResponse {
+            bundle_root: ".memd".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            status: "weak".to_string(),
+            score: 62,
+            working_records: 0,
+            context_records: 0,
+            rehydration_items: 0,
+            inbox_items: 0,
+            workspace_lanes: 0,
+            semantic_hits: 0,
+            findings: vec!["no working memory".to_string()],
+            baseline_score: Some(70),
+            score_delta: Some(-8),
+            changes: vec!["score 70 -> 62".to_string()],
+        };
+
+        let reason = eval_failure_reason(&response, Some(70), false).expect("threshold failure");
+        assert!(reason.contains("score 62"));
+        assert!(reason.contains("threshold 70"));
+    }
+
+    #[test]
+    fn eval_failure_reason_respects_regression_gate() {
+        let response = BundleEvalResponse {
+            bundle_root: ".memd".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            status: "usable".to_string(),
+            score: 79,
+            working_records: 3,
+            context_records: 2,
+            rehydration_items: 2,
+            inbox_items: 1,
+            workspace_lanes: 1,
+            semantic_hits: 2,
+            findings: Vec::new(),
+            baseline_score: Some(83),
+            score_delta: Some(-4),
+            changes: vec!["score 83 -> 79".to_string()],
+        };
+
+        let reason = eval_failure_reason(&response, None, true).expect("regression failure");
+        assert!(reason.contains("baseline 83"));
+        assert!(reason.contains("to 79"));
+        assert!(reason.contains("delta -4"));
+    }
+
+    #[test]
+    fn eval_failure_reason_passes_when_gates_are_clear() {
+        let response = BundleEvalResponse {
+            bundle_root: ".memd".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            status: "strong".to_string(),
+            score: 91,
+            working_records: 4,
+            context_records: 3,
+            rehydration_items: 2,
+            inbox_items: 0,
+            workspace_lanes: 2,
+            semantic_hits: 3,
+            findings: Vec::new(),
+            baseline_score: Some(89),
+            score_delta: Some(2),
+            changes: vec!["score 89 -> 91".to_string()],
+        };
+
+        assert!(eval_failure_reason(&response, Some(80), true).is_none());
     }
 }

@@ -5,7 +5,7 @@
 See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 **Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation regression diffs.
+**Current focus:** Queue the next `v4` self-optimizing memory slice after evaluation failure gates.
 
 ## Current Status
 
@@ -27,6 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 - the first `v4` memory evaluation harness is in place for bundle-backed resume quality
 - bundle evaluation snapshots can now be written for future comparison
 - bundle evaluation now compares against the latest baseline and reports drift
+- bundle evaluation can now fail on score thresholds or regressions for automation use
 
 ## Open Loops
 
@@ -34,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-04)
 
 ## Next Command
 
-Queue the next `v4` self-optimizing memory phase, then continue execution.
+Queue the next `v4` self-optimizing memory phase after evaluation gates, then continue execution.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

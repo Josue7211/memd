@@ -207,6 +207,13 @@ Persist the evaluation as bundle artifacts for later comparison:
 cargo run -p memd-client --bin memd -- eval --output .memd --write --summary
 ```
 
+Fail fast when memory quality drops below an automation gate:
+
+```bash
+cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-below 80
+cargo run -p memd-client --bin memd -- eval --output .memd --summary --fail-on-regression
+```
+
 That writes:
 
 - `.memd/evals/latest.json`
