@@ -1761,7 +1761,7 @@ async fn main() -> anyhow::Result<()> {
                     .map(|item| compact_inline(&item.item.content, 72))
                     .unwrap_or_else(|| "none".to_string());
                 println!(
-                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
+                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
                     snapshot.project.as_deref().unwrap_or("none"),
                     snapshot.namespace.as_deref().unwrap_or("none"),
                     snapshot.agent.as_deref().unwrap_or("none"),
@@ -1774,6 +1774,7 @@ async fn main() -> anyhow::Result<()> {
                     snapshot.change_summary.len(),
                     snapshot.estimated_prompt_tokens(),
                     snapshot.context_pressure(),
+                    snapshot.redundant_context_items(),
                     snapshot.refresh_recommended,
                     focus,
                     pressure,
@@ -8756,7 +8757,8 @@ async fn read_bundle_resume(args: &ResumeArgs, base_url: &str) -> anyhow::Result
         || working.remaining_chars <= 200
         || working.records.len() >= 8
         || inbox.items.len() >= 5
-        || working.rehydration_queue.len() >= 4;
+        || working.rehydration_queue.len() >= 4
+        || context.records.len() >= 6;
 
     Ok(ResumeSnapshot {
         project,
@@ -9941,6 +9943,77 @@ struct ResumeSnapshot {
 }
 
 impl ResumeSnapshot {
+    fn normalized_memory_text(value: &str) -> String {
+        value
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    }
+
+    fn redundant_context_items(&self) -> usize {
+        let mut seen = std::collections::HashSet::<String>::new();
+        let mut duplicates = 0usize;
+
+        for value in self
+            .context
+            .records
+            .iter()
+            .map(|record| record.record.as_str())
+        {
+            let normalized = Self::normalized_memory_text(value);
+            if !normalized.is_empty() && !seen.insert(normalized) {
+                duplicates += 1;
+            }
+        }
+        for value in self
+            .working
+            .records
+            .iter()
+            .map(|record| record.record.as_str())
+        {
+            let normalized = Self::normalized_memory_text(value);
+            if !normalized.is_empty() && !seen.insert(normalized) {
+                duplicates += 1;
+            }
+        }
+        for value in self
+            .working
+            .rehydration_queue
+            .iter()
+            .map(|item| item.summary.as_str())
+        {
+            let normalized = Self::normalized_memory_text(value);
+            if !normalized.is_empty() && !seen.insert(normalized) {
+                duplicates += 1;
+            }
+        }
+        for value in self
+            .inbox
+            .items
+            .iter()
+            .map(|item| item.item.content.as_str())
+        {
+            let normalized = Self::normalized_memory_text(value);
+            if !normalized.is_empty() && !seen.insert(normalized) {
+                duplicates += 1;
+            }
+        }
+        for value in self
+            .semantic
+            .iter()
+            .flat_map(|semantic| semantic.items.iter())
+            .map(|item| item.content.as_str())
+        {
+            let normalized = Self::normalized_memory_text(value);
+            if !normalized.is_empty() && !seen.insert(normalized) {
+                duplicates += 1;
+            }
+        }
+
+        duplicates
+    }
+
     fn estimated_prompt_chars(&self) -> usize {
         let header_chars = self.project.as_deref().map_or(0, str::len)
             + self.namespace.as_deref().map_or(0, str::len)
@@ -10014,6 +10087,7 @@ impl ResumeSnapshot {
         if self.working.truncated
             || tokens >= 1_800
             || self.inbox.items.len() >= 5
+            || self.redundant_context_items() >= 3
             || self
                 .semantic
                 .as_ref()
@@ -10024,6 +10098,7 @@ impl ResumeSnapshot {
             || self.working.remaining_chars <= 200
             || self.inbox.items.len() >= 3
             || self.working.rehydration_queue.len() >= 4
+            || self.redundant_context_items() >= 1
         {
             "medium"
         } else {
@@ -10041,6 +10116,13 @@ impl ResumeSnapshot {
         }
         if self.inbox.items.len() >= 3 {
             hints.push("triage inbox pressure before pulling in more context".to_string());
+        }
+        let redundant = self.redundant_context_items();
+        if redundant > 0 {
+            hints.push(format!(
+                "collapse {} repeated context item(s) before continuing the session",
+                redundant
+            ));
         }
         if self
             .semantic
@@ -11181,6 +11263,7 @@ mod tests {
         let prompt = crate::render::render_resume_prompt(&snapshot);
         assert!(prompt.contains("## Context Budget"));
         assert!(prompt.contains("estimated_tokens"));
+        assert!(prompt.contains("redundant_items: 0"));
         assert!(prompt.contains("pressure: low"));
         assert!(prompt.contains("## Current Task Snapshot"));
         assert!(prompt.contains("## Since Last Resume"));
@@ -11188,6 +11271,110 @@ mod tests {
         assert!(prompt.contains("One review item is still open"));
         assert!(prompt.contains("Reload the shared workspace handoff"));
         assert!(prompt.contains("team-alpha"));
+    }
+
+    #[test]
+    fn resume_snapshot_detects_redundant_context_items() {
+        let base = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "Repeat this exact idea".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "Repeat this exact idea".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "dup".to_string(),
+                    summary: "Repeat this exact idea".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "Repeat this exact idea".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.9,
+                        ttl_seconds: None,
+                        created_at: chrono::Utc::now(),
+                        updated_at: chrono::Utc::now(),
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        tags: Vec::new(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                    },
+                    reasons: vec!["same".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            semantic: None,
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+
+        assert!(base.redundant_context_items() >= 3);
+        assert_eq!(base.context_pressure(), "high");
+        assert!(
+            base.optimization_hints()
+                .iter()
+                .any(|hint| hint.contains("collapse 3 repeated context item"))
+        );
     }
 
     #[test]

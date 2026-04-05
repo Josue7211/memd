@@ -544,10 +544,11 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     ));
     output.push_str("\n## Context Budget\n\n");
     output.push_str(&format!(
-        "- estimated_chars: {}\n- estimated_tokens: {}\n- pressure: {}\n- working_budget_used: {}/{}\n",
+        "- estimated_chars: {}\n- estimated_tokens: {}\n- pressure: {}\n- redundant_items: {}\n- working_budget_used: {}/{}\n",
         snapshot.estimated_prompt_chars(),
         snapshot.estimated_prompt_tokens(),
         snapshot.context_pressure(),
+        snapshot.redundant_context_items(),
         snapshot.working.used_chars,
         snapshot.working.budget_chars,
     ));
