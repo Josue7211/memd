@@ -4,6 +4,11 @@
 
 It gives AI systems one place to store, route, compact, explain, and verify memory without turning every session into a transcript dump.
 
+The direction is not just “store more memory.” `memd` is also being shaped to
+support measured self-improvement: detect quality gaps, replay real memory and
+coordination scenarios, run bounded experiments, and keep only changes that win
+against explicit gates.
+
 If you are using Codex or another agent day to day, `memd` should be the
 default memory substrate: retrieve working state from `memd`, inspect evidence
 with `memd explain`, and write compiled knowledge back into the workspace when

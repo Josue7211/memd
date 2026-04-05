@@ -606,5 +606,59 @@ Success:
 
 - richer operator surfaces can move from bounded coordination pressure to the right bounded action faster without losing operator control
 
+### Milestone 6: Start `v6`
+
+#### Phase 47: `v6` Gap-Finding Research Loop Foundations
+
+- add a research loop that can inspect the repo, planning artifacts, eval outputs, and recent work to detect the highest-value memory and coordination gaps
+- keep the first slice focused on finding and prioritizing gaps, not auto-editing code yet
+- preserve explicit bounded research outputs instead of freeform narrative reports
+- make the loop aware of real `memd` product goals such as hot-path memory quality, epistemic retrieval, and coworking safety
+
+Status: Planned
+
+Success:
+
+- `memd` can identify its own highest-value quality gaps from live project evidence instead of relying only on manual triage
+
+#### Phase 48: `v6` Scenario Harness for Memory and Coordination
+
+- add stable scenario benches for resume, handoff, workspace retrieval, stale-session recovery, and coworking flows
+- keep the first slice built around real product workflows instead of synthetic toy prompts
+- preserve reproducibility so experiments can compare baseline against candidate behavior
+- make scenario outputs compact enough to feed nightly research loops
+
+Status: Planned
+
+Success:
+
+- self-improvement has stable, replayable targets that reflect real `memd` workflows
+
+#### Phase 49: `v6` Composite Scoring and Acceptance Gates
+
+- combine hard correctness checks with scenario scores for memory quality, coordination quality, latency, and bloat
+- keep the first slice conservative so regressions fail fast
+- preserve explicit weighting instead of hidden judgment
+- make acceptance criteria clear enough for automated experiment loops
+
+Status: Planned
+
+Success:
+
+- `memd` can judge whether an experiment actually improved the product instead of only compiling and passing tests
+
+#### Phase 50: `v6` Bounded Experiment Runner and Learning Consolidation
+
+- add a bounded experiment runner that works on temporary branches or reversible patches
+- accept only experiments that clear the composite gates and discard regressions automatically
+- log accepted and rejected experiments in a compact research trail
+- consolidate accepted learnings into durable project memory and autodream inputs
+
+Status: Planned
+
+Success:
+
+- `memd` can improve itself through measured overnight loops without unsafe drift or silent truth changes
+
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*

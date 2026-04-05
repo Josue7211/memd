@@ -369,7 +369,53 @@ Success:
 - cognition can select, compose, and learn skills as part of normal reasoning
 - the system becomes less confidently wrong, not just less forgetful
 
-### v6: OSS-Ready Project Infrastructure
+### v6: Measured Self-Improvement
+
+Goal:
+
+- let `memd` improve itself through bounded experiments that are scored,
+  reversible, and evidence-backed
+
+Deliver:
+
+- scenario harnesses for real memory workflows:
+  - resume after pause
+  - cross-agent handoff
+  - shared-project coworking
+  - stale-session recovery
+  - verified evidence outranking synthetic continuity
+- a composite scorer that combines:
+  - hard correctness gates
+  - short-term memory quality
+  - coordination quality
+  - operator friction
+  - latency and bloat
+- an experiment runner that:
+  - works on temp branches
+  - measures baseline vs candidate
+  - accepts only winning changes
+  - discards regressions automatically
+- tiered experiment safety:
+  - safe auto-accept changes
+  - eval-gated behavioral changes
+  - human-review-only trust/provenance changes
+- accepted-learning consolidation into durable project memory and autodream inputs
+
+Success:
+
+- `memd` learns by winning measured experiments, not by silently changing truth
+- repeated quality improvements become cheaper and more reliable over time
+- the system can improve hot-path memory and coordination behavior overnight without unsafe drift
+
+Core loop:
+
+- discover the highest-value gap from repo state, planning artifacts, eval outputs, and recent work
+- replay stable memory and coordination scenarios
+- score baseline vs candidate on correctness, quality, latency, and bloat
+- accept only bounded winning changes
+- consolidate accepted learnings back into durable project memory
+
+### v7: OSS-Ready Project Infrastructure
 
 Goal:
 
@@ -399,6 +445,7 @@ Success:
 4. Tighten native multi-agent bridges so switching clients feels like changing terminals, not losing the brain.
 5. Expand inspectability from bundle files into richer workspace and UI surfaces.
 6. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
+7. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
 
 ## Non-Goals
 

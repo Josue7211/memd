@@ -24,6 +24,7 @@ real memory:
 - short-term-first memory
 - native multi-agent interoperability
 - inspectable memory
+- measured self-improvement
 
 ## Requirements
 
@@ -84,6 +85,11 @@ real memory:
 - [x] Add UI-friendly coordination feed surfaces so richer operator tools can consume the same bounded change model without custom reshaping.
 - [x] Add coordination action surfaces so richer operator tools can act on bounded coordination signals through the same model.
 - [ ] Add policy-aware coordination action suggestions so richer operator tools can see the best bounded next move under current pressure.
+- [ ] Add a measured research loop that can detect memory and coordination gaps on its own.
+- [ ] Add scenario harnesses for real memory workflows so self-improvement has stable targets.
+- [ ] Add a composite scorer for correctness, memory quality, coordination quality, latency, and bloat.
+- [ ] Add a bounded experiment runner that accepts only winning changes and discards regressions.
+- [ ] Consolidate accepted experiment learnings into durable memory and autodream inputs.
 - [ ] Keep short-term memory sharp without transcript bloat or stale carryover.
 - [ ] Expand epistemic retrieval beyond verified vs synthetic toward explicit inferred, claimed, stale, and contested routing behavior.
 - [ ] Make multi-agent switching feel like changing terminals, not losing the brain.
@@ -149,6 +155,7 @@ The product direction is now explicit:
 - dream and autodream should consolidate signal instead of creating bloat
 - native agent memory surfaces should bridge cleanly into `memd` without ownership collisions
 - the eventual UX should make memory inspectable enough to trust
+- autoresearch should find quality gaps, run bounded experiments, and only keep measured wins
 
 ## Constraints
 
