@@ -261,6 +261,18 @@ Rules:
 - preserves trust score, confidence, and status mix for each lane
 - intended for provenance drilldown, repair triage, and shared-workspace inspection
 
+### `GET /memory/workspaces`
+
+Returns aggregated workspace lanes for matching memory items.
+
+Rules:
+
+- supports optional project, namespace, workspace, visibility, source-agent, and source-system filters
+- groups by project, namespace, workspace, and visibility
+- reports how many distinct source lanes are contributing to each shared lane
+- preserves trust, confidence, and contested-state visibility for handoff inspection
+- intended for operator-facing shared-memory status, not raw recall ranking
+
 ## Runtime
 
 - default bind: `127.0.0.1:8787`

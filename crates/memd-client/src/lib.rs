@@ -12,7 +12,8 @@ use memd_schema::{
     PromoteMemoryRequest, PromoteMemoryResponse, SearchMemoryRequest, SearchMemoryResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -187,6 +188,13 @@ impl MemdClient {
         req: &SourceMemoryRequest,
     ) -> anyhow::Result<SourceMemoryResponse> {
         self.get_json_with_query("/memory/source", req).await
+    }
+
+    pub async fn workspace_memory(
+        &self,
+        req: &WorkspaceMemoryRequest,
+    ) -> anyhow::Result<WorkspaceMemoryResponse> {
+        self.get_json_with_query("/memory/workspaces", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

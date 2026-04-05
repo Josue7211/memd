@@ -7,7 +7,8 @@ use memd_schema::{
     EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
     MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
     MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, SourceMemoryRecord,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, WorkspaceMemoryRecord,
+    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, params};
 use uuid::Uuid;
@@ -953,6 +954,107 @@ impl SqliteStore {
         Ok(SourceMemoryResponse { sources })
     }
 
+    pub fn workspace_memory(
+        &self,
+        request: &WorkspaceMemoryRequest,
+    ) -> anyhow::Result<WorkspaceMemoryResponse> {
+        let mut grouped: std::collections::BTreeMap<WorkspaceKey, WorkspaceAggregate> =
+            std::collections::BTreeMap::new();
+
+        for item in self.list()? {
+            if request
+                .project
+                .as_ref()
+                .is_some_and(|value| item.project.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .namespace
+                .as_ref()
+                .is_some_and(|value| item.namespace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .workspace
+                .as_ref()
+                .is_some_and(|value| item.workspace.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .visibility
+                .is_some_and(|value| item.visibility != value)
+            {
+                continue;
+            }
+            if request
+                .source_agent
+                .as_ref()
+                .is_some_and(|value| item.source_agent.as_ref() != Some(value))
+            {
+                continue;
+            }
+            if request
+                .source_system
+                .as_ref()
+                .is_some_and(|value| item.source_system.as_ref() != Some(value))
+            {
+                continue;
+            }
+
+            let key = (
+                item.project.clone(),
+                item.namespace.clone(),
+                item.workspace.clone(),
+                item.visibility,
+            );
+            let aggregate = grouped.entry(key).or_default();
+            aggregate.observe(&item);
+        }
+
+        let mut workspaces = grouped
+            .into_iter()
+            .map(
+                |((project, namespace, workspace, visibility), aggregate)| WorkspaceMemoryRecord {
+                    project,
+                    namespace,
+                    workspace,
+                    visibility,
+                    item_count: aggregate.source.item_count,
+                    active_count: aggregate.source.active_count,
+                    candidate_count: aggregate.source.candidate_count,
+                    contested_count: aggregate.source.contested_count,
+                    source_lane_count: aggregate.source_lanes.len(),
+                    avg_confidence: aggregate.source.avg_confidence(),
+                    trust_score: source_trust_score(
+                        aggregate.source.item_count,
+                        aggregate.source.active_count,
+                        aggregate.source.candidate_count,
+                        aggregate.source.derived_count,
+                        aggregate.source.synthetic_count,
+                        aggregate.source.contested_count,
+                        aggregate.source.avg_confidence(),
+                    ),
+                    last_seen_at: aggregate.source.last_seen_at,
+                    tags: aggregate.source.tags(6),
+                },
+            )
+            .collect::<Vec<_>>();
+
+        workspaces.sort_by(|a, b| {
+            b.trust_score
+                .total_cmp(&a.trust_score)
+                .then_with(|| b.item_count.cmp(&a.item_count))
+                .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+                .then_with(|| a.workspace.cmp(&b.workspace))
+        });
+        let limit = request.limit.unwrap_or(20).min(100);
+        workspaces.truncate(limit);
+        Ok(WorkspaceMemoryResponse { workspaces })
+    }
+
     pub fn trust_score_for_item(&self, item: &MemoryItem) -> anyhow::Result<f32> {
         let response = self.source_memory(&SourceMemoryRequest {
             project: item.project.clone(),
@@ -1504,6 +1606,13 @@ type SourceKey = (
     memd_schema::MemoryVisibility,
 );
 
+type WorkspaceKey = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    memd_schema::MemoryVisibility,
+);
+
 #[derive(Default)]
 struct SourceAggregate {
     item_count: usize,
@@ -1560,6 +1669,20 @@ impl SourceAggregate {
             .collect::<Vec<_>>();
         tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         tags.into_iter().take(limit).map(|(tag, _)| tag).collect()
+    }
+}
+
+#[derive(Default)]
+struct WorkspaceAggregate {
+    source: SourceAggregate,
+    source_lanes: std::collections::BTreeSet<(Option<String>, Option<String>)>,
+}
+
+impl WorkspaceAggregate {
+    fn observe(&mut self, item: &MemoryItem) {
+        self.source.observe(item);
+        self.source_lanes
+            .insert((item.source_agent.clone(), item.source_system.clone()));
     }
 }
 

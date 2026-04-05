@@ -455,6 +455,39 @@ pub struct SourceMemoryResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<MemoryVisibility>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryRecord {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: MemoryVisibility,
+    pub item_count: usize,
+    pub active_count: usize,
+    pub candidate_count: usize,
+    pub contested_count: usize,
+    pub source_lane_count: usize,
+    pub avg_confidence: f32,
+    pub trust_score: f32,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMemoryResponse {
+    pub workspaces: Vec<WorkspaceMemoryRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,
@@ -1586,6 +1619,46 @@ mod tests {
         let decoded_response: SourceMemoryResponse = serde_json::from_str(&response_json).unwrap();
         assert_eq!(decoded_request.source_agent, request.source_agent);
         assert_eq!(decoded_response.sources[0].trust_score, 0.91);
+    }
+
+    #[test]
+    fn workspace_memory_roundtrips() {
+        let request = WorkspaceMemoryRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            source_agent: Some("obsidian".to_string()),
+            source_system: Some("obsidian".to_string()),
+            limit: Some(8),
+        };
+        let response = WorkspaceMemoryResponse {
+            workspaces: vec![WorkspaceMemoryRecord {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 12,
+                active_count: 10,
+                candidate_count: 1,
+                contested_count: 1,
+                source_lane_count: 2,
+                avg_confidence: 0.86,
+                trust_score: 0.9,
+                last_seen_at: Some(Utc::now()),
+                tags: vec!["obsidian".to_string(), "shared".to_string()],
+            }],
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: WorkspaceMemoryRequest =
+            serde_json::from_str(&request_json).unwrap();
+        let decoded_response: WorkspaceMemoryResponse =
+            serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.workspace, request.workspace);
+        assert_eq!(decoded_response.workspaces.len(), 1);
+        assert_eq!(decoded_response.workspaces[0].source_lane_count, 2);
     }
 
     #[test]

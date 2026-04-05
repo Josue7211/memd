@@ -42,8 +42,8 @@ use render::{
     render_consolidate_summary, render_entity_search_summary, render_entity_summary,
     render_explain_summary, render_maintenance_report_summary, render_obsidian_import_summary,
     render_obsidian_scan_summary, render_profile_summary, render_recall_summary,
-    render_repair_summary, render_source_summary, render_timeline_summary, render_working_summary,
-    short_uuid,
+    render_repair_summary, render_source_summary, render_timeline_summary,
+    render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 
@@ -77,6 +77,7 @@ enum Commands {
     Working(WorkingArgs),
     Profile(ProfileArgs),
     Source(SourceArgs),
+    Workspaces(SourceArgs),
     Inbox(InboxArgs),
     Explain(ExplainArgs),
     Entity(EntityArgs),
@@ -1306,6 +1307,28 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             if args.summary {
                 println!("{}", render_source_summary(&response, args.follow));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Workspaces(args) => {
+            let response = client
+                .workspace_memory(&memd_schema::WorkspaceMemoryRequest {
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
+                    source_agent: args.source_agent.clone(),
+                    source_system: args.source_system.clone(),
+                    limit: args.limit,
+                })
+                .await?;
+            if args.summary {
+                println!("{}", render_workspace_summary(&response, args.follow));
             } else {
                 print_json(&response)?;
             }

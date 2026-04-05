@@ -1,7 +1,7 @@
 use memd_schema::{
     AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, ExplainMemoryResponse,
     RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SourceMemoryResponse,
-    WorkingMemoryResponse,
+    WorkingMemoryResponse, WorkspaceMemoryResponse,
 };
 
 use crate::obsidian::ObsidianVaultScan;
@@ -464,6 +464,54 @@ pub(crate) fn render_source_summary(response: &SourceMemoryResponse, follow: boo
             output.push_str(&format!(" trail={}", trail.join(" | ")));
         }
         if let Some(best) = response.sources.first()
+            && !best.tags.is_empty()
+        {
+            output.push_str(&format!(" tags={}", best.tags.join("|")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_workspace_summary(
+    response: &WorkspaceMemoryResponse,
+    follow: bool,
+) -> String {
+    let mut output = format!("workspace_memory workspaces={}", response.workspaces.len());
+
+    if let Some(best) = response.workspaces.first() {
+        output.push_str(&format!(
+            " top={} visibility={} project={} namespace={} items={} sources={} trust={:.2} avg_confidence={:.2}",
+            best.workspace.as_deref().unwrap_or("none"),
+            format_visibility(best.visibility),
+            best.project.as_deref().unwrap_or("none"),
+            best.namespace.as_deref().unwrap_or("none"),
+            best.item_count,
+            best.source_lane_count,
+            best.trust_score,
+            best.avg_confidence
+        ));
+    }
+
+    if follow {
+        let trail = response
+            .workspaces
+            .iter()
+            .take(3)
+            .map(|workspace| {
+                format!(
+                    "{}:{}:{}:{:.2}",
+                    workspace.workspace.as_deref().unwrap_or("none"),
+                    format_visibility(workspace.visibility),
+                    workspace.item_count,
+                    workspace.trust_score
+                )
+            })
+            .collect::<Vec<_>>();
+        if !trail.is_empty() {
+            output.push_str(&format!(" trail={}", trail.join(" | ")));
+        }
+        if let Some(best) = response.workspaces.first()
             && !best.tags.is_empty()
         {
             output.push_str(&format!(" tags={}", best.tags.join("|")));

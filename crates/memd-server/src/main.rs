@@ -34,7 +34,7 @@ use memd_schema::{
     SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
     TimelineMemoryResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
     ExplainMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -232,6 +232,7 @@ async fn main() {
             get(get_agent_profile).post(post_agent_profile),
         )
         .route("/memory/source", get(get_source_memory))
+        .route("/memory/workspaces", get(get_workspace_memory))
         .route("/memory/explain", get(get_explain))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
@@ -640,6 +641,14 @@ async fn get_source_memory(
     Query(req): Query<SourceMemoryRequest>,
 ) -> Result<Json<SourceMemoryResponse>, (StatusCode, String)> {
     let response = state.store.source_memory(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_workspace_memory(
+    State(state): State<AppState>,
+    Query(req): Query<WorkspaceMemoryRequest>,
+) -> Result<Json<WorkspaceMemoryResponse>, (StatusCode, String)> {
+    let response = state.store.workspace_memory(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
