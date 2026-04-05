@@ -11,7 +11,7 @@ install -m 0755 "$SCRIPT_DIR/memd-spill.sh" "$PREFIX/memd-spill"
 
 cat > "$PREFIX/memd-hook-context" <<EOF
 #!/usr/bin/env bash
-exec "$MEMD_BIN" hook context "\$@"
+exec "$PREFIX/memd-context" "\$@"
 EOF
 chmod +x "$PREFIX/memd-hook-context"
 

@@ -11,7 +11,7 @@ Copy-Item -Force (Join-Path $scriptDir "memd-spill.ps1") (Join-Path $Prefix "mem
 
 $contextShim = @"
 param([Parameter(ValueFromRemainingArguments = `$true)][string[]]`$Args)
-& "$MemdBin" hook context @Args
+& (Join-Path "$Prefix" "memd-context.ps1") @Args
 "@
 
 $spillShim = @"

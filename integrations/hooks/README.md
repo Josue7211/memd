@@ -56,6 +56,9 @@ Set:
 This now calls `memd resume` under the bundle defaults instead of only the
 older compact-context surface.
 
+The installed `memd-hook-context` shim now routes through this script, so the
+default installed hook path also gets the richer resume snapshot.
+
 ## Install on Unix
 
 ```bash
