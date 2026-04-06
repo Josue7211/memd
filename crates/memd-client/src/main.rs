@@ -4401,11 +4401,13 @@ fn build_project_bootstrap_memory(
     project: &str,
     args: &InitArgs,
 ) -> anyhow::Result<Option<ProjectBootstrapBundle>> {
-    let Some(project_root) = project_root else {
-        return Ok(None);
-    };
-
-    let mut sources = collect_project_bootstrap_sources(project_root);
+    let mut sources = project_root
+        .map(collect_project_bootstrap_sources)
+        .unwrap_or_default();
+    sources.extend(collect_user_harness_bootstrap_sources(project_root));
+    let mut seen = std::collections::HashSet::new();
+    sources.retain(|path| seen.insert(path.clone()));
+    sources.sort();
     if sources.is_empty() {
         return Ok(None);
     }
@@ -4413,27 +4415,30 @@ fn build_project_bootstrap_memory(
     let mut markdown = String::new();
     let mut registry_sources = Vec::new();
     markdown.push_str("# memd project bootstrap\n\n");
-    markdown.push_str(&format!(
-        "This bundle was initialized from the existing project context at `{}`.\n\n",
-        project_root.display()
-    ));
+    if let Some(project_root) = project_root {
+        markdown.push_str(&format!(
+            "This bundle was initialized from the existing project context at `{}`.\n\n",
+            project_root.display()
+        ));
+    } else {
+        markdown.push_str(
+            "This bundle was initialized from the user's configured harness context.\n\n",
+        );
+    }
     markdown.push_str("## Loaded sources\n\n");
     for source in &sources {
         markdown.push_str(&format!(
             "- {}\n",
-            source
-                .strip_prefix(project_root)
-                .unwrap_or(source)
-                .display()
+            display_bootstrap_source_path(source, project_root)
         ));
     }
     markdown.push_str("\n## Imported summaries\n\n");
 
     for source in sources.drain(..) {
-        let relative = source.strip_prefix(project_root).unwrap_or(&source);
+        let display = display_bootstrap_source_path(&source, project_root);
         if let Some((snippet, meta)) = read_bootstrap_source(&source, 24) {
             registry_sources.push(BootstrapSourceRecord {
-                path: relative.display().to_string(),
+                path: display.clone(),
                 kind: source_kind_from_path(&source),
                 hash: meta.hash,
                 bytes: meta.bytes,
@@ -4442,7 +4447,7 @@ fn build_project_bootstrap_memory(
                 imported_at: Utc::now(),
                 modified_at: file_modified_at(&source),
             });
-            markdown.push_str(&format!("### {}\n\n{}\n\n", relative.display(), snippet));
+            markdown.push_str(&format!("### {}\n\n{}\n\n", display, snippet));
         }
     }
 
@@ -4466,7 +4471,9 @@ fn build_project_bootstrap_memory(
         markdown,
         registry: BootstrapSourceRegistry {
             project: project.to_string(),
-            project_root: project_root.display().to_string(),
+            project_root: project_root
+                .map(|root| root.display().to_string())
+                .unwrap_or_else(|| default_global_bundle_root().display().to_string()),
             imported_at: Utc::now(),
             sources: registry_sources,
         },
@@ -4483,6 +4490,7 @@ fn collect_project_bootstrap_sources(project_root: &Path) -> Vec<PathBuf> {
         ".claude/DESIGN.md",
         ".agents/DESIGN.md",
         "AGENTS.md",
+        "TEAMS.md",
         "MEMORY.md",
         "SOUL.md",
         "USER.md",
@@ -4521,6 +4529,130 @@ fn collect_project_bootstrap_sources(project_root: &Path) -> Vec<PathBuf> {
     sources.extend(collect_design_dir_sources(project_root));
 
     sources
+}
+
+fn collect_user_harness_bootstrap_sources(project_root: Option<&Path>) -> Vec<PathBuf> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+
+    let mut sources = Vec::new();
+    let codex_root = home.join(".codex");
+    sources.extend(collect_named_file_sources(
+        &codex_root,
+        &[
+            "AGENTS.md",
+            "TEAMS.md",
+            "MEMORY.md",
+            "USER.md",
+            "IDENTITY.md",
+            "SOUL.md",
+            "TOOLS.md",
+            "BOOTSTRAP.md",
+            "HEARTBEAT.md",
+            "config.toml",
+        ],
+    ));
+    sources.extend(collect_relative_file_sources(
+        &codex_root,
+        &[
+            "skills/memd/SKILL.md",
+            "skills/memd-init/SKILL.md",
+            "skills/memd-reload/SKILL.md",
+            "skills/dream/SKILL.md",
+            "skills/autodream/SKILL.md",
+            "skills/gsd-autonomous/SKILL.md",
+            "skills/gsd-map-codebase/SKILL.md",
+        ],
+    ));
+
+    let claude_root = home.join(".claude");
+    sources.extend(collect_named_file_sources(
+        &claude_root,
+        &[
+            "AGENTS.md",
+            "TEAMS.md",
+            "MEMORY.md",
+            "USER.md",
+            "IDENTITY.md",
+            "SOUL.md",
+            "TOOLS.md",
+            "BOOTSTRAP.md",
+            "HEARTBEAT.md",
+            "settings.json",
+        ],
+    ));
+    sources.extend(collect_relative_file_sources(
+        &claude_root,
+        &["hooks/gsd-session-context.js"],
+    ));
+    if let Some(project_root) = project_root {
+        let claude_project_memory = claude_project_memory_path(project_root);
+        if claude_project_memory.is_file() {
+            sources.push(claude_project_memory);
+        }
+    }
+
+    let openclaw_root = home.join(".openclaw").join("workspace");
+    sources.extend(collect_named_file_sources(
+        &openclaw_root,
+        &[
+            "AGENTS.md",
+            "TEAMS.md",
+            "MEMORY.md",
+            "USER.md",
+            "IDENTITY.md",
+            "SOUL.md",
+            "TOOLS.md",
+            "BOOTSTRAP.md",
+            "HEARTBEAT.md",
+        ],
+    ));
+
+    let opencode_root = home.join(".config").join("opencode");
+    sources.extend(collect_named_file_sources(
+        &opencode_root,
+        &[
+            "AGENTS.md",
+            "TEAMS.md",
+            "MEMORY.md",
+            "settings.json",
+            "opencode.json",
+        ],
+    ));
+    sources.extend(collect_relative_file_sources(
+        &opencode_root,
+        &[
+            "plugins/memd-plugin.mjs",
+            "command/memd.md",
+            "command/gsd-autonomous.md",
+            "command/gsd-map-codebase.md",
+        ],
+    ));
+
+    let legacy_opencode_root = home.join(".opencode");
+    sources.extend(collect_named_file_sources(
+        &legacy_opencode_root,
+        &["AGENTS.md", "TEAMS.md", "MEMORY.md"],
+    ));
+
+    sources
+}
+
+fn collect_named_file_sources(root: &Path, names: &[&str]) -> Vec<PathBuf> {
+    names
+        .iter()
+        .map(|name| root.join(name))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+fn collect_relative_file_sources(root: &Path, paths: &[&str]) -> Vec<PathBuf> {
+    paths
+        .iter()
+        .map(|relative| root.join(relative))
+        .filter(|path| path.is_file())
+        .collect()
 }
 
 fn collect_memory_dir_sources(project_root: &Path) -> Vec<PathBuf> {
@@ -4592,6 +4724,22 @@ fn claude_project_memory_path(project_root: &Path) -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from("."))
         .join("MEMORY.md")
+}
+
+fn display_bootstrap_source_path(path: &Path, project_root: Option<&Path>) -> String {
+    if let Some(project_root) = project_root
+        && let Ok(relative) = path.strip_prefix(project_root)
+    {
+        return relative.display().to_string();
+    }
+
+    if let Some(home) = home_dir()
+        && let Ok(relative) = path.strip_prefix(&home)
+    {
+        return format!("~/{}", relative.display());
+    }
+
+    path.display().to_string()
 }
 
 fn default_heartbeat_model() -> String {
@@ -4756,6 +4904,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         write_bundle_source_registry(&output, &bundle.registry)?;
     }
     write_native_agent_bridge_files(&output)?;
+    write_bundle_harness_bridge_registry(&output)?;
 
     fs::write(
         output.join("README.md"),
@@ -4914,8 +5063,32 @@ fn source_kind_from_path(path: &Path) -> String {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("");
+    let path_str = path.to_string_lossy();
+    if path_str.contains("/.codex/") {
+        return if name.eq_ignore_ascii_case("SKILL.md") {
+            "codex-skill".to_string()
+        } else {
+            "codex-config".to_string()
+        };
+    }
+    if path_str.contains("/.claude/") {
+        return if name.eq_ignore_ascii_case("SKILL.md") {
+            "claude-skill".to_string()
+        } else {
+            "claude-config".to_string()
+        };
+    }
+    if path_str.contains("/.openclaw/") {
+        return "openclaw-config".to_string();
+    }
+    if path_str.contains("/.config/opencode/") || path_str.contains("/.opencode/") {
+        return "opencode-config".to_string();
+    }
     if name.eq_ignore_ascii_case("AGENTS.md") || name.eq_ignore_ascii_case("CLAUDE.md") {
         return "policy".to_string();
+    }
+    if name.eq_ignore_ascii_case("TEAMS.md") {
+        return "team".to_string();
     }
     if name.eq_ignore_ascii_case("MEMORY.md")
         || name.eq_ignore_ascii_case("SOUL.md")
@@ -4957,6 +5130,171 @@ fn write_bundle_source_registry(
     fs::write(&path, serde_json::to_string_pretty(registry)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())
+}
+
+fn harness_bridge_registry_path(output: &Path) -> PathBuf {
+    output.join("state").join("harness-bridge.json")
+}
+
+fn write_bundle_harness_bridge_registry(output: &Path) -> anyhow::Result<HarnessBridgeRegistry> {
+    let registry = build_harness_bridge_registry();
+    let path = harness_bridge_registry_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(&registry)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    let markdown_path = output.join("agents").join("HARNESS_BRIDGES.md");
+    if let Some(parent) = markdown_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&markdown_path, render_harness_bridge_markdown(&registry))
+        .with_context(|| format!("write {}", markdown_path.display()))?;
+    Ok(registry)
+}
+
+fn read_bundle_harness_bridge_registry(
+    output: &Path,
+) -> anyhow::Result<Option<HarnessBridgeRegistry>> {
+    let path = harness_bridge_registry_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let registry = serde_json::from_str::<HarnessBridgeRegistry>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(registry))
+}
+
+fn build_harness_bridge_registry() -> HarnessBridgeRegistry {
+    let harnesses = vec![
+        harness_bridge_record(
+            "codex",
+            detect_codex_memd_wiring(),
+            &["config", "hook", "skill"],
+            &["Codex is native when the config, hook, and skill surfaces are all present."],
+        ),
+        harness_bridge_record(
+            "claude",
+            detect_claude_memd_wiring(),
+            &["settings", "hook"],
+            &["Claude is native when the settings and session hook surfaces exist."],
+        ),
+        harness_bridge_record(
+            "openclaw",
+            detect_openclaw_memd_wiring(),
+            &["agents", "bootstrap"],
+            &["OpenClaw is native when AGENTS.md and BOOTSTRAP.md bridge surfaces exist."],
+        ),
+        harness_bridge_record(
+            "opencode",
+            detect_opencode_memd_wiring(),
+            &["config", "plugin", "command"],
+            &[
+                "OpenCode is native when config, plugin, and command surfaces all route through memd.",
+            ],
+        ),
+    ];
+
+    let all_wired = harnesses.iter().all(|record| record.wired);
+    HarnessBridgeRegistry {
+        generated_at: Utc::now(),
+        overall_portability_class: if all_wired {
+            "portable".to_string()
+        } else {
+            "adapter-required".to_string()
+        },
+        all_wired,
+        harnesses,
+    }
+}
+
+fn harness_bridge_record(
+    harness: &str,
+    wiring: serde_json::Value,
+    required_surfaces: &[&str],
+    notes: &[&str],
+) -> HarnessBridgeRecord {
+    let wired = wiring
+        .get("wired")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let missing_surfaces = required_surfaces
+        .iter()
+        .filter_map(|surface| {
+            let present = wiring
+                .get(*surface)
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if present {
+                None
+            } else {
+                Some((*surface).to_string())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    HarnessBridgeRecord {
+        harness: harness.to_string(),
+        wired,
+        portability_class: if wired {
+            "harness-native".to_string()
+        } else {
+            "adapter-required".to_string()
+        },
+        required_surfaces: required_surfaces
+            .iter()
+            .map(|value| value.to_string())
+            .collect(),
+        missing_surfaces,
+        notes: notes.iter().map(|value| value.to_string()).collect(),
+    }
+}
+
+fn render_harness_bridge_markdown(registry: &HarnessBridgeRegistry) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd harness bridge matrix\n\n");
+    markdown.push_str(&format!(
+        "Generated: {}\n\n",
+        registry.generated_at.to_rfc3339()
+    ));
+    markdown.push_str(&format!(
+        "Overall portability class: **{}**\n\n",
+        registry.overall_portability_class
+    ));
+    markdown.push_str("| Harness | Wired | Portability | Missing surfaces | Notes |\n");
+    markdown.push_str("|---|---|---|---|---|\n");
+    for harness in &registry.harnesses {
+        let missing = if harness.missing_surfaces.is_empty() {
+            "none".to_string()
+        } else {
+            harness.missing_surfaces.join(", ")
+        };
+        let notes = if harness.notes.is_empty() {
+            "none".to_string()
+        } else {
+            harness
+                .notes
+                .iter()
+                .map(|note| compact_inline(note, 120))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        markdown.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n",
+            harness.harness,
+            if harness.wired { "yes" } else { "no" },
+            harness.portability_class,
+            missing,
+            notes
+        ));
+    }
+    markdown.push_str("\n## Adapter Required Surface\n\n");
+    markdown.push_str(
+        "If a harness is not wired, `memd` treats it as adapter-required and surfaces the missing bridge surfaces instead of pretending the skill is universally available.\n",
+    );
+    markdown
 }
 
 fn read_bundle_source_registry(output: &Path) -> anyhow::Result<Option<BootstrapSourceRegistry>> {
@@ -5054,6 +5392,7 @@ async fn write_bundle_memory_files(
         markdown
     };
     write_memory_markdown_files(output, &markdown)?;
+    write_bundle_harness_bridge_registry(output)?;
     write_bundle_resume_state(output, snapshot)?;
     write_bundle_heartbeat(output, Some(snapshot), false).await
 }
@@ -7984,9 +8323,14 @@ fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
         .and_then(|value| value.get("wired"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let opencode_wired = wiring
+        .get("opencode")
+        .and_then(|value| value.get("wired"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     evidence.push(format!(
-        "runtime wiring: codex={} claude={} openclaw={}",
-        codex_wired, claude_wired, openclaw_wired
+        "runtime wiring: codex={} claude={} openclaw={} opencode={}",
+        codex_wired, claude_wired, openclaw_wired, opencode_wired
     ));
 
     evidence
@@ -9095,6 +9439,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let runtime = read_bundle_runtime_config(output)?;
     let heartbeat = read_bundle_heartbeat(output)?;
     let runtimes = read_memd_runtime_wiring();
+    let harness_bridge =
+        read_bundle_harness_bridge_registry(output)?.unwrap_or_else(build_harness_bridge_registry);
     let config_exists = output.join("config.json").exists();
     let env_exists = output.join("env").exists();
     let env_ps1_exists = output.join("env.ps1").exists();
@@ -9227,8 +9573,13 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                     .unwrap_or(false)
         })
         .unwrap_or(true);
-    let setup_ready =
-        output.exists() && missing.is_empty() && health.is_some() && runtime.is_some() && rag_ready;
+    let bridge_ready = harness_bridge.all_wired;
+    let setup_ready = output.exists()
+        && missing.is_empty()
+        && health.is_some()
+        && runtime.is_some()
+        && rag_ready
+        && bridge_ready;
     Ok(serde_json::json!({
         "bundle": output,
         "exists": output.exists(),
@@ -9240,6 +9591,19 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "setup_ready": setup_ready,
         "missing": missing,
         "runtimes": runtimes,
+        "harness_bridge": {
+            "ready": bridge_ready,
+            "portable": harness_bridge.all_wired,
+            "portability_class": harness_bridge.overall_portability_class,
+            "generated_at": harness_bridge.generated_at,
+            "harnesses": harness_bridge.harnesses,
+            "missing_harnesses": harness_bridge
+                .harnesses
+                .iter()
+                .filter(|record| !record.wired)
+                .map(|record| record.harness.clone())
+                .collect::<Vec<_>>(),
+        },
         "active_agent": runtime.as_ref().and_then(|config| config.agent.clone()),
         "defaults": runtime.as_ref().map(|config| serde_json::json!({
             "project": config.project,
@@ -9283,13 +9647,16 @@ fn read_memd_runtime_wiring() -> serde_json::Value {
     let codex = detect_codex_memd_wiring();
     let claude = detect_claude_memd_wiring();
     let openclaw = detect_openclaw_memd_wiring();
+    let opencode = detect_opencode_memd_wiring();
     serde_json::json!({
         "codex": codex,
         "claude": claude,
         "openclaw": openclaw,
+        "opencode": opencode,
         "all_wired": codex.get("wired").and_then(|value| value.as_bool()).unwrap_or(false)
             && claude.get("wired").and_then(|value| value.as_bool()).unwrap_or(false)
-            && openclaw.get("wired").and_then(|value| value.as_bool()).unwrap_or(false),
+            && openclaw.get("wired").and_then(|value| value.as_bool()).unwrap_or(false)
+            && opencode.get("wired").and_then(|value| value.as_bool()).unwrap_or(false),
     })
 }
 
@@ -9359,6 +9726,54 @@ fn detect_openclaw_memd_wiring() -> serde_json::Value {
         "wired": ag_wired && bootstrap_wired,
         "agents": ag_wired,
         "bootstrap": bootstrap_wired,
+    })
+}
+
+fn detect_opencode_memd_wiring() -> serde_json::Value {
+    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let config_dir = home.join(".config").join("opencode");
+    let legacy_dir = home.join(".opencode");
+    let config_files = [
+        config_dir.join("opencode.json"),
+        config_dir.join("settings.json"),
+        legacy_dir.join("opencode.json"),
+        legacy_dir.join("settings.json"),
+    ];
+    let config_exists = config_files.iter().any(|path| path.is_file());
+    let config_wired = config_files.iter().any(|path| {
+        path.is_file()
+            && fs::read_to_string(path)
+                .ok()
+                .map(|content| content.contains("memd-plugin") || content.contains("\"plugin\""))
+                .unwrap_or(false)
+    });
+    let plugin_files = [
+        config_dir.join("plugins").join("memd-plugin.mjs"),
+        legacy_dir.join("plugins").join("memd-plugin.mjs"),
+    ];
+    let plugin_wired = plugin_files.iter().any(|path| {
+        path.is_file()
+            && fs::read_to_string(path)
+                .ok()
+                .map(|content| content.contains("MEMD_MEMORY.md"))
+                .unwrap_or(false)
+    });
+    let command_files = [
+        config_dir.join("command").join("memd.md"),
+        legacy_dir.join("command").join("memd.md"),
+    ];
+    let command_wired = command_files.iter().any(|path| {
+        path.is_file()
+            && fs::read_to_string(path)
+                .ok()
+                .map(|content| content.contains("memd refresh") || content.contains("memd init"))
+                .unwrap_or(false)
+    });
+    serde_json::json!({
+        "wired": config_wired && plugin_wired && command_wired,
+        "config": config_wired || config_exists,
+        "plugin": plugin_wired,
+        "command": command_wired,
     })
 }
 
@@ -11242,6 +11657,24 @@ struct BootstrapSourceRegistry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct HarnessBridgeRegistry {
+    generated_at: DateTime<Utc>,
+    overall_portability_class: String,
+    all_wired: bool,
+    harnesses: Vec<HarnessBridgeRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HarnessBridgeRecord {
+    harness: String,
+    wired: bool,
+    portability_class: String,
+    required_surfaces: Vec<String>,
+    missing_surfaces: Vec<String>,
+    notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BootstrapSourceRecord {
     path: String,
     kind: String,
@@ -12504,7 +12937,6 @@ mod tests {
         let registry: BootstrapSourceRegistry = serde_json::from_str(&raw).expect("parse registry");
 
         assert_eq!(registry.project, "demo");
-        assert_eq!(registry.sources.len(), 2);
         assert!(
             registry
                 .sources
@@ -12517,6 +12949,7 @@ mod tests {
                 .iter()
                 .any(|source| source.path == "README.md")
         );
+        assert!(registry.sources.len() >= 2);
 
         fs::remove_dir_all(project_root).expect("cleanup temp project");
     }
@@ -12563,8 +12996,24 @@ mod tests {
 
         assert!(refreshed.0.contains("Project source refresh"));
         let registry = refreshed.1;
-        assert_eq!(registry.sources.len(), 1);
-        assert!(registry.sources[0].imported_at >= bootstrap.registry.sources[0].imported_at);
+        assert!(
+            registry
+                .sources
+                .iter()
+                .any(|source| source.path == "README.md")
+        );
+        let refreshed_readme = registry
+            .sources
+            .iter()
+            .find(|source| source.path == "README.md")
+            .expect("refreshed readme source");
+        let initial_readme = bootstrap
+            .registry
+            .sources
+            .iter()
+            .find(|source| source.path == "README.md")
+            .expect("initial readme source");
+        assert!(refreshed_readme.imported_at >= initial_readme.imported_at);
 
         fs::remove_dir_all(project_root).expect("cleanup temp project");
     }

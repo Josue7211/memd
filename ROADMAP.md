@@ -388,6 +388,7 @@ Deliver:
 - evolution engine that turns repeated workflows into monitored, reusable skills, CLIs, tools, and other promotable abstractions
 - tier-aware policy evolution so Obsidian-only, shared sync, and LightRAG setups can tune differently
 - harness-aware promotion so learned skills, CLIs, and harnesses carry compatibility, strengths, weaknesses, and portability class across agents
+- harness coverage enforcement so promoted skills that are not mapped for a given harness are marked adapter-required and paired with a bridge plan instead of being treated as universal
 - automatic short-term memory management:
   - capture meaningful task-state changes without transcript dumping
   - keep the hot lane fresh with minimal manual effort
@@ -438,6 +439,7 @@ Success:
 - the memory loop feels alive: capture, resume, inspect, consolidate, repeat
 - dream/autodream/autoresearch live inside `memd`, with skills, CLI, MCP, and UI acting as surfaces over the same subsystem
 - token optimization is a competitive advantage of the substrate, not an accidental side effect
+- no promoted skill, CLI, or procedure is allowed to masquerade as universal when a harness mapping is missing; missing mappings are surfaced as adapter-required work
 
 ### v5: Memory-Native Cognition Infrastructure
 

@@ -898,5 +898,18 @@ Success:
 
 - learned abstractions can move across agents and harnesses without pretending every shell exposes the same native capabilities
 
+#### Phase 52: `v6` Harness Skill Bridge and Adapter Generation
+
+- require every promoted skill, CLI, harness, and procedure to declare its harness coverage and portability class at the point of promotion
+- if a harness mapping is missing, mark the abstraction adapter-required and surface the gap immediately instead of treating it as universally available
+- generate or scaffold harness-specific bridge instructions where a native mapping does not exist yet, so the user has a concrete next step
+- keep the registry as the canonical source of truth for which skills are portable, harness-native, or require an adapter
+
+Status: Planned
+
+Success:
+
+- memd can tell the user when a skill is not mapped for their harness and can either provide a bridge path or clearly mark the abstraction as adapter-required
+
 ---
 *Last updated: 2026-04-05 after shipping `v5` coordination receipts*

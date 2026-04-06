@@ -76,6 +76,8 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - the roadmap now treats repo introspection, incremental git-aware sync, and memory provenance/health as first-class gaps
 - the roadmap now includes explicit agent adoption so Codex, Claude, and OpenClaw all bootstrap from memd once and then treat it as the shared source of truth
 - phase 47 gap-finding foundations are now implemented as a bounded, repo-aware research pass over planning artifacts, docs, git state, eval snapshots, and runtime wiring
+- the roadmap now requires harness coverage enforcement so promoted skills, CLIs, and procedures cannot masquerade as universal when a harness mapping is missing
+- the next learning-system gap is adapter generation and bridge surfacing for missing harness mappings, not just portability labels
 
 ## Open Loops
 
@@ -89,6 +91,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading the unchanged ones.
 - the runtime adoption layer still needs to be wired into every major agent surface, not just Codex and Claude/OpenClaw bootstrap surfaces.
 - the next layer after canonical collision controls is broadening the same safety model into more UI/status surfaces and eventual automatic reconciliation.
+- the learning registry still needs a bridge layer so adapter-required skills surface concrete next steps instead of only classification metadata.
 - the gap loop now needs to drive the next `v6` phases, starting with dream/autodream foundations and token/context observability.
 - after those `v5` gaps are closed, phase 47 refinement should continue with token observability and compiled-first retrieval on top of the shared sync substrate.
 
