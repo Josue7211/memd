@@ -95,10 +95,24 @@ Minimal local setup:
 
 ```bash
 cargo run -p memd-server
-cargo run -p memd-client --bin memd -- init --project demo --namespace main --agent codex
+cargo run -p memd-client --bin memd -- init --agent codex
 cargo run -p memd-client --bin memd -- status --output .memd
 cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
 ```
+
+If you are initializing inside a repo, `memd init` now seeds `.memd/` from the
+repo's existing docs, planning files, and memory files when it can infer a
+project root. That includes sources like `AGENTS.md`, `CLAUDE.md`,
+`MEMORY.md`, `memory/*.md`, and `.planning/*` when they exist. Use `--global`
+when you want `~/.memd` instead. If you need to seed a different repo, pass
+`--project-root <path>`.
+
+Inside Codex, the default entrypoint is:
+
+- `$memd`
+
+It automatically decides whether to initialize or reload. The explicit
+`$memd-init` and `$memd-reload` skills are there if you want to force one path.
 
 If you are using the shared OpenClaw server instead of a local server, export
 `MEMD_BASE_URL=http://100.104.154.24:8787` before running the same commands.

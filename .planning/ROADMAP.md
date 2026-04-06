@@ -616,7 +616,7 @@ Success:
 - preserve explicit bounded research outputs instead of freeform narrative reports
 - make the loop aware of real `memd` product goals such as hot-path memory quality, epistemic retrieval, and coworking safety
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -637,7 +637,7 @@ Success:
 - preserve local bundle projections for harness-native ergonomics while making server state the shared source of truth
 - keep the first slice delta-based and bounded instead of replaying transcripts or large freeform scratchpads
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -654,7 +654,7 @@ Success:
 - preserve scoped retrieval order so active project truth outranks unrelated global memory while still allowing cross-project awareness
 - keep the first slice focused on canonical scope modeling, bundle-root defaults, and shared-state boundaries before UI polish
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -667,11 +667,99 @@ Success:
 - preserve source-aware writes, contested-memory handling, and lease / claim enforcement
 - keep the first slice focused on canonical state rules and conflict surfaces before automatic reconciliation logic
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - Codex, Claude Code, OpenClaw, and other harnesses can share `memd` without corrupting each other's memory state
+
+#### Phase 46.4: `v5` Codex Reload Skill and Bootstrap UX
+
+- expose a Codex-native `memd-reload` skill for already-open sessions that need memory loaded immediately
+- keep a matching shell shim and CLI refresh path so the same bootstrap works in terminals and Codex sessions
+- make the skill default to global `~/.memd`, then layer a repo `.memd` only when one is actually present
+- make the first slice focus on session bootstrap, not a full interactive memory browser
+
+Status: Complete
+
+Success:
+
+- operators can force-load memd into an existing Codex session with one obvious command, even if the session started before hooks were active
+
+#### Phase 46.5: `v5` Project Init Seeding
+
+- make `memd init` seed a new project bundle from existing repo docs, planning files, and Claude project memory when it can infer a project root
+- prefer local `.memd` initialization inside a repo so projects get a real bundle on first setup instead of only a global memory root
+- keep a separate explicit path for deeper or manual imports when the initial seed does not capture enough context
+
+Status: Complete
+
+Success:
+
+- a project can be initialized into memd and come away with an immediately useful project memory file instead of a blank placeholder
+
+#### Phase 46.6: `v5` Unified Memd Front Door
+
+- expose a single Codex skill entrypoint that routes to init or reload based on the current repo state and user intent
+- keep the narrower `memd-init` and `memd-reload` skills as explicit subflows while making the unified `memd` skill the default remembered surface
+- let the front door explain what happened in one sentence, instead of forcing the user to remember which subcommand they need first
+- keep the first pass deliberately simple: one remembered command, no extra status/doctor step for the happy path
+
+Status: Complete
+
+Success:
+
+- operators can type one obvious Codex skill and get the right memd action without having to think through the bootstrap split first
+
+#### Phase 46.7: `v5` Project Bootstrap Preflight
+
+- detect whether `AGENTS.md`, `CLAUDE.md`, and the planning docs already exist before init so the skill can report the true project bootstrap state
+- keep initialization working even when the repo has no existing agent scaffolding by seeding from whatever project files are present
+- avoid requiring a separate Codex `/init` step; memd should own the project bootstrap flow directly
+- surface a follow-up import path only when the default bootstrap seed is genuinely too thin
+
+Status: Complete
+
+Success:
+
+- users can run the front door once and get a useful project bundle even if the repo is missing agent scaffolding files
+
+#### Phase 46.8: `v5` Repo Introspection and Incremental Sync
+
+- treat repo files as structured memory input instead of just bootstrap material
+- ingest `AGENTS.md`, `CLAUDE.md`, `.planning/*`, `README.md`, `ROADMAP.md`, `docs/*`, lockfiles, config, and git history with source and confidence metadata
+- add git-aware incremental sync so memory updates from diffs and changed files rather than only one-time init sweeps
+- keep global, project, and cross-project memory layered but queryable together
+
+Status: Complete
+
+Success:
+
+- memory stays current with ongoing repo change without forcing a full re-init
+
+#### Phase 46.9: `v5` Memory Health and Provenance
+
+- surface memory health: what is missing, stale, duplicated, inferred, or conflicting
+- attach provenance and confidence to every memory item so imported state is inspectable and trustworthy
+- make drift and conflict visible instead of silently overwriting memory with the latest writer
+
+Status: Complete
+
+Success:
+
+- users can tell where a memory fact came from and whether it should be trusted
+
+#### Phase 46.10: `v5` Agent Adoption and One-Shot Bootstrap
+
+- wire Codex, Claude, and OpenClaw startup paths to load memd automatically
+- read existing memory sources once during bootstrap, then stop making the user manually re-import the same project context
+- keep the bootstrap surface simple enough that the first useful session happens without the user learning multiple commands
+
+Status: Complete
+
+Success:
+
+- the common agent runtimes all start with the same shared memory substrate instead of divergent local-only state
 
 #### Phase 47.1: `v6` Native Dream and Autodream Foundations
 
@@ -680,7 +768,7 @@ Success:
 - keep the first slice focused on subsystem boundaries and data flow, not UI polish
 - preserve compatibility with skills, CLI, MCP, and future app surfaces as thin entrypoints
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -698,7 +786,7 @@ Success:
   - prefer compiled knowledge artifacts over raw rereads
   - suppress repeated same-session reads when evidence is still fresh
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -714,7 +802,7 @@ Success:
   - ambiguous
 - keep the first slice filesystem-first so Obsidian-only setups benefit before semantic backends are required
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -732,7 +820,7 @@ Success:
 - keep the first slice focused on preserving global coherence while avoiding giant-context usage on every intermediate turn
 - preserve provenance and cross-chunk traceability so later review can justify translation or synthesis choices
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -751,7 +839,7 @@ Success:
 - preserve harness-aware metadata so frontend guidance can record which agents or shells are native, portable, or adapter-required
 - keep the first slice focused on storage, retrieval, and inspectability before automated design extraction
 
-Status: Planned
+Status: Complete
 
 Success:
 

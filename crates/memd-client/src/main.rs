@@ -56,6 +56,7 @@ use render::{
     render_timeline_summary, render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Parser)]
 #[command(name = "memd")]
@@ -897,12 +898,18 @@ struct InitArgs {
     global: bool,
 
     #[arg(long)]
+    project_root: Option<PathBuf>,
+
+    #[arg(long, default_value_t = true)]
+    seed_existing: bool,
+
+    #[arg(long)]
     agent: String,
 
     #[arg(long)]
     session: Option<String>,
 
-    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    #[arg(long, default_value_os_t = default_init_output_path())]
     output: PathBuf,
 
     #[arg(long, default_value_t = default_base_url())]
@@ -4288,6 +4295,13 @@ fn default_bundle_root_path() -> PathBuf {
     default_global_bundle_root()
 }
 
+fn default_init_output_path() -> PathBuf {
+    match detect_current_project_root() {
+        Ok(Some(root)) => root.join(".memd"),
+        _ => default_global_bundle_root(),
+    }
+}
+
 fn default_global_bundle_root() -> PathBuf {
     home_dir()
         .map(|path| path.join(".memd"))
@@ -4300,22 +4314,284 @@ fn home_dir() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
-fn init_project_name(args: &InitArgs) -> String {
+fn init_project_name(args: &InitArgs, project_root: Option<&Path>) -> String {
     args.project
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+        .or_else(|| {
+            if args.global {
+                None
+            } else {
+                project_root
+                    .and_then(|root| {
+                        root.file_name()
+                            .and_then(|value| value.to_str())
+                            .map(|value| value.trim().to_string())
+                    })
+                    .filter(|value| !value.is_empty())
+            }
+        })
         .unwrap_or_else(|| "global".to_string())
 }
 
-fn init_namespace_name(args: &InitArgs) -> Option<String> {
+fn init_namespace_name(args: &InitArgs, output: &Path) -> Option<String> {
     args.namespace
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .or_else(|| args.global.then(|| "global".to_string()))
+        .or_else(|| {
+            if args.global || output == default_global_bundle_root() {
+                Some("global".to_string())
+            } else {
+                Some("main".to_string())
+            }
+        })
+}
+
+fn detect_init_project_root(args: &InitArgs) -> anyhow::Result<Option<PathBuf>> {
+    if let Some(root) = args.project_root.as_ref() {
+        let root = if root.is_absolute() {
+            root.clone()
+        } else {
+            std::env::current_dir()
+                .context("read current directory")?
+                .join(root)
+        };
+        return Ok(Some(fs::canonicalize(&root).unwrap_or(root)));
+    }
+
+    Ok(detect_current_project_root()?.map(|root| fs::canonicalize(&root).unwrap_or(root)))
+}
+
+fn detect_current_project_root() -> anyhow::Result<Option<PathBuf>> {
+    let start = std::env::current_dir().context("read current directory")?;
+    Ok(find_project_root(&start))
+}
+
+fn find_project_root(start: &Path) -> Option<PathBuf> {
+    let mut dir = start.to_path_buf();
+    loop {
+        if is_project_root_candidate(&dir) {
+            return Some(dir);
+        }
+        let Some(parent) = dir.parent() else {
+            return None;
+        };
+        if parent == dir {
+            return None;
+        }
+        dir = parent.to_path_buf();
+    }
+}
+
+fn is_project_root_candidate(dir: &Path) -> bool {
+    dir.join(".git").exists()
+        || dir.join(".planning").exists()
+        || dir.join("CLAUDE.md").exists()
+        || dir.join("AGENTS.md").exists()
+        || dir.join(".claude").join("CLAUDE.md").exists()
+        || dir.join(".agents").join("CLAUDE.md").exists()
+}
+
+fn build_project_bootstrap_memory(
+    project_root: Option<&Path>,
+    project: &str,
+    args: &InitArgs,
+) -> anyhow::Result<Option<ProjectBootstrapBundle>> {
+    let Some(project_root) = project_root else {
+        return Ok(None);
+    };
+
+    let mut sources = collect_project_bootstrap_sources(project_root);
+    if sources.is_empty() {
+        return Ok(None);
+    }
+
+    let mut markdown = String::new();
+    let mut registry_sources = Vec::new();
+    markdown.push_str("# memd project bootstrap\n\n");
+    markdown.push_str(&format!(
+        "This bundle was initialized from the existing project context at `{}`.\n\n",
+        project_root.display()
+    ));
+    markdown.push_str("## Loaded sources\n\n");
+    for source in &sources {
+        markdown.push_str(&format!(
+            "- {}\n",
+            source
+                .strip_prefix(project_root)
+                .unwrap_or(source)
+                .display()
+        ));
+    }
+    markdown.push_str("\n## Imported summaries\n\n");
+
+    for source in sources.drain(..) {
+        let relative = source.strip_prefix(project_root).unwrap_or(&source);
+        if let Some((snippet, meta)) = read_bootstrap_source(&source, 24) {
+            registry_sources.push(BootstrapSourceRecord {
+                path: relative.display().to_string(),
+                kind: source_kind_from_path(&source),
+                hash: meta.hash,
+                bytes: meta.bytes,
+                lines: meta.lines,
+                present: true,
+                imported_at: Utc::now(),
+                modified_at: file_modified_at(&source),
+            });
+            markdown.push_str(&format!("### {}\n\n{}\n\n", relative.display(), snippet));
+        }
+    }
+
+    markdown.push_str("## Notes\n\n");
+    markdown.push_str(&format!(
+        "- project: `{}`\n- init agent: `{}`\n- bootstrap mode: `{}`\n",
+        project,
+        args.agent,
+        if args.seed_existing {
+            "seed_existing"
+        } else {
+            "manual"
+        }
+    ));
+    markdown.push_str(
+        "- source registry: `state/source-registry.json` with content hashes for imported files\n",
+    );
+    markdown.push_str("- Add a separate import command if you need a deeper file sweep or more context than the default bootstrap budget.\n");
+
+    Ok(Some(ProjectBootstrapBundle {
+        markdown,
+        registry: BootstrapSourceRegistry {
+            project: project.to_string(),
+            project_root: project_root.display().to_string(),
+            imported_at: Utc::now(),
+            sources: registry_sources,
+        },
+    }))
+}
+
+fn collect_project_bootstrap_sources(project_root: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    let candidates = [
+        "CLAUDE.md",
+        ".claude/CLAUDE.md",
+        ".agents/CLAUDE.md",
+        "DESIGN.md",
+        ".claude/DESIGN.md",
+        ".agents/DESIGN.md",
+        "AGENTS.md",
+        "MEMORY.md",
+        "SOUL.md",
+        "USER.md",
+        "IDENTITY.md",
+        "TOOLS.md",
+        "BOOTSTRAP.md",
+        "HEARTBEAT.md",
+        "README.md",
+        "CONTRIBUTING.md",
+        "ROADMAP.md",
+        "docs/setup.md",
+        "docs/config.md",
+        "docs/infra-facts.md",
+        "docs/release-process.md",
+        "docs/maintainer-workflow.md",
+        ".planning/STATE.md",
+        ".planning/PROJECT.md",
+        ".planning/ROADMAP.md",
+        ".planning/codebase/ARCHITECTURE.md",
+        ".planning/codebase/STRUCTURE.md",
+    ];
+
+    for candidate in candidates {
+        let path = project_root.join(candidate);
+        if path.is_file() {
+            sources.push(path);
+        }
+    }
+
+    let claude_project_memory = claude_project_memory_path(project_root);
+    if claude_project_memory.is_file() {
+        sources.push(claude_project_memory);
+    }
+
+    sources.extend(collect_memory_dir_sources(project_root));
+    sources.extend(collect_design_dir_sources(project_root));
+
+    sources
+}
+
+fn collect_memory_dir_sources(project_root: &Path) -> Vec<PathBuf> {
+    let memory_dir = project_root.join("memory");
+    let mut sources = Vec::new();
+    let Ok(entries) = fs::read_dir(&memory_dir) else {
+        return sources;
+    };
+
+    let mut entries = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| {
+            path.extension()
+                .and_then(|value| value.to_str())
+                .map(|ext| {
+                    matches!(
+                        ext.to_ascii_lowercase().as_str(),
+                        "md" | "txt" | "json" | "yaml" | "yml"
+                    )
+                })
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort();
+    sources.extend(entries.into_iter().take(6));
+    sources
+}
+
+fn collect_design_dir_sources(project_root: &Path) -> Vec<PathBuf> {
+    let design_dir = project_root.join("design");
+    let mut sources = Vec::new();
+    let Ok(entries) = fs::read_dir(&design_dir) else {
+        return sources;
+    };
+
+    let mut entries = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| {
+            path.extension()
+                .and_then(|value| value.to_str())
+                .map(|ext| {
+                    matches!(
+                        ext.to_ascii_lowercase().as_str(),
+                        "md" | "txt" | "json" | "yaml" | "yml"
+                    )
+                })
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort();
+    sources.extend(entries.into_iter().take(6));
+    sources
+}
+
+fn claude_project_memory_path(project_root: &Path) -> PathBuf {
+    let slug = project_root.to_string_lossy().replace('/', "-");
+    home_dir()
+        .map(|home| {
+            home.join(".claude")
+                .join("projects")
+                .join(slug)
+                .join("memory")
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("MEMORY.md")
 }
 
 fn default_heartbeat_model() -> String {
@@ -4339,7 +4615,8 @@ fn compose_agent_identity(agent: &str, session: Option<&str>) -> String {
 }
 
 fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
-    let output = &args.output;
+    let project_root = detect_init_project_root(args)?;
+    let output = resolve_init_output_path(args, project_root.as_deref());
     if output.exists() && !args.force {
         anyhow::bail!(
             "{} already exists; pass --force to overwrite",
@@ -4357,8 +4634,13 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(default_bundle_session);
-    let project = init_project_name(args);
-    let namespace = init_namespace_name(args);
+    let project = init_project_name(args, project_root.as_deref());
+    let namespace = init_namespace_name(args, &output);
+    let project_bootstrap = if args.seed_existing {
+        build_project_bootstrap_memory(project_root.as_deref(), &project, args).unwrap_or_default()
+    } else {
+        None
+    };
 
     let config = BundleConfig {
         schema_version: 2,
@@ -4394,7 +4676,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     )
     .with_context(|| format!("write {}", output.join("config.json").display()))?;
 
-    write_bundle_backend_env(output, &config)?;
+    write_bundle_backend_env(&output, &config)?;
 
     fs::write(
         output.join("env"),
@@ -4462,9 +4744,18 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 
     let hook_root = output.join("hooks");
     copy_hook_assets(Path::new(&hook_root))?;
-    write_agent_profiles(output)?;
-    write_bundle_memory_placeholder(output, &config)?;
-    write_native_agent_bridge_files(output)?;
+    write_agent_profiles(&output)?;
+    write_bundle_memory_placeholder(
+        &output,
+        &config,
+        project_bootstrap
+            .as_ref()
+            .map(|bundle| bundle.markdown.as_str()),
+    )?;
+    if let Some(bundle) = &project_bootstrap {
+        write_bundle_source_registry(&output, &bundle.registry)?;
+    }
+    write_native_agent_bridge_files(&output)?;
 
     fs::write(
         output.join("README.md"),
@@ -4477,6 +4768,33 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     .with_context(|| format!("write {}", output.join("README.md").display()))?;
 
     Ok(())
+}
+
+fn resolve_init_output_path(args: &InitArgs, project_root: Option<&Path>) -> PathBuf {
+    if let Some(explicit) = maybe_explicit_init_output(args) {
+        return explicit;
+    }
+
+    if args.global {
+        return default_global_bundle_root();
+    }
+
+    if let Some(project_root) = project_root {
+        return project_root.join(".memd");
+    }
+
+    default_init_output_path()
+}
+
+fn maybe_explicit_init_output(args: &InitArgs) -> Option<PathBuf> {
+    let default_init_output = default_init_output_path();
+    let default_global_output = default_global_bundle_root();
+
+    if args.output != default_init_output && args.output != default_global_output {
+        return Some(args.output.clone());
+    }
+
+    None
 }
 
 fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
@@ -4510,10 +4828,22 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyhow::Result<()> {
+fn write_bundle_memory_placeholder(
+    output: &Path,
+    config: &BundleConfig,
+    project_bootstrap: Option<&str>,
+) -> anyhow::Result<()> {
     let mut markdown = String::new();
     markdown.push_str("# memd memory\n\n");
     markdown.push_str("This file is maintained by `memd` for agents that do not have built-in durable memory.\n\n");
+    if let Some(project_bootstrap) = project_bootstrap {
+        markdown.push_str("## Project bootstrap\n\n");
+        markdown.push_str(project_bootstrap);
+        if !project_bootstrap.ends_with('\n') {
+            markdown.push('\n');
+        }
+        markdown.push('\n');
+    }
     markdown.push_str("Refresh it with:\n\n");
     markdown.push_str(&format!(
         "- `memd resume --output {} --intent current_task`\n- `memd resume --output {} --intent current_task --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
@@ -4549,12 +4879,180 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     write_memory_markdown_files(output, &markdown)
 }
 
+struct BootstrapSourceMeta {
+    hash: String,
+    bytes: usize,
+    lines: usize,
+}
+
+fn read_bootstrap_source(path: &Path, max_lines: usize) -> Option<(String, BootstrapSourceMeta)> {
+    let raw = fs::read(path).ok()?;
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let snippet = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .take(max_lines)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if snippet.trim().is_empty() {
+        return None;
+    }
+
+    Some((
+        snippet,
+        BootstrapSourceMeta {
+            hash: format!("{:x}", Sha256::digest(&raw)),
+            bytes: raw.len(),
+            lines: text.lines().count(),
+        },
+    ))
+}
+
+fn source_kind_from_path(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    if name.eq_ignore_ascii_case("AGENTS.md") || name.eq_ignore_ascii_case("CLAUDE.md") {
+        return "policy".to_string();
+    }
+    if name.eq_ignore_ascii_case("MEMORY.md")
+        || name.eq_ignore_ascii_case("SOUL.md")
+        || name.eq_ignore_ascii_case("USER.md")
+        || name.eq_ignore_ascii_case("IDENTITY.md")
+        || name.eq_ignore_ascii_case("TOOLS.md")
+        || name.eq_ignore_ascii_case("BOOTSTRAP.md")
+        || name.eq_ignore_ascii_case("HEARTBEAT.md")
+    {
+        return "memory".to_string();
+    }
+    if name.eq_ignore_ascii_case("DESIGN.md") {
+        return "design".to_string();
+    }
+    if path
+        .components()
+        .any(|part| part.as_os_str().to_string_lossy() == ".planning")
+    {
+        return "planning".to_string();
+    }
+    if path.extension().and_then(|value| value.to_str()).is_some() {
+        return "doc".to_string();
+    }
+    "source".to_string()
+}
+
+fn bundle_source_registry_path(output: &Path) -> PathBuf {
+    output.join("state").join("source-registry.json")
+}
+
+fn write_bundle_source_registry(
+    output: &Path,
+    registry: &BootstrapSourceRegistry,
+) -> anyhow::Result<()> {
+    let path = bundle_source_registry_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(registry)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn read_bundle_source_registry(output: &Path) -> anyhow::Result<Option<BootstrapSourceRegistry>> {
+    let path = bundle_source_registry_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let registry = serde_json::from_str::<BootstrapSourceRegistry>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(registry))
+}
+
+fn file_modified_at(path: &Path) -> Option<DateTime<Utc>> {
+    fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .map(DateTime::<Utc>::from)
+}
+
+async fn refresh_project_bootstrap_memory(
+    output: &Path,
+) -> anyhow::Result<Option<(String, BootstrapSourceRegistry)>> {
+    let Some(mut registry) = read_bundle_source_registry(output)? else {
+        return Ok(None);
+    };
+
+    let Some(project_root) = PathBuf::from(&registry.project_root)
+        .exists()
+        .then(|| PathBuf::from(&registry.project_root))
+    else {
+        return Ok(None);
+    };
+
+    let mut changed = Vec::new();
+    for source in &mut registry.sources {
+        let path = project_root.join(&source.path);
+        if !path.exists() {
+            if source.present {
+                source.present = false;
+                changed.push((
+                    source.path.clone(),
+                    "(source no longer present)".to_string(),
+                ));
+            }
+            continue;
+        }
+        source.present = true;
+
+        let current_modified = file_modified_at(&path);
+        let current_bytes = fs::metadata(&path)
+            .map(|meta| meta.len() as usize)
+            .unwrap_or(0);
+        if source.modified_at == current_modified && source.bytes == current_bytes {
+            continue;
+        }
+
+        if let Some((snippet, meta)) = read_bootstrap_source(&path, 24) {
+            source.hash = meta.hash;
+            source.bytes = meta.bytes;
+            source.lines = meta.lines;
+            source.imported_at = Utc::now();
+            source.modified_at = current_modified;
+            changed.push((source.path.clone(), snippet));
+        }
+    }
+
+    if changed.is_empty() {
+        return Ok(None);
+    }
+
+    let mut markdown = String::new();
+    markdown.push_str("\n## Project source refresh\n\n");
+    markdown.push_str("The following project sources changed since the last import:\n\n");
+    for (path, snippet) in &changed {
+        markdown.push_str(&format!("### {}\n\n{}\n\n", path, snippet));
+    }
+
+    Ok(Some((markdown, registry)))
+}
+
 async fn write_bundle_memory_files(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
 ) -> anyhow::Result<()> {
     let markdown = render_bundle_memory_markdown(snapshot, handoff);
+    let markdown = if let Some((registry_markdown, registry)) =
+        refresh_project_bootstrap_memory(output).await?
+    {
+        write_bundle_source_registry(output, &registry)?;
+        format!("{markdown}\n{registry_markdown}")
+    } else {
+        markdown
+    };
     write_memory_markdown_files(output, &markdown)?;
     write_bundle_resume_state(output, snapshot)?;
     write_bundle_heartbeat(output, Some(snapshot), false).await
@@ -7328,6 +7826,7 @@ async fn apply_improvement_action(
 fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
     let planning_root = project_root.join(".planning");
     let mut evidence = Vec::new();
+    let mut repo_evidence = collect_gap_repo_evidence(project_root);
     let roadmap = read_text_file(&planning_root.join("ROADMAP.md"));
     let state = read_text_file(&planning_root.join("STATE.md"));
     let project = read_text_file(&planning_root.join("PROJECT.md"));
@@ -7370,7 +7869,150 @@ fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
         }
     }
 
+    evidence.append(&mut repo_evidence);
+
     evidence
+}
+
+fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
+    let mut evidence = Vec::new();
+    let branch = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .arg("branch")
+        .arg("--show-current")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    evidence.push(format!("git branch: {branch}"));
+
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .arg("status")
+        .arg("--short")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .take(12)
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if status.is_empty() {
+        evidence.push("git status: clean".to_string());
+    } else {
+        evidence.push(format!("git status: {}", status.join(" | ")));
+    }
+
+    for (path, label, keywords) in [
+        (
+            project_root.join("AGENTS.md"),
+            "AGENTS.md",
+            &["memd", "memory", "bootstrap"][..],
+        ),
+        (
+            project_root.join("CLAUDE.md"),
+            "CLAUDE.md",
+            &["memd", "memory", "hook"][..],
+        ),
+        (
+            project_root.join("MEMORY.md"),
+            "MEMORY.md",
+            &["memory", "memd", "decision"][..],
+        ),
+        (
+            project_root.join("README.md"),
+            "README.md",
+            &["memd", "setup", "memory"][..],
+        ),
+        (
+            project_root.join("ROADMAP.md"),
+            "ROADMAP.md",
+            &["v5", "v6", "memd"][..],
+        ),
+        (
+            project_root.join("docs/setup.md"),
+            "docs/setup.md",
+            &["memd", "bundle", "codex"][..],
+        ),
+        (
+            project_root.join("docs/infra-facts.md"),
+            "docs/infra-facts.md",
+            &["memd", "openclaw", "tailnet"][..],
+        ),
+        (
+            project_root.join(".planning/STATE.md"),
+            ".planning/STATE.md",
+            &["memory", "gap", "open loop"][..],
+        ),
+    ] {
+        if let Some(snippet) = read_keyword_snippet(&path, keywords, 4) {
+            evidence.push(format!("{label}: {snippet}"));
+        }
+    }
+
+    let local_bundle = project_root.join(".memd").join("config.json").exists();
+    let global_bundle = home_dir()
+        .map(|home| home.join(".memd").join("config.json").exists())
+        .unwrap_or(false);
+    evidence.push(format!(
+        "memd bundles: global={} project={}",
+        global_bundle, local_bundle
+    ));
+
+    let wiring = read_memd_runtime_wiring();
+    let codex_wired = wiring
+        .get("codex")
+        .and_then(|value| value.get("wired"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let claude_wired = wiring
+        .get("claude")
+        .and_then(|value| value.get("wired"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let openclaw_wired = wiring
+        .get("openclaw")
+        .and_then(|value| value.get("wired"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    evidence.push(format!(
+        "runtime wiring: codex={} claude={} openclaw={}",
+        codex_wired, claude_wired, openclaw_wired
+    ));
+
+    evidence
+}
+
+fn read_keyword_snippet(path: &Path, keywords: &[&str], max_lines: usize) -> Option<String> {
+    let contents = read_text_file(path)?;
+    let keywords = keywords
+        .iter()
+        .map(|keyword| keyword.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let lines = contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            keywords.iter().any(|keyword| lower.contains(keyword))
+        })
+        .take(max_lines)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join(" | "))
+    }
 }
 
 async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
@@ -8452,6 +9094,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let health = client.healthz().await.ok();
     let runtime = read_bundle_runtime_config(output)?;
     let heartbeat = read_bundle_heartbeat(output)?;
+    let runtimes = read_memd_runtime_wiring();
     let config_exists = output.join("config.json").exists();
     let env_exists = output.join("env").exists();
     let env_ps1_exists = output.join("env.ps1").exists();
@@ -8596,6 +9239,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "agents": agents_exists,
         "setup_ready": setup_ready,
         "missing": missing,
+        "runtimes": runtimes,
         "active_agent": runtime.as_ref().and_then(|config| config.agent.clone()),
         "defaults": runtime.as_ref().map(|config| serde_json::json!({
             "project": config.project,
@@ -8633,6 +9277,89 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "healthy": null,
         })),
     }))
+}
+
+fn read_memd_runtime_wiring() -> serde_json::Value {
+    let codex = detect_codex_memd_wiring();
+    let claude = detect_claude_memd_wiring();
+    let openclaw = detect_openclaw_memd_wiring();
+    serde_json::json!({
+        "codex": codex,
+        "claude": claude,
+        "openclaw": openclaw,
+        "all_wired": codex.get("wired").and_then(|value| value.as_bool()).unwrap_or(false)
+            && claude.get("wired").and_then(|value| value.as_bool()).unwrap_or(false)
+            && openclaw.get("wired").and_then(|value| value.as_bool()).unwrap_or(false),
+    })
+}
+
+fn detect_codex_memd_wiring() -> serde_json::Value {
+    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let config = home.join(".codex").join("config.toml");
+    let hook = home
+        .join(".codex")
+        .join("hooks")
+        .join("memd-session-context.js");
+    let skill = home
+        .join(".codex")
+        .join("skills")
+        .join("memd")
+        .join("SKILL.md");
+    let hook_wired = hook.exists()
+        && fs::read_to_string(&hook)
+            .ok()
+            .map(|content| content.contains("memd"))
+            .unwrap_or(false);
+    let skill_wired = skill.exists();
+    serde_json::json!({
+        "wired": config.exists() && hook_wired && skill_wired,
+        "config": config.exists(),
+        "hook": hook_wired,
+        "skill": skill_wired,
+    })
+}
+
+fn detect_claude_memd_wiring() -> serde_json::Value {
+    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let settings = home.join(".claude").join("settings.json");
+    let hook = home
+        .join(".claude")
+        .join("hooks")
+        .join("gsd-session-context.js");
+    let hook_wired = hook.exists()
+        && fs::read_to_string(&hook)
+            .ok()
+            .map(|content| content.contains("memd"))
+            .unwrap_or(false);
+    serde_json::json!({
+        "wired": settings.exists() && hook_wired,
+        "settings": settings.exists(),
+        "hook": hook_wired,
+    })
+}
+
+fn detect_openclaw_memd_wiring() -> serde_json::Value {
+    let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let ag = home.join(".openclaw").join("workspace").join("AGENTS.md");
+    let bootstrap = home
+        .join(".openclaw")
+        .join("workspace")
+        .join("BOOTSTRAP.md");
+    let ag_wired = ag.exists()
+        && fs::read_to_string(&ag)
+            .ok()
+            .map(|content| content.contains("memd"))
+            .unwrap_or(false);
+    let bootstrap_wired = bootstrap.exists()
+        && fs::read_to_string(&bootstrap)
+            .ok()
+            .map(|content| content.contains("memd"))
+            .unwrap_or(false);
+    serde_json::json!({
+        "wired": ag_wired && bootstrap_wired,
+        "agents": ag_wired,
+        "bootstrap": bootstrap_wired,
+    })
 }
 
 fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfigState>> {
@@ -10501,6 +11228,35 @@ struct BundleRuntimeConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProjectBootstrapBundle {
+    markdown: String,
+    registry: BootstrapSourceRegistry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BootstrapSourceRegistry {
+    project: String,
+    project_root: String,
+    imported_at: DateTime<Utc>,
+    sources: Vec<BootstrapSourceRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BootstrapSourceRecord {
+    path: String,
+    kind: String,
+    hash: String,
+    bytes: usize,
+    lines: usize,
+    #[serde(default)]
+    present: bool,
+    #[serde(default)]
+    imported_at: DateTime<Utc>,
+    #[serde(default)]
+    modified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BundleResumeState {
     focus: Option<String>,
     pressure: Option<String>,
@@ -11626,7 +12382,7 @@ mod tests {
             rag_url: Some("http://127.0.0.1:9000".to_string()),
         };
 
-        write_bundle_memory_placeholder(&dir, &config).expect("write placeholder");
+        write_bundle_memory_placeholder(&dir, &config, None).expect("write placeholder");
         write_native_agent_bridge_files(&dir).expect("write native bridge");
 
         let markdown = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
@@ -11641,6 +12397,236 @@ mod tests {
         assert!(claude_imports.contains("/memory"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn init_bootstrap_summarizes_existing_project_files() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-init-bootstrap-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(project_root.join(".planning")).expect("create project root");
+        fs::write(
+            project_root.join("CLAUDE.md"),
+            "# project instructions\n\nremember memd",
+        )
+        .expect("write claude");
+        fs::write(
+            project_root.join("DESIGN.md"),
+            "# design\n\nuse clean typography",
+        )
+        .expect("write design");
+        fs::write(
+            project_root.join(".planning").join("STATE.md"),
+            "# state\n\nactive",
+        )
+        .expect("write state");
+        fs::write(project_root.join("README.md"), "# demo repo").expect("write readme");
+
+        let args = InitArgs {
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(project_root.clone()),
+            seed_existing: true,
+            agent: "codex".to_string(),
+            session: None,
+            output: project_root.join(".memd"),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: false,
+        };
+
+        let bootstrap = build_project_bootstrap_memory(Some(project_root.as_path()), "demo", &args)
+            .expect("build bootstrap")
+            .expect("bootstrap context");
+        assert!(bootstrap.markdown.contains("CLAUDE.md"));
+        assert!(bootstrap.markdown.contains("DESIGN.md"));
+        assert!(bootstrap.markdown.contains(".planning/STATE.md"));
+        assert!(bootstrap.markdown.contains("README.md"));
+        assert!(bootstrap.markdown.contains("project instructions"));
+        assert!(bootstrap.markdown.contains("clean typography"));
+        assert_eq!(bootstrap.registry.project, "demo");
+        assert!(
+            bootstrap
+                .registry
+                .sources
+                .iter()
+                .any(|source| source.path.ends_with("CLAUDE.md"))
+        );
+        assert!(
+            bootstrap
+                .registry
+                .sources
+                .iter()
+                .any(|source| source.kind == "design")
+        );
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn init_bootstrap_writes_source_registry() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-init-registry-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(project_root.join(".planning")).expect("create planning");
+        fs::write(project_root.join("AGENTS.md"), "# agents\n\nmemd").expect("write agents");
+        fs::write(project_root.join("README.md"), "# demo repo").expect("write readme");
+
+        let output = project_root.join(".memd");
+        let args = InitArgs {
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(project_root.clone()),
+            seed_existing: true,
+            agent: "codex".to_string(),
+            session: None,
+            output: output.clone(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: false,
+        };
+
+        let bootstrap = build_project_bootstrap_memory(Some(project_root.as_path()), "demo", &args)
+            .expect("build bootstrap")
+            .expect("bootstrap context");
+        write_bundle_source_registry(&output, &bootstrap.registry).expect("write registry");
+
+        let registry_path = bundle_source_registry_path(&output);
+        let raw = fs::read_to_string(&registry_path).expect("read registry");
+        let registry: BootstrapSourceRegistry = serde_json::from_str(&raw).expect("parse registry");
+
+        assert_eq!(registry.project, "demo");
+        assert_eq!(registry.sources.len(), 2);
+        assert!(
+            registry
+                .sources
+                .iter()
+                .any(|source| source.path == "AGENTS.md")
+        );
+        assert!(
+            registry
+                .sources
+                .iter()
+                .any(|source| source.path == "README.md")
+        );
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn refresh_bootstrap_memory_detects_changed_source() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-refresh-registry-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(project_root.join(".planning")).expect("create planning");
+        fs::write(project_root.join("README.md"), "# demo repo").expect("write readme");
+
+        let output = project_root.join(".memd");
+        let args = InitArgs {
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(project_root.clone()),
+            seed_existing: true,
+            agent: "codex".to_string(),
+            session: None,
+            output: output.clone(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: false,
+        };
+
+        let bootstrap = build_project_bootstrap_memory(Some(project_root.as_path()), "demo", &args)
+            .expect("build bootstrap")
+            .expect("bootstrap context");
+        write_bundle_source_registry(&output, &bootstrap.registry).expect("write registry");
+
+        fs::write(project_root.join("README.md"), "# demo repo\n\nchanged")
+            .expect("rewrite readme");
+
+        let refreshed = tokio::runtime::Runtime::new()
+            .expect("create runtime")
+            .block_on(refresh_project_bootstrap_memory(&output))
+            .expect("refresh bootstrap")
+            .expect("changed sources");
+
+        assert!(refreshed.0.contains("Project source refresh"));
+        let registry = refreshed.1;
+        assert_eq!(registry.sources.len(), 1);
+        assert!(registry.sources[0].imported_at >= bootstrap.registry.sources[0].imported_at);
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn init_output_prefers_project_root_when_seeded_from_repo() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-init-output-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&project_root).expect("create temp project root");
+
+        let args = InitArgs {
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(project_root.clone()),
+            seed_existing: true,
+            agent: "codex".to_string(),
+            session: None,
+            output: default_init_output_path(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: false,
+        };
+
+        let resolved = resolve_init_output_path(&args, Some(project_root.as_path()));
+        assert_eq!(resolved, project_root.join(".memd"));
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn init_output_prefers_global_bundle_when_requested() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-init-global-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&project_root).expect("create temp project root");
+
+        let args = InitArgs {
+            project: None,
+            namespace: None,
+            global: true,
+            project_root: Some(project_root.clone()),
+            seed_existing: true,
+            agent: "codex".to_string(),
+            session: None,
+            output: default_init_output_path(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: false,
+        };
+
+        let resolved = resolve_init_output_path(&args, Some(project_root.as_path()));
+        assert_eq!(resolved, default_global_bundle_root());
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
     }
 
     #[test]
@@ -13665,6 +14651,58 @@ mod tests {
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
+    }
+
+    #[test]
+    fn collect_gap_repo_evidence_surfaces_repo_docs_and_runtime_signals() {
+        let root =
+            std::env::temp_dir().join(format!("memd-gap-repo-evidence-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("docs")).expect("create docs dir");
+        fs::create_dir_all(root.join(".planning")).expect("create planning dir");
+        fs::write(
+            root.join("README.md"),
+            "# memd\n\nThis repo uses memd for memory and setup.",
+        )
+        .expect("write readme");
+        fs::write(
+            root.join("ROADMAP.md"),
+            "# roadmap\n\n## v6\nmemd gap research loop.",
+        )
+        .expect("write roadmap");
+        fs::write(
+            root.join("docs").join("setup.md"),
+            "memd init and codex bootstrap",
+        )
+        .expect("write setup");
+        fs::write(
+            root.join(".planning").join("STATE.md"),
+            "## Open Loops\n- gap research loop",
+        )
+        .expect("write state");
+
+        let evidence = collect_gap_repo_evidence(&root);
+        assert!(
+            evidence.iter().any(|line| line.contains("git branch:")),
+            "expected git branch evidence"
+        );
+        assert!(
+            evidence.iter().any(|line| line.contains("README.md:")),
+            "expected README evidence"
+        );
+        assert!(
+            evidence.iter().any(|line| line.contains("ROADMAP.md:")),
+            "expected ROADMAP evidence"
+        );
+        assert!(
+            evidence.iter().any(|line| line.contains("docs/setup.md:")),
+            "expected setup doc evidence"
+        );
+        assert!(
+            evidence.iter().any(|line| line.contains("runtime wiring:")),
+            "expected runtime wiring evidence"
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp repo");
     }
 
     #[test]

@@ -105,11 +105,9 @@ What is already real in the repo:
 
 What is still not good enough yet:
 
-- shared short-term state is not yet a true real-time canonical sync layer across machines and harnesses
-- `memd-server` still needs to become the primary live coworking hub for active task state, not only durable storage and brokered coordination primitives
-- the default operator path is still too project-bundle-centric instead of global-first
-- cross-project live memory lanes are not first-class yet
-- provider collision handling is still more architectural intent than shipped control plane behavior
+- the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading unchanged ones
+- runtime adoption still needs to reach every major agent surface beyond the core bootstrap hooks
+- the operator-facing status and summary views can still expose the layered memory model more clearly
 
 ## Deployment Tiers
 
@@ -572,8 +570,17 @@ Success:
 5. Make `memd` global-first: default global bundle root, then project and cross-project overlays.
 6. Add cross-project live lanes so related repos can sync active state without flattening all memory.
 7. Expand inspectability from bundle files into richer workspace and UI surfaces.
-8. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
-9. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
+8. Add a Codex-native `memd-reload` skill and matching shell shim so existing sessions can bootstrap memory immediately instead of waiting for the next tool use.
+9. Make `memd init` seed a project bundle from existing repo docs, planner files, and existing Claude memory when run inside a project so the first project lane is immediately useful.
+10. Make the user-facing flow obviously usable: one front door that auto-detects setup vs reload so the user only has to remember `$memd`.
+11. Add a bootstrap preflight that detects `AGENTS.md` / `CLAUDE.md` / planning docs, seeds from whatever exists, and does not require a separate Codex `/init` step.
+12. Treat repo introspection as first-class memory input: `AGENTS.md`, `CLAUDE.md`, `.planning/*`, `README.md`, `ROADMAP.md`, `docs/*`, lockfiles, config, and git history should all feed a structured project bundle with source and confidence.
+13. Record a fingerprinted source registry for imported harness memories so unchanged files stay read-once and only changed sources get re-imported.
+13. Add git-aware incremental sync so memd updates memory from diffs and changed files instead of only one-time bootstrap sweeps.
+14. Keep global, project, and cross-project memory layered but queryable together, with explicit provenance and confidence on each memory item.
+15. Make Codex, Claude, and OpenClaw all bootstrap from memd once, then treat memd as the shared memory source of truth for future sessions.
+16. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable, and prune stale or noisy items aggressively.
+17. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
 
 ## Non-Goals
 
