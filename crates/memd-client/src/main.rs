@@ -61,7 +61,7 @@ use serde::{Deserialize, Serialize};
 #[command(name = "memd")]
 #[command(about = "Compact CLI for memd")]
 struct Cli {
-    #[arg(long, default_value = "http://127.0.0.1:8787")]
+    #[arg(long, default_value_t = default_base_url())]
     base_url: String,
 
     #[command(subcommand)]
@@ -85,6 +85,7 @@ enum Commands {
     Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
+    Refresh(ResumeArgs),
     Handoff(HandoffArgs),
     Checkpoint(CheckpointArgs),
     Remember(RememberArgs),
@@ -887,10 +888,13 @@ struct HookSpillArgs {
 #[derive(Debug, Clone, Args)]
 struct InitArgs {
     #[arg(long)]
-    project: String,
+    project: Option<String>,
 
     #[arg(long)]
     namespace: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    global: bool,
 
     #[arg(long)]
     agent: String,
@@ -898,10 +902,10 @@ struct InitArgs {
     #[arg(long)]
     session: Option<String>,
 
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
-    #[arg(long, default_value = "http://127.0.0.1:8787")]
+    #[arg(long, default_value_t = default_base_url())]
     base_url: String,
 
     #[arg(long)]
@@ -910,7 +914,7 @@ struct InitArgs {
     #[arg(long, default_value = "auto")]
     route: String,
 
-    #[arg(long, default_value = "general")]
+    #[arg(long, default_value = "current_task")]
     intent: String,
 
     #[arg(long)]
@@ -925,13 +929,13 @@ struct InitArgs {
 
 #[derive(Debug, Clone, Args)]
 struct StatusArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
 struct AwarenessArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -946,7 +950,7 @@ struct AwarenessArgs {
 
 #[derive(Debug, Clone, Args)]
 struct HeartbeatArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -964,7 +968,7 @@ struct HeartbeatArgs {
 
 #[derive(Debug, Clone, Args)]
 struct ClaimsArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -988,7 +992,7 @@ struct ClaimsArgs {
 
 #[derive(Debug, Clone, Args)]
 struct MessagesArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1027,7 +1031,7 @@ struct MessagesArgs {
 
 #[derive(Debug, Clone, Args)]
 struct TasksArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1072,7 +1076,7 @@ struct TasksArgs {
 
 #[derive(Debug, Clone, Args)]
 struct CoordinationArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1099,11 +1103,17 @@ struct CoordinationArgs {
 
 #[derive(Debug, Clone, Args)]
 struct BundleArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
     base_url: Option<String>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
 
     #[arg(long)]
     auto_short_term_capture: Option<bool>,
@@ -1114,7 +1124,7 @@ struct BundleArgs {
 
 #[derive(Debug, Clone, Args)]
 struct EvalArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1138,7 +1148,7 @@ struct EvalArgs {
 
 #[derive(Debug, Clone, Args)]
 struct GapArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1156,7 +1166,7 @@ struct GapArgs {
 
 #[derive(Debug, Clone, Args)]
 struct ImproveArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long, default_value_t = 3)]
@@ -1180,7 +1190,7 @@ struct ImproveArgs {
 
 #[derive(Debug, Clone, Args)]
 struct AttachArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1189,7 +1199,7 @@ struct AttachArgs {
 
 #[derive(Debug, Clone, Args)]
 struct AgentArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1210,7 +1220,7 @@ struct AgentArgs {
 
 #[derive(Debug, Clone, Args)]
 struct ResumeArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1252,7 +1262,7 @@ struct ResumeArgs {
 
 #[derive(Debug, Clone, Args)]
 struct HandoffArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1300,7 +1310,7 @@ struct HandoffArgs {
 
 #[derive(Debug, Clone, Args)]
 struct RememberArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1354,7 +1364,7 @@ struct RememberArgs {
 
 #[derive(Debug, Clone, Args)]
 struct CheckpointArgs {
-    #[arg(long, default_value = ".memd")]
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
     #[arg(long)]
@@ -1518,7 +1528,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => print_json(&read_bundle_status(&args.output, &base_url).await?)?,
         Commands::Awareness(args) => {
-            let response = read_project_awareness(&args)?;
+            let response = read_project_awareness(&args).await?;
             if args.summary {
                 println!("{}", render_project_awareness_summary(&response));
             } else {
@@ -1629,6 +1639,12 @@ async fn main() -> anyhow::Result<()> {
             if let Some(value) = args.base_url.as_deref() {
                 set_bundle_base_url(&args.output, value)?;
             }
+            if let Some(value) = args.route.as_deref() {
+                set_bundle_route(&args.output, value)?;
+            }
+            if let Some(value) = args.intent.as_deref() {
+                set_bundle_intent(&args.output, value)?;
+            }
             if let Some(value) = args.auto_short_term_capture {
                 set_bundle_auto_short_term_capture(&args.output, value)?;
             }
@@ -1644,10 +1660,22 @@ async fn main() -> anyhow::Result<()> {
                     .and_then(|value| value.get("auto_short_term_capture"))
                     .and_then(|value| value.as_bool())
                     .unwrap_or(true);
+                let route = status
+                    .get("defaults")
+                    .and_then(|value| value.get("route"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("auto");
+                let intent = status
+                    .get("defaults")
+                    .and_then(|value| value.get("intent"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("general");
                 println!(
-                    "bundle={} base_url={} auto_short_term_capture={}",
+                    "bundle={} base_url={} route={} intent={} auto_short_term_capture={}",
                     args.output.display(),
                     base_url,
+                    route,
+                    intent,
                     if enabled { "true" } else { "false" }
                 );
             } else {
@@ -1781,6 +1809,45 @@ async fn main() -> anyhow::Result<()> {
                 );
             } else {
                 print_json(&snapshot)?;
+            }
+        }
+        Commands::Refresh(args) => {
+            let snapshot = read_bundle_resume(&args, &base_url).await?;
+            write_bundle_memory_files(&args.output, &snapshot, None).await?;
+            if args.prompt {
+                println!("{}", render_resume_prompt(&snapshot));
+            } else {
+                let focus = snapshot
+                    .working
+                    .records
+                    .first()
+                    .map(|record| compact_inline(&record.record, 72))
+                    .unwrap_or_else(|| "none".to_string());
+                let pressure = snapshot
+                    .inbox
+                    .items
+                    .first()
+                    .map(|item| compact_inline(&item.item.content, 72))
+                    .unwrap_or_else(|| "none".to_string());
+                println!(
+                    "refresh project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
+                    snapshot.project.as_deref().unwrap_or("none"),
+                    snapshot.namespace.as_deref().unwrap_or("none"),
+                    snapshot.agent.as_deref().unwrap_or("none"),
+                    snapshot.workspace.as_deref().unwrap_or("none"),
+                    snapshot.visibility.as_deref().unwrap_or("all"),
+                    snapshot.context.records.len(),
+                    snapshot.working.records.len(),
+                    snapshot.inbox.items.len(),
+                    snapshot.workspaces.workspaces.len(),
+                    snapshot.change_summary.len(),
+                    snapshot.estimated_prompt_tokens(),
+                    snapshot.context_pressure(),
+                    snapshot.redundant_context_items(),
+                    snapshot.refresh_recommended,
+                    focus,
+                    pressure,
+                );
             }
         }
         Commands::Handoff(args) => {
@@ -2533,10 +2600,7 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Init(args) => {
             write_init_bundle(&args)?;
-            println!(
-                "Initialized memd project bundle at {}",
-                args.output.display()
-            );
+            println!("Initialized memd bundle at {}", args.output.display());
         }
     }
 
@@ -4066,6 +4130,11 @@ fn resolve_default_bundle_root() -> anyhow::Result<Option<PathBuf>> {
         }
     }
 
+    let global_root = default_global_bundle_root();
+    if global_root.join("config.json").exists() {
+        return Ok(Some(global_root));
+    }
+
     let cwd = std::env::current_dir().context("read current directory")?;
     let bundle_root = cwd.join(".memd");
     if bundle_root.join("config.json").exists() {
@@ -4204,6 +4273,55 @@ fn default_auto_short_term_capture() -> bool {
     true
 }
 
+fn default_base_url() -> String {
+    std::env::var("MEMD_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string())
+}
+
+fn default_bundle_root_path() -> PathBuf {
+    if let Ok(value) = std::env::var("MEMD_BUNDLE_ROOT") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    default_global_bundle_root()
+}
+
+fn default_global_bundle_root() -> PathBuf {
+    home_dir()
+        .map(|path| path.join(".memd"))
+        .unwrap_or_else(|| PathBuf::from(".memd"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+}
+
+fn init_project_name(args: &InitArgs) -> String {
+    args.project
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "global".to_string())
+}
+
+fn init_namespace_name(args: &InitArgs) -> Option<String> {
+    args.namespace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| args.global.then(|| "global".to_string()))
+}
+
+fn default_heartbeat_model() -> String {
+    "llama-desktop/qwen".to_string()
+}
+
 fn default_bundle_session() -> String {
     format!(
         "session-{}",
@@ -4239,11 +4357,13 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(default_bundle_session);
+    let project = init_project_name(args);
+    let namespace = init_namespace_name(args);
 
     let config = BundleConfig {
         schema_version: 2,
-        project: args.project.clone(),
-        namespace: args.namespace.clone(),
+        project: project.clone(),
+        namespace: namespace.clone(),
         agent: args.agent.clone(),
         session: session.clone(),
         base_url: args.base_url.clone(),
@@ -4251,6 +4371,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         intent: args.intent.clone(),
         workspace: args.workspace.clone(),
         visibility: args.visibility.clone(),
+        heartbeat_model: default_heartbeat_model(),
         auto_short_term_capture: true,
         backend: BundleBackendConfig {
             rag: BundleRagConfig {
@@ -4278,10 +4399,10 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_SESSION={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_SESSION={}\nMEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_HEARTBEAT_MODEL={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
             args.base_url,
-            args.project,
-            args.namespace
+            project,
+            namespace
                 .as_ref()
                 .map(|value| format!("MEMD_NAMESPACE={value}\n"))
                 .unwrap_or_default(),
@@ -4289,6 +4410,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             session,
             args.route,
             args.intent,
+            config.heartbeat_model,
             if config.auto_short_term_capture { "true" } else { "false" },
             args.workspace
                 .as_ref()
@@ -4309,10 +4431,10 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_HEARTBEAT_MODEL = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
-            escape_ps1(&args.project),
-            args.namespace
+            escape_ps1(&project),
+            namespace
                 .as_ref()
                 .map(|value| format!("$env:MEMD_NAMESPACE = \"{}\"\n", escape_ps1(value)))
                 .unwrap_or_default(),
@@ -4320,6 +4442,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             escape_ps1(&session),
             escape_ps1(&args.route),
             escape_ps1(&args.intent),
+            escape_ps1(&config.heartbeat_model),
             if config.auto_short_term_capture { "true" } else { "false" },
             args.workspace
                 .as_ref()
@@ -4346,8 +4469,8 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd project bundle\n\nThis directory contains the local memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `cargo run -p memd-client --bin memd -- status --output {bundle}`\n2. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n3. Resume the compact local working set:\n   - `cargo run -p memd-client --bin memd -- resume --output {bundle} --intent current_task`\n\n## Notes\n\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
-            project = args.project,
+            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `cargo run -p memd-client --bin memd -- status --output {bundle}`\n2. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n3. Resume the compact local working set:\n   - `cargo run -p memd-client --bin memd -- resume --output {bundle} --intent current_task`\n\n## Notes\n\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            project = project,
             bundle = output.display(),
         ),
     )
@@ -4401,7 +4524,7 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
     ));
     markdown.push_str("## Bundle Defaults\n\n");
     markdown.push_str(&format!(
-        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n- auto_short_term_capture: {}\n",
+        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n- heartbeat_model: {}\n- auto_short_term_capture: {}\n",
         config.project,
         config.namespace.as_deref().unwrap_or("none"),
         config.agent,
@@ -4409,6 +4532,7 @@ fn write_bundle_memory_placeholder(output: &Path, config: &BundleConfig) -> anyh
         config.visibility.as_deref().unwrap_or("all"),
         config.route,
         config.intent,
+        config.heartbeat_model,
         if config.auto_short_term_capture { "true" } else { "false" },
     ));
     markdown.push_str("\n## Notes\n\n");
@@ -4536,6 +4660,7 @@ fn build_bundle_heartbeat(
         intent: None,
         workspace: None,
         visibility: None,
+        heartbeat_model: Some(default_heartbeat_model()),
         auto_short_term_capture: true,
     });
     let session = runtime.session.clone();
@@ -4590,6 +4715,7 @@ fn build_bundle_heartbeat(
         session,
         agent,
         effective_agent,
+        heartbeat_model: runtime.heartbeat_model,
         project: snapshot
             .and_then(|value| value.project.clone())
             .or(runtime.project),
@@ -4629,6 +4755,7 @@ async fn write_bundle_heartbeat(
     }
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
+    publish_bundle_heartbeat(&state).await?;
     Ok(())
 }
 
@@ -4641,9 +4768,49 @@ async fn refresh_bundle_heartbeat(
     read_bundle_heartbeat(output)?.context("reload bundle heartbeat after write")
 }
 
+async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Result<()> {
+    let Some(base_url) = state
+        .base_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    let Some(session) = state
+        .session
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(());
+    };
+
+    let client = MemdClient::new(base_url)?;
+    let _ = client
+        .upsert_peer_session(&memd_schema::PeerSessionUpsertRequest {
+            session: session.to_string(),
+            agent: state.agent.clone(),
+            effective_agent: state.effective_agent.clone(),
+            heartbeat_model: state.heartbeat_model.clone(),
+            project: state.project.clone(),
+            namespace: state.namespace.clone(),
+            workspace: state.workspace.clone(),
+            visibility: state.visibility.clone(),
+            base_url: state.base_url.clone(),
+            base_url_healthy: state.base_url_healthy,
+            host: state.host.clone(),
+            pid: state.pid,
+            focus: state.focus.clone(),
+            pressure: state.pressure.clone(),
+            next_recovery: state.next_recovery.clone(),
+            status: Some(state.status.clone()),
+        })
+        .await;
+    Ok(())
+}
+
 fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
     format!(
-        "heartbeat project={} agent={} session={} presence={} base_url={} focus=\"{}\" pressure=\"{}\"",
+        "heartbeat project={} agent={} session={} presence={} model={} base_url={} focus=\"{}\" pressure=\"{}\"",
         state.project.as_deref().unwrap_or("none"),
         state
             .effective_agent
@@ -4652,6 +4819,7 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
             .unwrap_or("none"),
         state.session.as_deref().unwrap_or("none"),
         heartbeat_presence_label(state.last_seen),
+        state.heartbeat_model.as_deref().unwrap_or("none"),
         state.base_url.as_deref().unwrap_or("none"),
         state
             .focus
@@ -4684,6 +4852,8 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             .as_deref()
             .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
     });
+    let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let (shared_project, shared_namespace) = shared_awareness_scope(runtime.as_ref());
     let client = MemdClient::new(&current_base_url)?;
 
     if args.acquire {
@@ -4704,7 +4874,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
                 effective_agent: current_effective_agent,
                 project: runtime.as_ref().and_then(|config| config.project.clone()),
                 namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-                workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+                workspace: current_workspace.clone(),
                 host: heartbeat.as_ref().and_then(|value| value.host.clone()),
                 pid: heartbeat.as_ref().and_then(|value| value.pid),
                 ttl_seconds: args.ttl_secs,
@@ -4723,9 +4893,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             claims: client
                 .peer_claims(&memd_schema::PeerClaimsRequest {
                     session: None,
-                    project: runtime.as_ref().and_then(|config| config.project.clone()),
-                    namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-                    workspace: None,
+                    project: shared_project.clone(),
+                    namespace: shared_namespace.clone(),
+                    workspace: current_workspace.clone(),
                     active_only: Some(true),
                     limit: Some(512),
                 })
@@ -4760,7 +4930,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         let session = current_session
             .as_deref()
             .context("claims --transfer-to-session requires a configured bundle session")?;
-        let target = resolve_target_session_bundle(&args.output, target_session)?;
+        let target = resolve_target_session_bundle(&args.output, target_session).await?;
         let response = client
             .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
                 scope: scope.to_string(),
@@ -4789,9 +4959,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             claims: client
                 .peer_claims(&memd_schema::PeerClaimsRequest {
                     session: None,
-                    project: runtime.as_ref().and_then(|config| config.project.clone()),
-                    namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-                    workspace: None,
+                    project: shared_project.clone(),
+                    namespace: shared_namespace.clone(),
+                    workspace: current_workspace.clone(),
                     active_only: Some(true),
                     limit: Some(512),
                 })
@@ -4867,9 +5037,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
     let response = client
         .peer_claims(&memd_schema::PeerClaimsRequest {
             session: None,
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-            workspace: None,
+            project: shared_project,
+            namespace: shared_namespace,
+            workspace: current_workspace,
             active_only: Some(true),
             limit: Some(512),
         })
@@ -4951,7 +5121,8 @@ async fn run_messages_command(
             .context("messages --send requires a configured bundle session")?;
         let (kind, content) = derive_outbound_message(args)
             .context("messages --send requires --content or a request helper")?;
-        let target = resolve_target_session_bundle(&args.output, target_session)?
+        let target = resolve_target_session_bundle(&args.output, target_session)
+            .await?
             .context("target session not found in awareness")?;
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
@@ -5298,7 +5469,8 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let session = current_session
             .as_deref()
             .context("tasks --assign-to-session requires a configured bundle session")?;
-        let target = resolve_target_session_bundle(&args.output, target_session)?
+        let target = resolve_target_session_bundle(&args.output, target_session)
+            .await?
             .context("target session not found in awareness")?;
 
         let existing = client
@@ -5385,7 +5557,8 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let from_session = current_session
             .as_deref()
             .context("tasks help/review requires a configured bundle session")?;
-        let target = resolve_target_session_bundle(&args.output, target_session)?
+        let target = resolve_target_session_bundle(&args.output, target_session)
+            .await?
             .context("target session not found in awareness")?;
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
@@ -5569,7 +5742,8 @@ async fn run_coordination_command(
         root: None,
         include_current: true,
         summary: false,
-    })?;
+    })
+    .await?;
     let current_project = runtime.as_ref().and_then(|config| config.project.clone());
     let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
@@ -8434,6 +8608,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "intent": config.intent,
             "workspace": config.workspace,
             "visibility": config.visibility,
+            "heartbeat_model": config.heartbeat_model,
             "auto_short_term_capture": config.auto_short_term_capture,
         })),
         "heartbeat": heartbeat.as_ref().map(|value| serde_json::json!({
@@ -8441,6 +8616,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "agent": value.agent,
             "effective_agent": value.effective_agent,
             "presence": heartbeat_presence_label(value.last_seen),
+            "heartbeat_model": value.heartbeat_model,
             "base_url": value.base_url,
             "host": value.host,
             "pid": value.pid,
@@ -8472,7 +8648,7 @@ fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfi
     Ok(resolve_bundle_rag_config(config))
 }
 
-fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRuntimeConfig>> {
+fn read_bundle_runtime_config_raw(output: &Path) -> anyhow::Result<Option<BundleRuntimeConfig>> {
     let config_path = output.join("config.json");
     if !config_path.exists() {
         return Ok(None);
@@ -8492,8 +8668,69 @@ fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRunt
         intent: config.intent,
         workspace: config.workspace,
         visibility: config.visibility,
+        heartbeat_model: config.heartbeat_model,
         auto_short_term_capture: config.auto_short_term_capture,
     }))
+}
+
+fn resolve_project_bundle_overlay(
+    output: &Path,
+    current_dir: &Path,
+    global_root: &Path,
+) -> anyhow::Result<Option<BundleRuntimeConfig>> {
+    let output = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    let global_root = fs::canonicalize(global_root).unwrap_or_else(|_| global_root.to_path_buf());
+    if output != global_root {
+        return Ok(None);
+    }
+
+    let local_bundle = current_dir.join(".memd");
+    let local_bundle = fs::canonicalize(&local_bundle).unwrap_or(local_bundle);
+    if local_bundle == output {
+        return Ok(None);
+    }
+
+    read_bundle_runtime_config_raw(&local_bundle)
+}
+
+fn merge_bundle_runtime_config(
+    mut runtime: BundleRuntimeConfig,
+    overlay: BundleRuntimeConfig,
+) -> BundleRuntimeConfig {
+    if overlay.project.is_some() {
+        runtime.project = overlay.project;
+    }
+    if overlay.namespace.is_some() {
+        runtime.namespace = overlay.namespace;
+    }
+    if overlay.workspace.is_some() {
+        runtime.workspace = overlay.workspace;
+    }
+    if overlay.visibility.is_some() {
+        runtime.visibility = overlay.visibility;
+    }
+    if overlay.route.is_some() {
+        runtime.route = overlay.route;
+    }
+    if overlay.intent.is_some() {
+        runtime.intent = overlay.intent;
+    }
+    runtime
+}
+
+fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRuntimeConfig>> {
+    let Some(mut runtime) = read_bundle_runtime_config_raw(output)? else {
+        return Ok(None);
+    };
+
+    let current_dir = std::env::current_dir().context("read current directory")?;
+    if let Some(overlay) =
+        resolve_project_bundle_overlay(output, &current_dir, &default_global_bundle_root())?
+    {
+        runtime = merge_bundle_runtime_config(runtime, overlay);
+    }
+
+    Ok(Some(runtime))
 }
 
 fn bundle_auto_short_term_capture_enabled(output: &Path) -> anyhow::Result<bool> {
@@ -8507,7 +8744,7 @@ fn bundle_auto_short_term_capture_enabled(output: &Path) -> anyhow::Result<bool>
         .unwrap_or(true))
 }
 
-fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
+fn resolve_awareness_paths(args: &AwarenessArgs) -> anyhow::Result<(PathBuf, PathBuf, PathBuf)> {
     let current_bundle = if args.output.is_absolute() {
         args.output.clone()
     } else {
@@ -8531,6 +8768,202 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             .unwrap_or_else(|| current_project.clone())
     };
     let scan_root = fs::canonicalize(&scan_root).unwrap_or(scan_root);
+
+    Ok((current_bundle, current_project, scan_root))
+}
+
+async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
+    let local = read_project_awareness_local(args)?;
+    if let Some(shared) = read_project_awareness_shared(args, &local).await? {
+        return Ok(shared);
+    }
+    Ok(local)
+}
+
+async fn read_project_awareness_shared(
+    args: &AwarenessArgs,
+    fallback: &ProjectAwarenessResponse,
+) -> anyhow::Result<Option<ProjectAwarenessResponse>> {
+    let (current_bundle, _, _) = resolve_awareness_paths(args)?;
+    let runtime = read_bundle_runtime_config(&current_bundle)?;
+    let Some(base_url) = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return Ok(None);
+    };
+
+    let client = match MemdClient::new(&base_url) {
+        Ok(client) => client,
+        Err(_) => return Ok(None),
+    };
+    let workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let (shared_project, shared_namespace) = shared_awareness_scope(runtime.as_ref());
+
+    let sessions = match client
+        .peer_sessions(&memd_schema::PeerSessionsRequest {
+            session: None,
+            project: shared_project.clone(),
+            namespace: shared_namespace.clone(),
+            workspace: workspace.clone(),
+            active_only: Some(false),
+            limit: Some(512),
+        })
+        .await
+    {
+        Ok(response) => response.sessions,
+        Err(_) => return Ok(None),
+    };
+    if sessions.is_empty() {
+        return Ok(None);
+    }
+
+    let claims = client
+        .peer_claims(&PeerClaimsRequest {
+            session: None,
+            project: shared_project,
+            namespace: shared_namespace,
+            workspace,
+            active_only: Some(true),
+            limit: Some(512),
+        })
+        .await
+        .map(|response| response.claims)
+        .unwrap_or_default();
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.as_deref());
+
+    let mut entries = Vec::new();
+    let mut base_url_counts = std::collections::BTreeMap::<String, usize>::new();
+    for session in sessions {
+        if !args.include_current && current_session == Some(session.session.as_str()) {
+            continue;
+        }
+
+        let active_claims = claims
+            .iter()
+            .filter(|claim| claim.session == session.session && claim.expires_at > Utc::now())
+            .count();
+        let entry = ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: format!("remote:{}:{}", base_url, session.session),
+            project: session.project.clone(),
+            namespace: session.namespace.clone(),
+            agent: session.agent.clone(),
+            session: Some(session.session.clone()),
+            effective_agent: session.effective_agent.clone(),
+            base_url: session.base_url.clone(),
+            presence: heartbeat_presence_label(session.last_seen).to_string(),
+            host: session.host.clone(),
+            pid: session.pid,
+            active_claims,
+            workspace: session.workspace.clone(),
+            visibility: session.visibility.clone(),
+            focus: session.focus.clone(),
+            pressure: session.pressure.clone(),
+            next_recovery: session.next_recovery.clone(),
+            last_updated: Some(session.last_seen),
+        };
+        if let Some(url) = entry
+            .base_url
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            *base_url_counts.entry(url).or_insert(0) += 1;
+        }
+        entries.push(entry);
+    }
+
+    entries.sort_by(|left, right| left.bundle_root.cmp(&right.bundle_root));
+    let mut collisions = base_url_counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(url, count)| format!("base_url {} used by {} bundles", url, count))
+        .collect::<Vec<_>>();
+    collisions.extend(session_collision_warnings(&entries));
+    let root = if let Some(workspace) = runtime.and_then(|config| config.workspace.clone()) {
+        format!("server:{base_url} workspace:{workspace}")
+    } else {
+        format!("server:{base_url}")
+    };
+
+    Ok(Some(ProjectAwarenessResponse {
+        root,
+        current_bundle: fallback.current_bundle.clone(),
+        collisions,
+        entries,
+    }))
+}
+
+fn shared_awareness_scope(
+    runtime: Option<&BundleRuntimeConfig>,
+) -> (Option<String>, Option<String>) {
+    let project = runtime.and_then(|config| config.project.clone());
+    let namespace = runtime.and_then(|config| config.namespace.clone());
+    let workspace = runtime.and_then(|config| config.workspace.clone());
+    if workspace.is_some() {
+        (None, None)
+    } else {
+        (project, namespace)
+    }
+}
+
+fn session_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> {
+    let mut groups = std::collections::BTreeMap::<
+        (Option<String>, Option<String>),
+        Vec<&ProjectAwarenessEntry>,
+    >::new();
+    for entry in entries {
+        groups
+            .entry((entry.workspace.clone(), entry.session.clone()))
+            .or_default()
+            .push(entry);
+    }
+
+    groups
+        .into_iter()
+        .filter_map(|((workspace, session), group)| {
+            if group.len() <= 1 {
+                return None;
+            }
+
+            let mut agents = std::collections::BTreeSet::new();
+            let mut urls = std::collections::BTreeSet::new();
+            for entry in &group {
+                agents.insert(
+                    entry
+                        .effective_agent
+                        .as_deref()
+                        .or(entry.agent.as_deref())
+                        .unwrap_or("none")
+                        .to_string(),
+                );
+                urls.insert(entry.base_url.as_deref().unwrap_or("none").to_string());
+            }
+
+            if agents.len() <= 1 && urls.len() <= 1 {
+                return None;
+            }
+
+            Some(format!(
+                "session {} in workspace {} seen across {} bundles / {} agents / {} endpoints",
+                session.as_deref().unwrap_or("none"),
+                workspace.as_deref().unwrap_or("none"),
+                group.len(),
+                agents.len(),
+                urls.len()
+            ))
+        })
+        .collect()
+}
+
+fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
+    let (current_bundle, _current_project, scan_root) = resolve_awareness_paths(args)?;
 
     let mut entries = Vec::new();
     let mut base_url_counts = std::collections::BTreeMap::<String, usize>::new();
@@ -8564,6 +8997,7 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
             intent: None,
             workspace: None,
             visibility: None,
+            heartbeat_model: Some(default_heartbeat_model()),
             auto_short_term_capture: true,
         });
         let state = read_bundle_resume_state(&bundle_root)?;
@@ -8644,11 +9078,12 @@ fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarene
     }
 
     entries.sort_by(|left, right| left.project_dir.cmp(&right.project_dir));
-    let collisions = base_url_counts
+    let mut collisions = base_url_counts
         .into_iter()
         .filter(|(_, count)| *count > 1)
         .map(|(url, count)| format!("base_url {} used by {} bundles", url, count))
         .collect::<Vec<_>>();
+    collisions.extend(session_collision_warnings(&entries));
 
     Ok(ProjectAwarenessResponse {
         root: scan_root.display().to_string(),
@@ -8700,7 +9135,7 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
     lines.join("\n")
 }
 
-fn resolve_target_session_bundle(
+async fn resolve_target_session_bundle(
     output: &Path,
     target_session: &str,
 ) -> anyhow::Result<Option<ProjectAwarenessEntry>> {
@@ -8714,7 +9149,8 @@ fn resolve_target_session_bundle(
         root: None,
         include_current: true,
         summary: false,
-    })?;
+    })
+    .await?;
 
     Ok(awareness.entries.into_iter().find(|entry| {
         entry.session.as_deref() == Some(target_session)
@@ -8910,7 +9346,7 @@ async fn read_bundle_handoff(
     base_url: &str,
 ) -> anyhow::Result<HandoffSnapshot> {
     let target = if let Some(target_session) = args.target_session.as_deref() {
-        resolve_target_session_bundle(&args.output, target_session)?
+        resolve_target_session_bundle(&args.output, target_session).await?
     } else {
         None
     };
@@ -9685,6 +10121,68 @@ fn set_bundle_base_url(output: &Path, base_url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn set_bundle_route(output: &Path, route: &str) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.route = Some(route.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_ROUTE=",
+        &format!("MEMD_ROUTE={route}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_ROUTE = ",
+        &format!("$env:MEMD_ROUTE = \"{}\"\n", escape_ps1(route)),
+    )?;
+
+    Ok(())
+}
+
+fn set_bundle_intent(output: &Path, intent: &str) -> anyhow::Result<()> {
+    let config_path = output.join("config.json");
+    if !config_path.exists() {
+        anyhow::bail!(
+            "{} does not exist; initialize the bundle first",
+            config_path.display()
+        );
+    }
+
+    let raw = fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    let mut config: BundleConfigFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", config_path.display()))?;
+    config.intent = Some(intent.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
+        .with_context(|| format!("write {}", config_path.display()))?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_INTENT=",
+        &format!("MEMD_INTENT={intent}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_INTENT = ",
+        &format!("$env:MEMD_INTENT = \"{}\"\n", escape_ps1(intent)),
+    )?;
+
+    Ok(())
+}
+
 fn set_bundle_auto_short_term_capture(output: &Path, enabled: bool) -> anyhow::Result<()> {
     let config_path = output.join("config.json");
     if !config_path.exists() {
@@ -9930,6 +10428,7 @@ struct BundleConfig {
     intent: String,
     workspace: Option<String>,
     visibility: Option<String>,
+    heartbeat_model: String,
     auto_short_term_capture: bool,
     backend: BundleBackendConfig,
     hooks: BundleHooksConfig,
@@ -9976,6 +10475,8 @@ struct BundleConfigFile {
     workspace: Option<String>,
     #[serde(default)]
     visibility: Option<String>,
+    #[serde(default)]
+    heartbeat_model: Option<String>,
     #[serde(default = "default_auto_short_term_capture")]
     auto_short_term_capture: bool,
     #[serde(default)]
@@ -9995,6 +10496,7 @@ struct BundleRuntimeConfig {
     intent: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
+    heartbeat_model: Option<String>,
     auto_short_term_capture: bool,
 }
 
@@ -10448,6 +10950,7 @@ struct BundleHeartbeatState {
     session: Option<String>,
     agent: Option<String>,
     effective_agent: Option<String>,
+    heartbeat_model: Option<String>,
     project: Option<String>,
     namespace: Option<String>,
     workspace: Option<String>,
@@ -11004,6 +11507,7 @@ mod tests {
             intent: None,
             workspace: None,
             visibility: None,
+            heartbeat_model: Some(default_heartbeat_model()),
             auto_short_term_capture: true,
             rag_url: None,
             backend: Some(BundleBackendConfigFile {
@@ -11033,6 +11537,7 @@ mod tests {
             intent: None,
             workspace: None,
             visibility: None,
+            heartbeat_model: Some(default_heartbeat_model()),
             auto_short_term_capture: true,
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: None,
@@ -11058,6 +11563,7 @@ mod tests {
             intent: "general".to_string(),
             workspace: Some("team-alpha".to_string()),
             visibility: Some("workspace".to_string()),
+            heartbeat_model: default_heartbeat_model(),
             auto_short_term_capture: true,
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
@@ -11102,6 +11608,7 @@ mod tests {
             intent: "general".to_string(),
             workspace: Some("team-alpha".to_string()),
             visibility: Some("workspace".to_string()),
+            heartbeat_model: default_heartbeat_model(),
             auto_short_term_capture: true,
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
@@ -11777,7 +12284,7 @@ mod tests {
         )
         .expect("write sibling state");
 
-        let response = read_project_awareness(&AwarenessArgs {
+        let response = read_project_awareness_local(&AwarenessArgs {
             output: current_project.join(".memd"),
             root: Some(root.clone()),
             include_current: false,
@@ -11888,6 +12395,58 @@ mod tests {
     }
 
     #[test]
+    fn session_collision_warnings_surface_shared_session_reuse() {
+        let warnings = session_collision_warnings(&[
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/a".to_string(),
+                bundle_root: "/tmp/projects/a/.memd".to_string(),
+                project: Some("a".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("shared-session".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("initiative-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: None,
+            },
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/b".to_string(),
+                bundle_root: "/tmp/projects/b/.memd".to_string(),
+                project: Some("b".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("claude-code".to_string()),
+                session: Some("shared-session".to_string()),
+                effective_agent: Some("claude-code@shared-session".to_string()),
+                base_url: Some("http://127.0.0.1:9797".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("initiative-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: None,
+            },
+        ]);
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("session shared-session in workspace initiative-alpha"));
+        assert!(warnings[0].contains("2 bundles"));
+        assert!(warnings[0].contains("2 agents"));
+        assert!(warnings[0].contains("2 endpoints"));
+    }
+
+    #[test]
     fn heartbeat_presence_labels_age_bands() {
         assert_eq!(heartbeat_presence_label(Utc::now()), "active");
         assert_eq!(
@@ -11906,6 +12465,7 @@ mod tests {
             session: Some("codex-a".to_string()),
             agent: Some("codex".to_string()),
             effective_agent: Some("codex@codex-a".to_string()),
+            heartbeat_model: Some(default_heartbeat_model()),
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
             workspace: Some("team-alpha".to_string()),
@@ -11930,8 +12490,8 @@ mod tests {
         assert!(summary.contains("pressure=\"Avoid memory drift\""));
     }
 
-    #[test]
-    fn resolve_target_session_bundle_finds_matching_session() {
+    #[tokio::test]
+    async fn resolve_target_session_bundle_finds_matching_session() {
         let root =
             std::env::temp_dir().join(format!("memd-target-session-{}", uuid::Uuid::new_v4()));
         let current_project = root.join("current");
@@ -11974,6 +12534,7 @@ mod tests {
                 session: Some("claude-b".to_string()),
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@claude-b".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("target".to_string()),
                 namespace: None,
                 workspace: Some("research".to_string()),
@@ -11993,6 +12554,7 @@ mod tests {
         .expect("write heartbeat");
 
         let resolved = resolve_target_session_bundle(&current_project.join(".memd"), "claude-b")
+            .await
             .expect("resolve target")
             .expect("matching session");
         assert_eq!(resolved.project.as_deref(), Some("target"));
@@ -12034,6 +12596,7 @@ mod tests {
                 session: Some("codex-a".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-a".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
@@ -12125,6 +12688,7 @@ mod tests {
                 session: Some("codex-a".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-a".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
@@ -12167,6 +12731,7 @@ mod tests {
                 session: Some("claude-b".to_string()),
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@claude-b".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
@@ -12378,6 +12943,152 @@ mod tests {
         assert!(env_ps1.contains("$env:MEMD_BASE_URL = \"http://127.0.0.1:9797\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn set_bundle_route_and_intent_update_config_and_env_files() {
+        let dir = std::env::temp_dir().join(format!("memd-bundle-intent-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_ROUTE=auto\nMEMD_INTENT=general\n").expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_ROUTE = \"auto\"\n$env:MEMD_INTENT = \"general\"\n",
+        )
+        .expect("write env.ps1");
+
+        set_bundle_route(&dir, "lexical").expect("set bundle route");
+        set_bundle_intent(&dir, "current_task").expect("set bundle intent");
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""route": "lexical""#));
+        assert!(config.contains(r#""intent": "current_task""#));
+        assert!(env.contains("MEMD_ROUTE=lexical"));
+        assert!(env.contains("MEMD_INTENT=current_task"));
+        assert!(env_ps1.contains("$env:MEMD_ROUTE = \"lexical\""));
+        assert!(env_ps1.contains("$env:MEMD_INTENT = \"current_task\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn merge_bundle_runtime_config_prefers_overlay_scope() {
+        let runtime = BundleRuntimeConfig {
+            project: Some("global".to_string()),
+            namespace: Some("global".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("codex-a".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("general".to_string()),
+            workspace: Some("global".to_string()),
+            visibility: Some("private".to_string()),
+            heartbeat_model: Some("llama-desktop/qwen".to_string()),
+            auto_short_term_capture: true,
+        };
+        let overlay = BundleRuntimeConfig {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: None,
+            session: None,
+            base_url: None,
+            route: Some("lexical".to_string()),
+            intent: Some("current_task".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            heartbeat_model: None,
+            auto_short_term_capture: false,
+        };
+
+        let merged = merge_bundle_runtime_config(runtime, overlay);
+        assert_eq!(merged.project.as_deref(), Some("memd"));
+        assert_eq!(merged.namespace.as_deref(), Some("main"));
+        assert_eq!(merged.route.as_deref(), Some("lexical"));
+        assert_eq!(merged.intent.as_deref(), Some("current_task"));
+        assert_eq!(merged.workspace.as_deref(), Some("team-alpha"));
+        assert_eq!(merged.visibility.as_deref(), Some("workspace"));
+        assert_eq!(merged.base_url.as_deref(), Some("http://127.0.0.1:8787"));
+        assert!(merged.auto_short_term_capture);
+    }
+
+    #[test]
+    fn resolve_project_bundle_overlay_uses_local_bundle_from_global_root() {
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-overlay-root-{}", uuid::Uuid::new_v4()));
+        let global_root = temp_root.join("global");
+        let repo_root = temp_root.join("repo");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(&local_bundle).expect("create local bundle");
+        fs::write(
+            local_bundle.join("config.json"),
+            r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "lexical",
+  "intent": "current_task",
+  "workspace": "team-alpha",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write local config");
+
+        let overlay = resolve_project_bundle_overlay(&global_root, &repo_root, &global_root)
+            .expect("resolve overlay")
+            .expect("overlay present");
+        assert_eq!(overlay.project.as_deref(), Some("memd"));
+        assert_eq!(overlay.namespace.as_deref(), Some("main"));
+        assert_eq!(overlay.route.as_deref(), Some("lexical"));
+        assert_eq!(overlay.intent.as_deref(), Some("current_task"));
+
+        fs::remove_dir_all(temp_root).expect("cleanup overlay temp");
+    }
+
+    #[test]
+    fn shared_awareness_scope_prefers_workspace_over_project_filters() {
+        let runtime = BundleRuntimeConfig {
+            project: Some("repo-a".to_string()),
+            namespace: Some("main".to_string()),
+            agent: None,
+            session: None,
+            base_url: None,
+            route: None,
+            intent: None,
+            workspace: Some("initiative-alpha".to_string()),
+            visibility: None,
+            heartbeat_model: None,
+            auto_short_term_capture: true,
+        };
+
+        let (project, namespace) = shared_awareness_scope(Some(&runtime));
+        assert!(project.is_none());
+        assert!(namespace.is_none());
+
+        let runtime = BundleRuntimeConfig {
+            workspace: None,
+            ..runtime
+        };
+        let (project, namespace) = shared_awareness_scope(Some(&runtime));
+        assert_eq!(project.as_deref(), Some("repo-a"));
+        assert_eq!(namespace.as_deref(), Some("main"));
     }
 
     #[test]

@@ -26,6 +26,12 @@ Resume the default memory snapshot from the bundle:
 memd resume --output .memd
 ```
 
+Force a manual refresh of the same bootstrap path in an existing session:
+
+```bash
+memd refresh --output .memd
+```
+
 That also refreshes:
 
 - `.memd/MEMD_MEMORY.md`

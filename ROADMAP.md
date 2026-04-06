@@ -41,6 +41,7 @@ The product standard is:
 - zero-friction memory
 - epistemic memory
 - short-term-first memory
+- global-first memory with project overlays
 - native multi-agent interoperability
 - inspectable memory
 - token-efficient memory by default
@@ -48,7 +49,10 @@ The product standard is:
 In practical terms:
 
 - resume should feel automatic
+- `memd` should behave like a global memory add-on before it behaves like a per-repo tool
 - short-term state should stay sharp without transcript bloat
+- short-term state must sync quickly across machines and harnesses when active work changes
+- cross-project state should sync through scoped live lanes instead of flattening every repo into one pool
 - verified, inferred, claimed, stale, and contested memory should stay explicit
 - Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
 - users should be able to inspect what the system remembers, why, and what changed
@@ -98,6 +102,14 @@ What is already real in the repo:
 - explain, inbox, maintenance, and policy inspection exist
 - branchable belief lanes exist for competing durable memory records
 - `memd gap` now emits evidence-driven improvement candidates from eval, resume, and coordination lanes
+
+What is still not good enough yet:
+
+- shared short-term state is not yet a true real-time canonical sync layer across machines and harnesses
+- `memd-server` still needs to become the primary live coworking hub for active task state, not only durable storage and brokered coordination primitives
+- the default operator path is still too project-bundle-centric instead of global-first
+- cross-project live memory lanes are not first-class yet
+- provider collision handling is still more architectural intent than shipped control plane behavior
 
 ## Deployment Tiers
 
@@ -214,6 +226,7 @@ Deliver:
 
 - architecture, schema, retrieval policy, and promotion policy
 - Rust core with SQLite-backed local mode
+- global install / global bundle behavior so agents can use `memd` as a system memory layer before repo-local overlays are added
 - compact retrieval and budgeted context delivery
 - shared short-term sync
 - dream/candidate ingestion and promotion gates
@@ -250,6 +263,7 @@ Success:
 
 - agents can carry context across sessions and machines without drowning in
   transcripts
+- `memd` works as a global memory substrate first, with project memory layered on top instead of replacing the global lane
 - memory remains compact, typed, inspectable, and evidence-backed
 - markdown-native research and wiki workflows can stay in Obsidian without giving up typed memory, provenance, or agent automation
 - the same knowledge base can scale from solo file-native use to shared sync to semantic retrieval
@@ -327,14 +341,31 @@ Deliver:
 - trust tiers for source and agent provenance
 - handoff memory for delegation across agents and humans
 - shared sync as a first-class deployment tier
+- cross-project / initiative live memory lanes for related repos and workstreams
+- real-time canonical short-term sync on `memd-server` for:
+  - focus
+  - blockers
+  - next recovery step
+  - branch and claimed scope
+  - ports and base URLs
+  - heartbeat and presence
+  - help, review, and handoff alerts
 - private/local memory boundaries that do not leak into shared state
 - explicit merge and divergence handling between local and shared truth
+- provider collision controls:
+  - stable session identity
+  - source-aware writes
+  - claim / lease enforcement
+  - contested-memory handling instead of silent overwrite
 
 Success:
 
 - teams can share useful memory without flattening private and public context
 - handoffs preserve reasoning state instead of forcing re-derivation
 - organizational memory stays scoped, attributable, and auditable
+- if one agent changes active code state on one machine, another agent on another machine can see the relevant short-term update fast enough to cowork safely
+- changes that affect sibling projects can propagate through a cross-project lane without polluting unrelated project memory
+- different providers can share one memory substrate without silently overwriting each other’s truth
 
 ### v4: Self-Optimizing Memory
 
@@ -538,9 +569,11 @@ Success:
 2. Keep the hot lane sharp with better replacement, cleanup, and branch/workspace-aware current-task state.
 3. Make epistemic state first-class in retrieval behavior: verified, inferred, claimed, stale, contested.
 4. Tighten native multi-agent bridges so switching clients feels like changing terminals, not losing the brain.
-5. Expand inspectability from bundle files into richer workspace and UI surfaces.
-6. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
-7. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
+5. Make `memd` global-first: default global bundle root, then project and cross-project overlays.
+6. Add cross-project live lanes so related repos can sync active state without flattening all memory.
+7. Expand inspectability from bundle files into richer workspace and UI surfaces.
+8. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable.
+9. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
 
 ## Non-Goals
 
@@ -548,3 +581,4 @@ Success:
 - vendor lock-in
 - using RAG as the only memory layer
 - mixing project-local truth with global truth
+- letting one provider silently overwrite another provider’s memory

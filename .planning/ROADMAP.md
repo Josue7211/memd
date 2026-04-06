@@ -622,6 +622,57 @@ Success:
 
 - `memd` can identify its own highest-value quality gaps from live project evidence instead of relying only on manual triage
 
+#### Phase 46.1: `v5` Real-Time Shared Short-Term Sync
+
+- turn `memd-server` into the canonical live state hub for shared short-term memory instead of leaving the effective hot lane mostly local
+- make the shared sync model global-first, with project overlays instead of repo-local bundles acting like the primary identity
+- sync compact structured state across machines and harnesses for:
+  - focus
+  - blockers
+  - next recovery step
+  - branch / claimed scope
+  - ports / base URLs
+  - heartbeat / presence
+  - help, review, and handoff requests
+- preserve local bundle projections for harness-native ergonomics while making server state the shared source of truth
+- keep the first slice delta-based and bounded instead of replaying transcripts or large freeform scratchpads
+
+Status: Planned
+
+Success:
+
+- agents on different machines and harnesses can cowork from one shared short-term state without waiting for manual handoff or drifting into separate local truths
+
+#### Phase 46.2: `v5` Global and Cross-Project Memory Layers
+
+- make `memd` install and operate as a global memory add-on, not only a project-bundle workflow
+- add first-class layered scopes for:
+  - global
+  - cross-project / initiative
+  - project
+  - session / short-term
+- preserve scoped retrieval order so active project truth outranks unrelated global memory while still allowing cross-project awareness
+- keep the first slice focused on canonical scope modeling, bundle-root defaults, and shared-state boundaries before UI polish
+
+Status: Planned
+
+Success:
+
+- operators can use `memd` as one global memory system with project and cross-project overlays instead of maintaining separate disconnected repo brains
+
+#### Phase 46.3: `v5` Provider Collision and Canonicalization Controls
+
+- prevent one provider or harness from silently overwriting another provider's truth
+- add stable session identity across provider, harness, machine, and session
+- preserve source-aware writes, contested-memory handling, and lease / claim enforcement
+- keep the first slice focused on canonical state rules and conflict surfaces before automatic reconciliation logic
+
+Status: Planned
+
+Success:
+
+- Codex, Claude Code, OpenClaw, and other harnesses can share `memd` without corrupting each other's memory state
+
 #### Phase 47.1: `v6` Native Dream and Autodream Foundations
 
 - move dream and autodream from wrapper-only behavior into native `memd` lifecycle concepts

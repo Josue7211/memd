@@ -12,6 +12,7 @@ use memd_schema::{
     PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
     PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
+    PeerSessionRecord, PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse,
     PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest,
     PeerTasksResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
     SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
@@ -196,6 +197,21 @@ impl SqliteStore {
               ON peer_coordination_receipts(actor_session, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_project_namespace
               ON peer_coordination_receipts(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS peer_sessions (
+              session_key TEXT PRIMARY KEY,
+              session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              status TEXT NOT NULL,
+              last_seen TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_sessions_session
+              ON peer_sessions(session, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_sessions_project_namespace
+              ON peer_sessions(project, namespace, last_seen DESC);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -1795,6 +1811,198 @@ impl SqliteStore {
         Ok(PeerClaimsResponse { claims })
     }
 
+    pub fn upsert_peer_session(
+        &self,
+        request: &PeerSessionUpsertRequest,
+    ) -> anyhow::Result<PeerSessionsResponse> {
+        self.prune_stale_peer_sessions()?;
+
+        let now = chrono::Utc::now();
+        let session = request.session.trim().to_string();
+        let project = request
+            .project
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let namespace = request
+            .namespace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let workspace = request
+            .workspace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let record = PeerSessionRecord {
+            session: session.clone(),
+            agent: request
+                .agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            effective_agent: request
+                .effective_agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            heartbeat_model: request
+                .heartbeat_model
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            visibility: request
+                .visibility
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            base_url: request
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            base_url_healthy: request.base_url_healthy,
+            host: request
+                .host
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            pid: request.pid,
+            focus: request
+                .focus
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            pressure: request
+                .pressure
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            next_recovery: request
+                .next_recovery
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            status: request
+                .status
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("live")
+                .to_string(),
+            last_seen: now,
+        };
+        let payload_json = serde_json::to_string(&record).context("serialize peer session")?;
+        let session_key = peer_session_key(
+            &session,
+            project.as_deref(),
+            namespace.as_deref(),
+            workspace.as_deref(),
+            record.agent.as_deref(),
+            record.effective_agent.as_deref(),
+        );
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO peer_sessions (
+              session_key, session, project, namespace, workspace, status, last_seen, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(session_key) DO UPDATE SET
+              session = excluded.session,
+              project = excluded.project,
+              namespace = excluded.namespace,
+              workspace = excluded.workspace,
+              status = excluded.status,
+              last_seen = excluded.last_seen,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                session_key,
+                record.session,
+                &record.project,
+                &record.namespace,
+                &record.workspace,
+                record.status,
+                record.last_seen.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("upsert peer session")?;
+
+        Ok(PeerSessionsResponse {
+            sessions: vec![record],
+        })
+    }
+
+    pub fn peer_sessions(
+        &self,
+        request: &PeerSessionsRequest,
+    ) -> anyhow::Result<PeerSessionsResponse> {
+        self.prune_stale_peer_sessions()?;
+
+        let active_only = request.active_only.unwrap_or(true);
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
+
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM peer_sessions
+                WHERE (?1 IS NULL OR session = ?1)
+                  AND (?2 IS NULL OR project = ?2)
+                  AND (?3 IS NULL OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace = ?4)
+                  AND (?5 = 0 OR last_seen >= ?6)
+                ORDER BY last_seen DESC
+                LIMIT ?7
+                "#,
+            )
+            .context("prepare peer sessions query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.session.clone(),
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    if active_only { 1 } else { 0 },
+                    active_cutoff,
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query peer sessions")?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            let payload = row.context("read peer session row")?;
+            sessions.push(
+                serde_json::from_str::<PeerSessionRecord>(&payload)
+                    .context("deserialize peer session payload")?,
+            );
+        }
+
+        Ok(PeerSessionsResponse { sessions })
+    }
+
     pub fn upsert_peer_task(
         &self,
         request: &PeerTaskUpsertRequest,
@@ -2183,6 +2391,16 @@ impl SqliteStore {
         Ok(())
     }
 
+    fn prune_stale_peer_sessions(&self) -> anyhow::Result<()> {
+        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        conn.execute(
+            "DELETE FROM peer_sessions WHERE last_seen < ?1",
+            params![(chrono::Utc::now() - chrono::TimeDelta::hours(24)).to_rfc3339()],
+        )
+        .context("prune stale peer sessions")?;
+        Ok(())
+    }
+
     fn find_by_any_key(
         &self,
         redundancy_key: &str,
@@ -2324,6 +2542,25 @@ fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {
         item.namespace.as_deref().unwrap_or(""),
         item.kind,
         canonical_key
+    )
+}
+
+fn peer_session_key(
+    session: &str,
+    project: Option<&str>,
+    namespace: Option<&str>,
+    workspace: Option<&str>,
+    agent: Option<&str>,
+    effective_agent: Option<&str>,
+) -> String {
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        session.trim(),
+        project.unwrap_or("").trim(),
+        namespace.unwrap_or("").trim(),
+        workspace.unwrap_or("").trim(),
+        agent.unwrap_or("").trim(),
+        effective_agent.unwrap_or("").trim()
     )
 }
 
@@ -2883,5 +3120,83 @@ mod tests {
 
         assert!(score > 0.5);
         assert!(reasons.iter().any(|reason| reason.contains("token:memd")));
+    }
+
+    #[test]
+    fn peer_sessions_keep_same_named_sessions_separate_across_agents() {
+        let dir = std::env::temp_dir().join(format!("memd-peer-sessions-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("initiative-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("laptop-a".to_string()),
+                pid: Some(101),
+                focus: Some("work a".to_string()),
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert codex session");
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@shared-session".to_string()),
+                heartbeat_model: Some("claude-sonnet-4".to_string()),
+                project: Some("repo-b".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("initiative-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:9797".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("laptop-b".to_string()),
+                pid: Some(202),
+                focus: Some("work b".to_string()),
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert claude session");
+
+        let sessions = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: None,
+                namespace: None,
+                workspace: Some("initiative-alpha".to_string()),
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions");
+        assert_eq!(sessions.sessions.len(), 2);
+        assert_eq!(
+            sessions
+                .sessions
+                .iter()
+                .filter(|session| session.agent.as_deref() == Some("codex"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            sessions
+                .sessions
+                .iter()
+                .filter(|session| session.agent.as_deref() == Some("claude-code"))
+                .count(),
+            1
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 }

@@ -12,7 +12,8 @@ use memd_schema::{
     PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
     PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerCoordinationReceiptRequest,
     PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest,
+    PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
+    PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse, PeerTaskAssignRequest,
     PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest,
@@ -293,6 +294,21 @@ impl MemdClient {
         req: &PeerCoordinationReceiptsRequest,
     ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
         self.get_json_with_query("/coordination/receipts", req)
+            .await
+    }
+
+    pub async fn upsert_peer_session(
+        &self,
+        req: &PeerSessionUpsertRequest,
+    ) -> anyhow::Result<PeerSessionsResponse> {
+        self.post_json("/coordination/sessions/upsert", req).await
+    }
+
+    pub async fn peer_sessions(
+        &self,
+        req: &PeerSessionsRequest,
+    ) -> anyhow::Result<PeerSessionsResponse> {
+        self.get_json_with_query("/coordination/sessions", req)
             .await
     }
 

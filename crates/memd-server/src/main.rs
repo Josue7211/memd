@@ -34,13 +34,14 @@ use memd_schema::{
     PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
     PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
     PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
-    PeerMessageSendRequest, PeerMessagesResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest,
-    PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse,
-    RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest,
-    TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    PeerMessageSendRequest, PeerMessagesResponse, PeerSessionUpsertRequest, PeerSessionsRequest,
+    PeerSessionsResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest,
+    PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
+    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, SqliteStore};
@@ -210,6 +211,8 @@ impl AppState {
 #[tokio::main]
 async fn main() {
     let db_path = std::env::var("MEMD_DB_PATH").unwrap_or_else(|_| "memd.db".to_string());
+    let bind_addr =
+        std::env::var("MEMD_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let state = AppState {
         store: SqliteStore::open(&db_path).expect("open memd sqlite store"),
     };
@@ -269,6 +272,11 @@ async fn main() {
             post(post_peer_claim_recover),
         )
         .route("/coordination/claims", get(get_peer_claims))
+        .route(
+            "/coordination/sessions/upsert",
+            post(post_peer_session_upsert),
+        )
+        .route("/coordination/sessions", get(get_peer_sessions))
         .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
         .route("/coordination/tasks/assign", post(post_peer_task_assign))
         .route("/coordination/tasks", get(get_peer_tasks))
@@ -278,9 +286,9 @@ async fn main() {
         .route("/memory/policy", get(get_memory_policy))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8787")
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
-        .expect("bind memd");
+        .unwrap_or_else(|_| panic!("bind memd to {}", bind_addr));
     axum::serve(listener, app).await.expect("serve memd");
 }
 
@@ -893,13 +901,13 @@ async fn post_peer_claim_recover(
             "from_session must not be empty".to_string(),
         ));
     }
-    if let Some(to_session) = req.to_session.as_deref()
-        && to_session.trim().is_empty()
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "to_session must not be empty".to_string(),
-        ));
+    if let Some(to_session) = req.to_session.as_deref() {
+        if to_session.trim().is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "to_session must not be empty".to_string(),
+            ));
+        }
     }
     let response = state
         .store
@@ -913,6 +921,31 @@ async fn get_peer_claims(
     Query(req): Query<PeerClaimsRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
     let response = state.store.peer_claims(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_peer_session_upsert(
+    State(state): State<AppState>,
+    Json(req): Json<PeerSessionUpsertRequest>,
+) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .upsert_peer_session(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_peer_sessions(
+    State(state): State<AppState>,
+    Query(req): Query<PeerSessionsRequest>,
+) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
+    let response = state.store.peer_sessions(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

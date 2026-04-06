@@ -4,8 +4,8 @@
 
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
-**Core value:** Give agents short-term and long-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** `v6` token optimization foundations across gap/improve, transcript observability, and compiled-first knowledge retrieval.
+**Core value:** Give agents global, cross-project, project, and short-term memory that stays compact, durable, inspectable, and useful under real task pressure.
+**Current focus:** finish `v5` as a global-first real-time shared memory system across machines, harnesses, projects, and sessions, then layer `v6` token optimization on top of that shared substrate.
 
 ## Current Status
 
@@ -52,16 +52,20 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - phase 46 policy-aware coordination suggestions now generate bounded action hints from current inbox, recovery, policy, and pressure signals
 - MCP peer coordination now exposes a `coordination_suggestions` surface that returns those suggested actions for richer operator tools
 - phase 47 gap-finding foundations now emit evidence-driven candidates from eval, resume, and coordination state plus baseline delta summaries
+- the next critical gap is that shared short-term state is not yet a true real-time canonical sync layer across machines and harnesses
+- the next architectural gap is that global-first memory, cross-project live lanes, and provider-collision controls are not yet first-class shipped behavior
 - the roadmap now explicitly treats token optimization as a primary `memd` capability, not an incidental benefit
 - the roadmap now includes transcript/context observability, compiled raw-to-graph knowledge retrieval, universal design memory, and large-context workflow compression as planned capabilities
 
 ## Open Loops
 
-- phase 47 refinement is next, focused on turning gap output into bounded improvement actions while expanding toward token observability and compiled-first retrieval.
+- the highest-priority open loop is turning coordination and short-term memory into a real-time canonical sync layer on `memd-server` instead of a mostly local projection with brokered primitives.
+- the next open loop after that is making `memd` global-first, with explicit cross-project live lanes and provider-collision controls so one shared substrate can span harnesses safely.
+- after those `v5` gaps are closed, phase 47 refinement should continue with token observability and compiled-first retrieval on top of the shared sync substrate.
 
 ## Next Command
 
-Execute phase 47 refinement to turn gap findings into a bounded improvement loop, then prioritize token observability and compiled-first retrieval work.
+Prioritize the shared-memory substrate: make `memd-server` the canonical real-time state hub for focus, blockers, claims, heartbeats, branch/port awareness, and handoffs across machines and harnesses; then make `memd` global-first with cross-project live lanes and provider-collision controls before continuing phase 47 token observability and compiled-first retrieval.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

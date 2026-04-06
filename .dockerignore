@@ -1,0 +1,7 @@
+target
+.git
+.planning
+.memd
+memd.db
+**/*.sqlite
+**/*.db

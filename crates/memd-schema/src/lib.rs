@@ -606,6 +606,62 @@ pub struct PeerClaimsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerSessionRecord {
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub heartbeat_model: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<String>,
+    pub base_url: Option<String>,
+    pub base_url_healthy: Option<bool>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub focus: Option<String>,
+    pub pressure: Option<String>,
+    pub next_recovery: Option<String>,
+    pub status: String,
+    pub last_seen: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerSessionUpsertRequest {
+    pub session: String,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub heartbeat_model: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub visibility: Option<String>,
+    pub base_url: Option<String>,
+    pub base_url_healthy: Option<bool>,
+    pub host: Option<String>,
+    pub pid: Option<u32>,
+    pub focus: Option<String>,
+    pub pressure: Option<String>,
+    pub next_recovery: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerSessionsRequest {
+    pub session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub active_only: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerSessionsResponse {
+    pub sessions: Vec<PeerSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerTaskRecord {
     pub task_id: String,
     pub title: String,

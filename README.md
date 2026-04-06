@@ -100,12 +100,16 @@ cargo run -p memd-client --bin memd -- status --output .memd
 cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
 ```
 
+If you are using the shared OpenClaw server instead of a local server, export
+`MEMD_BASE_URL=http://100.104.154.24:8787` before running the same commands.
+
 What that gives you:
 
-- a local server on `127.0.0.1:8787`
+- a server at `MEMD_BASE_URL` (default `http://127.0.0.1:8787`)
 - a bundle at `.memd/`
 - a readiness check through `status`
 - a compact current-task resume path through `resume`
+- a dedicated heartbeat lane in `.memd/config.json` and `.memd/env` so shared presence stays on a lightweight model
 
 Use `status --output .memd` first when setup feels wrong. It reports:
 
@@ -113,6 +117,9 @@ Use `status --output .memd` first when setup feels wrong. It reports:
 - missing bundle files
 - backend reachability
 - a lightweight hot-lane resume preview
+
+`memd` also pins a separate `heartbeat_model` in the bundle. That lane is meant
+for the low-cost presence/coordination loop, not your main reasoning model.
 
 Optional next steps:
 

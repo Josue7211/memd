@@ -11,6 +11,9 @@ Run the server:
 cargo run -p memd-server
 ```
 
+For the shared OpenClaw deployment, set `MEMD_BASE_URL=http://100.104.154.24:8787`
+before running the client commands below.
+
 Bootstrap a project bundle:
 
 ```bash
