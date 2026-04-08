@@ -34,12 +34,26 @@ Codex is the first harness pack: it ships the wake/resume/checkpoint/capture
 loop, the visible bundle files, and the local-first fallback path without
 turning memd into a Codex-only product.
 
-OpenClaw is the second harness pack: it uses the same visible-bundle contract
-but centers compact context and spill at compaction boundaries.
+Claude Code is the native-import harness pack: it shares the same bundle
+truth, but centers `CLAUDE_IMPORTS.md`, `/memory` verification, and the
+visible command catalog for Claude.
 
-Hermes, OpenCode, and Agent Zero are the remaining pack presets: each one uses
-the same underlying control plane, compiled pages, and cache, while changing
-only defaults, wording, and entrypoints.
+OpenClaw is the second harness pack: it now comes from the shared preset
+schema, uses the same visible-bundle contract, and centers compact context
+and spill at compaction boundaries.
+
+Hermes is the adoption-focused harness pack: it now comes from the shared
+preset schema, uses the same memory core, and centers onboarding, cloud-first
+reach, and self-host later.
+
+Agent Zero is the zero-friction harness pack: it now comes from the shared
+preset schema, uses the same memory core, and centers fast resume, durable
+remember, and a clean handoff path for fresh sessions.
+
+OpenCode is the shared-lane harness pack: it now comes from the shared preset
+schema, uses the same visible-bundle contract, and centers resume, durable
+remember, and handoff flows for agent clients that need explicit continuity
+commands.
 
 The pack browse surface is `memd packs --root .memd --summary`, with
 `memd packs --root .memd --json` for UI integration.
@@ -48,8 +62,11 @@ The pack browse surface is `memd packs --root .memd --summary`, with
 
 - Claude Code
 - Codex
+- Agent Zero
 - Mission Control
 - OpenClaw
+- Hermes
+- OpenCode
 
 ## Design Constraint
 
