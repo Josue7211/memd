@@ -3,7 +3,7 @@
 ## Diagram
 
 See the repo diagram source at [docs/architecture.excalidraw](./architecture.excalidraw).
-The landing page preview is [docs/architecture-preview.png](./architecture-preview.png).
+The landing page preview is [docs/architecture-preview-v3.png](./architecture-preview-v3.png).
 
 ## Summary
 
@@ -41,7 +41,7 @@ Current packs:
 
 - Codex
 - OpenClaw
-- Hermes is the next planned harness pack.
+- Hermes
 
 ### Control Plane
 

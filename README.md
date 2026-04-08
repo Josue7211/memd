@@ -9,7 +9,7 @@ reuse forever, and always keep a path back to the evidence.
 
 `memd` combines:
 
-- harness packs for Codex, OpenClaw, and other agent surfaces
+- harness packs for Codex, OpenClaw, Hermes, and other agent surfaces
 - compiled memory pages that stay visible on disk
 - Obsidian wikilinks for human navigation
 - LightRAG as the semantic recall backend
@@ -39,7 +39,7 @@ If you are using Codex, `memd` can load or reload the current bundle for you.
 
 ## Architecture
 
-<img src="./docs/architecture-preview-v2.png" alt="memd architecture" width="100%" />
+<img src="./docs/architecture-preview-v3.png" alt="memd architecture" width="100%" />
 
 See the editable source at [docs/architecture.excalidraw](./docs/architecture.excalidraw).
 
@@ -58,6 +58,7 @@ See the editable source at [docs/architecture.excalidraw](./docs/architecture.ex
 - Codex
 - Claude Code
 - OpenClaw
+- Hermes
 - Obsidian
 - shared hook kit
 
