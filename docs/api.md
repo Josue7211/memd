@@ -278,6 +278,10 @@ Codex uses the same bundle-local harness pack flow behind these APIs:
 OpenClaw is the second harness pack and follows the same visible-bundle rule,
 but its primary flow is compact context before the task and spill at
 compaction boundaries.
+
+Hermes, OpenCode, and Agent Zero follow the same visible-bundle rule too;
+their pack presets only change defaults, wording, and entrypoints. The core
+memory API stays shared across all five packs.
 - cross-workspace shared memory can still appear when it remains relevant
 - project-scoped items outrank unrelated global memory
 - item content is compacted before response

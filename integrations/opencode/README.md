@@ -1,18 +1,34 @@
-# OpenCode Integration
+# OpenCode Harness Pack
 
-OpenCode should use `memd` as the shared memory control plane.
+OpenCode uses `memd` as the shared memory control plane.
 
-Recommended flow:
+OpenCode preset:
 
-1. resume from the bundle before starting work
-2. read the generated memory markdown file for durable continuity
-3. write durable outcomes back with `memd remember`
-4. emit a shared handoff when another client needs to take over
+- pack id: `opencode`
+- entrypoint: `memd resume --output .memd --intent current_task`
+- cache policy: shared-lane continuity cache
+- tone: explicit continuity verbs
 
-If you are using a bundle, read:
+Surface set:
 
 - `.memd/MEMD_MEMORY.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
+
+Default verbs:
+
+- `resume`
+- `remember`
+- `handoff`
+
+Shared core:
+
+`memd` owns the same memory control plane, compiled pages, and turn-scoped cache.
+
+Recommended flow:
+
+1. resume from the bundle before work starts
+2. write durable outcomes back with `memd remember`
+3. emit a handoff when another client takes over
 
 Use the OpenCode-specific entrypoint:
 
@@ -20,18 +36,10 @@ Use the OpenCode-specific entrypoint:
 .memd/agents/opencode.sh
 ```
 
-## Shared Memory Loop
+Shared lane commands:
 
 ```bash
 memd resume --output .memd
 memd remember --output .memd --kind decision --content "Keep the shared lane current."
 memd handoff --output .memd --prompt
-```
-
-## Shell Hook Example
-
-```bash
-MEMD_PROJECT=my-project \
-MEMD_AGENT=opencode \
-./integrations/hooks/memd-context.sh
 ```

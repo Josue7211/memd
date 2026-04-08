@@ -25723,7 +25723,8 @@ mod tests {
     use std::sync::{Arc, Mutex, OnceLock};
 
     use crate::render::{
-        render_codex_harness_pack_markdown, render_openclaw_harness_pack_markdown,
+        render_codex_harness_pack_markdown, render_harness_preset_markdown,
+        render_openclaw_harness_pack_markdown,
     };
     use axum::{
         Json, Router,
@@ -27109,6 +27110,29 @@ mod tests {
         assert_eq!(codex.default_verbs, vec!["wake", "resume", "checkpoint"]);
     }
 
+    #[test]
+    fn shared_harness_preset_renderer_covers_core_loop_and_pack_defaults() {
+        let registry = crate::harness::preset::HarnessPresetRegistry::default_registry();
+        let codex = registry.get("codex").expect("codex preset");
+        let hermes = registry.get("hermes").expect("hermes preset");
+
+        let codex_markdown = render_harness_preset_markdown(codex);
+        let hermes_markdown = render_harness_preset_markdown(hermes);
+
+        assert!(codex_markdown.contains("# Codex Harness Pack"));
+        assert!(codex_markdown.contains("pack id: `codex`"));
+        assert!(codex_markdown.contains("wake"));
+        assert!(codex_markdown.contains("resume"));
+        assert!(codex_markdown.contains("checkpoint"));
+        assert!(codex_markdown.contains("MEMD_WAKEUP.md"));
+        assert!(codex_markdown.contains("memd owns the same memory control plane"));
+
+        assert!(hermes_markdown.contains("# Hermes Harness Pack"));
+        assert!(hermes_markdown.contains("pack id: `hermes`"));
+        assert!(hermes_markdown.contains("adoption-focused harness"));
+        assert!(hermes_markdown.contains("HERMES_WAKEUP.md"));
+    }
+
     #[tokio::test]
     async fn codex_pack_refreshes_wakeup_and_memory_files_after_capture() {
         let bundle_root =
@@ -27269,25 +27293,58 @@ mod tests {
         assert!(setup.contains("turn-scoped cache"));
         assert!(setup.contains(".memd/MEMD_WAKEUP.md"));
         assert!(setup.contains(".memd/agents/CODEX_MEMORY.md"));
+        assert!(setup.contains("Hermes, OpenCode, and Agent Zero"));
 
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
         assert!(api.contains(".memd/MEMD_MEMORY.md"));
+        assert!(api.contains("Hermes, OpenCode, and Agent Zero"));
 
         assert!(positioning.contains("Codex is the first harness pack"));
         assert!(positioning.contains("local-first fallback path"));
+        assert!(positioning.contains("Hermes, OpenCode, and Agent Zero"));
 
-        assert!(codex.contains("first memd harness pack"));
-        assert!(codex.contains("memd hook capture --output .memd --stdin --summary"));
-        assert!(codex.contains("Keep using the local bundle markdown"));
-        assert!(codex.contains(
-            "turn cache is keyed from project, namespace, agent, mode, and normalized query"
-        ));
+        assert!(codex.contains("# Codex Harness Pack"));
+        assert!(codex.contains("pack id: `codex`"));
+        assert!(codex.contains("turn-first recall/capture pack"));
+        assert!(codex.contains("wake"));
+        assert!(codex.contains("resume"));
+        assert!(codex.contains("checkpoint"));
 
         assert!(hooks.contains("pre-turn read step"));
         assert!(hooks.contains("memd hook capture --stdin --summary"));
         assert!(hooks.contains("existing local bundle truth"));
+    }
+
+    #[test]
+    fn shared_preset_readmes_track_the_schema_renderer() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
+        let registry = crate::harness::preset::HarnessPresetRegistry::default_registry();
+
+        for preset in &registry.packs {
+            let path = match preset.pack_id {
+                "codex" => repo_root.join("integrations/codex/README.md"),
+                "openclaw" => repo_root.join("integrations/openclaw/README.md"),
+                "opencode" => repo_root.join("integrations/opencode/README.md"),
+                "hermes" => repo_root.join("integrations/hermes/README.md"),
+                "agent-zero" => repo_root.join("integrations/agent-zero/README.md"),
+                other => panic!("unexpected preset id: {other}"),
+            };
+            let readme = fs::read_to_string(&path).unwrap_or_else(|err| {
+                panic!("read {}: {err}", path.display());
+            });
+            let rendered = crate::render::render_harness_preset_markdown(preset);
+
+            assert!(readme.contains(&format!("# {} Harness Pack", preset.display_name)));
+            assert!(readme.contains(&format!("pack id: `{}`", preset.pack_id)));
+            for verb in preset.default_verbs {
+                assert!(readme.contains(verb));
+            }
+            assert!(readme.contains("Shared core"));
+            assert!(rendered.contains(&format!("pack id: `{}`", preset.pack_id)));
+            assert!(rendered.contains("memd owns the same memory control plane"));
+        }
     }
 
     #[test]

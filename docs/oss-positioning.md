@@ -37,6 +37,10 @@ turning memd into a Codex-only product.
 OpenClaw is the second harness pack: it uses the same visible-bundle contract
 but centers compact context and spill at compaction boundaries.
 
+Hermes, OpenCode, and Agent Zero are the remaining pack presets: each one uses
+the same underlying control plane, compiled pages, and cache, while changing
+only defaults, wording, and entrypoints.
+
 The pack browse surface is `memd packs --root .memd --summary`, with
 `memd packs --root .memd --json` for UI integration.
 

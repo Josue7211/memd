@@ -144,6 +144,10 @@ OpenClaw is the second harness pack. It uses the same bundle truth, but its
 primary loop is compact context before the task and spill at compaction
 boundaries.
 
+Hermes, OpenCode, and Agent Zero use the same core bundle truth too. Their
+defaults differ by preset, but they all read the same wake/memory pages and
+stay on the same cache and routing rules.
+
 ## Core Bundle Commands
 
 Persist a durable memory:

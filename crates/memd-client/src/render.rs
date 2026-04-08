@@ -12,6 +12,7 @@ use crate::{
     harness::{
         codex::CodexHarnessPack,
         index::{HarnessPackIndex, HarnessPackIndexEntry},
+        preset::HarnessPreset,
         openclaw::OpenClawHarnessPack,
     },
     obsidian::ObsidianVaultScan,
@@ -175,6 +176,34 @@ pub(crate) fn render_openclaw_harness_pack_markdown(pack: &OpenClawHarnessPack) 
         markdown.push_str(&format!("- `{}`\n", command));
     }
 
+    markdown
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_harness_preset_markdown(preset: &HarnessPreset) -> String {
+    let mut markdown = String::new();
+    markdown.push_str(&format!("# {} Harness Pack\n\n", preset.display_name));
+    markdown.push_str(&format!("- pack id: `{}`\n", preset.pack_id));
+    markdown.push_str(&format!("- entrypoint: `{}`\n", preset.entrypoint));
+    markdown.push_str(&format!("- cache policy: {}\n", preset.cache_policy));
+    markdown.push_str(&format!("- tone: {}\n\n", preset.copy_tone));
+
+    markdown.push_str("## Surface Set\n");
+    for surface in preset.surface_set {
+        markdown.push_str(&format!("- `{}`\n", surface));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Default Verbs\n");
+    for verb in preset.default_verbs {
+        markdown.push_str(&format!("- `{}`\n", verb));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Shared Core\n");
+    markdown.push_str(
+        "memd owns the same memory control plane, compiled pages, and turn-scoped cache.\n",
+    );
     markdown
 }
 
