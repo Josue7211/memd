@@ -1,5 +1,9 @@
 # Architecture
 
+## Diagram
+
+See the repo diagram source at [docs/architecture.excalidraw](./architecture.excalidraw).
+
 ## Layer Model
 
 ### Tier 0: Local Working Memory
