@@ -9,11 +9,19 @@ use memd_schema::{
 
 use crate::{
     SkillCatalog, SkillCatalogEntry,
+    command_catalog::{CommandCatalog, CommandCatalogEntry},
     harness::{
+        agent_zero::AgentZeroHarnessPack,
+        claude_code::ClaudeCodeHarnessPack,
         codex::CodexHarnessPack,
+        hermes::HermesHarnessPack,
         index::{HarnessPackIndex, HarnessPackIndexEntry},
+        preset::HarnessPreset,
         openclaw::OpenClawHarnessPack,
+        opencode::OpenCodeHarnessPack,
+        shared::render_harness_pack_markdown,
     },
+    migration::{MigrationAudit, MigrationAuditEntry},
     obsidian::ObsidianVaultScan,
 };
 
@@ -116,65 +124,59 @@ pub(crate) fn render_obsidian_import_summary(
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn render_codex_harness_pack_markdown(pack: &CodexHarnessPack) -> String {
-    let mut markdown = String::new();
-    markdown.push_str("# Codex Harness Pack\n\n");
-    markdown.push_str(&format!("- agent: `{}`\n", pack.agent));
-    markdown.push_str(&format!("- project: `{}`\n", pack.project));
-    markdown.push_str(&format!("- namespace: `{}`\n", pack.namespace));
-    markdown.push_str(&format!(
-        "- bundle root: `{}`\n\n",
-        pack.bundle_root.display()
-    ));
+    render_harness_pack_markdown(pack)
+}
 
-    markdown.push_str("## Files\n");
-    for file in &pack.files {
-        markdown.push_str(&format!("- `{}`\n", file.display()));
-    }
-    markdown.push('\n');
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_claude_code_harness_pack_markdown(pack: &ClaudeCodeHarnessPack) -> String {
+    render_harness_pack_markdown(pack)
+}
 
-    markdown.push_str("## Behaviors\n");
-    for behavior in &pack.behaviors {
-        markdown.push_str(&format!("- {}\n", behavior));
-    }
-    markdown.push('\n');
-
-    markdown.push_str("## Commands\n");
-    for command in &pack.commands {
-        markdown.push_str(&format!("- `{}`\n", command));
-    }
-
-    markdown
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_agent_zero_harness_pack_markdown(pack: &AgentZeroHarnessPack) -> String {
+    render_harness_pack_markdown(pack)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn render_openclaw_harness_pack_markdown(pack: &OpenClawHarnessPack) -> String {
+    render_harness_pack_markdown(pack)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_hermes_harness_pack_markdown(pack: &HermesHarnessPack) -> String {
+    render_harness_pack_markdown(pack)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_opencode_harness_pack_markdown(pack: &OpenCodeHarnessPack) -> String {
+    render_harness_pack_markdown(pack)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_harness_preset_markdown(preset: &HarnessPreset) -> String {
     let mut markdown = String::new();
-    markdown.push_str("# OpenClaw Harness Pack\n\n");
-    markdown.push_str(&format!("- agent: `{}`\n", pack.agent));
-    markdown.push_str(&format!("- project: `{}`\n", pack.project));
-    markdown.push_str(&format!("- namespace: `{}`\n", pack.namespace));
-    markdown.push_str(&format!(
-        "- bundle root: `{}`\n\n",
-        pack.bundle_root.display()
-    ));
+    markdown.push_str(&format!("# {} Harness Pack\n\n", preset.display_name));
+    markdown.push_str(&format!("- pack id: `{}`\n", preset.pack_id));
+    markdown.push_str(&format!("- entrypoint: `{}`\n", preset.entrypoint));
+    markdown.push_str(&format!("- cache policy: {}\n", preset.cache_policy));
+    markdown.push_str(&format!("- tone: {}\n\n", preset.copy_tone));
 
-    markdown.push_str("## Files\n");
-    for file in &pack.files {
-        markdown.push_str(&format!("- `{}`\n", file.display()));
+    markdown.push_str("## Surface Set\n");
+    for surface in preset.surface_set {
+        markdown.push_str(&format!("- `{}`\n", surface));
     }
     markdown.push('\n');
 
-    markdown.push_str("## Behaviors\n");
-    for behavior in &pack.behaviors {
-        markdown.push_str(&format!("- {}\n", behavior));
+    markdown.push_str("## Default Verbs\n");
+    for verb in preset.default_verbs {
+        markdown.push_str(&format!("- `{}`\n", verb));
     }
     markdown.push('\n');
 
-    markdown.push_str("## Commands\n");
-    for command in &pack.commands {
-        markdown.push_str(&format!("- `{}`\n", command));
-    }
-
+    markdown.push_str("## Shared Core\n");
+    markdown.push_str(
+        "memd owns the same memory control plane, compiled pages, and turn-scoped cache.\n",
+    );
     markdown
 }
 
@@ -204,6 +206,12 @@ pub(crate) fn render_harness_pack_index_summary(
                 .join("|")
         ));
     }
+    if !index.preset_names.is_empty() {
+        summary.push_str(&format!(
+            " presets={}",
+            index.preset_names.join("|")
+        ));
+    }
     summary
 }
 
@@ -217,6 +225,13 @@ pub(crate) fn render_harness_pack_index_markdown(
     markdown.push_str(&format!("- Project: `{}`\n", index.project));
     markdown.push_str(&format!("- Namespace: `{}`\n", index.namespace));
     markdown.push_str(&format!("- Packs: `{}`\n\n", index.pack_count));
+    if !index.preset_names.is_empty() {
+        markdown.push_str("## Harness Presets\n");
+        for preset in &index.preset_names {
+            markdown.push_str(&format!("- `{}`\n", preset));
+        }
+        markdown.push('\n');
+    }
 
     if index.packs.is_empty() {
         markdown.push_str("No visible harness packs found.\n");
@@ -236,12 +251,325 @@ pub(crate) fn render_harness_pack_index_json(index: &HarnessPackIndex) -> Harnes
         project: index.project.clone(),
         namespace: index.namespace.clone(),
         pack_count: index.pack_count,
+        preset_names: index.preset_names.clone(),
         packs: index
             .packs
             .iter()
             .map(HarnessPackIndexEntryJson::from)
             .collect(),
     }
+}
+
+pub(crate) fn render_command_catalog_summary(
+    catalog: &CommandCatalog,
+    query: Option<&str>,
+) -> String {
+    let mut summary = format!(
+        "commands root={} commands={}",
+        catalog.root, catalog.command_count
+    );
+    let native_count = catalog
+        .commands
+        .iter()
+        .filter(|command| command.role == "native-cli")
+        .count();
+    let external_count = catalog
+        .commands
+        .iter()
+        .filter(|command| command.role == "bridge-surface")
+        .count();
+    let helper_count = catalog
+        .commands
+        .iter()
+        .filter(|command| command.role == "bundle-helper")
+        .count();
+    summary.push_str(&format!(
+        " native={} external={} helpers={}",
+        native_count, external_count, helper_count
+    ));
+    if let Some(query) = query {
+        summary.push_str(&format!(" query={}", compact_inline(query, 48)));
+    }
+    if !catalog.commands.is_empty() {
+        summary.push_str(&format!(
+            " names={}",
+            catalog
+                .commands
+                .iter()
+                .map(|command| command.name.as_str())
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    summary
+}
+
+pub(crate) fn render_command_catalog_markdown(catalog: &CommandCatalog) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd commands\n\n");
+    markdown.push_str(&format!("- Root: `{}`\n", catalog.root));
+    markdown.push_str(&format!("- Commands: `{}`\n\n", catalog.command_count));
+    if catalog.commands.is_empty() {
+        markdown.push_str("No commands found.\n");
+        return markdown;
+    }
+    markdown.push_str("memd owns the native CLI surfaces. External bridge surfaces stay listed so they can be migrated, swapped, or reimplemented on other harnesses without pretending memd owns them.\n\n");
+    render_command_catalog_section(
+        &mut markdown,
+        "Native memd CLI",
+        &catalog.commands,
+        |command| command.role == "native-cli",
+    );
+    render_command_catalog_section(
+        &mut markdown,
+        "Bridge surfaces",
+        &catalog.commands,
+        |command| command.role == "bridge-surface",
+    );
+    render_command_catalog_section(
+        &mut markdown,
+        "Bundle helpers",
+        &catalog.commands,
+        |command| command.role == "bundle-helper",
+    );
+    markdown
+}
+
+pub(crate) fn render_command_catalog_json(catalog: &CommandCatalog) -> CommandCatalogJson {
+    CommandCatalogJson {
+        root: catalog.root.clone(),
+        command_count: catalog.command_count,
+        commands: catalog
+            .commands
+            .iter()
+            .map(CommandCatalogEntryJson::from)
+            .collect(),
+    }
+}
+
+pub(crate) fn render_migration_audit_summary(audit: &MigrationAudit) -> String {
+    let mut summary = format!(
+        "migration root={} project={} commands={} ready={} partial={} missing={} broken={}",
+        audit.bundle_root,
+        audit.project_root.as_deref().unwrap_or("none"),
+        audit.command_count,
+        audit.ready_count,
+        audit.partial_count,
+        audit.missing_count,
+        audit.broken_count
+    );
+    if !audit.commands.is_empty() {
+        summary.push_str(&format!(
+            " names={}",
+            audit
+                .commands
+                .iter()
+                .map(|command| command.name.as_str())
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    summary
+}
+
+pub(crate) fn render_migration_audit_markdown(audit: &MigrationAudit) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd migration audit\n\n");
+    markdown.push_str(&format!("- Bundle root: `{}`\n", audit.bundle_root));
+    markdown.push_str(&format!(
+        "- Project root: `{}`\n",
+        audit.project_root.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- Commands: `{}`\n- Ready: `{}`\n- Partial: `{}`\n- Missing: `{}`\n- Broken: `{}`\n\n",
+        audit.command_count,
+        audit.ready_count,
+        audit.partial_count,
+        audit.missing_count,
+        audit.broken_count
+    ));
+    markdown.push_str(
+        "memd makes native CLI universal and keeps bridge surfaces visible so migrations can tell what works, what is missing, and what still needs a target harness.\n\n",
+    );
+    markdown.push_str(&crate::render_capability_registry_summary(
+        &audit.capability_registry,
+    ));
+    markdown.push('\n');
+    for command in &audit.commands {
+        render_migration_audit_entry(&mut markdown, command);
+    }
+    markdown
+}
+
+pub(crate) fn render_migration_audit_json(audit: &MigrationAudit) -> MigrationAuditJson {
+    MigrationAuditJson {
+        generated_at: audit.generated_at,
+        bundle_root: audit.bundle_root.clone(),
+        project_root: audit.project_root.clone(),
+        command_count: audit.command_count,
+        ready_count: audit.ready_count,
+        partial_count: audit.partial_count,
+        missing_count: audit.missing_count,
+        broken_count: audit.broken_count,
+        capability_registry: audit.capability_registry.clone(),
+        commands: audit
+            .commands
+            .iter()
+            .map(MigrationAuditEntryJson::from)
+            .collect(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MigrationAuditJson {
+    pub(crate) generated_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) bundle_root: String,
+    pub(crate) project_root: Option<String>,
+    pub(crate) command_count: usize,
+    pub(crate) ready_count: usize,
+    pub(crate) partial_count: usize,
+    pub(crate) missing_count: usize,
+    pub(crate) broken_count: usize,
+    pub(crate) capability_registry: crate::CapabilityRegistry,
+    pub(crate) commands: Vec<MigrationAuditEntryJson>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MigrationAuditEntryJson {
+    pub(crate) name: String,
+    pub(crate) surface: String,
+    pub(crate) kind: String,
+    pub(crate) ownership: String,
+    pub(crate) role: String,
+    pub(crate) compatibility_flags: Vec<String>,
+    pub(crate) status: String,
+    pub(crate) present: Vec<String>,
+    pub(crate) missing: Vec<String>,
+    pub(crate) broken: Vec<String>,
+    pub(crate) notes: Vec<String>,
+}
+
+impl From<&MigrationAuditEntry> for MigrationAuditEntryJson {
+    fn from(value: &MigrationAuditEntry) -> Self {
+        Self {
+            name: value.name.clone(),
+            surface: value.surface.clone(),
+            kind: value.kind.clone(),
+            ownership: value.ownership.clone(),
+            role: value.role.clone(),
+            compatibility_flags: value.compatibility_flags.clone(),
+            status: value.status.clone(),
+            present: value.present.clone(),
+            missing: value.missing.clone(),
+            broken: value.broken.clone(),
+            notes: value.notes.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CommandCatalogJson {
+    pub(crate) root: String,
+    pub(crate) command_count: usize,
+    pub(crate) commands: Vec<CommandCatalogEntryJson>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CommandCatalogEntryJson {
+    pub(crate) name: String,
+    pub(crate) surface: String,
+    pub(crate) kind: String,
+    pub(crate) ownership: String,
+    pub(crate) role: String,
+    pub(crate) compatibility_flags: Vec<String>,
+    pub(crate) command: String,
+    pub(crate) purpose: String,
+    pub(crate) path: Option<String>,
+}
+
+impl From<&CommandCatalogEntry> for CommandCatalogEntryJson {
+    fn from(value: &CommandCatalogEntry) -> Self {
+        Self {
+            name: value.name.clone(),
+            surface: value.surface.clone(),
+            kind: value.kind.clone(),
+            ownership: value.ownership.clone(),
+            role: value.role.clone(),
+            compatibility_flags: value.compatibility_flags.clone(),
+            command: value.command.clone(),
+            purpose: value.purpose.clone(),
+            path: value.path.clone(),
+        }
+    }
+}
+
+fn render_command_catalog_entry(markdown: &mut String, command: &CommandCatalogEntry) {
+    markdown.push_str(&format!("## {}\n\n", command.name));
+    markdown.push_str(&format!("- surface: `{}`\n", command.surface));
+    markdown.push_str(&format!("- kind: `{}`\n", command.kind));
+    markdown.push_str(&format!("- ownership: `{}`\n", command.ownership));
+    markdown.push_str(&format!("- role: `{}`\n", command.role));
+    if !command.compatibility_flags.is_empty() {
+        markdown.push_str(&format!(
+            "- compatibility: `{}`\n",
+            command.compatibility_flags.join("`, `")
+        ));
+    }
+    markdown.push_str(&format!("- command: `{}`\n", command.command));
+    markdown.push_str(&format!("- purpose: {}\n", command.purpose));
+    if let Some(path) = command.path.as_deref() {
+        markdown.push_str(&format!("- path: `{}`\n", path));
+    }
+    markdown.push('\n');
+}
+
+fn render_command_catalog_section<F>(
+    markdown: &mut String,
+    title: &str,
+    commands: &[CommandCatalogEntry],
+    matches: F,
+) where
+    F: Fn(&CommandCatalogEntry) -> bool,
+{
+    let filtered = commands
+        .iter()
+        .filter(|command| matches(command))
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        return;
+    }
+    markdown.push_str(&format!("## {}\n\n", title));
+    for command in filtered {
+        render_command_catalog_entry(markdown, command);
+    }
+}
+
+fn render_migration_audit_entry(markdown: &mut String, command: &MigrationAuditEntry) {
+    markdown.push_str(&format!("## {}\n\n", command.name));
+    markdown.push_str(&format!("- surface: `{}`\n", command.surface));
+    markdown.push_str(&format!("- kind: `{}`\n", command.kind));
+    markdown.push_str(&format!("- ownership: `{}`\n", command.ownership));
+    markdown.push_str(&format!("- role: `{}`\n", command.role));
+    markdown.push_str(&format!("- status: `{}`\n", command.status));
+    if !command.compatibility_flags.is_empty() {
+        markdown.push_str(&format!(
+            "- compatibility: `{}`\n",
+            command.compatibility_flags.join("`, `")
+        ));
+    }
+    if !command.present.is_empty() {
+        markdown.push_str(&format!("- present: `{}`\n", command.present.join("`, `")));
+    }
+    if !command.missing.is_empty() {
+        markdown.push_str(&format!("- missing: `{}`\n", command.missing.join("`, `")));
+    }
+    if !command.broken.is_empty() {
+        markdown.push_str(&format!("- broken: `{}`\n", command.broken.join("`, `")));
+    }
+    if !command.notes.is_empty() {
+        markdown.push_str(&format!("- notes: {}\n", command.notes.join(" | ")));
+    }
+    markdown.push('\n');
 }
 
 fn render_harness_pack_section(markdown: &mut String, pack: &HarnessPackIndexEntry) {
@@ -276,6 +604,7 @@ pub(crate) struct HarnessPackIndexJson {
     pub(crate) project: String,
     pub(crate) namespace: String,
     pub(crate) pack_count: usize,
+    pub(crate) preset_names: Vec<String>,
     pub(crate) packs: Vec<HarnessPackIndexEntryJson>,
 }
 

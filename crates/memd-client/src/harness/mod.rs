@@ -1,4 +1,10 @@
+pub(crate) mod agent_zero;
 pub(crate) mod cache;
+pub(crate) mod claude_code;
 pub(crate) mod codex;
+pub(crate) mod hermes;
 pub(crate) mod index;
 pub(crate) mod openclaw;
+pub(crate) mod opencode;
+pub(crate) mod preset;
+pub(crate) mod shared;

@@ -40,8 +40,11 @@ They do the turn-local jobs:
 Current packs:
 
 - Codex
+- Claude Code
+- Agent Zero
 - OpenClaw
 - Hermes
+- OpenCode
 
 ### Control Plane
 

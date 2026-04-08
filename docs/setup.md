@@ -113,6 +113,33 @@ Codex is the first harness pack in memd. The pack keeps the bundle local-first:
 it reads compiled memory before the turn, captures turn output after the turn,
 and refreshes the visible wake/memory files from the compiled pages.
 
+Claude Code is the native-import harness pack. It keeps the same bundle truth,
+but centers the `CLAUDE_IMPORTS.md` bridge and Claude's `/memory` verification
+flow.
+
+The command catalog is available through:
+
+```bash
+memd commands --root .memd --summary
+memd commands --root .memd --json
+```
+
+The same catalog is also written to `.memd/COMMANDS.md` when you initialize a
+bundle, so the `$` and `/` command surfaces stay visible next to the other
+bundle artifacts.
+
+Run the migration audit when you want to see what works, what is missing, and
+what still needs a target harness:
+
+```bash
+memd migrate --root .memd --summary
+memd migrate --root .memd --json
+```
+
+That catalog includes external skill commands discovered during migration, too.
+They are listed so you can carry them forward or replace them when a target
+harness does not support the same surface.
+
 Browse the visible harness packs with:
 
 ```bash
@@ -140,9 +167,22 @@ Repeated reads in the same turn reuse the turn-scoped cache. If backend recall
 or capture fails, memd keeps the local bundle markdown on disk and continues
 from that compact truth.
 
-OpenClaw is the second harness pack. It uses the same bundle truth, but its
-primary loop is compact context before the task and spill at compaction
-boundaries.
+OpenClaw is the second harness pack. All packs now come from the shared
+preset schema. OpenClaw uses the same bundle truth, but its primary loop is
+compact context before the task and spill at compaction boundaries.
+
+Hermes is the adoption-focused harness pack. It also comes from the shared
+preset schema. It uses the same bundle truth, but its primary loop is
+onboarding-friendly wake and capture with cloud-first reach and self-host
+later.
+
+Agent Zero is the zero-friction harness pack. It also comes from the shared
+preset schema. It uses the same bundle truth, but its primary loop is fast
+resume, durable remember, and clean handoff for fresh sessions.
+
+OpenCode is the shared-lane harness pack. It also comes from the shared
+preset schema. It uses the same bundle truth, but its primary loop is resume,
+remember, and handoff for clients that want explicit continuity commands.
 
 ## Core Bundle Commands
 
@@ -177,8 +217,10 @@ Switch between clients on the same bundle with the generated scripts:
 ```bash
 .memd/agents/codex.sh
 .memd/agents/claude-code.sh
+.memd/agents/agent-zero.sh
 .memd/agents/openclaw.sh
 .memd/agents/opencode.sh
+.memd/agents/hermes.sh
 ```
 
 Or inspect the generated agent metadata:
