@@ -4,6 +4,104 @@
 
 See the repo diagram source at [docs/architecture.excalidraw](./architecture.excalidraw).
 
+## Summary
+
+`memd` is a memory control plane, not just a storage layer.
+
+The core idea is:
+
+- harness packs produce live events and compact turn state
+- `memd` routes that state by project, session, tab, and intent
+- memd compiles visible pages from the live/bundle state
+- Obsidian gives the human-readable graph through wikilinks and backlinks
+- LightRAG indexes the same compiled truth for semantic recall
+
+The important rule is read-once, reuse-many:
+
+- raw sources are ingested once
+- compiled pages become the default review surface
+- source evidence stays linked and drillable
+- semantic recall should point back to the compiled page, not replace it
+
+## What Lives Where
+
+### Harness Packs
+
+Harness packs are the entry point for live work.
+
+They do the turn-local jobs:
+
+- pull the smallest useful context
+- capture turn output and checkpoints
+- preserve session and tab scope
+- keep repeated reads in the same turn on a cache
+
+Current packs:
+
+- Codex
+- OpenClaw
+
+### Control Plane
+
+`memd` owns the policy layer in front of every backend.
+
+It decides:
+
+- what is hot enough to surface
+- what should stay compact
+- what should be evicted or rehydrated
+- how to rank by freshness, trust, provenance, and scope
+- how to handle contested or stale facts
+
+This is the layer that should get better over time.
+
+### Visible Memory
+
+Visible memory is the product surface.
+
+It includes:
+
+- `MEMD_MEMORY.md`
+- lane pages
+- item pages
+- event pages
+- skill pages
+- pack pages
+- Obsidian wikilink navigation
+
+This is where a user should answer:
+
+- what do I know
+- what am I doing
+- what changed
+- what needs attention
+
+### Semantic Backend
+
+LightRAG is the long-term recall backend.
+
+It should:
+
+- index the same truth compiled by memd
+- help find related memory when direct lookup is not enough
+- stay behind the control plane
+- never become the only visible representation of memory
+
+### Provenance and Verification
+
+Mempalace is a good reminder that raw evidence matters.
+
+`memd` should keep:
+
+- source links
+- confidence
+- freshness
+- contradiction state
+- verification state
+- promotion history
+
+If a fact is important, it needs a path back to the source and a reason for being trusted.
+
 ## Layer Model
 
 ### Tier 0: Local Working Memory
