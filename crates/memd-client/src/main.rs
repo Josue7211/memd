@@ -1,5 +1,7 @@
+mod command_catalog;
 mod commands;
 pub(crate) mod harness;
+mod migration;
 mod obsidian;
 mod render;
 
@@ -54,19 +56,21 @@ use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use obsidian::{ObsidianImportPreview, ObsidianSyncEntry};
 use render::{
-    is_default_runtime, render_bundle_status_summary, render_composite_markdown,
+    is_default_runtime, render_bundle_status_summary, render_command_catalog_json,
+    render_command_catalog_markdown, render_command_catalog_summary, render_composite_markdown,
     render_composite_summary, render_consolidate_summary, render_entity_search_summary,
     render_entity_summary, render_eval_summary, render_experiment_markdown,
     render_experiment_summary, render_explain_summary, render_gap_summary, render_handoff_prompt,
     render_harness_pack_index_json, render_harness_pack_index_markdown,
     render_harness_pack_index_summary, render_improvement_markdown, render_improvement_summary,
-    render_maintenance_report_summary, render_obsidian_import_summary,
-    render_obsidian_scan_summary, render_policy_summary, render_profile_summary,
-    render_recall_summary, render_repair_summary, render_resume_prompt, render_scenario_markdown,
-    render_scenario_summary, render_skill_catalog_markdown, render_skill_catalog_match_markdown,
-    render_skill_catalog_match_summary, render_skill_catalog_summary, render_skill_policy_summary,
-    render_source_summary, render_timeline_summary, render_working_summary,
-    render_workspace_summary, short_uuid,
+    render_maintenance_report_summary, render_migration_audit_json,
+    render_migration_audit_markdown, render_migration_audit_summary,
+    render_obsidian_import_summary, render_obsidian_scan_summary, render_policy_summary,
+    render_profile_summary, render_recall_summary, render_repair_summary, render_resume_prompt,
+    render_scenario_markdown, render_scenario_summary, render_skill_catalog_markdown,
+    render_skill_catalog_match_markdown, render_skill_catalog_match_summary,
+    render_skill_catalog_summary, render_skill_policy_summary, render_source_summary,
+    render_timeline_summary, render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -117,6 +121,11 @@ enum Commands {
     Inspiration(InspirationArgs),
     Skills(SkillsArgs),
     Packs(PacksArgs),
+    Commands(CommandCatalogArgs),
+    Migrate(MigrateArgs),
+    Setup(SetupArgs),
+    Doctor(DoctorArgs),
+    Config(ConfigArgs),
     Memory(MemoryArgs),
     Store(RequestInput),
     Candidate(RequestInput),
@@ -948,6 +957,144 @@ struct PacksArgs {
 
     #[arg(long)]
     query: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct CommandCatalogArgs {
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    #[arg(long)]
+    query: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MigrateArgs {
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    #[arg(long)]
+    project_root: Option<PathBuf>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SetupArgs {
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    global: bool,
+
+    #[arg(long)]
+    project_root: Option<PathBuf>,
+
+    #[arg(long, default_value_t = true)]
+    seed_existing: bool,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    session: Option<String>,
+
+    #[arg(long)]
+    tab_id: Option<String>,
+
+    #[arg(long)]
+    peer_system: Option<String>,
+
+    #[arg(long)]
+    peer_role: Option<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    capability: Vec<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    peer_group: Vec<String>,
+
+    #[arg(long)]
+    peer_group_goal: Option<String>,
+
+    #[arg(long)]
+    authority: Option<String>,
+
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    #[arg(long)]
+    base_url: Option<String>,
+
+    #[arg(long)]
+    rag_url: Option<String>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    force: bool,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DoctorArgs {
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    #[arg(long)]
+    project_root: Option<PathBuf>,
+
+    #[arg(long)]
+    repair: bool,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ConfigArgs {
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    #[arg(long)]
+    project_root: Option<PathBuf>,
 
     #[arg(long)]
     summary: bool,
@@ -2125,6 +2272,7 @@ async fn main() -> anyhow::Result<()> {
     let client = MemdClient::new(&cli.base_url)?;
     let base_url = cli.base_url.clone();
 
+    #[allow(unreachable_patterns)]
     match cli.command {
         Commands::Healthz => print_json(&client.healthz().await?)?,
         Commands::Status(args) => {
@@ -2146,9 +2294,16 @@ async fn main() -> anyhow::Result<()> {
                     set_bundle_tab_id(&args.output, &tab_id)?;
                 }
             }
-            let codex_pack = codex_pack_enabled_for_bundle(&args.output, args.agent.as_deref());
+            let codex_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
+            let agent_zero_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "agent-zero");
+            let hermes_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "hermes");
+            let opencode_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "opencode");
             let openclaw_pack =
-                openclaw_pack_enabled_for_bundle(&args.output, args.agent.as_deref());
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "openclaw");
             let resume_args = ResumeArgs {
                 output: args.output.clone(),
                 project: args.project.clone(),
@@ -2166,7 +2321,13 @@ async fn main() -> anyhow::Result<()> {
             };
             let snapshot = match read_bundle_resume(&resume_args, &base_url).await {
                 Ok(snapshot) => snapshot,
-                Err(err) if codex_pack || openclaw_pack => {
+                Err(err)
+                    if codex_pack
+                        || agent_zero_pack
+                        || hermes_pack
+                        || opencode_pack
+                        || openclaw_pack =>
+                {
                     if let Some(markdown) =
                         read_codex_pack_local_markdown(&args.output, "MEMD_WAKEUP.md")?
                     {
@@ -2207,21 +2368,14 @@ async fn main() -> anyhow::Result<()> {
                 write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
                 auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "wake").await?;
             }
-            if codex_pack {
-                let manifest = crate::harness::codex::build_codex_harness_pack(
+            if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
+                let _ = refresh_harness_pack_files_for_snapshot(
                     &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_codex_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
-            if openclaw_pack {
-                let manifest = crate::harness::openclaw::build_openclaw_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_openclaw_pack_files(&args.output, &snapshot, &manifest).await?;
+                    &snapshot,
+                    "wake",
+                    &["codex", "agent-zero", "openclaw", "hermes", "opencode"],
+                )
+                .await?;
             }
             if args.summary {
                 println!("{}", render_bundle_wakeup_summary(&snapshot));
@@ -2574,12 +2728,25 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", render_attach_snippet(&shell, &args.output)?);
         }
         Commands::Resume(args) => {
-            let codex_pack = codex_pack_enabled_for_bundle(&args.output, args.agent.as_deref());
+            let codex_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
+            let agent_zero_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "agent-zero");
+            let hermes_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "hermes");
+            let opencode_pack =
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "opencode");
             let openclaw_pack =
-                openclaw_pack_enabled_for_bundle(&args.output, args.agent.as_deref());
+                harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "openclaw");
             let snapshot = match read_bundle_resume(&args, &base_url).await {
                 Ok(snapshot) => snapshot,
-                Err(err) if codex_pack || openclaw_pack => {
+                Err(err)
+                    if codex_pack
+                        || agent_zero_pack
+                        || hermes_pack
+                        || opencode_pack
+                        || openclaw_pack =>
+                {
                     if let Some(markdown) =
                         read_codex_pack_local_markdown(&args.output, "MEMD_MEMORY.md")?
                     {
@@ -2613,21 +2780,14 @@ async fn main() -> anyhow::Result<()> {
             };
             write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "resume").await?;
-            if codex_pack {
-                let manifest = crate::harness::codex::build_codex_harness_pack(
+            if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
+                let _ = refresh_harness_pack_files_for_snapshot(
                     &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_codex_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
-            if openclaw_pack {
-                let manifest = crate::harness::openclaw::build_openclaw_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_openclaw_pack_files(&args.output, &snapshot, &manifest).await?;
+                    &snapshot,
+                    "resume",
+                    &["codex", "agent-zero", "openclaw", "hermes", "opencode"],
+                )
+                .await?;
             }
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
@@ -2671,22 +2831,13 @@ async fn main() -> anyhow::Result<()> {
             let snapshot = read_bundle_resume(&args, &base_url).await?;
             write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "refresh").await?;
-            if codex_pack_enabled_for_snapshot(&args.output, &snapshot) {
-                let manifest = crate::harness::codex::build_codex_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_codex_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
-            if openclaw_pack_enabled_for_snapshot(&args.output, &snapshot) {
-                let manifest = crate::harness::openclaw::build_openclaw_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_openclaw_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
+            let _ = refresh_harness_pack_files_for_snapshot(
+                &args.output,
+                &snapshot,
+                "refresh",
+                &["codex", "agent-zero", "openclaw", "hermes", "opencode"],
+            )
+            .await?;
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else {
@@ -2793,22 +2944,13 @@ async fn main() -> anyhow::Result<()> {
             write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
             refresh_live_bundle_event_pages(&args.output, &snapshot, None)?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "checkpoint").await?;
-            if codex_pack_enabled_for_snapshot(&args.output, &snapshot) {
-                let manifest = crate::harness::codex::build_codex_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_codex_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
-            if openclaw_pack_enabled_for_snapshot(&args.output, &snapshot) {
-                let manifest = crate::harness::openclaw::build_openclaw_harness_pack(
-                    &args.output,
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                );
-                let _ = refresh_openclaw_pack_files(&args.output, &snapshot, &manifest).await?;
-            }
+            let _ = refresh_harness_pack_files_for_snapshot(
+                &args.output,
+                &snapshot,
+                "checkpoint",
+                &["codex", "agent-zero", "openclaw", "hermes", "opencode"],
+            )
+            .await?;
             print_json(&response)?;
         }
         Commands::Remember(args) => {
@@ -2979,6 +3121,108 @@ async fn main() -> anyhow::Result<()> {
                     "{}",
                     render_harness_pack_index_markdown(&bundle_root, &index)
                 );
+            }
+        }
+        Commands::Commands(args) => {
+            let bundle_root = resolve_pack_bundle_root(args.root.as_deref())?;
+            let catalog = command_catalog::build_command_catalog(&bundle_root);
+            let catalog = command_catalog::filter_command_catalog(catalog, args.query.as_deref());
+            if args.json {
+                print_json(&render_command_catalog_json(&catalog))?;
+            } else if args.summary {
+                println!(
+                    "{}",
+                    render_command_catalog_summary(&catalog, args.query.as_deref())
+                );
+            } else {
+                println!("{}", render_command_catalog_markdown(&catalog));
+            }
+        }
+        Commands::Migrate(args) => {
+            let bundle_root = resolve_pack_bundle_root(args.root.as_deref())?;
+            let project_root = args.project_root.clone().or(detect_current_project_root()?);
+            let audit = migration::build_migration_audit(
+                &bundle_root,
+                project_root.as_deref(),
+                home_dir().as_deref(),
+            );
+            if args.json {
+                print_json(&render_migration_audit_json(&audit))?;
+            } else if args.summary {
+                println!("{}", render_migration_audit_summary(&audit));
+            } else {
+                println!("{}", render_migration_audit_markdown(&audit));
+            }
+        }
+        Commands::Setup(args) => {
+            let init_args = setup_args_to_init_args(&args);
+            write_init_bundle(&init_args)?;
+            if args.json {
+                print_json(&json!({
+                    "bundle": init_args.output,
+                    "project": init_args.project,
+                    "namespace": init_args.namespace,
+                    "agent": init_args.agent,
+                    "base_url": init_args.base_url,
+                    "route": init_args.route,
+                    "intent": init_args.intent,
+                    "workspace": init_args.workspace,
+                    "visibility": init_args.visibility,
+                    "setup_ready": true,
+                }))?;
+            } else if args.summary {
+                println!(
+                    "setup bundle={} project={} namespace={} agent={} ready=true",
+                    init_args.output.display(),
+                    init_args.project.as_deref().unwrap_or("none"),
+                    init_args.namespace.as_deref().unwrap_or("none"),
+                    init_args.agent,
+                );
+            } else {
+                println!(
+                    "Initialized memd bundle at {}",
+                    init_args.output.display()
+                );
+            }
+        }
+        Commands::Doctor(args) => {
+            let bundle_root = resolve_doctor_bundle_root(args.output.as_deref())?;
+            let mut status = read_bundle_status(&bundle_root, &base_url).await?;
+            let setup_ready = status
+                .get("setup_ready")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if args.repair && !setup_ready {
+                let project_root = args.project_root.clone().or(detect_current_project_root()?);
+                let setup_args = doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
+                write_init_bundle(&setup_args_to_init_args(&setup_args))?;
+                status = read_bundle_status(&bundle_root, &base_url).await?;
+            }
+            if args.json {
+                print_json(&status)?;
+            } else if args.summary {
+                println!("{}", render_bundle_status_summary(&status));
+            } else {
+                println!("{}", render_doctor_status_markdown(&bundle_root, &status));
+            }
+        }
+        Commands::Config(args) => {
+            let bundle_root = resolve_setup_bundle_root(args.output.as_deref())?;
+            let project_root = args.project_root.clone().or(detect_current_project_root()?);
+            let runtime = read_bundle_runtime_config(&bundle_root)?;
+            let status = read_bundle_status(&bundle_root, &base_url).await.ok();
+            let config = render_bundle_config_snapshot(
+                &bundle_root,
+                project_root.as_deref(),
+                runtime.as_ref(),
+                status.as_ref(),
+            );
+            if args.json {
+                print_json(&config)?;
+            } else if args.summary {
+                println!("{}", render_bundle_config_summary(&config));
+            } else {
+                println!("{}", render_bundle_config_markdown(&config));
             }
         }
         Commands::Memory(args) => {
@@ -3883,23 +4127,13 @@ async fn main() -> anyhow::Result<()> {
                         "hook-capture",
                     )
                     .await?;
-                    if codex_pack_enabled_for_snapshot(&args.output, snapshot) {
-                        let manifest = crate::harness::codex::build_codex_harness_pack(
-                            &args.output,
-                            snapshot.project.as_deref().unwrap_or("none"),
-                            snapshot.namespace.as_deref().unwrap_or("none"),
-                        );
-                        let _ = refresh_codex_pack_files(&args.output, snapshot, &manifest).await?;
-                    }
-                    if openclaw_pack_enabled_for_snapshot(&args.output, snapshot) {
-                        let manifest = crate::harness::openclaw::build_openclaw_harness_pack(
-                            &args.output,
-                            snapshot.project.as_deref().unwrap_or("none"),
-                            snapshot.namespace.as_deref().unwrap_or("none"),
-                        );
-                        let _ =
-                            refresh_openclaw_pack_files(&args.output, snapshot, &manifest).await?;
-                    }
+                    let _ = refresh_harness_pack_files_for_snapshot(
+                        &args.output,
+                        snapshot,
+                        "hook-capture",
+                        &["codex", "agent-zero", "openclaw"],
+                    )
+                    .await?;
                 }
                 if args.summary {
                     println!(
@@ -4681,195 +4915,193 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
     };
 
     let (title, markdown, output_path, preview, index_items, index_kind, semantic_sync_items) =
-        if let Some(id) =
-        args.id.as_ref()
-    {
-        let id = id
-            .parse::<uuid::Uuid>()
-            .context("parse obsidian compile id")?;
-        let output_path = args
-            .output
-            .clone()
-            .or_else(|| obsidian::find_compiled_memory_path_by_id(&args.vault, id));
-        if let Some(output_path) = output_path
-            .as_ref()
-            .filter(|path| path.exists() && !args.overwrite)
-        {
-            let (artifact_title, _) = obsidian::read_compiled_artifact_metadata(output_path)?;
-            let title = artifact_title.unwrap_or_else(|| {
-                output_path
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("compiled-memory")
-                    .to_string()
-            });
-            if args.apply {
-                update_compiled_index(output_path, &title, "memory", 1)?;
+        if let Some(id) = args.id.as_ref() {
+            let id = id
+                .parse::<uuid::Uuid>()
+                .context("parse obsidian compile id")?;
+            let output_path = args
+                .output
+                .clone()
+                .or_else(|| obsidian::find_compiled_memory_path_by_id(&args.vault, id));
+            if let Some(output_path) = output_path
+                .as_ref()
+                .filter(|path| path.exists() && !args.overwrite)
+            {
+                let (artifact_title, _) = obsidian::read_compiled_artifact_metadata(output_path)?;
+                let title = artifact_title.unwrap_or_else(|| {
+                    output_path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("compiled-memory")
+                        .to_string()
+                });
+                if args.apply {
+                    update_compiled_index(output_path, &title, "memory", 1)?;
+                }
+                let preview = serde_json::json!({
+                    "output_path": output_path.display().to_string(),
+                    "open_uri": obsidian::build_open_uri(output_path, args.pane_type.as_deref())?,
+                    "title": title,
+                    "id": id,
+                    "kind": "memory",
+                    "rehydration": 0usize,
+                    "semantic_synced": 0usize,
+                    "apply": args.apply,
+                    "reused_existing": true,
+                    "compiled_source": "existing_artifact",
+                });
+                if args.open {
+                    let uri = obsidian::build_open_uri(output_path, args.pane_type.as_deref())?;
+                    obsidian::open_uri(&uri)?;
+                }
+                print_json(&preview)?;
+                return Ok(());
             }
+            let explain = client
+                .explain(&ExplainMemoryRequest {
+                    id,
+                    belief_branch: None,
+                    route: parse_retrieval_route(args.route.clone())?,
+                    intent: parse_retrieval_intent(args.intent.clone())?,
+                })
+                .await?;
+            let output_path = args
+                .output
+                .clone()
+                .unwrap_or_else(|| obsidian::default_compiled_memory_path(&args.vault, &explain));
+            let (title, markdown) = obsidian::build_compiled_memory_markdown(&args.vault, &explain);
             let preview = serde_json::json!({
                 "output_path": output_path.display().to_string(),
-                "open_uri": obsidian::build_open_uri(output_path, args.pane_type.as_deref())?,
+                "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
                 "title": title,
-                "id": id,
-                "kind": "memory",
-                "rehydration": 0usize,
+                "id": explain.item.id,
+                "kind": format!("{:?}", explain.item.kind).to_lowercase(),
+                "rehydration": explain.rehydration.len(),
+                "apply": args.apply,
+                "reused_existing": false,
+                "compiled_source": "explained_memory",
+            });
+            (
+                title,
+                markdown,
+                output_path,
+                preview,
+                1usize,
+                "memory",
+                Some(vec![explain.item.clone()]),
+            )
+        } else {
+            let Some(query) = args.query.as_ref() else {
+                anyhow::bail!("obsidian compile requires --query <text> or --id <uuid>");
+            };
+            let output_path = args
+                .output
+                .clone()
+                .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
+            if output_path.exists() && !args.overwrite {
+                let (artifact_title, item_count) =
+                    obsidian::read_compiled_artifact_metadata(&output_path)?;
+                let title = artifact_title.unwrap_or_else(|| query.trim().to_string());
+                let items = item_count.unwrap_or(0);
+                if args.apply {
+                    update_compiled_index(&output_path, &title, "query", items)?;
+                }
+                let preview = serde_json::json!({
+                    "output_path": output_path.display().to_string(),
+                    "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+                    "title": title,
+                    "query": query,
+                    "items": items,
+                    "semantic_hits": 0usize,
+                    "semantic_synced": 0usize,
+                    "apply": args.apply,
+                    "reused_existing": true,
+                    "compiled_source": "existing_artifact",
+                });
+                if args.open {
+                    let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
+                    obsidian::open_uri(&uri)?;
+                }
+                print_json(&preview)?;
+                return Ok(());
+            }
+            let route = parse_retrieval_route(args.route.clone())?;
+            let intent = parse_retrieval_intent(args.intent.clone())?;
+            let response = client
+                .search(&SearchMemoryRequest {
+                    query: Some(query.clone()),
+                    route,
+                    intent,
+                    scopes: vec![
+                        MemoryScope::Project,
+                        MemoryScope::Global,
+                        MemoryScope::Synced,
+                    ],
+                    kinds: vec![],
+                    statuses: vec![
+                        MemoryStatus::Active,
+                        MemoryStatus::Stale,
+                        MemoryStatus::Contested,
+                    ],
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    workspace: args.workspace.clone(),
+                    visibility: args
+                        .visibility
+                        .as_deref()
+                        .map(parse_memory_visibility_value)
+                        .transpose()?,
+                    belief_branch: None,
+                    source_agent: None,
+                    tags: Vec::new(),
+                    stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
+                    limit: Some(args.limit.unwrap_or(12).clamp(1, 48)),
+                    max_chars_per_item: Some(800),
+                })
+                .await?;
+            let semantic = if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
+                rag.retrieve(&RagRetrieveRequest {
+                    query: query.clone(),
+                    project: args.project.clone(),
+                    namespace: args.namespace.clone(),
+                    mode: RagRetrieveMode::Auto,
+                    limit: Some(6),
+                    include_cross_modal: false,
+                })
+                .await
+                .ok()
+                .filter(|response| !response.items.is_empty())
+            } else {
+                None
+            };
+            let (title, markdown) = obsidian::build_compiled_note_markdown(
+                &args.vault,
+                query,
+                &response,
+                semantic.as_ref(),
+            );
+            let preview = serde_json::json!({
+                "output_path": output_path.display().to_string(),
+                "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
+                "title": title,
+                "query": query,
+                "items": response.items.len(),
+                "semantic_hits": semantic.as_ref().map(|response| response.items.len()).unwrap_or(0),
                 "semantic_synced": 0usize,
                 "apply": args.apply,
-                "reused_existing": true,
-                "compiled_source": "existing_artifact",
+                "reused_existing": false,
+                "compiled_source": "compiled_query",
             });
-            if args.open {
-                let uri = obsidian::build_open_uri(output_path, args.pane_type.as_deref())?;
-                obsidian::open_uri(&uri)?;
-            }
-            print_json(&preview)?;
-            return Ok(());
-        }
-        let explain = client
-            .explain(&ExplainMemoryRequest {
-                id,
-                belief_branch: None,
-                route: parse_retrieval_route(args.route.clone())?,
-                intent: parse_retrieval_intent(args.intent.clone())?,
-            })
-            .await?;
-        let output_path = args
-            .output
-            .clone()
-            .unwrap_or_else(|| obsidian::default_compiled_memory_path(&args.vault, &explain));
-        let (title, markdown) = obsidian::build_compiled_memory_markdown(&args.vault, &explain);
-        let preview = serde_json::json!({
-            "output_path": output_path.display().to_string(),
-            "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
-            "title": title,
-            "id": explain.item.id,
-            "kind": format!("{:?}", explain.item.kind).to_lowercase(),
-            "rehydration": explain.rehydration.len(),
-            "apply": args.apply,
-            "reused_existing": false,
-            "compiled_source": "explained_memory",
-        });
-        (
-            title,
-            markdown,
-            output_path,
-            preview,
-            1usize,
-            "memory",
-            Some(vec![explain.item.clone()]),
-        )
-    } else {
-        let Some(query) = args.query.as_ref() else {
-            anyhow::bail!("obsidian compile requires --query <text> or --id <uuid>");
+            (
+                title,
+                markdown,
+                output_path,
+                preview,
+                response.items.len(),
+                "query",
+                Some(response.items.clone()),
+            )
         };
-        let output_path = args
-            .output
-            .clone()
-            .unwrap_or_else(|| obsidian::default_compiled_note_path(&args.vault, query));
-        if output_path.exists() && !args.overwrite {
-            let (artifact_title, item_count) =
-                obsidian::read_compiled_artifact_metadata(&output_path)?;
-            let title = artifact_title.unwrap_or_else(|| query.trim().to_string());
-            let items = item_count.unwrap_or(0);
-            if args.apply {
-                update_compiled_index(&output_path, &title, "query", items)?;
-            }
-        let preview = serde_json::json!({
-            "output_path": output_path.display().to_string(),
-            "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
-            "title": title,
-            "query": query,
-            "items": items,
-            "semantic_hits": 0usize,
-            "semantic_synced": 0usize,
-            "apply": args.apply,
-            "reused_existing": true,
-            "compiled_source": "existing_artifact",
-        });
-            if args.open {
-                let uri = obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?;
-                obsidian::open_uri(&uri)?;
-            }
-            print_json(&preview)?;
-            return Ok(());
-        }
-        let route = parse_retrieval_route(args.route.clone())?;
-        let intent = parse_retrieval_intent(args.intent.clone())?;
-        let response = client
-            .search(&SearchMemoryRequest {
-                query: Some(query.clone()),
-                route,
-                intent,
-                scopes: vec![
-                    MemoryScope::Project,
-                    MemoryScope::Global,
-                    MemoryScope::Synced,
-                ],
-                kinds: vec![],
-                statuses: vec![
-                    MemoryStatus::Active,
-                    MemoryStatus::Stale,
-                    MemoryStatus::Contested,
-                ],
-                project: args.project.clone(),
-                namespace: args.namespace.clone(),
-                workspace: args.workspace.clone(),
-                visibility: args
-                    .visibility
-                    .as_deref()
-                    .map(parse_memory_visibility_value)
-                    .transpose()?,
-                belief_branch: None,
-                source_agent: None,
-                tags: Vec::new(),
-                stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
-                limit: Some(args.limit.unwrap_or(12).clamp(1, 48)),
-                max_chars_per_item: Some(800),
-            })
-            .await?;
-        let semantic = if let Some(rag) = maybe_rag_client_from_bundle_or_env()? {
-            rag.retrieve(&RagRetrieveRequest {
-                query: query.clone(),
-                project: args.project.clone(),
-                namespace: args.namespace.clone(),
-                mode: RagRetrieveMode::Auto,
-                limit: Some(6),
-                include_cross_modal: false,
-            })
-            .await
-            .ok()
-            .filter(|response| !response.items.is_empty())
-        } else {
-            None
-        };
-        let (title, markdown) = obsidian::build_compiled_note_markdown(
-            &args.vault,
-            query,
-            &response,
-            semantic.as_ref(),
-        );
-        let preview = serde_json::json!({
-            "output_path": output_path.display().to_string(),
-            "open_uri": obsidian::build_open_uri(&output_path, args.pane_type.as_deref())?,
-            "title": title,
-            "query": query,
-            "items": response.items.len(),
-            "semantic_hits": semantic.as_ref().map(|response| response.items.len()).unwrap_or(0),
-            "semantic_synced": 0usize,
-            "apply": args.apply,
-            "reused_existing": false,
-            "compiled_source": "compiled_query",
-        });
-        (
-            title,
-            markdown,
-            output_path,
-            preview,
-            response.items.len(),
-            "query",
-            Some(response.items.clone()),
-        )
-    };
 
     let mut preview = preview;
     if !args.apply {
@@ -4885,9 +5117,10 @@ async fn run_obsidian_compile(client: &MemdClient, args: &ObsidianArgs) -> anyho
     }
     obsidian::write_markdown(&output_path, &markdown)?;
     update_compiled_index(&output_path, &title, index_kind, index_items)?;
-    let semantic_synced = if let (Some(rag), Some(items)) =
-        (maybe_rag_client_from_bundle_or_env()?, semantic_sync_items.as_ref())
-    {
+    let semantic_synced = if let (Some(rag), Some(items)) = (
+        maybe_rag_client_from_bundle_or_env()?,
+        semantic_sync_items.as_ref(),
+    ) {
         sync_memory_items_to_rag(&rag, items).await?
     } else {
         0
@@ -5371,9 +5604,7 @@ struct InspirationSearchResult {
 }
 
 fn inspiration_search_cache_dir(root: &Path) -> PathBuf {
-    root.join(".memd")
-        .join("state")
-        .join(".inspiration-cache")
+    root.join(".memd").join("state").join(".inspiration-cache")
 }
 
 fn inspiration_search_cache_path(root: &Path, query: &str, limit: usize) -> PathBuf {
@@ -5634,6 +5865,270 @@ fn resolve_pack_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> 
     Ok(resolve_default_bundle_root()?.unwrap_or_else(default_bundle_root_path))
 }
 
+fn resolve_setup_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
+    if let Some(explicit) = explicit {
+        return Ok(explicit.to_path_buf());
+    }
+
+    Ok(resolve_default_bundle_root()?.unwrap_or_else(default_init_output_path))
+}
+
+fn resolve_doctor_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
+    resolve_setup_bundle_root(explicit)
+}
+
+fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
+    let project_root = args.project_root.clone();
+    let output = args
+        .output
+        .clone()
+        .unwrap_or_else(default_init_output_path);
+    let project_root_ref = project_root.as_deref();
+    let agent = args
+        .agent
+        .clone()
+        .unwrap_or_else(|| detect_setup_agent(project_root_ref, &output));
+
+    InitArgs {
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        global: args.global,
+        project_root,
+        seed_existing: args.seed_existing,
+        agent,
+        session: args.session.clone(),
+        tab_id: args.tab_id.clone(),
+        peer_system: args.peer_system.clone(),
+        peer_role: args.peer_role.clone(),
+        capability: args.capability.clone(),
+        peer_group: args.peer_group.clone(),
+        peer_group_goal: args.peer_group_goal.clone(),
+        authority: args.authority.clone(),
+        output,
+        base_url: args.base_url.clone().unwrap_or_else(default_base_url),
+        rag_url: args.rag_url.clone(),
+        route: args.route.clone().unwrap_or_else(|| "auto".to_string()),
+        intent: args
+            .intent
+            .clone()
+            .unwrap_or_else(|| "current_task".to_string()),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
+        force: args.force,
+    }
+}
+
+fn doctor_args_to_setup_args(
+    args: &DoctorArgs,
+    output: PathBuf,
+    project_root: Option<PathBuf>,
+) -> SetupArgs {
+    SetupArgs {
+        project: None,
+        namespace: None,
+        global: output == default_global_bundle_root(),
+        project_root,
+        seed_existing: true,
+        agent: None,
+        session: None,
+        tab_id: None,
+        peer_system: None,
+        peer_role: None,
+        capability: Vec::new(),
+        peer_group: Vec::new(),
+        peer_group_goal: None,
+        authority: None,
+        output: Some(output),
+        base_url: None,
+        rag_url: None,
+        route: None,
+        intent: None,
+        workspace: None,
+        visibility: None,
+        force: args.repair,
+        summary: false,
+        json: false,
+    }
+}
+
+fn detect_setup_agent(project_root: Option<&Path>, output: &Path) -> String {
+    if let Some(project_root) = project_root {
+        if project_root.join("CLAUDE.md").exists() || project_root.join(".claude").exists() {
+            return "claude-code".to_string();
+        }
+        if project_root.join("AGENTS.md").exists() {
+            return "codex".to_string();
+        }
+        if project_root.join(".agents").exists() {
+            return "opencode".to_string();
+        }
+    }
+
+    if output.join("agents").join("CLAUDE_IMPORTS.md").exists() {
+        return "claude-code".to_string();
+    }
+
+    "codex".to_string()
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BundleConfigSnapshot {
+    bundle_root: String,
+    project_root: Option<String>,
+    setup_ready: bool,
+    runtime_present: bool,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    tab_id: Option<String>,
+    base_url: Option<String>,
+    route: Option<String>,
+    intent: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    peer_system: Option<String>,
+    peer_role: Option<String>,
+    peer_group_goal: Option<String>,
+    authority: Option<String>,
+}
+
+fn render_bundle_config_snapshot(
+    bundle_root: &Path,
+    project_root: Option<&Path>,
+    runtime: Option<&BundleRuntimeConfig>,
+    status: Option<&serde_json::Value>,
+) -> BundleConfigSnapshot {
+    let setup_ready = status
+        .and_then(|value| value.get("setup_ready"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(runtime.is_some() && bundle_root.exists());
+
+    BundleConfigSnapshot {
+        bundle_root: bundle_root.display().to_string(),
+        project_root: project_root.map(|path| path.display().to_string()),
+        setup_ready,
+        runtime_present: runtime.is_some(),
+        project: runtime.as_ref().and_then(|value| value.project.clone()),
+        namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+        agent: runtime.as_ref().and_then(|value| value.agent.clone()),
+        session: runtime.as_ref().and_then(|value| value.session.clone()),
+        tab_id: runtime.as_ref().and_then(|value| value.tab_id.clone()),
+        base_url: runtime.as_ref().and_then(|value| value.base_url.clone()),
+        route: runtime.as_ref().and_then(|value| value.route.clone()),
+        intent: runtime.as_ref().and_then(|value| value.intent.clone()),
+        workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
+        visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
+        peer_system: runtime.as_ref().and_then(|value| value.peer_system.clone()),
+        peer_role: runtime.as_ref().and_then(|value| value.peer_role.clone()),
+        peer_group_goal: runtime.as_ref().and_then(|value| value.peer_group_goal.clone()),
+        authority: runtime.as_ref().and_then(|value| value.authority.clone()),
+    }
+}
+
+fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> String {
+    format!(
+        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={}",
+        config.bundle_root,
+        config.setup_ready,
+        config.project.as_deref().unwrap_or("none"),
+        config.namespace.as_deref().unwrap_or("none"),
+        config.agent.as_deref().unwrap_or("none"),
+        config.session.as_deref().unwrap_or("none"),
+        config.base_url.as_deref().unwrap_or("none"),
+        config.route.as_deref().unwrap_or("none"),
+        config.intent.as_deref().unwrap_or("none")
+    )
+}
+
+fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd config\n\n");
+    markdown.push_str(&format!("- bundle: `{}`\n", config.bundle_root));
+    if let Some(project_root) = config.project_root.as_deref() {
+        markdown.push_str(&format!("- project root: `{}`\n", project_root));
+    }
+    markdown.push_str(&format!("- ready: `{}`\n", config.setup_ready));
+    markdown.push_str(&format!(
+        "- runtime: `{}`\n",
+        if config.runtime_present { "present" } else { "missing" }
+    ));
+    markdown.push_str(&format!(
+        "- project: `{}`\n",
+        config.project.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- namespace: `{}`\n",
+        config.namespace.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- agent: `{}`\n",
+        config.agent.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- base url: `{}`\n",
+        config.base_url.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- route: `{}`\n",
+        config.route.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- intent: `{}`\n",
+        config.intent.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- workspace: `{}`\n",
+        config.workspace.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- visibility: `{}`\n",
+        config.visibility.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- peer system: `{}`\n",
+        config.peer_system.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- peer role: `{}`\n",
+        config.peer_role.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- peer group goal: `{}`\n",
+        config.peer_group_goal.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- authority: `{}`\n",
+        config.authority.as_deref().unwrap_or("none")
+    ));
+    markdown
+}
+
+fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd doctor\n\n");
+    markdown.push_str(&format!("- bundle: `{}`\n", bundle_root.display()));
+    markdown.push_str(&format!(
+        "- ready: `{}`\n",
+        status
+            .get("setup_ready")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    ));
+    if let Some(missing) = status.get("missing").and_then(|value| value.as_array()) {
+        if !missing.is_empty() {
+            markdown.push_str("\n## Missing\n");
+            for item in missing {
+                markdown.push_str(&format!(
+                    "- {}\n",
+                    item.as_str().unwrap_or("unknown")
+                ));
+            }
+        }
+    }
+    markdown
+}
+
 #[derive(Debug, Clone)]
 struct CompiledMemoryHit {
     path: PathBuf,
@@ -5780,8 +6275,13 @@ fn search_compiled_memory_pages(
                 } else {
                     section_stack.join(" > ")
                 };
-                let (score, reasons) =
-                    score_compiled_memory_hit(&query_lower, &query_terms, entry.path(), &section, trimmed);
+                let (score, reasons) = score_compiled_memory_hit(
+                    &query_lower,
+                    &query_terms,
+                    entry.path(),
+                    &section,
+                    trimmed,
+                );
                 hits.push(CompiledMemoryHit {
                     path: entry.path().to_path_buf(),
                     line: idx + 1,
@@ -6435,7 +6935,9 @@ fn build_compiled_memory_quality_report(
     let index = render_compiled_memory_index(bundle_root)?;
     let memory_file = bundle_root.join("MEMD_MEMORY.md");
     let event_log = read_bundle_event_log(bundle_root).unwrap_or_default();
-    let memory_file_bytes = fs::metadata(&memory_file).map(|meta| meta.len()).unwrap_or(0);
+    let memory_file_bytes = fs::metadata(&memory_file)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
     let memory_file_text = fs::read_to_string(&memory_file).unwrap_or_default();
     let semantic_page_present = index
         .entries
@@ -6480,15 +6982,13 @@ fn build_compiled_memory_quality_report(
         60
     };
 
-    let coverage_score = clamp_u8(
-        (20 + index.pages.len() as i32 * 4 + index.item_count as i32 * 2).min(100),
-    );
+    let coverage_score =
+        clamp_u8((20 + index.pages.len() as i32 * 4 + index.item_count as i32 * 2).min(100));
     let retrieval_score = if probes.is_empty() {
         0
     } else {
         clamp_u8(
-            probes.iter().map(|probe| probe.best_score).sum::<i32>()
-                / probes.len().max(1) as i32,
+            probes.iter().map(|probe| probe.best_score).sum::<i32>() / probes.len().max(1) as i32,
         )
     };
     let freshness_score = if let Some(latest_event) = event_log.first() {
@@ -6558,7 +7058,8 @@ fn build_compiled_memory_quality_report(
             name: "scope".to_string(),
             weight: 15,
             score: scope_score,
-            details: "project, namespace, session, and tab are visible in the memory surface".to_string(),
+            details: "project, namespace, session, and tab are visible in the memory surface"
+                .to_string(),
         },
         CompiledMemoryQualityDimension {
             name: "coverage".to_string(),
@@ -6617,19 +7118,23 @@ fn build_compiled_memory_quality_report(
 
     let mut recommendations = Vec::new();
     if scope_score < 100 {
-        recommendations.push("stamp project, namespace, session, and tab into runtime scope".to_string());
+        recommendations
+            .push("stamp project, namespace, session, and tab into runtime scope".to_string());
     }
     if retrieval_score < 80 {
-        recommendations.push("tighten search ranking and keep the best hit explainable".to_string());
+        recommendations
+            .push("tighten search ranking and keep the best hit explainable".to_string());
     }
     if provenance_score < 80 {
-        recommendations.push("surface source links in the compiled pages more aggressively".to_string());
+        recommendations
+            .push("surface source links in the compiled pages more aggressively".to_string());
     }
     if freshness_score < 80 {
         recommendations.push("refresh live truth sooner so hot memory stays current".to_string());
     }
     if contradiction_score < 90 {
-        recommendations.push("resolve contested or superseded facts before they pile up".to_string());
+        recommendations
+            .push("resolve contested or superseded facts before they pile up".to_string());
     }
     if token_efficiency_score < 70 {
         recommendations.push("trim the visible surface or split cold pages out".to_string());
@@ -6638,10 +7143,12 @@ fn build_compiled_memory_quality_report(
         recommendations.push("sync compiled pages into the semantic backend lane".to_string());
     }
     if latency_score < 80 {
-        recommendations.push("cut the quality path cost so the report stays cheap to run".to_string());
+        recommendations
+            .push("cut the quality path cost so the report stays cheap to run".to_string());
     }
     if recommendations.is_empty() {
-        recommendations.push("memory surface looks healthy; keep the current hybrid base".to_string());
+        recommendations
+            .push("memory surface looks healthy; keep the current hybrid base".to_string());
     }
 
     Ok(CompiledMemoryQualityReport {
@@ -6720,17 +7227,26 @@ fn render_compiled_memory_quality_markdown(
     let mut output = String::new();
     output.push_str("# memd memory quality\n\n");
     output.push_str(&format!("- Root: `{}`\n", bundle_root.display()));
-    output.push_str(&format!("- Benchmark target: `{}`\n", report.benchmark_target));
+    output.push_str(&format!(
+        "- Benchmark target: `{}`\n",
+        report.benchmark_target
+    ));
     output.push_str(&format!("- Project: `{}`\n", report.project));
     output.push_str(&format!("- Namespace: `{}`\n", report.namespace));
     output.push_str(&format!("- Session: `{}`\n", report.session));
     output.push_str(&format!("- Tab: `{}`\n", report.tab_id));
     output.push_str(&format!("- Agent: `{}`\n", report.effective_agent));
-    output.push_str(&format!("- Score: `{}/{}`\n", report.score, report.max_score));
+    output.push_str(&format!(
+        "- Score: `{}/{}`\n",
+        report.score, report.max_score
+    ));
     output.push_str(&format!("- Pages: `{}`\n", report.page_count));
     output.push_str(&format!("- Lanes: `{}`\n", report.lane_count));
     output.push_str(&format!("- Items: `{}`\n", report.item_count));
-    output.push_str(&format!("- Memory bytes: `{}`\n\n", report.memory_file_bytes));
+    output.push_str(&format!(
+        "- Memory bytes: `{}`\n\n",
+        report.memory_file_bytes
+    ));
     output.push_str(&format!("- Latency ms: `{}`\n\n", report.latency_ms));
     output.push_str("## Dimensions\n\n");
     for dim in &report.dimensions {
@@ -9993,6 +10509,13 @@ fn build_project_bootstrap_memory(
 }
 
 fn build_bundle_capability_registry(project_root: Option<&Path>) -> CapabilityRegistry {
+    build_bundle_capability_registry_with_home(project_root, home_dir().as_deref())
+}
+
+fn build_bundle_capability_registry_with_home(
+    project_root: Option<&Path>,
+    home: Option<&Path>,
+) -> CapabilityRegistry {
     let mut capabilities = Vec::new();
 
     if let Some(project_root) = project_root {
@@ -10018,7 +10541,7 @@ fn build_bundle_capability_registry(project_root: Option<&Path>) -> CapabilityRe
         }
     }
 
-    let Some(home) = home_dir() else {
+    let Some(home) = home else {
         return CapabilityRegistry {
             generated_at: Utc::now(),
             project_root: project_root.map(|path| path.display().to_string()),
@@ -12278,12 +12801,13 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     write_bundle_capability_registry(&output, &capability_registry)?;
     write_bundle_capability_bridges(&output, &capability_bridges)?;
     write_native_agent_bridge_files(&output)?;
+    write_bundle_command_catalog_files(&output)?;
     write_bundle_harness_bridge_registry(&output)?;
 
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `memd status --output {bundle}`\n2. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --intent current_task --write`\n3. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n4. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --intent current_task`\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `memd status --output {bundle}`\n2. Audit migration readiness:\n   - `memd migrate --output {bundle} --summary`\n3. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --intent current_task --write`\n4. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n5. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --intent current_task`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd migrate --output {bundle} --summary`\n- `memd migrate --output {bundle} --json`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = project,
             bundle = output.display(),
         ),
@@ -12333,9 +12857,7 @@ fn build_bundle_turn_placeholder_config(
         .as_ref()
         .and_then(|value| value.tab_id.clone())
         .or_else(default_bundle_tab_id);
-    let peer_system = runtime
-        .as_ref()
-        .and_then(|value| value.peer_system.clone());
+    let peer_system = runtime.as_ref().and_then(|value| value.peer_system.clone());
     let peer_role = runtime.as_ref().and_then(|value| value.peer_role.clone());
     let capabilities = runtime
         .as_ref()
@@ -12430,14 +12952,7 @@ fn write_bundle_turn_placeholder_memory(
     intent: Option<&str>,
 ) -> anyhow::Result<()> {
     let config = build_bundle_turn_placeholder_config(
-        output,
-        project,
-        namespace,
-        agent,
-        workspace,
-        visibility,
-        route,
-        intent,
+        output, project, namespace, agent, workspace, visibility, route, intent,
     );
     write_bundle_memory_placeholder(output, &config, None, None)
 }
@@ -12454,14 +12969,7 @@ fn write_bundle_turn_fallback_artifacts(
     wakeup_markdown: &str,
 ) -> anyhow::Result<()> {
     write_bundle_turn_placeholder_memory(
-        output,
-        project,
-        namespace,
-        agent,
-        workspace,
-        visibility,
-        route,
-        intent,
+        output, project, namespace, agent, workspace, visibility, route, intent,
     )?;
     write_wakeup_markdown_files(output, wakeup_markdown)?;
     Ok(())
@@ -12740,6 +13248,8 @@ fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
         ("agent", None),
         ("codex", Some("codex")),
         ("claude-code", Some("claude-code")),
+        ("agent-zero", Some("agent-zero")),
+        ("hermes", Some("hermes")),
         ("openclaw", Some("openclaw")),
         ("opencode", Some("opencode")),
     ] {
@@ -13471,23 +13981,39 @@ fn harness_pack_enabled_for_bundle(output: &Path, agent: Option<&str>, agent_nam
     runtime_match || agent_match
 }
 
-fn codex_pack_enabled_for_snapshot(output: &Path, snapshot: &ResumeSnapshot) -> bool {
-    harness_pack_enabled_for_snapshot(output, snapshot, "codex")
+#[derive(Clone, Copy)]
+struct HarnessPackRuntime {
+    agent_name: &'static str,
+    build: fn(&Path, &str, &str) -> crate::harness::shared::HarnessPackData,
 }
 
-fn codex_pack_enabled_for_bundle(output: &Path, agent: Option<&str>) -> bool {
-    harness_pack_enabled_for_bundle(output, agent, "codex")
+fn harness_pack_runtimes() -> &'static [HarnessPackRuntime] {
+    const RUNTIMES: &[HarnessPackRuntime] = &[
+        HarnessPackRuntime {
+            agent_name: "codex",
+            build: crate::harness::codex::build_codex_harness_pack,
+        },
+        HarnessPackRuntime {
+            agent_name: "agent-zero",
+            build: crate::harness::agent_zero::build_agent_zero_harness_pack,
+        },
+        HarnessPackRuntime {
+            agent_name: "openclaw",
+            build: crate::harness::openclaw::build_openclaw_harness_pack,
+        },
+        HarnessPackRuntime {
+            agent_name: "hermes",
+            build: crate::harness::hermes::build_hermes_harness_pack,
+        },
+        HarnessPackRuntime {
+            agent_name: "opencode",
+            build: crate::harness::opencode::build_opencode_harness_pack,
+        },
+    ];
+    RUNTIMES
 }
 
-fn openclaw_pack_enabled_for_snapshot(output: &Path, snapshot: &ResumeSnapshot) -> bool {
-    harness_pack_enabled_for_snapshot(output, snapshot, "openclaw")
-}
-
-fn openclaw_pack_enabled_for_bundle(output: &Path, agent: Option<&str>) -> bool {
-    harness_pack_enabled_for_bundle(output, agent, "openclaw")
-}
-
-fn codex_pack_query_from_snapshot(snapshot: &ResumeSnapshot) -> String {
+fn harness_pack_query_from_snapshot(snapshot: &ResumeSnapshot) -> String {
     let mut parts = Vec::new();
     if let Some(record) = snapshot.working.records.first() {
         parts.push(record.record.clone());
@@ -13508,7 +14034,7 @@ fn codex_pack_query_from_snapshot(snapshot: &ResumeSnapshot) -> String {
 }
 
 #[cfg(test)]
-fn codex_pack_turn_key(
+fn harness_pack_turn_key(
     project: Option<&str>,
     namespace: Option<&str>,
     agent: Option<&str>,
@@ -13518,40 +14044,11 @@ fn codex_pack_turn_key(
     cache::build_turn_key(project, namespace, agent, mode, query)
 }
 
-#[cfg(test)]
-fn openclaw_pack_turn_key(
-    project: Option<&str>,
-    namespace: Option<&str>,
-    agent: Option<&str>,
-    mode: &str,
-    query: &str,
-) -> String {
-    cache::build_turn_key(project, namespace, agent, mode, query)
-}
-
-async fn refresh_codex_pack_files(
+async fn refresh_harness_pack_files(
     output: &Path,
     snapshot: &ResumeSnapshot,
-    manifest: &crate::harness::codex::CodexHarnessPack,
-) -> anyhow::Result<Vec<PathBuf>> {
-    let query = codex_pack_query_from_snapshot(snapshot);
-    refresh_codex_pack_files_with_turn_context(output, snapshot, manifest, "refresh", &query).await
-}
-
-async fn refresh_openclaw_pack_files(
-    output: &Path,
-    snapshot: &ResumeSnapshot,
-    manifest: &crate::harness::openclaw::OpenClawHarnessPack,
-) -> anyhow::Result<Vec<PathBuf>> {
-    let query = codex_pack_query_from_snapshot(snapshot);
-    refresh_openclaw_pack_files_with_turn_context(output, snapshot, manifest, "refresh", &query)
-        .await
-}
-
-async fn refresh_codex_pack_files_with_turn_context(
-    output: &Path,
-    snapshot: &ResumeSnapshot,
-    manifest: &crate::harness::codex::CodexHarnessPack,
+    manifest: &crate::harness::shared::HarnessPackData,
+    agent_name: &str,
     mode: &str,
     query: &str,
 ) -> anyhow::Result<Vec<PathBuf>> {
@@ -13559,7 +14056,7 @@ async fn refresh_codex_pack_files_with_turn_context(
         output,
         snapshot,
         &manifest.files,
-        "codex",
+        agent_name,
         mode,
         query,
         write_bundle_memory_files(output, snapshot, None, false),
@@ -13567,23 +14064,37 @@ async fn refresh_codex_pack_files_with_turn_context(
     .await
 }
 
-async fn refresh_openclaw_pack_files_with_turn_context(
+async fn refresh_harness_pack_files_for_snapshot(
     output: &Path,
     snapshot: &ResumeSnapshot,
-    manifest: &crate::harness::openclaw::OpenClawHarnessPack,
     mode: &str,
-    query: &str,
+    allowed_agents: &[&str],
 ) -> anyhow::Result<Vec<PathBuf>> {
-    cache::refresh_turn_cached_pack_files(
-        output,
-        snapshot,
-        &manifest.files,
-        "openclaw",
-        mode,
-        query,
-        write_bundle_memory_files(output, snapshot, None, false),
-    )
-    .await
+    let query = harness_pack_query_from_snapshot(snapshot);
+    let project = snapshot.project.as_deref().unwrap_or("none");
+    let namespace = snapshot.namespace.as_deref().unwrap_or("none");
+    let mut refreshed = Vec::new();
+    for runtime in harness_pack_runtimes() {
+        if !allowed_agents.contains(&runtime.agent_name) {
+            continue;
+        }
+        if !harness_pack_enabled_for_snapshot(output, snapshot, runtime.agent_name) {
+            continue;
+        }
+        let manifest = (runtime.build)(output, project, namespace);
+        refreshed.extend(
+            refresh_harness_pack_files(
+                output,
+                snapshot,
+                &manifest,
+                runtime.agent_name,
+                mode,
+                &query,
+            )
+            .await?,
+        );
+    }
+    Ok(refreshed)
 }
 
 fn read_codex_pack_local_markdown(
@@ -13606,8 +14117,10 @@ fn preserve_codex_capture_locally(output: &Path, content: &str) -> anyhow::Resul
     for file_name in [
         "CODEX_MEMORY.md",
         "CLAUDE_CODE_MEMORY.md",
+        "AGENT_ZERO_MEMORY.md",
         "OPENCLAW_MEMORY.md",
         "OPENCODE_MEMORY.md",
+        "HERMES_MEMORY.md",
     ] {
         append_text_to_memory_surface(&output.join("agents").join(file_name), &note)?;
     }
@@ -15076,7 +15589,7 @@ async fn run_coordination_command(
             .collect::<Vec<_>>();
 
         for claim in &recover_claims {
-                client
+            client
                 .recover_peer_claim(&PeerClaimRecoverRequest {
                     scope: claim.scope.clone(),
                     from_session: recover_session.to_string(),
@@ -16330,6 +16843,14 @@ fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn write_bundle_command_catalog_files(output: &Path) -> anyhow::Result<()> {
+    let catalog = command_catalog::build_command_catalog(output);
+    let commands = output.join("COMMANDS.md");
+    fs::write(&commands, render_command_catalog_markdown(&catalog))
+        .with_context(|| format!("write {}", commands.display()))?;
+    Ok(())
+}
+
 fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
     let root_memory = output.join("MEMD_MEMORY.md");
     fs::write(&root_memory, markdown)
@@ -16343,8 +16864,10 @@ fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
     for file_name in [
         "CODEX_MEMORY.md",
         "CLAUDE_CODE_MEMORY.md",
+        "AGENT_ZERO_MEMORY.md",
         "OPENCLAW_MEMORY.md",
         "OPENCODE_MEMORY.md",
+        "HERMES_MEMORY.md",
     ] {
         let path = agents_dir.join(file_name);
         fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
@@ -16365,8 +16888,10 @@ fn write_wakeup_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
     for file_name in [
         "CODEX_WAKEUP.md",
         "CLAUDE_CODE_WAKEUP.md",
+        "AGENT_ZERO_WAKEUP.md",
         "OPENCLAW_WAKEUP.md",
         "OPENCODE_WAKEUP.md",
+        "HERMES_WAKEUP.md",
     ] {
         let path = agents_dir.join(file_name);
         fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
@@ -19159,8 +19684,10 @@ fn append_experiment_learning_notes(
     for file_name in [
         "CODEX_MEMORY.md",
         "CLAUDE_CODE_MEMORY.md",
+        "AGENT_ZERO_MEMORY.md",
         "OPENCLAW_MEMORY.md",
         "OPENCODE_MEMORY.md",
+        "HERMES_MEMORY.md",
     ] {
         append_text_to_memory_surface(&output.join("agents").join(file_name), &note)?;
     }
@@ -21053,7 +21580,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             state.workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
         }
         if state.visibility.is_none() {
-            state.visibility = runtime.as_ref().and_then(|config| config.visibility.clone());
+            state.visibility = runtime
+                .as_ref()
+                .and_then(|config| config.visibility.clone());
         }
         if state.session.is_none() {
             state.session = runtime.as_ref().and_then(|config| config.session.clone());
@@ -22436,7 +22965,8 @@ async fn read_bundle_handoff(
         prompt: false,
         summary: false,
     };
-    let resume_cache_key = build_resume_snapshot_cache_key(&resume_args, runtime.as_ref(), &base_url);
+    let resume_cache_key =
+        build_resume_snapshot_cache_key(&resume_args, runtime.as_ref(), &base_url);
     let source_limit = args.source_limit.unwrap_or(6);
     let target_bundle_key = target_bundle.display().to_string();
     let target_session_key = target
@@ -22452,7 +22982,8 @@ async fn read_bundle_handoff(
             "resume_key={resume_cache_key}|source_limit={source_limit}|target_session={target_session_key}|target_bundle={target_bundle_key}"
         ),
     );
-    if let Some(handoff) = cache::read_handoff_snapshot_cache(&args.output, &handoff_cache_key, 3)? {
+    if let Some(handoff) = cache::read_handoff_snapshot_cache(&args.output, &handoff_cache_key, 3)?
+    {
         return Ok(handoff);
     }
 
@@ -24309,8 +24840,10 @@ fn build_bundle_agent_profiles(
     let mut agents = vec![
         ("codex", "codex", "CODEX_MEMORY.md"),
         ("claude-code", "claude-code", "CLAUDE_CODE_MEMORY.md"),
-        ("openclaw", "openclaw", "OPENCLAW_MEMORY.md"),
+        ("agent-zero", "agent-zero", "AGENT_ZERO_MEMORY.md"),
+        ("hermes", "hermes", "HERMES_MEMORY.md"),
         ("opencode", "opencode", "OPENCODE_MEMORY.md"),
+        ("openclaw", "openclaw", "OPENCLAW_MEMORY.md"),
     ]
     .into_iter()
     .map(|(name, env_agent, memory_file)| BundleAgentProfile {
@@ -25723,7 +26256,11 @@ mod tests {
     use std::sync::{Arc, Mutex, OnceLock};
 
     use crate::render::{
-        render_codex_harness_pack_markdown, render_openclaw_harness_pack_markdown,
+        render_agent_zero_harness_pack_markdown, render_claude_code_harness_pack_markdown,
+        render_codex_harness_pack_markdown, render_command_catalog_markdown,
+        render_command_catalog_summary, render_hermes_harness_pack_markdown,
+        render_migration_audit_markdown, render_migration_audit_summary,
+        render_openclaw_harness_pack_markdown, render_opencode_harness_pack_markdown,
     };
     use axum::{
         Json, Router,
@@ -25749,6 +26286,20 @@ mod tests {
             .lock()
             .expect("HOME mutation lock poisoned")
     }
+
+    #[cfg(unix)]
+    fn make_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path)
+            .expect("read launcher metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("set launcher executable bit");
+    }
+
+    #[cfg(not(unix))]
+    fn make_executable(_path: &Path) {}
 
     fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSnapshot {
         ResumeSnapshot {
@@ -26873,8 +27424,7 @@ mod tests {
 
     #[test]
     fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-wake-fallback-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-wake-fallback-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
 
         let config = BundleConfigFile {
@@ -26919,7 +27469,7 @@ mod tests {
             args.intent.as_deref(),
             "# memd wake-up\n\n- fallback\n",
         )
-            .expect("write wake fallback");
+        .expect("write wake fallback");
 
         let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
         let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
@@ -26940,8 +27490,8 @@ mod tests {
 
     #[test]
     fn checkpoint_fallback_writes_placeholder_memory_without_agent() {
-        let dir = std::env::temp_dir()
-            .join(format!("memd-checkpoint-fallback-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("memd-checkpoint-fallback-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
 
         let config = BundleConfigFile {
@@ -27001,6 +27551,21 @@ mod tests {
     }
 
     #[test]
+    fn writes_command_catalog_markdown_into_bundle_root() {
+        let dir = std::env::temp_dir().join(format!("memd-command-docs-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create command docs bundle");
+
+        write_bundle_command_catalog_files(&dir).expect("write command catalog");
+
+        let commands = fs::read_to_string(dir.join("COMMANDS.md")).expect("read command catalog");
+        assert!(commands.contains("# memd commands"));
+        assert!(commands.contains("/memory"));
+        assert!(commands.contains("$gsd-autonomous"));
+
+        fs::remove_dir_all(dir).expect("cleanup command docs bundle");
+    }
+
+    #[test]
     fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
         let bundle_root =
             std::env::temp_dir().join(format!("memd-codex-pack-test-{}", uuid::Uuid::new_v4()));
@@ -27046,6 +27611,201 @@ mod tests {
     }
 
     #[test]
+    fn claude_code_pack_manifest_exposes_native_bridge_and_files() {
+        let bundle_root = std::env::temp_dir().join(format!(
+            "memd-claude-code-pack-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let manifest = crate::harness::claude_code::build_claude_code_harness_pack(
+            &bundle_root,
+            "demo",
+            "main",
+        );
+
+        assert_eq!(manifest.agent, "claude-code");
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("CLAUDE_CODE_WAKEUP.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("CLAUDE_CODE_MEMORY.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("CLAUDE_IMPORTS.md"))
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd lookup --output .memd"))
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("native Claude import bridge"))
+        );
+
+        let markdown = render_claude_code_harness_pack_markdown(&manifest);
+        assert!(markdown.contains("CLAUDE_CODE_WAKEUP.md"));
+        assert!(markdown.contains("CLAUDE_IMPORTS.md"));
+        assert!(markdown.contains("native Claude import bridge"));
+        assert!(markdown.contains("memd lookup --output .memd --query"));
+    }
+
+    #[test]
+    fn command_catalog_includes_slash_and_skill_commands() {
+        let bundle_root = std::env::temp_dir().join(format!(
+            "memd-command-catalog-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let catalog = crate::command_catalog::build_command_catalog(&bundle_root);
+
+        assert!(catalog.commands.iter().any(|entry| entry.name == "/memory"));
+        assert!(
+            catalog
+                .commands
+                .iter()
+                .any(|entry| entry.name == "$gsd-autonomous")
+        );
+        assert!(
+            catalog
+                .commands
+                .iter()
+                .any(|entry| entry.name == ".memd/agents/claude-code.sh")
+        );
+
+        let summary = render_command_catalog_summary(&catalog, None);
+        assert!(summary.contains("commands root="));
+        assert!(summary.contains("commands="));
+        assert!(summary.contains("/memory"));
+
+        let markdown = render_command_catalog_markdown(&catalog);
+        assert!(markdown.contains("# memd commands"));
+        assert!(markdown.contains("## Native memd CLI"));
+        assert!(markdown.contains("## Bridge surfaces"));
+        assert!(markdown.contains("## Bundle helpers"));
+        assert!(markdown.contains("/memory"));
+        assert!(markdown.contains("$gsd-autonomous"));
+        assert!(markdown.contains("bundle-root-present"));
+        assert!(markdown.contains("codex-skill-installed"));
+        assert!(markdown.contains(".memd/agents/claude-code.sh"));
+    }
+
+    #[test]
+    fn migration_audit_reports_ready_native_and_bridge_surfaces() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("memd-migration-test-{}", uuid::Uuid::new_v4()));
+        let bundle_root = workspace_root.join(".memd");
+        let project_root = workspace_root.join("project");
+        let home_root = workspace_root.join("home");
+
+        fs::create_dir_all(bundle_root.join("agents")).expect("create bundle agents");
+        fs::create_dir_all(project_root.as_path()).expect("create project root");
+        fs::create_dir_all(
+            home_root
+                .join(".codex")
+                .join("skills")
+                .join("gsd-autonomous"),
+        )
+        .expect("create gsd autonomous skill dir");
+        fs::create_dir_all(
+            home_root
+                .join(".codex")
+                .join("skills")
+                .join("gsd-map-codebase"),
+        )
+        .expect("create gsd map codebase skill dir");
+
+        fs::write(
+            bundle_root.join("agents").join("CLAUDE_IMPORTS.md"),
+            "@../MEMD_WAKEUP.md\n@../MEMD_MEMORY.md\n",
+        )
+        .expect("write claude imports");
+        fs::write(
+            project_root.join("CLAUDE.md"),
+            "@.memd/agents/CLAUDE_IMPORTS.md\n",
+        )
+        .expect("write project claude");
+        for script in [
+            "codex.sh",
+            "claude-code.sh",
+            "agent-zero.sh",
+            "openclaw.sh",
+            "opencode.sh",
+            "hermes.sh",
+        ] {
+            let path = bundle_root.join("agents").join(script);
+            fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write launcher");
+            make_executable(&path);
+        }
+        fs::write(
+            home_root
+                .join(".codex")
+                .join("skills")
+                .join("gsd-autonomous")
+                .join("SKILL.md"),
+            "# gsd autonomous\n",
+        )
+        .expect("write gsd autonomous");
+        fs::write(
+            home_root
+                .join(".codex")
+                .join("skills")
+                .join("gsd-map-codebase")
+                .join("SKILL.md"),
+            "# gsd map codebase\n",
+        )
+        .expect("write gsd map codebase");
+
+        let audit = crate::migration::build_migration_audit(
+            &bundle_root,
+            Some(project_root.as_path()),
+            Some(home_root.as_path()),
+        );
+
+        assert_eq!(audit.ready_count, audit.command_count);
+        assert_eq!(audit.partial_count, 0);
+        assert_eq!(audit.missing_count, 0);
+        assert_eq!(audit.broken_count, 0);
+        assert!(
+            audit
+                .commands
+                .iter()
+                .any(|command| command.name == "/memory" && command.status == "ready")
+        );
+        assert!(
+            audit
+                .commands
+                .iter()
+                .any(|command| { command.name == "$gsd-autonomous" && command.status == "ready" })
+        );
+        assert!(audit.commands.iter().any(|command| {
+            command.name == ".memd/agents/claude-code.sh" && command.status == "ready"
+        }));
+
+        let summary = render_migration_audit_summary(&audit);
+        assert!(summary.contains("migration root="));
+        assert!(summary.contains("ready="));
+
+        let markdown = render_migration_audit_markdown(&audit);
+        assert!(markdown.contains("# memd migration audit"));
+        assert!(markdown.contains("## /memory"));
+        assert!(markdown.contains("## $gsd-autonomous"));
+        assert!(markdown.contains("## .memd/agents/claude-code.sh"));
+
+        fs::remove_dir_all(workspace_root).expect("cleanup migration temp dir");
+    }
+
+    #[test]
     fn openclaw_pack_manifest_exposes_context_spill_cache_and_files() {
         let bundle_root =
             std::env::temp_dir().join(format!("memd-openclaw-pack-test-{}", uuid::Uuid::new_v4()));
@@ -27088,6 +27848,27 @@ mod tests {
         assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     }
 
+    #[test]
+    fn harness_registry_exposes_shared_preset_ids_and_defaults() {
+        let registry = crate::harness::preset::HarnessPresetRegistry::default_registry();
+
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "codex"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "openclaw"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "hermes"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "opencode"));
+        assert!(
+            registry
+                .packs
+                .iter()
+                .any(|pack| pack.pack_id == "agent-zero")
+        );
+
+        let codex = registry
+            .get("codex")
+            .expect("codex preset should exist in the shared registry");
+        assert_eq!(codex.default_verbs, vec!["wake", "resume", "checkpoint"]);
+    }
+
     #[tokio::test]
     async fn codex_pack_refreshes_wakeup_and_memory_files_after_capture() {
         let bundle_root =
@@ -27097,9 +27878,16 @@ mod tests {
         let manifest =
             crate::harness::codex::build_codex_harness_pack(&bundle_root, "demo", "main");
 
-        let written = refresh_codex_pack_files(&bundle_root, &snapshot, &manifest)
-            .await
-            .expect("refresh codex pack files");
+        let written = refresh_harness_pack_files(
+            &bundle_root,
+            &snapshot,
+            &manifest,
+            "codex",
+            "refresh",
+            &harness_pack_query_from_snapshot(&snapshot),
+        )
+        .await
+        .expect("refresh codex pack files");
 
         assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
         assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
@@ -27130,9 +27918,16 @@ mod tests {
         let manifest =
             crate::harness::openclaw::build_openclaw_harness_pack(&bundle_root, "demo", "main");
 
-        let written = refresh_openclaw_pack_files(&bundle_root, &snapshot, &manifest)
-            .await
-            .expect("refresh openclaw pack files");
+        let written = refresh_harness_pack_files(
+            &bundle_root,
+            &snapshot,
+            &manifest,
+            "openclaw",
+            "refresh",
+            &harness_pack_query_from_snapshot(&snapshot),
+        )
+        .await
+        .expect("refresh openclaw pack files");
 
         assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
         assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
@@ -27170,44 +27965,66 @@ mod tests {
         fs::remove_dir_all(bundle_root).expect("cleanup openclaw refresh temp dir");
     }
 
-    #[test]
-    fn codex_pack_turn_key_is_stable_for_repeated_recall() {
-        let first = codex_pack_turn_key(
-            Some("demo"),
-            Some("main"),
-            Some("codex"),
-            "full",
-            "What did we decide?",
-        );
-        let second = codex_pack_turn_key(
-            Some("demo"),
-            Some("main"),
-            Some("codex"),
-            "full",
-            "What did we decide?",
-        );
+    #[tokio::test]
+    async fn hermes_pack_refreshes_wakeup_and_memory_files_after_capture() {
+        let bundle_root =
+            std::env::temp_dir().join(format!("memd-hermes-refresh-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&bundle_root).expect("create bundle root");
+        let snapshot = codex_test_snapshot("demo", "main", "hermes");
+        let manifest =
+            crate::harness::hermes::build_hermes_harness_pack(&bundle_root, "demo", "main");
 
-        assert_eq!(first, second);
+        let written = refresh_harness_pack_files(
+            &bundle_root,
+            &snapshot,
+            &manifest,
+            "hermes",
+            "refresh",
+            &harness_pack_query_from_snapshot(&snapshot),
+        )
+        .await
+        .expect("refresh hermes pack files");
+
+        assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
+        assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
+        assert!(
+            written
+                .iter()
+                .any(|path| path.ends_with("agents/HERMES_WAKEUP.md"))
+        );
+        assert!(
+            written
+                .iter()
+                .any(|path| path.ends_with("agents/HERMES_MEMORY.md"))
+        );
+        assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
+        assert!(bundle_root.join("MEMD_MEMORY.md").exists());
+        assert!(bundle_root.join("agents").join("HERMES_WAKEUP.md").exists());
+        assert!(bundle_root.join("agents").join("HERMES_MEMORY.md").exists());
+
+        fs::remove_dir_all(bundle_root).expect("cleanup hermes refresh temp dir");
     }
 
     #[test]
-    fn openclaw_pack_turn_key_is_stable_for_repeated_recall() {
-        let first = openclaw_pack_turn_key(
-            Some("demo"),
-            Some("main"),
-            Some("openclaw"),
-            "full",
-            "What did we decide?",
-        );
-        let second = openclaw_pack_turn_key(
-            Some("demo"),
-            Some("main"),
-            Some("openclaw"),
-            "full",
-            "  What    did    we decide?  ",
-        );
+    fn harness_pack_turn_key_is_stable_for_repeated_recall() {
+        for agent in ["codex", "hermes", "openclaw", "opencode", "agent-zero"] {
+            let first = harness_pack_turn_key(
+                Some("demo"),
+                Some("main"),
+                Some(agent),
+                "full",
+                "What did we decide?",
+            );
+            let second = harness_pack_turn_key(
+                Some("demo"),
+                Some("main"),
+                Some(agent),
+                "full",
+                "  What    did    we decide?  ",
+            );
 
-        assert_eq!(first, second);
+            assert_eq!(first, second, "turn key should be stable for {agent}");
+        }
     }
 
     #[test]
@@ -27238,8 +28055,12 @@ mod tests {
         let api = fs::read_to_string(repo_root.join("docs/api.md")).expect("read api docs");
         let positioning =
             fs::read_to_string(repo_root.join("docs/oss-positioning.md")).expect("read oss docs");
+        let agent_zero = fs::read_to_string(repo_root.join("integrations/agent-zero/README.md"))
+            .expect("read agent zero docs");
         let codex = fs::read_to_string(repo_root.join("integrations/codex/README.md"))
             .expect("read codex docs");
+        let opencode = fs::read_to_string(repo_root.join("integrations/opencode/README.md"))
+            .expect("read opencode docs");
         let hooks = fs::read_to_string(repo_root.join("integrations/hooks/README.md"))
             .expect("read hooks docs");
 
@@ -27248,25 +28069,49 @@ mod tests {
         assert!(setup.contains("turn-scoped cache"));
         assert!(setup.contains(".memd/MEMD_WAKEUP.md"));
         assert!(setup.contains(".memd/agents/CODEX_MEMORY.md"));
+        assert!(setup.contains("Hermes is the adoption-focused harness pack"));
+        assert!(setup.contains("Agent Zero is the zero-friction harness pack"));
+        assert!(setup.contains("OpenCode is the shared-lane harness pack"));
+        assert!(setup.contains(".memd/agents/hermes.sh"));
+        assert!(setup.contains(".memd/agents/agent-zero.sh"));
+        assert!(setup.contains(".memd/agents/opencode.sh"));
 
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
         assert!(api.contains(".memd/MEMD_MEMORY.md"));
+        assert!(api.contains("Hermes is the adoption-focused harness pack"));
+        assert!(api.contains("Agent Zero is the zero-friction harness pack"));
+        assert!(api.contains("OpenCode is the shared-lane harness pack"));
 
         assert!(positioning.contains("Codex is the first harness pack"));
         assert!(positioning.contains("local-first fallback path"));
+        assert!(positioning.contains("Hermes is the adoption-focused harness pack"));
+        assert!(positioning.contains("Agent Zero is the zero-friction harness pack"));
+        assert!(positioning.contains("OpenCode is the shared-lane harness pack"));
 
-        assert!(codex.contains("first memd harness pack"));
+        assert!(codex.contains("turn-first recall/capture pack"));
         assert!(codex.contains("memd hook capture --output .memd --stdin --summary"));
         assert!(codex.contains("Keep using the local bundle markdown"));
         assert!(codex.contains(
             "turn cache is keyed from project, namespace, agent, mode, and normalized query"
         ));
+        assert!(codex.contains("Hermes uses the same shared memory core"));
+
+        assert!(agent_zero.contains("zero-friction lane"));
+        assert!(agent_zero.contains(".memd/agents/AGENT_ZERO_MEMORY.md"));
+        assert!(agent_zero.contains("memd handoff --output .memd --prompt"));
+
+        assert!(opencode.contains("shared continuity plane"));
+        assert!(opencode.contains(".memd/agents/OPENCODE_MEMORY.md"));
+        assert!(opencode.contains("memd handoff --output .memd --prompt"));
 
         assert!(hooks.contains("pre-turn read step"));
         assert!(hooks.contains("memd hook capture --stdin --summary"));
         assert!(hooks.contains("existing local bundle truth"));
+        assert!(hooks.contains("Hermes is the adoption-focused harness pack"));
+        assert!(hooks.contains("Agent Zero is the zero-friction harness pack"));
+        assert!(hooks.contains("OpenCode is the shared-lane harness pack"));
     }
 
     #[test]
@@ -29440,7 +30285,7 @@ mod tests {
         .expect("write config");
         let response =
             build_bundle_agent_profiles(&dir, None, Some("bash")).expect("agent profiles");
-        assert_eq!(response.agents.len(), 4);
+        assert_eq!(response.agents.len(), 6);
         assert_eq!(response.shell, "bash");
         assert_eq!(response.current.as_deref(), Some("codex"));
         assert_eq!(response.current_session.as_deref(), Some("codex-a"));
@@ -29452,6 +30297,19 @@ mod tests {
                 .ends_with("agents/CODEX_MEMORY.md")
         );
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
+        assert!(
+            response
+                .agents
+                .iter()
+                .any(|agent| agent.memory_file.ends_with("agents/AGENT_ZERO_MEMORY.md"))
+        );
+        assert!(
+            response
+                .agents
+                .iter()
+                .any(|agent| agent.name == "agent-zero")
+        );
+        assert!(response.agents.iter().any(|agent| agent.name == "hermes"));
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
@@ -29745,12 +30603,12 @@ mod tests {
                 ProjectAwarenessEntry {
                     project_dir: "/tmp/projects/a".to_string(),
                     bundle_root: "/tmp/projects/a/.memd".to_string(),
-                project: Some("a".to_string()),
-                namespace: Some("main".to_string()),
-                agent: Some("codex".to_string()),
-                session: Some("codex-a".to_string()),
-                tab_id: Some("tab-a".to_string()),
-                effective_agent: Some("codex@codex-a".to_string()),
+                    project: Some("a".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("codex-a".to_string()),
+                    tab_id: Some("tab-a".to_string()),
+                    effective_agent: Some("codex@codex-a".to_string()),
                     peer_system: Some("codex".to_string()),
                     peer_role: Some("agent".to_string()),
                     capabilities: vec!["memory".to_string(), "coordination".to_string()],
@@ -29772,12 +30630,12 @@ mod tests {
                 ProjectAwarenessEntry {
                     project_dir: "/tmp/projects/b".to_string(),
                     bundle_root: "/tmp/projects/b/.memd".to_string(),
-                project: Some("b".to_string()),
-                namespace: Some("main".to_string()),
-                agent: Some("claude-code".to_string()),
-                session: Some("claude-b".to_string()),
-                tab_id: Some("tab-b".to_string()),
-                effective_agent: Some("claude-code@claude-b".to_string()),
+                    project: Some("b".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("claude-code".to_string()),
+                    session: Some("claude-b".to_string()),
+                    tab_id: Some("tab-b".to_string()),
+                    effective_agent: Some("claude-code@claude-b".to_string()),
                     peer_system: Some("claude-code".to_string()),
                     peer_role: Some("agent".to_string()),
                     capabilities: vec!["memory".to_string(), "coordination".to_string()],
@@ -29863,7 +30721,9 @@ mod tests {
         ]);
 
         assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("session shared-session tab tab-a in workspace initiative-alpha"));
+        assert!(
+            warnings[0].contains("session shared-session tab tab-a in workspace initiative-alpha")
+        );
         assert!(warnings[0].contains("2 bundles"));
         assert!(warnings[0].contains("2 agents"));
         assert!(warnings[0].contains("2 endpoints"));
@@ -31192,10 +32052,8 @@ mod tests {
 
     #[test]
     fn compiled_memory_search_ranks_exact_path_matches_before_generic_hits() {
-        let root = std::env::temp_dir().join(format!(
-            "memd-memory-search-rank-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("memd-memory-search-rank-{}", uuid::Uuid::new_v4()));
         let compiled = root.join("compiled").join("memory");
         fs::create_dir_all(&compiled).expect("create compiled memory dir");
         fs::write(
@@ -31220,10 +32078,8 @@ mod tests {
 
     #[test]
     fn compiled_memory_quality_report_scores_scope_and_probes() {
-        let root = std::env::temp_dir().join(format!(
-            "memd-memory-quality-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("memd-memory-quality-{}", uuid::Uuid::new_v4()));
         let compiled = root.join("compiled").join("memory");
         fs::create_dir_all(&compiled).expect("create compiled memory dir");
         fs::write(
@@ -31253,27 +32109,37 @@ mod tests {
         assert_eq!(report.benchmark_target, "supermemory");
         assert!(report.score > 0);
         assert!(report.page_count >= 1);
-        assert!(report
-            .dimensions
-            .iter()
-            .any(|dimension| dimension.name == "freshness"));
-        assert!(report
-            .dimensions
-            .iter()
-            .any(|dimension| dimension.name == "contradiction"));
-        assert!(report
-            .dimensions
-            .iter()
-            .any(|dimension| dimension.name == "token_efficiency"));
-        assert!(report
-            .probes
-            .iter()
-            .any(|probe| probe.query == "working" && probe.best_score > 0));
+        assert!(
+            report
+                .dimensions
+                .iter()
+                .any(|dimension| dimension.name == "freshness")
+        );
+        assert!(
+            report
+                .dimensions
+                .iter()
+                .any(|dimension| dimension.name == "contradiction")
+        );
+        assert!(
+            report
+                .dimensions
+                .iter()
+                .any(|dimension| dimension.name == "token_efficiency")
+        );
+        assert!(
+            report
+                .probes
+                .iter()
+                .any(|probe| probe.query == "working" && probe.best_score > 0)
+        );
         assert!(
             report
                 .recommendations
                 .iter()
-                .any(|rec| rec.contains("surface") || rec.contains("scope") || rec.contains("rank"))
+                .any(|rec| rec.contains("surface")
+                    || rec.contains("scope")
+                    || rec.contains("rank"))
         );
 
         fs::remove_dir_all(root).expect("cleanup memory quality temp dir");
@@ -31318,23 +32184,248 @@ mod tests {
     }
 
     #[test]
-    fn harness_pack_index_lists_codex_and_openclaw() {
+    fn harness_pack_index_lists_known_packs() {
         let root = std::env::temp_dir().join(format!("memd-pack-index-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create pack index root");
 
         let index =
             crate::harness::index::build_harness_pack_index(&root, Some("demo"), Some("main"));
-        assert_eq!(index.pack_count, 2);
+        assert_eq!(index.pack_count, 6);
         assert!(index.packs.iter().any(|pack| pack.name == "Codex"));
+        assert!(index.packs.iter().any(|pack| pack.name == "Claude Code"));
+        assert!(index.packs.iter().any(|pack| pack.name == "Agent Zero"));
+        assert!(index.packs.iter().any(|pack| pack.name == "Hermes"));
+        assert!(index.packs.iter().any(|pack| pack.name == "OpenCode"));
         assert!(index.packs.iter().any(|pack| pack.name == "OpenClaw"));
 
         let summary = render_harness_pack_index_summary(&root, &index, None);
         assert!(summary.contains("pack index root="));
-        assert!(summary.contains("packs=2"));
+        assert!(summary.contains("packs=6"));
         assert!(summary.contains("Codex"));
+        assert!(summary.contains("Claude Code"));
+        assert!(summary.contains("Agent Zero"));
+        assert!(summary.contains("Hermes"));
+        assert!(summary.contains("OpenCode"));
         assert!(summary.contains("OpenClaw"));
 
         fs::remove_dir_all(root).expect("cleanup pack index temp dir");
+    }
+
+    #[test]
+    fn hermes_pack_manifest_exposes_onboarding_wake_capture_and_files() {
+        let bundle_root =
+            std::env::temp_dir().join(format!("memd-hermes-pack-test-{}", uuid::Uuid::new_v4()));
+        let manifest =
+            crate::harness::hermes::build_hermes_harness_pack(&bundle_root, "demo", "main");
+
+        assert_eq!(manifest.agent, "hermes");
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("HERMES_WAKEUP.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("HERMES_MEMORY.md"))
+        );
+        assert!(
+            manifest.commands.iter().any(|cmd| {
+                cmd.contains("memd wake --output .memd --intent current_task --write")
+            })
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd hook capture --output .memd"))
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("onboarding-friendly wake"))
+        );
+
+        let markdown = render_hermes_harness_pack_markdown(&manifest);
+        assert!(markdown.contains("HERMES_WAKEUP.md"));
+        assert!(markdown.contains("HERMES_MEMORY.md"));
+        assert!(markdown.contains("onboarding-friendly wake"));
+        assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
+    }
+
+    #[test]
+    fn agent_zero_pack_manifest_exposes_resume_handoff_and_files() {
+        let bundle_root = std::env::temp_dir().join(format!(
+            "memd-agent-zero-pack-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let manifest =
+            crate::harness::agent_zero::build_agent_zero_harness_pack(&bundle_root, "demo", "main");
+
+        assert_eq!(manifest.agent, "agent-zero");
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("AGENT_ZERO_WAKEUP.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("AGENT_ZERO_MEMORY.md"))
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd resume --output .memd"))
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("zero-friction resume"))
+        );
+
+        let markdown = render_agent_zero_harness_pack_markdown(&manifest);
+        assert!(markdown.contains("AGENT_ZERO_WAKEUP.md"));
+        assert!(markdown.contains("AGENT_ZERO_MEMORY.md"));
+        assert!(markdown.contains("zero-friction resume"));
+        assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    }
+
+    #[tokio::test]
+    async fn agent_zero_pack_refreshes_visible_bundle_files_from_turn_state() {
+        let bundle_root =
+            std::env::temp_dir().join(format!("memd-agent-zero-refresh-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(bundle_root.join("agents")).expect("create agent-zero bundle dir");
+        fs::write(
+            bundle_root.join("MEMD_MEMORY.md"),
+            "# Memory\n\nstale bundle\n",
+        )
+        .expect("seed memory file");
+        fs::write(
+            bundle_root.join("agents").join("AGENT_ZERO_MEMORY.md"),
+            "# Agent Zero Memory\n\nstale agent bundle\n",
+        )
+        .expect("seed agent-zero agent memory file");
+
+        let snapshot = codex_test_snapshot("demo", "main", "agent-zero");
+        let manifest =
+            crate::harness::agent_zero::build_agent_zero_harness_pack(&bundle_root, "demo", "main");
+
+        let written = refresh_harness_pack_files(
+            &bundle_root,
+            &snapshot,
+            &manifest,
+            "agent-zero",
+            "refresh",
+            &harness_pack_query_from_snapshot(&snapshot),
+        )
+        .await
+        .expect("refresh agent zero pack files");
+
+        assert!(written.contains(&bundle_root.join("MEMD_MEMORY.md")));
+        assert!(written.contains(&bundle_root.join("agents").join("AGENT_ZERO_MEMORY.md")));
+        let refreshed = fs::read_to_string(bundle_root.join("MEMD_MEMORY.md"))
+            .expect("read refreshed memory file");
+        assert!(refreshed.contains("# memd memory"));
+        assert!(refreshed.contains("keep the live wake surface current"));
+    }
+
+    #[test]
+    fn opencode_pack_manifest_exposes_resume_handoff_and_files() {
+        let bundle_root =
+            std::env::temp_dir().join(format!("memd-opencode-pack-test-{}", uuid::Uuid::new_v4()));
+        let manifest =
+            crate::harness::opencode::build_opencode_harness_pack(&bundle_root, "demo", "main");
+
+        assert_eq!(manifest.agent, "opencode");
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("OPENCODE_WAKEUP.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("OPENCODE_MEMORY.md"))
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd resume --output .memd"))
+        );
+        assert!(
+            manifest
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
+        );
+        assert!(
+            manifest
+                .behaviors
+                .iter()
+                .any(|line| line.contains("write durable outcomes back"))
+        );
+
+        let markdown = render_opencode_harness_pack_markdown(&manifest);
+        assert!(markdown.contains("OPENCODE_WAKEUP.md"));
+        assert!(markdown.contains("OPENCODE_MEMORY.md"));
+        assert!(markdown.contains("emit a shared handoff"));
+        assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    }
+
+    #[tokio::test]
+    async fn opencode_pack_refreshes_visible_bundle_files_from_turn_state() {
+        let bundle_root =
+            std::env::temp_dir().join(format!("memd-opencode-refresh-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(bundle_root.join("agents")).expect("create opencode bundle dir");
+        fs::write(
+            bundle_root.join("MEMD_MEMORY.md"),
+            "# Memory\n\nstale bundle\n",
+        )
+        .expect("seed memory file");
+        fs::write(
+            bundle_root.join("agents").join("OPENCODE_MEMORY.md"),
+            "# OpenCode Memory\n\nstale agent bundle\n",
+        )
+        .expect("seed opencode agent memory file");
+
+        let snapshot = codex_test_snapshot("demo", "main", "opencode");
+        let manifest =
+            crate::harness::opencode::build_opencode_harness_pack(&bundle_root, "demo", "main");
+
+        let written = refresh_harness_pack_files(
+            &bundle_root,
+            &snapshot,
+            &manifest,
+            "opencode",
+            "refresh",
+            &harness_pack_query_from_snapshot(&snapshot),
+        )
+        .await
+        .expect("refresh opencode pack files");
+
+        assert!(written.contains(&bundle_root.join("MEMD_MEMORY.md")));
+        assert!(written.contains(&bundle_root.join("agents").join("OPENCODE_MEMORY.md")));
+        let refreshed = fs::read_to_string(bundle_root.join("MEMD_MEMORY.md"))
+            .expect("read refreshed memory file");
+        assert!(refreshed.contains("# memd memory"));
+        assert!(refreshed.contains("keep the live wake surface current"));
     }
 
     #[test]
@@ -31352,12 +32443,13 @@ mod tests {
 
         let capture =
             crate::harness::index::filter_harness_pack_index(index.clone(), Some("capture"));
-        assert_eq!(capture.packs.len(), 1);
-        assert_eq!(capture.packs[0].name, "Codex");
+        assert_eq!(capture.packs.len(), 2);
+        assert!(capture.packs.iter().any(|pack| pack.name == "Codex"));
+        assert!(capture.packs.iter().any(|pack| pack.name == "Hermes"));
 
         let compact =
             crate::harness::index::filter_harness_pack_index(index.clone(), Some("turn-scoped"));
-        assert_eq!(compact.packs.len(), 2);
+        assert_eq!(compact.packs.len(), 3);
 
         let compact =
             crate::harness::index::filter_harness_pack_index(index, Some("compact context"));
@@ -31377,9 +32469,13 @@ mod tests {
             crate::harness::index::build_harness_pack_index(&root, Some("demo"), Some("main"));
         let json = render_harness_pack_index_json(&index);
         assert_eq!(json.root, root.display().to_string());
-        assert_eq!(json.pack_count, 2);
-        assert_eq!(json.packs.len(), 2);
+        assert_eq!(json.pack_count, 6);
+        assert_eq!(json.packs.len(), 6);
         assert!(json.packs.iter().any(|pack| pack.name == "Codex"));
+        assert!(json.packs.iter().any(|pack| pack.name == "Claude Code"));
+        assert!(json.packs.iter().any(|pack| pack.name == "Agent Zero"));
+        assert!(json.packs.iter().any(|pack| pack.name == "Hermes"));
+        assert!(json.packs.iter().any(|pack| pack.name == "OpenCode"));
         assert!(json.packs.iter().any(|pack| pack.name == "OpenClaw"));
 
         fs::remove_dir_all(root).expect("cleanup pack index json temp dir");
@@ -31553,10 +32649,8 @@ mod tests {
         let runtime = read_bundle_runtime_config(&output)
             .expect("read runtime")
             .expect("runtime config");
-        let base_url = resolve_bundle_command_base_url(
-            "http://127.0.0.1:59999",
-            runtime.base_url.as_deref(),
-        );
+        let base_url =
+            resolve_bundle_command_base_url("http://127.0.0.1:59999", runtime.base_url.as_deref());
         let cache_key = build_resume_snapshot_cache_key(&args, Some(&runtime), &base_url);
         let snapshot = ResumeSnapshot {
             project: Some("demo".to_string()),
@@ -31628,8 +32722,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_bundle_handoff_uses_cache_before_backend() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-handoff-cache-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-handoff-cache-{}", uuid::Uuid::new_v4()));
         let output = dir.join(".memd");
         fs::create_dir_all(output.join("state")).expect("create bundle state dir");
         fs::write(
@@ -31671,10 +32764,8 @@ mod tests {
         let runtime = read_bundle_runtime_config(&output)
             .expect("read runtime")
             .expect("runtime config");
-        let resolved_base_url = resolve_bundle_command_base_url(
-            "http://127.0.0.1:59998",
-            runtime.base_url.as_deref(),
-        );
+        let resolved_base_url =
+            resolve_bundle_command_base_url("http://127.0.0.1:59998", runtime.base_url.as_deref());
         let resume_args = ResumeArgs {
             output: output.clone(),
             project: None,
@@ -31690,7 +32781,8 @@ mod tests {
             prompt: false,
             summary: false,
         };
-        let resume_key = build_resume_snapshot_cache_key(&resume_args, Some(&runtime), &resolved_base_url);
+        let resume_key =
+            build_resume_snapshot_cache_key(&resume_args, Some(&runtime), &resolved_base_url);
         let handoff_key = cache::build_turn_key(
             Some(&output.display().to_string()),
             None,
@@ -31770,7 +32862,10 @@ mod tests {
             .expect("handoff from cache");
         let expected_target_bundle = output.display().to_string();
 
-        assert_eq!(resumed.target_bundle.as_deref(), Some(expected_target_bundle.as_str()));
+        assert_eq!(
+            resumed.target_bundle.as_deref(),
+            Some(expected_target_bundle.as_str())
+        );
         assert_eq!(resumed.resume.project.as_deref(), Some("demo"));
         assert_eq!(resumed.resume.agent.as_deref(), Some("codex@codex-a"));
         assert!(resumed.resume.semantic.is_none());

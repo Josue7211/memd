@@ -2,6 +2,30 @@
 
 OpenClaw should use `memd` as the shared memory control plane.
 
+This preset comes from the shared harness schema.
+
+- pack id: `openclaw`
+- entrypoint: `memd context --project <project> --agent openclaw --compact`
+- cache policy: compact-first spill cache
+- tone: compact context and spill at boundaries
+
+## Surface Set
+
+- `MEMD_WAKEUP.md`
+- `MEMD_MEMORY.md`
+- `agents/OPENCLAW_WAKEUP.md`
+- `agents/OPENCLAW_MEMORY.md`
+
+## Default Verbs
+
+- `context`
+- `resume`
+- `spill`
+
+## Shared Core
+
+memd owns the same memory control plane, compiled pages, and turn-scoped cache.
+
 This is the second harness pack after Codex. It keeps the OpenClaw flow
 compact: read context before task work, spill compact state at the boundary,
 and keep the visible bundle markdown in sync.
@@ -77,3 +101,7 @@ memd-hook-spill --stdin --apply < compaction.json
 ```powershell
 Get-Content .\compaction.json -Raw | ./integrations/hooks/memd-spill.ps1 -Apply
 ```
+
+Hermes is the next harness pack after OpenClaw. It uses the same shared hook
+kit, but its primary surface is adoption-friendly wake + capture instead of
+spill-first task transitions.

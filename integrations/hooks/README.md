@@ -42,11 +42,25 @@ memd refresh --output .memd
 That also refreshes:
 
 - `.memd/MEMD_MEMORY.md`
+- `.memd/MEMD_WAKEUP.md`
+- `.memd/MEMD_EVENTS.md`
+- `.memd/agents/CODEX_WAKEUP.md`
 - `.memd/agents/CODEX_MEMORY.md`
+- `.memd/agents/CODEX_EVENTS.md`
+- `.memd/agents/CLAUDE_CODE_WAKEUP.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_EVENTS.md`
 - `.memd/agents/CLAUDE_IMPORTS.md`
+- `.memd/agents/AGENT_ZERO_WAKEUP.md`
+- `.memd/agents/AGENT_ZERO_MEMORY.md`
+- `.memd/agents/OPENCLAW_WAKEUP.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
+- `.memd/agents/OPENCLAW_EVENTS.md`
+- `.memd/agents/OPENCODE_WAKEUP.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
+- `.memd/agents/OPENCODE_EVENTS.md`
+- `.memd/agents/HERMES_WAKEUP.md`
+- `.memd/agents/HERMES_MEMORY.md`
 
 For Codex, that wake path is the pre-turn read step in the harness pack flow.
 It pulls compiled memory first, then refreshes the visible wakeup files after a
@@ -69,14 +83,35 @@ Agent-specific bundle entrypoints are generated under `.memd/agents/`:
 
 - `codex.sh`
 - `claude-code.sh`
+- `agent-zero.sh`
 - `openclaw.sh`
 - `opencode.sh`
+- `hermes.sh`
 
 For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from project
 `CLAUDE.md` and verify it with `/memory`.
 
+The same bundle also writes `.memd/COMMANDS.md`, and you can inspect the
+catalog at any time with:
+
+```bash
+memd commands --output .memd --summary
+```
+
 OpenClaw is the second harness pack after Codex and uses the same shared hook
 kit, but its primary flow is context + spill instead of wake + capture.
+
+Hermes is the adoption-focused harness pack after OpenClaw and uses the same
+shared hook kit, but its primary flow is onboarding-friendly wake + capture
+with cloud-first reach and self-host later.
+
+Agent Zero is the zero-friction harness pack after Hermes and uses the same
+shared hook kit, but its primary flow is fast resume + durable remember + clean
+handoff for fresh sessions.
+
+OpenCode is the shared-lane harness pack after Agent Zero and uses the same
+shared hook kit, but its primary flow is resume + remember + handoff for
+explicit continuity clients.
 
 ## Environment
 

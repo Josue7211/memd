@@ -1,24 +1,17 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use crate::harness::shared::HarnessPackData;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct OpenClawHarnessPack {
-    pub(crate) agent: String,
-    pub(crate) project: String,
-    pub(crate) namespace: String,
-    pub(crate) bundle_root: PathBuf,
-    pub(crate) files: Vec<PathBuf>,
-    pub(crate) commands: Vec<String>,
-    pub(crate) behaviors: Vec<String>,
-}
+pub(crate) type OpenClawHarnessPack = HarnessPackData;
 
 pub(crate) fn build_openclaw_harness_pack(
     bundle_root: &Path,
     project: &str,
     namespace: &str,
 ) -> OpenClawHarnessPack {
-    OpenClawHarnessPack {
+    HarnessPackData {
+        name: "OpenClaw",
+        role: "compact context/spill pack",
         agent: "openclaw".to_string(),
         project: project.to_string(),
         namespace: namespace.to_string(),

@@ -9,7 +9,7 @@ reuse forever, and always keep a path back to the evidence.
 
 `memd` combines:
 
-- harness packs for Codex, OpenClaw, Hermes, and other agent surfaces
+- harness packs for Codex, Claude Code, Agent Zero, OpenClaw, Hermes, OpenCode, and other agent surfaces
 - compiled memory pages that stay visible on disk
 - Obsidian wikilinks for human navigation
 - LightRAG as the semantic recall backend
@@ -32,6 +32,8 @@ reuse forever, and always keep a path back to the evidence.
 cargo run -p memd-server
 cargo run -p memd-client --bin memd -- init --agent codex
 memd status --output .memd
+memd migrate --output .memd --summary
+memd commands --output .memd --summary
 memd resume --output .memd --intent current_task
 ```
 
@@ -57,8 +59,10 @@ See the editable source at [docs/architecture.excalidraw](./docs/architecture.ex
 
 - Codex
 - Claude Code
+- Agent Zero
 - OpenClaw
 - Hermes
+- OpenCode
 - Obsidian
 - shared hook kit
 

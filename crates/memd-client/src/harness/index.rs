@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{codex::CodexHarnessPack, openclaw::OpenClawHarnessPack};
+use super::shared::pack_index_entry_from_view;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HarnessPackIndex {
@@ -33,9 +33,19 @@ pub(crate) fn build_harness_pack_index(
     let project = project.unwrap_or("none").trim().to_string();
     let namespace = namespace.unwrap_or("none").trim().to_string();
     let codex = super::codex::build_codex_harness_pack(bundle_root, &project, &namespace);
+    let claude_code =
+        super::claude_code::build_claude_code_harness_pack(bundle_root, &project, &namespace);
+    let agent_zero =
+        super::agent_zero::build_agent_zero_harness_pack(bundle_root, &project, &namespace);
+    let hermes = super::hermes::build_hermes_harness_pack(bundle_root, &project, &namespace);
+    let opencode = super::opencode::build_opencode_harness_pack(bundle_root, &project, &namespace);
     let openclaw = super::openclaw::build_openclaw_harness_pack(bundle_root, &project, &namespace);
     let packs = vec![
         HarnessPackIndexEntry::from(&codex),
+        HarnessPackIndexEntry::from(&claude_code),
+        HarnessPackIndexEntry::from(&agent_zero),
+        HarnessPackIndexEntry::from(&hermes),
+        HarnessPackIndexEntry::from(&opencode),
         HarnessPackIndexEntry::from(&openclaw),
     ];
 
@@ -86,40 +96,8 @@ fn harness_pack_matches(pack: &HarnessPackIndexEntry, query: &str) -> bool {
     fields.into_iter().any(|field| field.contains(query))
 }
 
-impl From<&CodexHarnessPack> for HarnessPackIndexEntry {
-    fn from(pack: &CodexHarnessPack) -> Self {
-        Self {
-            name: "Codex".to_string(),
-            role: "turn-first recall/capture pack".to_string(),
-            project: pack.project.clone(),
-            namespace: pack.namespace.clone(),
-            bundle_root: pack.bundle_root.display().to_string(),
-            files: pack
-                .files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect(),
-            commands: pack.commands.clone(),
-            behaviors: pack.behaviors.clone(),
-        }
-    }
-}
-
-impl From<&OpenClawHarnessPack> for HarnessPackIndexEntry {
-    fn from(pack: &OpenClawHarnessPack) -> Self {
-        Self {
-            name: "OpenClaw".to_string(),
-            role: "compact context/spill pack".to_string(),
-            project: pack.project.clone(),
-            namespace: pack.namespace.clone(),
-            bundle_root: pack.bundle_root.display().to_string(),
-            files: pack
-                .files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect(),
-            commands: pack.commands.clone(),
-            behaviors: pack.behaviors.clone(),
-        }
+impl<T: super::shared::HarnessPackView> From<&T> for HarnessPackIndexEntry {
+    fn from(pack: &T) -> Self {
+        pack_index_entry_from_view(pack)
     }
 }

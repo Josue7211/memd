@@ -3,6 +3,13 @@
 Claude Code should treat `memd` as the shared memory control plane and load it
 through Claude's native memory system.
 
+The bundle also exposes a command catalog, so the local `$` and `/` surfaces
+stay documented alongside the memory files:
+
+```bash
+memd commands --root .memd --summary
+```
+
 Recommended flow:
 
 1. import `memd` into project `CLAUDE.md`
@@ -10,7 +17,10 @@ Recommended flow:
 3. refresh wake-up state with `memd wake`
 4. use `memd lookup` before answering about prior decisions, preferences, or history
 5. write durable takeaways back through `memd`
-5. let dream/autodream flow back into the same imported surface
+6. let dream/autodream flow back into the same imported surface
+
+Claude Code uses the same shared hook kit and bundle truth as the other
+harness packs, but its native bridge is the primary path.
 
 If you want a shell-level integration, reuse the shared hook kit in
 [`../hooks`](../hooks).
@@ -38,12 +48,18 @@ Then verify the loaded files inside Claude Code:
 /memory
 ```
 
+If you need the command list on disk, check `.memd/COMMANDS.md`.
+The catalog also keeps external skill commands like `$gsd-autonomous` and
+`$gsd-map-codebase` visible during migration, even though memd does not own
+those commands.
+
 The generated import chain pulls in both:
 
 - `.memd/MEMD_WAKEUP.md`
 - `.memd/MEMD_MEMORY.md`
 - `.memd/agents/CLAUDE_CODE_WAKEUP.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_EVENTS.md`
 
 And use the Claude-specific entrypoint:
 

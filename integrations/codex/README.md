@@ -1,6 +1,28 @@
 # Codex Integration
 
-This is the first memd harness pack.
+This is the Codex harness pack rendered from the shared preset schema.
+
+- pack id: `codex`
+- entrypoint: `memd wake --output .memd --intent current_task --write`
+- cache policy: turn-scoped recall/capture cache
+- tone: turn-first recall/capture pack
+
+## Surface Set
+
+- `MEMD_WAKEUP.md`
+- `MEMD_MEMORY.md`
+- `agents/CODEX_WAKEUP.md`
+- `agents/CODEX_MEMORY.md`
+
+## Default Verbs
+
+- `wake`
+- `resume`
+- `checkpoint`
+
+## Shared Core
+
+memd owns the same memory control plane, compiled pages, and turn-scoped cache.
 
 Codex should use the same `memd` surface as every other agent.
 
@@ -36,6 +58,8 @@ If the backend is unavailable, Codex should keep using the local bundle markdown
 
 If you want a shell-level integration, reuse the shared hook kit in
 [`../hooks`](../hooks).
+
+Hermes uses the same shared memory core, but it presents the adoption/onboarding surface instead of the Codex tab-centric workflow.
 
 ## Read Context
 
