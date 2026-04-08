@@ -90,10 +90,13 @@ memd memory --root .memd --list --filter working --summary
 memd memory --root .memd --list --grouped
 memd memory --root .memd --list --grouped --expand-items
 memd memory --root .memd --list --json
+memd memory --root .memd --quality --summary
 ```
 
 The JSON form includes structured lane/item entries so a UI can render the
-memory browser without re-parsing the markdown paths.
+memory browser without re-parsing the markdown paths. The quality summary
+scores scope, coverage, retrieval, compactness, provenance, and semantic
+alignment so you can track the gap to the target bar without eyeballing pages.
 
 Inspect the event compiler lane directly with:
 

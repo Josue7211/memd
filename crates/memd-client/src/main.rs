@@ -999,6 +999,9 @@ struct MemoryArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    quality: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2980,7 +2983,22 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Memory(args) => {
             let bundle_root = resolve_compiled_memory_bundle_root(args.root.as_deref())?;
-            if args.list {
+            if args.quality {
+                let report = build_compiled_memory_quality_report(&bundle_root)?;
+                if args.json {
+                    print_json(&render_compiled_memory_quality_json(&bundle_root, &report))?;
+                } else if args.summary {
+                    println!(
+                        "{}",
+                        render_compiled_memory_quality_summary(&bundle_root, &report)
+                    );
+                } else {
+                    println!(
+                        "{}",
+                        render_compiled_memory_quality_markdown(&bundle_root, &report)
+                    );
+                }
+            } else if args.list {
                 let index = render_compiled_memory_index(&bundle_root)?;
                 let index = filter_compiled_memory_index(
                     index,
@@ -5622,6 +5640,50 @@ struct CompiledMemoryHit {
     line: usize,
     section: String,
     text: String,
+    score: i32,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompiledMemoryQualityDimension {
+    name: String,
+    weight: u8,
+    score: u8,
+    details: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompiledMemoryQualityProbe {
+    query: String,
+    hit_count: usize,
+    best_score: i32,
+    best_path: Option<String>,
+    best_section: Option<String>,
+    best_text: Option<String>,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompiledMemoryQualityReport {
+    root: String,
+    benchmark_target: String,
+    project: String,
+    namespace: String,
+    agent: String,
+    session: String,
+    tab_id: String,
+    effective_agent: String,
+    page_count: usize,
+    lane_count: usize,
+    item_count: usize,
+    memory_file_bytes: u64,
+    latency_ms: u64,
+    score: u8,
+    max_score: u8,
+    dimensions: Vec<CompiledMemoryQualityDimension>,
+    probes: Vec<CompiledMemoryQualityProbe>,
+    recommendations: Vec<String>,
+    generated_at: DateTime<Utc>,
 }
 
 fn resolve_compiled_memory_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
@@ -5685,6 +5747,7 @@ fn search_compiled_memory_pages(
     }
 
     let query_lower = query.to_lowercase();
+    let query_terms = tokenize_compiled_memory_query(query);
     let mut hits = Vec::new();
     for entry in walkdir::WalkDir::new(&root)
         .into_iter()
@@ -5717,19 +5780,27 @@ fn search_compiled_memory_pages(
                 } else {
                     section_stack.join(" > ")
                 };
+                let (score, reasons) =
+                    score_compiled_memory_hit(&query_lower, &query_terms, entry.path(), &section, trimmed);
                 hits.push(CompiledMemoryHit {
                     path: entry.path().to_path_buf(),
                     line: idx + 1,
                     section,
                     text: trimmed.to_string(),
+                    score,
+                    reasons,
                 });
-                if hits.len() >= limit {
-                    return Ok(hits);
-                }
             }
         }
     }
 
+    hits.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| a.line.cmp(&b.line))
+    });
+    hits.truncate(limit);
     Ok(hits)
 }
 
@@ -6111,6 +6182,64 @@ fn compiled_memory_page_group(page: &str) -> Option<(String, String)> {
     Some((stem, title))
 }
 
+fn tokenize_compiled_memory_query(query: &str) -> Vec<String> {
+    query
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_ascii_lowercase())
+        .collect()
+}
+
+fn score_compiled_memory_hit(
+    query_lower: &str,
+    query_terms: &[String],
+    path: &Path,
+    section: &str,
+    text: &str,
+) -> (i32, Vec<String>) {
+    let mut score = 0i32;
+    let mut reasons = Vec::new();
+    let path_lower = path.display().to_string().to_lowercase();
+    let stem_lower = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let section_lower = section.to_lowercase();
+    let text_lower = text.to_lowercase();
+
+    if !query_lower.is_empty() && (stem_lower == query_lower || path_lower.contains(query_lower)) {
+        score += 45;
+        reasons.push("path_match".to_string());
+    }
+    if !query_lower.is_empty() && section_lower.contains(query_lower) {
+        score += 25;
+        reasons.push("section_match".to_string());
+    }
+    if !query_lower.is_empty() && text_lower.contains(query_lower) {
+        score += 30;
+        reasons.push("text_match".to_string());
+    }
+
+    let overlap = query_terms
+        .iter()
+        .filter(|term| {
+            text_lower.contains(term.as_str())
+                || section_lower.contains(term.as_str())
+                || path_lower.contains(term.as_str())
+        })
+        .count();
+    if overlap > 0 {
+        score += (overlap as i32) * 8;
+        reasons.push(format!("term_overlap={overlap}"));
+    }
+    if section == "(top level)" {
+        score += 5;
+        reasons.push("top_level".to_string());
+    }
+    (score, reasons)
+}
+
 fn lane_title(slug: &str) -> String {
     let mut chars = slug.chars();
     match chars.next() {
@@ -6215,16 +6344,23 @@ fn render_compiled_memory_search_summary(
         hits.len(),
     );
     if let Some(first) = hits.first() {
+        let reasons = if first.reasons.is_empty() {
+            "none".to_string()
+        } else {
+            first.reasons.join(",")
+        };
         output.push_str(&format!(
-            " best={} path={} line={} section={} text={}",
+            " best={} score={} path={} line={} section={} reasons={} text={}",
             first
                 .path
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().to_string())
                 .unwrap_or_else(|| first.path.display().to_string()),
+            first.score,
             first.path.display(),
             first.line,
             first.section,
+            reasons,
             compact_inline(&first.text, 120)
         ));
     }
@@ -6246,11 +6382,18 @@ fn render_compiled_memory_search_markdown(
         return output;
     }
     for hit in hits {
+        let reasons = if hit.reasons.is_empty() {
+            "none".to_string()
+        } else {
+            hit.reasons.join(",")
+        };
         output.push_str(&format!(
-            "- `{}`:{} [{}]\n  - {}\n",
+            "- `{}`:{} [{}] score={} reasons={}\n  - {}\n",
             hit.path.display(),
             hit.line,
             hit.section,
+            hit.score,
+            reasons,
             hit.text
         ));
     }
@@ -6283,6 +6426,353 @@ fn render_compiled_memory_page_markdown(path: &Path, content: &str) -> String {
         output.push('\n');
     }
     output
+}
+
+fn build_compiled_memory_quality_report(
+    bundle_root: &Path,
+) -> anyhow::Result<CompiledMemoryQualityReport> {
+    let started = Instant::now();
+    let index = render_compiled_memory_index(bundle_root)?;
+    let memory_file = bundle_root.join("MEMD_MEMORY.md");
+    let event_log = read_bundle_event_log(bundle_root).unwrap_or_default();
+    let memory_file_bytes = fs::metadata(&memory_file).map(|meta| meta.len()).unwrap_or(0);
+    let memory_file_text = fs::read_to_string(&memory_file).unwrap_or_default();
+    let semantic_page_present = index
+        .entries
+        .iter()
+        .any(|entry| entry.kind == "lane" && entry.lane == MemoryObjectLane::Semantic.slug());
+
+    let mut probes = Vec::new();
+    for query in [
+        index.project.as_str(),
+        index.namespace.as_str(),
+        index.session.as_str(),
+        index.tab_id.as_str(),
+        "working",
+        "inbox",
+        "semantic",
+    ] {
+        if query == "none" || query.is_empty() {
+            continue;
+        }
+        let hits = search_compiled_memory_pages(bundle_root, query, 1)?;
+        let best = hits.first();
+        probes.push(CompiledMemoryQualityProbe {
+            query: query.to_string(),
+            hit_count: hits.len(),
+            best_score: best.map(|hit| hit.score).unwrap_or(0),
+            best_path: best.map(|hit| hit.path.display().to_string()),
+            best_section: best.map(|hit| hit.section.clone()),
+            best_text: best.map(|hit| compact_inline(&hit.text, 120)),
+            reasons: best.map(|hit| hit.reasons.clone()).unwrap_or_default(),
+        });
+    }
+
+    let scope_score = if index.project != "none"
+        && index.namespace != "none"
+        && index.session != "none"
+        && index.tab_id != "none"
+    {
+        100
+    } else if index.project != "none" && index.namespace != "none" {
+        80
+    } else {
+        60
+    };
+
+    let coverage_score = clamp_u8(
+        (20 + index.pages.len() as i32 * 4 + index.item_count as i32 * 2).min(100),
+    );
+    let retrieval_score = if probes.is_empty() {
+        0
+    } else {
+        clamp_u8(
+            probes.iter().map(|probe| probe.best_score).sum::<i32>()
+                / probes.len().max(1) as i32,
+        )
+    };
+    let freshness_score = if let Some(latest_event) = event_log.first() {
+        let age_minutes = (Utc::now() - latest_event.recorded_at).num_minutes();
+        if age_minutes <= 15 {
+            100
+        } else if age_minutes <= 60 {
+            85
+        } else if age_minutes <= 240 {
+            70
+        } else {
+            50
+        }
+    } else if memory_file.exists() {
+        70
+    } else {
+        40
+    };
+    let contradiction_count = memory_file_text.matches("contested").count()
+        + memory_file_text.matches("contradiction").count()
+        + memory_file_text.matches("superseded").count()
+        + memory_file_text.matches("expired").count()
+        + memory_file_text.matches("conflict").count();
+    let contradiction_score = if contradiction_count == 0 {
+        100
+    } else {
+        clamp_u8(100 - (contradiction_count as i32 * 15).min(65))
+    };
+    let token_efficiency_score = if memory_file_bytes == 0 {
+        30
+    } else if memory_file_bytes <= 12_000 {
+        100
+    } else if memory_file_bytes <= 24_000 {
+        90
+    } else if memory_file_bytes <= 40_000 {
+        80
+    } else if memory_file_bytes <= 64_000 {
+        70
+    } else {
+        55
+    };
+    let provenance_score = if memory_file.exists()
+        && (memory_file_text.contains("source_note") || memory_file_text.contains("source_path"))
+    {
+        100
+    } else if index.pages.len() > 0 {
+        80
+    } else {
+        40
+    };
+    let latency_ms = started.elapsed().as_millis() as u64;
+    let latency_score = if latency_ms <= 50 {
+        100
+    } else if latency_ms <= 100 {
+        90
+    } else if latency_ms <= 200 {
+        80
+    } else if latency_ms <= 400 {
+        70
+    } else {
+        55
+    };
+    let semantic_alignment_score = if semantic_page_present { 100 } else { 70 };
+
+    let dimensions = vec![
+        CompiledMemoryQualityDimension {
+            name: "scope".to_string(),
+            weight: 15,
+            score: scope_score,
+            details: "project, namespace, session, and tab are visible in the memory surface".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "coverage".to_string(),
+            weight: 15,
+            score: coverage_score,
+            details: "compiled pages and items are present as browsable memory objects".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "retrieval".to_string(),
+            weight: 20,
+            score: retrieval_score,
+            details: "probe queries rank visible pages with score and reasons".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "freshness".to_string(),
+            weight: 15,
+            score: freshness_score,
+            details: "recent events and live truth keep the memory surface fresh".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "contradiction".to_string(),
+            weight: 10,
+            score: contradiction_score,
+            details: "unresolved contradiction pressure stays visible and controlled".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "token_efficiency".to_string(),
+            weight: 10,
+            score: token_efficiency_score,
+            details: "the compiled memory surface stays small enough to read quickly".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "provenance".to_string(),
+            weight: 5,
+            score: provenance_score,
+            details: "compiled pages keep source anchors visible".to_string(),
+        },
+        CompiledMemoryQualityDimension {
+            name: "latency".to_string(),
+            weight: 5,
+            score: latency_score,
+            details: format!("quality report generated in {latency_ms}ms"),
+        },
+        CompiledMemoryQualityDimension {
+            name: "semantic_alignment".to_string(),
+            weight: 5,
+            score: semantic_alignment_score,
+            details: "semantic lane exists alongside the markdown base".to_string(),
+        },
+    ];
+    let weighted_total: u32 = dimensions
+        .iter()
+        .map(|dimension| (dimension.score as u32 * dimension.weight as u32) / 100)
+        .sum();
+    let score = weighted_total.min(100) as u8;
+
+    let mut recommendations = Vec::new();
+    if scope_score < 100 {
+        recommendations.push("stamp project, namespace, session, and tab into runtime scope".to_string());
+    }
+    if retrieval_score < 80 {
+        recommendations.push("tighten search ranking and keep the best hit explainable".to_string());
+    }
+    if provenance_score < 80 {
+        recommendations.push("surface source links in the compiled pages more aggressively".to_string());
+    }
+    if freshness_score < 80 {
+        recommendations.push("refresh live truth sooner so hot memory stays current".to_string());
+    }
+    if contradiction_score < 90 {
+        recommendations.push("resolve contested or superseded facts before they pile up".to_string());
+    }
+    if token_efficiency_score < 70 {
+        recommendations.push("trim the visible surface or split cold pages out".to_string());
+    }
+    if semantic_alignment_score < 80 {
+        recommendations.push("sync compiled pages into the semantic backend lane".to_string());
+    }
+    if latency_score < 80 {
+        recommendations.push("cut the quality path cost so the report stays cheap to run".to_string());
+    }
+    if recommendations.is_empty() {
+        recommendations.push("memory surface looks healthy; keep the current hybrid base".to_string());
+    }
+
+    Ok(CompiledMemoryQualityReport {
+        root: bundle_root.display().to_string(),
+        benchmark_target: "supermemory".to_string(),
+        project: index.project,
+        namespace: index.namespace,
+        agent: index.agent,
+        session: index.session,
+        tab_id: index.tab_id,
+        effective_agent: index.effective_agent,
+        page_count: index.pages.len(),
+        lane_count: index.lane_count,
+        item_count: index.item_count,
+        memory_file_bytes,
+        latency_ms,
+        score,
+        max_score: 100,
+        dimensions,
+        probes,
+        recommendations,
+        generated_at: Utc::now(),
+    })
+}
+
+fn render_compiled_memory_quality_summary(
+    bundle_root: &Path,
+    report: &CompiledMemoryQualityReport,
+) -> String {
+    let best_probe = report
+        .probes
+        .iter()
+        .max_by_key(|probe| probe.best_score)
+        .map(|probe| {
+            format!(
+                "{}:{}@{}",
+                probe.query,
+                probe.best_score,
+                probe.best_path.as_deref().unwrap_or("none")
+            )
+        })
+        .unwrap_or_else(|| "none".to_string());
+    let dims = report
+        .dimensions
+        .iter()
+        .map(|dim| format!("{}={}", dim.name, dim.score))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "memory_quality benchmark={} root={} project={} namespace={} session={} tab={} agent={} score={}/{} pages={} lanes={} items={} mem_bytes={} latency_ms={} probes={} best_probe={} dims={} recommendations={}",
+        report.benchmark_target,
+        bundle_root.display(),
+        report.project,
+        report.namespace,
+        report.session,
+        report.tab_id,
+        report.effective_agent,
+        report.score,
+        report.max_score,
+        report.page_count,
+        report.lane_count,
+        report.item_count,
+        report.memory_file_bytes,
+        report.latency_ms,
+        report.probes.len(),
+        best_probe,
+        dims,
+        report.recommendations.join(" | ")
+    )
+}
+
+fn render_compiled_memory_quality_markdown(
+    bundle_root: &Path,
+    report: &CompiledMemoryQualityReport,
+) -> String {
+    let mut output = String::new();
+    output.push_str("# memd memory quality\n\n");
+    output.push_str(&format!("- Root: `{}`\n", bundle_root.display()));
+    output.push_str(&format!("- Benchmark target: `{}`\n", report.benchmark_target));
+    output.push_str(&format!("- Project: `{}`\n", report.project));
+    output.push_str(&format!("- Namespace: `{}`\n", report.namespace));
+    output.push_str(&format!("- Session: `{}`\n", report.session));
+    output.push_str(&format!("- Tab: `{}`\n", report.tab_id));
+    output.push_str(&format!("- Agent: `{}`\n", report.effective_agent));
+    output.push_str(&format!("- Score: `{}/{}`\n", report.score, report.max_score));
+    output.push_str(&format!("- Pages: `{}`\n", report.page_count));
+    output.push_str(&format!("- Lanes: `{}`\n", report.lane_count));
+    output.push_str(&format!("- Items: `{}`\n", report.item_count));
+    output.push_str(&format!("- Memory bytes: `{}`\n\n", report.memory_file_bytes));
+    output.push_str(&format!("- Latency ms: `{}`\n\n", report.latency_ms));
+    output.push_str("## Dimensions\n\n");
+    for dim in &report.dimensions {
+        output.push_str(&format!(
+            "- {}: {}/{} — {}\n",
+            dim.name, dim.score, dim.weight, dim.details
+        ));
+    }
+    output.push_str("\n## Probes\n\n");
+    for probe in &report.probes {
+        output.push_str(&format!(
+            "- `{}` -> score={} hits={} path={} section={} reasons={} text={}\n",
+            probe.query,
+            probe.best_score,
+            probe.hit_count,
+            probe.best_path.as_deref().unwrap_or("none"),
+            probe.best_section.as_deref().unwrap_or("none"),
+            if probe.reasons.is_empty() {
+                "none".to_string()
+            } else {
+                probe.reasons.join(",")
+            },
+            probe.best_text.as_deref().unwrap_or("none"),
+        ));
+    }
+    output.push_str("\n## Recommendations\n\n");
+    for recommendation in &report.recommendations {
+        output.push_str(&format!("- {}\n", recommendation));
+    }
+    output
+}
+
+fn render_compiled_memory_quality_json(
+    bundle_root: &Path,
+    report: &CompiledMemoryQualityReport,
+) -> CompiledMemoryQualityReport {
+    let _ = bundle_root;
+    report.clone()
+}
+
+fn clamp_u8(value: i32) -> u8 {
+    value.clamp(0, 100) as u8
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30558,6 +31048,7 @@ mod tests {
             json: false,
             limit: 12,
             summary: true,
+            quality: false,
         };
 
         assert_eq!(
@@ -30697,6 +31188,95 @@ mod tests {
         assert!(summary.contains("pages=2"));
 
         fs::remove_dir_all(root).expect("cleanup memory index summary temp dir");
+    }
+
+    #[test]
+    fn compiled_memory_search_ranks_exact_path_matches_before_generic_hits() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-memory-search-rank-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let compiled = root.join("compiled").join("memory");
+        fs::create_dir_all(&compiled).expect("create compiled memory dir");
+        fs::write(
+            compiled.join("working.md"),
+            "# Working\n\nworking memory is the current lane.\n",
+        )
+        .expect("write working page");
+        fs::write(
+            compiled.join("notes.md"),
+            "# Notes\n\nthis working note is more generic.\n",
+        )
+        .expect("write notes page");
+
+        let hits = search_compiled_memory_pages(&root, "working", 2).expect("search memory");
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].score >= hits[1].score);
+        assert!(hits[0].path.ends_with("working.md"));
+        assert!(!hits[0].reasons.is_empty());
+
+        fs::remove_dir_all(root).expect("cleanup memory search temp dir");
+    }
+
+    #[test]
+    fn compiled_memory_quality_report_scores_scope_and_probes() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-memory-quality-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let compiled = root.join("compiled").join("memory");
+        fs::create_dir_all(&compiled).expect("create compiled memory dir");
+        fs::write(
+            root.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-alpha",
+  "tab_id": "tab-alpha"
+}
+"#,
+        )
+        .expect("write runtime config");
+        fs::write(
+            root.join("MEMD_MEMORY.md"),
+            "# memd memory\n\n## Scope\n\n- source_note: [[Working]]\n",
+        )
+        .expect("write memory surface");
+        fs::write(
+            compiled.join("working.md"),
+            "# Working\n\nworking memory is the current lane.\n",
+        )
+        .expect("write working page");
+
+        let report = build_compiled_memory_quality_report(&root).expect("build quality report");
+        assert_eq!(report.benchmark_target, "supermemory");
+        assert!(report.score > 0);
+        assert!(report.page_count >= 1);
+        assert!(report
+            .dimensions
+            .iter()
+            .any(|dimension| dimension.name == "freshness"));
+        assert!(report
+            .dimensions
+            .iter()
+            .any(|dimension| dimension.name == "contradiction"));
+        assert!(report
+            .dimensions
+            .iter()
+            .any(|dimension| dimension.name == "token_efficiency"));
+        assert!(report
+            .probes
+            .iter()
+            .any(|probe| probe.query == "working" && probe.best_score > 0));
+        assert!(
+            report
+                .recommendations
+                .iter()
+                .any(|rec| rec.contains("surface") || rec.contains("scope") || rec.contains("rank"))
+        );
+
+        fs::remove_dir_all(root).expect("cleanup memory quality temp dir");
     }
 
     #[test]

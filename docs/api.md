@@ -183,6 +183,8 @@ lane-grouped markdown links. Add `--expand-items` to show every item link under
 each lane instead of collapsing the lane section.
 Use `memd memory --list --json` to export the compiled memory index as a
 tool-friendly JSON object.
+Use `memd memory --quality --summary` to score the current compiled memory
+surface against the quality rubric and see the biggest gaps fast.
 The compiled memory index includes project, namespace, session, and optional
 tab ID so two live Codex tabs can stay separate without guessing.
 Use `memd events --summary` to inspect the live event compiler lane.
