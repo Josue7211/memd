@@ -1,5 +1,5 @@
 param(
-  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://127.0.0.1:8787" }),
+  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://100.104.154.24:8787" }),
   [switch]$Apply,
   [switch]$SpillTransient
 )

@@ -7,7 +7,25 @@ It gives AI systems one place to store, route, compact, explain, and verify memo
 The direction is not just “store more memory.” `memd` is also being shaped to
 support measured self-improvement: detect quality gaps, replay real memory and
 coordination scenarios, run bounded experiments, and keep only changes that win
-against explicit gates.
+against explicit gates. Autoresearch now coordinates eight narrow research
+loops—prompt surface compression, live truth freshness, capability-contract
+detection, event-spine compaction, correction learning, long-context avoidance,
+cross-harness portability, and controlled self-evolution—so every iteration
+ends with a percent-improvement report, tracks expected token savings, and
+stops once the metric budget for that loop is satisfied. The goal is a 90%
+token-cost reduction for high-value tasks while maintaining evidence-driven
+quality; accepted outcomes feed into autodream for durable consolidation.
+See [docs/research-loops.md](./docs/research-loops.md) for the loop manifest,
+execution guidance, and percent-improvement telemetry expectations. Use
+`memd loops` (default list view), `memd loops --summary`, or
+`memd loops --loop <slug>` to inspect the recorded loop artifacts inside
+`.memd/loops/`. When you need an aggregated telemetry snapshot (text or JSON),
+run `memd telemetry` (or `memd telemetry --json`) to read `loops.summary.json`
+and surface percent-improvement and token-saving metrics directly. Drive the
+loops with `memd autoresearch --manifest` (lists available loops),
+`memd autoresearch --loop <slug>` (reruns a single loop), or
+`memd autoresearch --auto` (sweeps every loop in manifest order); each run
+writes telemetry back into `.memd/loops/`.
 
 That loop should work together with autodream:
 
@@ -96,8 +114,8 @@ Minimal local setup:
 ```bash
 cargo run -p memd-server
 cargo run -p memd-client --bin memd -- init --agent codex
-cargo run -p memd-client --bin memd -- status --output .memd
-cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
+memd status --output .memd
+memd resume --output .memd --intent current_task
 ```
 
 If you are initializing inside a repo, `memd init` now seeds `.memd/` from the
@@ -114,12 +132,14 @@ Inside Codex, the default entrypoint is:
 It automatically decides whether to initialize or reload. The explicit
 `$memd-init` and `$memd-reload` skills are there if you want to force one path.
 
-If you are using the shared OpenClaw server instead of a local server, export
+If you are using the shared OpenClaw server instead of a local server, you
+must reach it over Tailscale or another private VPN/private network and export
 `MEMD_BASE_URL=http://100.104.154.24:8787` before running the same commands.
 
 What that gives you:
 
-- a server at `MEMD_BASE_URL` (default `http://127.0.0.1:8787`)
+- a server at `MEMD_BASE_URL` (default shared Tailscale endpoint for the bundled
+  OpenClaw deployment, or a local explicit override for dev)
 - a bundle at `.memd/`
 - a readiness check through `status`
 - a compact current-task resume path through `resume`
@@ -156,6 +176,11 @@ If you want the longer bundle, Obsidian, eval, gap, and improve workflow, use
 - [API](./docs/api.md)
 - [Config Guide](./docs/config.md)
 - [Setup Guide](./docs/setup.md)
+- [Verification Feature Registry](./docs/verification/FEATURES.md)
+- [Verification Runbook](./docs/verification/RUNBOOK.md)
+- [Milestone v1 Audit](./docs/verification/milestones/MILESTONE-v1.md)
+- [Milestone v2 Audit](./docs/verification/milestones/MILESTONE-v2.md)
+- [Milestone v3 Audit](./docs/verification/milestones/MILESTONE-v3.md)
 - [Compaction](./docs/compaction.md)
 - [Efficiency](./docs/efficiency.md)
 - [Routing](./docs/routing.md)
@@ -203,8 +228,10 @@ cargo fmt --all
 cargo test
 ```
 
-The server defaults to `127.0.0.1:8787`.
-Set `MEMD_DB_PATH` to change the SQLite database location.
+The server defaults to `127.0.0.1:8787` when you run a local instance.
+Shared deployments are expected to live behind Tailscale or an equivalent
+private VPN/private network, with `MEMD_BASE_URL` pointed at the service
+endpoint. Set `MEMD_DB_PATH` to change the SQLite database location.
 
 ## Integrations
 

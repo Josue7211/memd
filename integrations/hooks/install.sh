@@ -7,6 +7,7 @@ MEMD_BIN="${MEMD_BIN:-memd}"
 
 mkdir -p "$PREFIX"
 install -m 0755 "$SCRIPT_DIR/memd-context.sh" "$PREFIX/memd-context"
+install -m 0755 "$SCRIPT_DIR/memd-capture.sh" "$PREFIX/memd-capture"
 install -m 0755 "$SCRIPT_DIR/memd-spill.sh" "$PREFIX/memd-spill"
 
 cat > "$PREFIX/memd-hook-context" <<EOF
@@ -20,6 +21,12 @@ cat > "$PREFIX/memd-hook-spill" <<EOF
 exec "$MEMD_BIN" hook spill "\$@"
 EOF
 chmod +x "$PREFIX/memd-hook-spill"
+
+cat > "$PREFIX/memd-hook-capture" <<EOF
+#!/usr/bin/env bash
+exec "$PREFIX/memd-capture" "\$@"
+EOF
+chmod +x "$PREFIX/memd-hook-capture"
 
 echo "Installed memd hooks to $PREFIX"
 echo "Add $PREFIX to PATH if needed."

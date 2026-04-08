@@ -6,6 +6,7 @@ use memd_schema::{
 };
 
 use super::{AppState, canonical_key, internal_error, redundancy_key};
+use crate::store::RecordEventArgs;
 
 pub(crate) fn expire_item(
     state: &AppState,
@@ -248,20 +249,22 @@ fn record_lifecycle_event(
     state.store.record_event(
         &entity.record,
         item.id,
-        event_type,
-        summary.to_string(),
-        item.updated_at,
-        item.project.clone(),
-        item.namespace.clone(),
-        item.workspace.clone(),
-        item.source_agent.clone(),
-        item.source_system.clone(),
-        item.source_path.clone(),
-        vec![],
-        item.tags.clone(),
-        context,
-        item.confidence,
-        entity.record.salience_score,
+        RecordEventArgs {
+            event_type: event_type.to_string(),
+            summary: summary.to_string(),
+            occurred_at: item.updated_at,
+            project: item.project.clone(),
+            namespace: item.namespace.clone(),
+            workspace: item.workspace.clone(),
+            source_agent: item.source_agent.clone(),
+            source_system: item.source_system.clone(),
+            source_path: item.source_path.clone(),
+            related_entity_ids: Vec::new(),
+            tags: item.tags.clone(),
+            context,
+            confidence: item.confidence,
+            salience_score: entity.record.salience_score,
+        },
     )?;
     Ok(())
 }

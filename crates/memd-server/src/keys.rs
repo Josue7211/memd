@@ -99,9 +99,7 @@ fn stem_redundancy_token(token: &str) -> String {
     let mut stemmed = token.to_string();
     if stemmed.len() > 5 && stemmed.ends_with("ing") {
         stemmed.truncate(stemmed.len() - 3);
-    } else if stemmed.len() > 4 && stemmed.ends_with("ed") {
-        stemmed.truncate(stemmed.len() - 2);
-    } else if stemmed.len() > 4 && stemmed.ends_with("es") {
+    } else if stemmed.len() > 4 && (stemmed.ends_with("ed") || stemmed.ends_with("es")) {
         stemmed.truncate(stemmed.len() - 2);
     } else if stemmed.len() > 3 && stemmed.ends_with('s') {
         stemmed.truncate(stemmed.len() - 1);

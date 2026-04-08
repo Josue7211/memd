@@ -1,43 +1,167 @@
-# Concerns
+# Codebase Concerns
 
-## 1. `v1` Completion Discipline
+## Primary Product Concern
 
-The project has a strong tendency to reach for `v2` ideas before `v1` repair and
-provenance gaps are honestly closed. This is the main roadmap risk right now.
+`memd` is supposed to be a memory system / memory OS for agents, but the current
+codebase does not yet prove the closed loop that matters most:
 
-## 2. Large Binary Entry Files
+1. ingest memory
+2. persist it durably
+3. retrieve it in the hot path for the current task
+4. let that retrieval override stale assumptions
+5. visibly change later behavior
 
-Key orchestration files are growing:
+The repository has substantial machinery for storage, resume rendering,
+evaluation, research loops, coordination, and planning, but the observed product
+failure is that important memories are still easy to miss in practice.
 
-- `crates/memd-client/src/main.rs`
-- `crates/memd-server/src/main.rs`
+## Concern 1: Storage And Recall Are Too Loosely Coupled
 
-They still work, but continued growth will make policy changes harder to reason
-about and test.
+- `README.md` presents a strong product promise around `memd resume`,
+  `memd remember`, and durable cross-session memory, but the recall guarantee is
+  weaker than the surface suggests.
+- The main retrieval hot path is assembled in
+  `crates/memd-server/src/main.rs` via `build_context()`.
+- `build_context()` does prepend `MemoryKind::LiveTruth`, but after that it
+  mostly appends other active records by score; it does not clearly enforce a
+  robust “this newer memory suppresses the stale one” behavior for general
+  memory recall.
+- `crates/memd-server/src/working.rs` depends on `build_context()` and then
+  compacts what it receives; if retrieval is incomplete, compaction just makes
+  incomplete recall more efficient.
 
-## 3. Explainability Depth
+Why this matters:
 
-The repo has explain, inbox, maintenance, and policy surfaces, but the repair
-and provenance side is still shallower than the roadmap language wants.
+- If the retrieval set is wrong, the memory OS fails even if storage and
+  compaction look healthy.
 
-## 4. Working Memory Semantics
+## Concern 2: Live Truth Is Narrower Than The Product Need
 
-Working memory has started moving toward a managed buffer, but admission,
-eviction, and rehydration logic are still early. This is important because it
-is on the path from `v1` memory OS toward `v2` superhuman behavior.
+- The concrete live-truth ingest path currently visible in
+  `crates/memd-client/src/main.rs` is `sync_recent_repo_live_truth()`.
+- That path summarizes repo changes from git state and stores a compact record.
+- This is useful for edit-awareness, but it is not the same thing as general
+  memory durability.
+- The codebase does not show an equally direct, automatic, first-class ingest
+  path for “the user corrected the system” or “this conversational memory must
+  be recalled later.”
 
-## 5. Source Trust and Contradiction Handling
+Why this matters:
 
-The repo already has freshness and contradiction surfacing basics, but trust
-weighting and branchable competing beliefs are not yet first-class enough.
+- The current live-truth implementation helps with repo freshness more than it
+  helps with durable behavioral memory.
+- That leaves a gap between “fresh local repo state” and “the agent actually
+  remembers what the user told it.”
 
-## 6. Integration Surface Drift
+## Concern 3: Planning And Evaluation Are Ahead Of Core Product Proof
 
-Hooks, bundles, Obsidian, multimodal ingest, and backend contract work all move
-quickly. That creates risk of docs and integration behavior drifting unless
-there is tighter test coverage and phase discipline.
+- `.planning/STATE.md` and `.planning/ROADMAP.md` assert many capabilities as
+  complete or advanced.
+- The repo includes extensive work for scenario harnesses, composite scoring,
+  bounded experiment loops, research telemetry, and capability-roadmap layers.
+- However, the core memory product bar still appears under-verified: “remember
+  an important thing and use it later when it matters.”
 
-## 7. Architecture Boundary with `braind`
+Why this matters:
 
-As ambition rises, there is a risk of dragging planning or cognition concerns
-into `memd`. The boundary should remain: `memd` owns memory, `braind` owns cognition.
+- The codebase risks measuring the sophistication of memory infrastructure
+  before proving the reliability of memory recall.
+- This creates planning/status drift: docs can honestly describe implemented
+  surfaces while still overstating practical memory quality.
+
+## Concern 4: The Main Client Entrypoint Is Carrying Too Much System Behavior
+
+- `crates/memd-client/src/main.rs` is very large and contains CLI dispatch,
+  resume orchestration, loop logic, repo-diff ingestion, bundle state syncing,
+  coordination summaries, and multiple feature slices.
+- That makes the memory failure hard to localize because ingest, retrieval
+  requests, prompt shaping, and side effects are not isolated cleanly enough.
+
+Why this matters:
+
+- When a product guarantee fails, debugging should quickly answer:
+  - Was the memory never stored?
+  - Was it stored but not retrieved?
+  - Was it retrieved but not rendered?
+  - Was it rendered but ignored by the agent integration?
+- The current client layout makes that harder than it should be.
+
+## Concern 5: Tests Are More Aligned To Subsystems Than To The Product Contract
+
+- The repository has healthy Rust test coverage and currently passes package
+  tests, but passing tests did not prevent the practical memory failure.
+- Existing tests appear stronger around individual behaviors, scenario
+  scaffolds, and artifact generation than around the end-to-end contract of
+  memory recall.
+- A key missing bar is a product-level failing test for:
+  - store a memory
+  - start a later resume/retrieval flow
+  - confirm the returned context contains that memory
+  - confirm stale conflicting memory is demoted or suppressed
+
+Why this matters:
+
+- Without product-contract tests, the codebase can stay green while the memory
+  OS still feels broken to users.
+
+## Concern 6: Memory Surfaces May Be Inert Unless Explicitly Invoked
+
+- The project strongly depends on explicit surfaces such as `memd resume`,
+  bundle files like `.memd/MEMD_MEMORY.md`, generated agent launchers, and
+  harness-specific integration steps.
+- If the active agent loop does not automatically call the right `memd` surface,
+  stored memory becomes passive state on disk instead of active recall.
+
+Why this matters:
+
+- A memory OS that only works when the operator manually performs the right
+  sequence is still too fragile for the product claim.
+
+## Concern 7: Correction Learning Is Still Framed As Future-Oriented
+
+- The planning docs explicitly say user corrections still need to become learned
+- operating policy.
+- That wording is a direct warning that the current system still permits the
+  next response to fall back to stale assumptions.
+
+Relevant files:
+
+- `.planning/STATE.md`
+- `docs/live-truth.md`
+- `docs/superpowers/plans/2026-04-06-ceiling-memd-live-truth.md`
+
+Why this matters:
+
+- This is not just a bug; it is already acknowledged in the project’s own
+  planning language as unfinished product behavior.
+
+## Highest-Risk Debugging Targets
+
+1. `crates/memd-client/src/main.rs`
+   - verify which commands and flows actually store durable memory
+   - isolate whether conversational corrections ever enter storage
+2. `crates/memd-server/src/main.rs`
+   - inspect `build_context()` retrieval and suppression behavior
+3. `crates/memd-server/src/working.rs`
+   - confirm working-memory compaction is not hiding bad retrieval selection
+4. `crates/memd-client/src/render.rs`
+   - verify whether important recalled memory is rendered prominently enough to
+     affect downstream agent behavior
+5. `README.md` and `.planning/STATE.md`
+   - reduce mismatch between documented promise and demonstrated reliability
+
+## Recommended Next Move
+
+Do not start with more roadmap expansion.
+
+Start with a deep product debugging pass that proves or falsifies the core loop:
+
+1. create one durable memory in a controlled test fixture
+2. run the exact later resume/retrieval path
+3. inspect whether that memory is returned
+4. add a conflicting stale memory
+5. verify suppression / precedence
+6. verify the rendered prompt surface exposes the winning memory first
+
+Until that passes reliably, `memd` should be treated as a partially functioning
+memory substrate rather than a dependable memory OS.

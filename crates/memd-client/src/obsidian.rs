@@ -145,6 +145,7 @@ pub struct ObsidianAttachmentMatch {
     pub reason: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn scan_vault(
     vault: impl AsRef<Path>,
     project: Option<String>,
@@ -736,12 +737,11 @@ where
 {
     for (old_prefix, new_prefix) in migrations.iter().rev() {
         if let Some(candidate_path) = translate_migrated_path(current_path, old_prefix, new_prefix)
+            && let Some(entry) = cache.get(&candidate_path)
+            && entry.cache_bytes() == bytes
+            && entry.cache_modified_at() == modified_at
         {
-            if let Some(entry) = cache.get(&candidate_path) {
-                if entry.cache_bytes() == bytes && entry.cache_modified_at() == modified_at {
-                    return Some((candidate_path, entry.clone()));
-                }
-            }
+            return Some((candidate_path, entry.clone()));
         }
     }
     None
@@ -1002,6 +1002,7 @@ pub fn resolve_attachment_match(
         .or_else(|| fallback_attachment_match(attachment, notes, note_index))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_attachment_request(
     attachment: &ObsidianAttachment,
     project: Option<String>,
@@ -1380,10 +1381,10 @@ pub fn build_writeback_markdown(
                 }
                 markdown.push('\n');
             }
-            if let Some(path) = artifact.source_path.as_deref() {
-                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
-                    markdown.push_str(&format!("  - wiki: {}\n", link));
-                }
+            if let Some(path) = artifact.source_path.as_deref()
+                && let Some(link) = source_wikilink_for_path(vault, Path::new(path))
+            {
+                markdown.push_str(&format!("  - wiki: {}\n", link));
             }
         }
     }
@@ -1589,7 +1590,7 @@ pub fn build_compiled_index_markdown(
 }
 
 pub fn build_handoff_markdown(
-    vault: &Path,
+    _vault: &Path,
     snapshot: &crate::ResumeSnapshot,
     sources: &SourceMemoryResponse,
 ) -> (String, String) {
@@ -1653,62 +1654,70 @@ pub fn build_handoff_markdown(
         snapshot.intent
     ));
 
-    markdown.push_str("\n## Working Memory\n\n");
+    markdown.push_str("\n## W\n\n");
     if snapshot.working.records.is_empty() {
         markdown.push_str("- none\n");
     } else {
-        for record in snapshot.working.records.iter().take(10) {
-            markdown.push_str(&format!("- {}\n", record.record));
+        let records = snapshot
+            .working
+            .records
+            .iter()
+            .take(2)
+            .map(|record| record.record.clone())
+            .collect::<Vec<_>>();
+        markdown.push_str(&format!("- w={}", records.join(" | ")));
+        if snapshot.working.records.len() > 2 {
+            markdown.push_str(&format!(" (+{} more)", snapshot.working.records.len() - 2));
         }
+        markdown.push('\n');
     }
 
+    let mut ri_parts = Vec::new();
     if !snapshot.working.rehydration_queue.is_empty() {
-        markdown.push_str("\n## Rehydration Queue\n\n");
         for artifact in snapshot.working.rehydration_queue.iter().take(8) {
-            markdown.push_str(&format!(
-                "- **{}** {}: {}\n",
-                artifact.kind, artifact.label, artifact.summary
-            ));
+            ri_parts.push(format!("r={}:{}", artifact.label, artifact.summary));
             if let Some(path) = artifact.source_path.as_deref() {
-                markdown.push_str(&format!("  - source_path: {}\n", path));
-                if let Some(link) = source_wikilink_for_path(vault, Path::new(path)) {
-                    markdown.push_str(&format!("  - source_note: {}\n", link));
-                }
+                ri_parts.push(format!("src={}", path));
             }
             if let Some(reason) = artifact.reason.as_deref() {
-                markdown.push_str(&format!("  - reason: {}\n", reason));
+                ri_parts.push(format!("r={}", reason));
             }
         }
     }
-
     if !snapshot.inbox.items.is_empty() {
-        markdown.push_str("\n## Inbox Pressure\n\n");
         for item in snapshot.inbox.items.iter().take(8) {
-            markdown.push_str(&format!(
-                "- {:?} {:?} | confidence {:.2} | {}\n",
-                item.item.kind, item.item.status, item.item.confidence, item.item.content
+            ri_parts.push(format!(
+                "i={:?}/{:?}:cf{:.2}",
+                item.item.kind, item.item.status, item.item.confidence
             ));
             if !item.reasons.is_empty() {
-                markdown.push_str(&format!("  - reasons: {}\n", item.reasons.join(", ")));
+                ri_parts.push(format!("r={}", item.reasons.join(", ")));
             }
         }
     }
+    if !ri_parts.is_empty() {
+        markdown.push_str("\n## RI\n\n");
+        markdown.push_str(&format!("- {}\n", ri_parts.join(" | ")));
+    }
 
-    if !snapshot.workspaces.workspaces.is_empty() {
-        markdown.push_str("\n## Workspace Lanes\n\n");
-        for workspace in snapshot.workspaces.workspaces.iter().take(8) {
-            markdown.push_str(&format!(
-                "- {} / {} / {} | visibility {} | items {} | sources {} | trust {:.2} | confidence {:.2}\n",
-                workspace.project.as_deref().unwrap_or("none"),
-                workspace.namespace.as_deref().unwrap_or("none"),
-                workspace.workspace.as_deref().unwrap_or("none"),
-                format_visibility(workspace.visibility),
-                workspace.item_count,
-                workspace.source_lane_count,
-                workspace.trust_score,
-                workspace.avg_confidence
-            ));
-        }
+    if let Some(first) = snapshot.workspaces.workspaces.first() {
+        markdown.push_str("\n## L\n\n");
+        let extras = snapshot.workspaces.workspaces.len() - 1;
+        markdown.push_str(&format!(
+            "- l={}/{}/{} | v={} | it={} | tr={:.2} | cf={:.2}{} \n",
+            first.project.as_deref().unwrap_or("none"),
+            first.namespace.as_deref().unwrap_or("none"),
+            first.workspace.as_deref().unwrap_or("none"),
+            format_visibility(first.visibility),
+            first.item_count,
+            first.trust_score,
+            first.avg_confidence,
+            if extras > 0 {
+                format!(" (+{} more)", extras)
+            } else {
+                "".to_string()
+            }
+        ));
     }
 
     if let Some(semantic) = snapshot
@@ -1716,7 +1725,7 @@ pub fn build_handoff_markdown(
         .as_ref()
         .filter(|semantic| !semantic.items.is_empty())
     {
-        markdown.push_str("\n## Semantic Recall\n\n");
+        markdown.push_str("\n## S\n\n");
         for item in semantic.items.iter().take(6) {
             markdown.push_str(&format!(
                 "- {}{}\n",
@@ -1731,7 +1740,7 @@ pub fn build_handoff_markdown(
     }
 
     if !sources.sources.is_empty() {
-        markdown.push_str("\n## Source Lanes\n\n");
+        markdown.push_str("\n## C\n\n");
         for source in sources.sources.iter().take(8) {
             markdown.push_str(&format!(
                 "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
@@ -2309,7 +2318,7 @@ fn parse_attachment_from_raw(
         .map(|value| value.to_string());
     let asset_kind = classify_asset_kind(path, mime.as_deref()).to_string();
     let sensitivity = if is_text_like_attachment(path) {
-        let text = String::from_utf8_lossy(&raw);
+        let text = String::from_utf8_lossy(raw);
         detect_sensitivity(
             path.file_stem()
                 .and_then(|value| value.to_str())
@@ -2374,10 +2383,10 @@ fn fallback_attachment_match(
         {
             score += 3;
         }
-        if let Some(&resolved_idx) = note_index.get(&note.normalized_title) {
-            if resolved_idx == idx {
-                score += 1;
-            }
+        if let Some(&resolved_idx) = note_index.get(&note.normalized_title)
+            && resolved_idx == idx
+        {
+            score += 1;
         }
         if score == 0 {
             continue;
@@ -2685,6 +2694,9 @@ fn infer_kind(kind: Option<String>, title: &str, body: &str) -> MemoryKind {
         }
         if candidate.contains("status") || candidate.contains("daily note") {
             return MemoryKind::Status;
+        }
+        if candidate.contains("live truth") || candidate.contains("truth lane") {
+            return MemoryKind::LiveTruth;
         }
         if candidate.contains("preference") || candidate.contains("prefs") {
             return MemoryKind::Preference;
@@ -3468,7 +3480,12 @@ items: 7
             workspaces: memd_schema::WorkspaceMemoryResponse {
                 workspaces: Vec::new(),
             },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
             semantic: None,
+            claims: crate::SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
@@ -3550,6 +3567,11 @@ items: 7
                     score: 0.93,
                 }],
             }),
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            claims: crate::SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
@@ -3577,10 +3599,10 @@ items: 7
 
         let (_, markdown) = build_handoff_markdown(Path::new("/tmp/vault"), &snapshot, &sources);
         assert!(markdown.contains("# Handoff"));
-        assert!(markdown.contains("## Working Memory"));
-        assert!(markdown.contains("## Workspace Lanes"));
-        assert!(markdown.contains("## Semantic Recall"));
-        assert!(markdown.contains("## Source Lanes"));
+        assert!(markdown.contains("## W"));
+        assert!(markdown.contains("## L"));
+        assert!(markdown.contains("## S"));
+        assert!(markdown.contains("## C"));
         assert!(markdown.contains("team-alpha"));
     }
 

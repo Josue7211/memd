@@ -164,6 +164,46 @@ Rules:
 ### `GET /memory/policy`
 
 Returns the live policy snapshot that the server is currently applying.
+The CLI mirrors this with `memd policy --summary` for a compact runtime view.
+Use `memd skill-policy --summary` to inspect just the skill lifecycle gate.
+Use `memd skills --summary` to inspect the visible skill lane, including
+built-in read-only routes and project-local custom skills.
+Use `memd skills --query <term>` to drill into one skill and see its file,
+status, and recommended next step.
+Use `memd memory --query <term>` to search the compiled memory pages under
+`.memd/compiled/memory/`.
+Use `memd memory --open <lane-or-slug>` to open one compiled memory page or
+item page directly.
+Use `memd memory --lane <name>` as a shortcut for the lane page.
+Use `memd memory --item <slug>` to jump straight to a compiled memory item.
+Use `memd memory --list --lanes-only`, `--items-only`, or `--filter <text>` to
+narrow the compiled memory index without opening page content.
+Use `memd memory --list --grouped` to render the compiled memory index as
+lane-grouped markdown links. Add `--expand-items` to show every item link under
+each lane instead of collapsing the lane section.
+Use `memd memory --list --json` to export the compiled memory index as a
+tool-friendly JSON object.
+The compiled memory index includes project, namespace, session, and optional
+tab ID so two live Codex tabs can stay separate without guessing.
+Use `memd events --summary` to inspect the live event compiler lane.
+Use `memd events --list` to export the compiled event index as JSON.
+Use `memd events --query <term>` to search the compiled event pages.
+Use `memd events --open <target>` to open one compiled event page directly.
+The live event lane is refreshed by `hook capture` and `checkpoint`.
+Use `memd skill-policy --query --summary` to inspect stored apply receipts and
+activation records.
+Use `memd skill-policy --write --apply` to write batch artifacts under
+`state/skill-policy-batch.*` and the low-risk activate queue under
+`state/skill-policy-review-queue.*`, `state/skill-policy-activate-queue.*`,
+and `state/skill-policy-apply-receipt.*`.
+The same apply receipt is also posted to
+`POST /coordination/skill-policy/apply` for durable server-side audit.
+Activations are persisted separately and can be queried at
+`GET /coordination/skill-policy/activations`.
+Use `memd packs --root .memd --summary` to browse visible harness packs and
+`memd packs --root .memd --json` when a UI needs structured pack data.
+Use `memd peer --summary` and `memd claims --summary` to see session plus tab
+labels in the coordination surfaces when multiple Codex tabs are live.
 
 Rules:
 
@@ -172,6 +212,9 @@ Rules:
 - exposes working-memory, promotion, decay, and consolidation thresholds
 - exposes the retrieval-feedback channels tracked by the server
 - exposes the default source-trust floor used by policy-aware ranking
+- exposes the live runtime doctrine for read-once, event-driven, gated memory
+  behavior
+- exposes the bundle-local event compiler lane and its compiled event pages
 - intended for operator inspection and debugging
 
 ### `POST /memory/search`
@@ -221,6 +264,18 @@ Rules:
 - bounded by a small default limit
 - optional visibility filters narrow the hot path without changing route resolution
 - when `workspace` is provided, matching workspace memory is preferred in ranking instead of acting as a strict exclusion wall
+
+Codex uses the same bundle-local harness pack flow behind these APIs:
+
+- `memd wake` reads compiled memory before the turn
+- `memd checkpoint` and `memd hook capture` refresh the live lane after the turn
+- repeated reads in the same turn reuse the turn-scoped cache
+- if backend recall or capture fails, the CLI keeps using `.memd/MEMD_WAKEUP.md`
+  and `.memd/MEMD_MEMORY.md` plus the Codex agent copies already on disk
+
+OpenClaw is the second harness pack and follows the same visible-bundle rule,
+but its primary flow is compact context before the task and spill at
+compaction boundaries.
 - cross-workspace shared memory can still appear when it remains relevant
 - project-scoped items outrank unrelated global memory
 - item content is compacted before response
@@ -281,6 +336,9 @@ Rules:
 - default bind: `127.0.0.1:8787`
 - default SQLite path: `./memd.db`
 - override database path with `MEMD_DB_PATH`
+- shared deployments should be reachable only over Tailscale or another
+  private VPN/private network, with `MEMD_BASE_URL` pointed at the service
+  endpoint
 
 ## Future Endpoints
 

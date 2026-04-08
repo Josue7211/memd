@@ -30,6 +30,16 @@ A single developer should be able to:
 4. sync active state across machines
 5. optionally attach a semantic backend for long-term retrieval, such as LightRAG
 
+Codex is the first harness pack: it ships the wake/resume/checkpoint/capture
+loop, the visible bundle files, and the local-first fallback path without
+turning memd into a Codex-only product.
+
+OpenClaw is the second harness pack: it uses the same visible-bundle contract
+but centers compact context and spill at compaction boundaries.
+
+The pack browse surface is `memd packs --root .memd --summary`, with
+`memd packs --root .memd --json` for UI integration.
+
 ## First-Class Supported Integrations
 
 - Claude Code

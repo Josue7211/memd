@@ -48,6 +48,10 @@ The full backend stack, when configured, must support multimodal inputs:
 The RAG adapter exists to extend that system into long-term semantic retrieval
 without forcing the core manager to depend on one specific vector store.
 
+When `obsidian compile --apply` is pointed at a bundle with RAG configured,
+the same compiled items are also synced into LightRAG so the markdown page and
+the semantic backend stay aligned.
+
 ## CLI
 
 The client exposes a dedicated `rag` subcommand:
@@ -86,6 +90,14 @@ The sync path is intentionally explicit:
 - the semantic layer augments the markdown/file layer instead of replacing it
 - bundle resume and handoff flows consume semantic recall as a fallback lane,
   not as the source of truth
+- Obsidian compile apply syncs the same compiled items into semantic storage
+
+The live policy snapshot keeps that boundary honest:
+
+- semantic retrieval is a fallback lane
+- source-of-truth memory stays visible in `memd`
+- raw evidence remains readable when needed
+- repeated patterns may become skill drafts, but not auto-shipped skills
 
 ## Product Positioning
 

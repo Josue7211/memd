@@ -4,7 +4,8 @@ These scripts are the default agent loop integration for `memd`.
 
 Use them when a client wants:
 
-- a bundle-backed resume snapshot before work starts
+- a bundle-backed wake-up surface before work starts
+- a stable live-capture path while task state changes
 - durable spill at a compaction boundary
 - a single stable path into the memory manager
 
@@ -26,6 +27,12 @@ Resume the default memory snapshot from the bundle:
 memd resume --output .memd
 ```
 
+Refresh the startup wake-up surface and write it into the bundle:
+
+```bash
+memd wake --output .memd --intent current_task --write
+```
+
 Force a manual refresh of the same bootstrap path in an existing session:
 
 ```bash
@@ -40,6 +47,10 @@ That also refreshes:
 - `.memd/agents/CLAUDE_IMPORTS.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
 - `.memd/agents/OPENCODE_MEMORY.md`
+
+For Codex, that wake path is the pre-turn read step in the harness pack flow.
+It pulls compiled memory first, then refreshes the visible wakeup files after a
+successful backend read.
 
 Persist a memory into the same bundle lane:
 
@@ -64,11 +75,14 @@ Agent-specific bundle entrypoints are generated under `.memd/agents/`:
 For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from project
 `CLAUDE.md` and verify it with `/memory`.
 
+OpenClaw is the second harness pack after Codex and uses the same shared hook
+kit, but its primary flow is context + spill instead of wake + capture.
+
 ## Environment
 
 Set:
 
-- `MEMD_BASE_URL` - defaults to `http://127.0.0.1:8787`
+- `MEMD_BASE_URL` - defaults to the bundle's exported value; if no bundle env is loaded it falls back to the shared Tailscale endpoint for the hosted deployment
 - `MEMD_PROJECT` - required for context fetches
 - `MEMD_NAMESPACE` - optional namespace lane inside the project
 - `MEMD_AGENT` - required for context fetches
@@ -87,15 +101,70 @@ Set:
 ```
 
 This now calls `memd resume --prompt` under the bundle defaults and defaults the
-intent to `current_task` instead of only the older generic compact-context
-surface.
+intent to `current_task`. It now routes through `memd wake --write` so the same
+startup call both renders the live wake-up view and refreshes the generated
+memory files in the bundle.
+
+For Codex bundles, the wake path also refreshes `.memd/MEMD_WAKEUP.md`,
+`.memd/MEMD_MEMORY.md`, and the Codex agent copies after a successful backend
+read. If the backend read is unavailable, the existing local bundle markdown is
+used instead of dropping the turn.
 
 The installed `memd-hook-context` shim now routes through this script, so the
-default installed hook path also gets the richer resume snapshot.
+default installed hook path also gets the richer wake-up surface.
 
-The prompt output now also includes a lightweight context-budget estimate and
-pressure signal so the default hook path can warn when bundle resume is getting
-too bloated for an efficient fresh session.
+## Capture Hook
+
+```bash
+printf 'changed auth flow: keep optimistic UI disabled for now\n' | ./memd-capture.sh
+```
+
+This routes through `memd hook capture --stdin --summary` under the active
+bundle defaults and writes an episodic live-memory update back into the hosted
+backend. Use it whenever task state changes and you want the live backend to
+stay ahead of transcript loss.
+
+For Codex bundles, a successful capture also refreshes the local wake/memory
+files so the visible bundle stays in sync. If capture or recall fails, the
+script keeps the existing local bundle truth and preserves the turn result
+instead of overwriting it with partial state.
+
+If captured line starts with typed prefix like `decision:`, `preference:`,
+`constraint:`, `fact:`, `runbook:`, `procedural:`, or `status:`, `memd hook
+capture` now auto-promotes durable memory even without explicit
+`--promote-kind`.
+
+When auto-promotion fires, `memd` also auto-tags durable memory from content:
+- kind tag like `decision` or `preference`
+- `correction` when superseding stale memory
+- `design-memory` for UX/UI/design preferences
+- `product-direction` for memory-loop/startup-surface style product truth
+
+If a captured event is durable truth instead of transient task state, promote it
+in the same call:
+
+```bash
+printf 'decision: keep wake as the universal startup surface\n' | memd hook capture --output .memd --stdin --promote-kind decision --promote-tag 10-star --promote-tag product-direction
+```
+
+That records both the live episodic update and a durable typed project memory.
+
+If the new durable memory corrects a stale belief, supersede the stale memory in
+the same call:
+
+```bash
+printf 'corrected fact: hosted backend health does not prove usable agent memory\n' | memd hook capture --output .memd --stdin --promote-kind fact --promote-tag correction --promote-supersede <stale-memory-uuid>
+```
+
+Or let `memd` find likely stale targets first:
+
+```bash
+printf 'corrected fact: hosted backend health does not prove usable agent memory\n' | memd hook capture --output .memd --stdin --promote-kind fact --promote-supersede-query "hosted backend health"
+```
+
+For `corrected fact:` / `corrected decision:` / `corrected preference:` /
+`corrected constraint:` / `correction:` payloads, `memd` now infers that
+supersede query automatically when no explicit supersede target is provided.
 
 ## Install on Unix
 

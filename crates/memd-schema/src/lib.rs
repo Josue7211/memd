@@ -13,6 +13,7 @@ pub enum MemoryKind {
     SelfModel,
     Topology,
     Status,
+    LiveTruth,
     Pattern,
     Constraint,
 }
@@ -541,6 +542,7 @@ pub struct PeerMessagesResponse {
 pub struct PeerClaimRecord {
     pub scope: String,
     pub session: String,
+    pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
     pub project: Option<String>,
@@ -556,6 +558,7 @@ pub struct PeerClaimRecord {
 pub struct PeerClaimAcquireRequest {
     pub scope: String,
     pub session: String,
+    pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
     pub project: Option<String>,
@@ -577,6 +580,7 @@ pub struct PeerClaimTransferRequest {
     pub scope: String,
     pub from_session: String,
     pub to_session: String,
+    pub to_tab_id: Option<String>,
     pub to_agent: Option<String>,
     pub to_effective_agent: Option<String>,
 }
@@ -586,6 +590,7 @@ pub struct PeerClaimRecoverRequest {
     pub scope: String,
     pub from_session: String,
     pub to_session: Option<String>,
+    pub to_tab_id: Option<String>,
     pub to_agent: Option<String>,
     pub to_effective_agent: Option<String>,
 }
@@ -608,8 +613,17 @@ pub struct PeerClaimsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerSessionRecord {
     pub session: String,
+    pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
+    pub peer_system: Option<String>,
+    pub peer_role: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub peer_groups: Vec<String>,
+    pub peer_group_goal: Option<String>,
+    pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -629,8 +643,17 @@ pub struct PeerSessionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerSessionUpsertRequest {
     pub session: String,
+    pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
+    pub peer_system: Option<String>,
+    pub peer_role: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub peer_groups: Vec<String>,
+    pub peer_group_goal: Option<String>,
+    pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -652,6 +675,10 @@ pub struct PeerSessionsRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
+    pub peer_system: Option<String>,
+    pub peer_role: Option<String>,
+    pub host: Option<String>,
+    pub peer_group: Option<String>,
     pub active_only: Option<bool>,
     pub limit: Option<usize>,
 }
@@ -788,6 +815,95 @@ pub struct PeerCoordinationReceiptsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerCoordinationReceiptsResponse {
     pub receipts: Vec<PeerCoordinationReceiptRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyActivationRecord {
+    pub harness: String,
+    pub name: String,
+    pub kind: String,
+    pub portability_class: String,
+    pub proposal: String,
+    pub sandbox: String,
+    pub sandbox_risk: f32,
+    pub sandbox_reason: String,
+    pub activation: String,
+    pub activation_reason: String,
+    pub source_path: String,
+    pub target_path: Option<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyApplyRequest {
+    pub bundle_root: String,
+    pub runtime_defaulted: bool,
+    pub source_queue_path: String,
+    pub applied_count: usize,
+    pub skipped_count: usize,
+    pub applied: Vec<SkillPolicyActivationRecord>,
+    pub skipped: Vec<SkillPolicyActivationRecord>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyApplyReceipt {
+    pub id: String,
+    pub bundle_root: String,
+    pub runtime_defaulted: bool,
+    pub source_queue_path: String,
+    pub applied_count: usize,
+    pub skipped_count: usize,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyApplyResponse {
+    pub receipt: SkillPolicyApplyReceipt,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillPolicyApplyReceiptsRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyApplyReceiptsResponse {
+    pub receipts: Vec<SkillPolicyApplyReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyActivationEntry {
+    pub receipt_id: String,
+    pub bundle_root: String,
+    pub runtime_defaulted: bool,
+    pub source_queue_path: String,
+    pub record: SkillPolicyActivationRecord,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillPolicyActivationEntriesRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPolicyActivationEntriesResponse {
+    pub activations: Vec<SkillPolicyActivationEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1087,6 +1203,8 @@ pub struct MemoryPolicyResponse {
     pub working_memory: MemoryPolicyWorkingMemory,
     pub retrieval_feedback: MemoryPolicyFeedback,
     pub source_trust_floor: f32,
+    #[serde(default)]
+    pub runtime: MemoryPolicyRuntime,
     pub promotion: MemoryPolicyPromotion,
     pub decay: MemoryPolicyDecay,
     pub consolidation: MemoryPolicyConsolidation,
@@ -1103,6 +1221,8 @@ pub struct MemoryPolicyWorkingMemory {
     pub budget_chars: usize,
     pub max_chars_per_item: usize,
     pub default_limit: usize,
+    #[serde(default = "default_rehydration_limit")]
+    pub rehydration_limit: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1135,6 +1255,109 @@ pub struct MemoryPolicyConsolidation {
     pub lookback_days: i64,
     pub min_salience: f32,
     pub record_events: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyRuntime {
+    pub live_truth: MemoryPolicyLiveTruth,
+    pub memory_compilation: MemoryPolicyMemoryCompilation,
+    pub semantic_fallback: MemoryPolicySemanticFallback,
+    pub skill_gating: MemoryPolicySkillGating,
+}
+
+impl Default for MemoryPolicyRuntime {
+    fn default() -> Self {
+        Self {
+            live_truth: MemoryPolicyLiveTruth::default(),
+            memory_compilation: MemoryPolicyMemoryCompilation::default(),
+            semantic_fallback: MemoryPolicySemanticFallback::default(),
+            skill_gating: MemoryPolicySkillGating::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyLiveTruth {
+    pub read_once_sources: bool,
+    pub raw_reopen_requires_change_or_doubt: bool,
+    pub visible_memory_objects: bool,
+    pub compile_from_events: bool,
+}
+
+impl Default for MemoryPolicyLiveTruth {
+    fn default() -> Self {
+        Self {
+            read_once_sources: false,
+            raw_reopen_requires_change_or_doubt: false,
+            visible_memory_objects: false,
+            compile_from_events: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyMemoryCompilation {
+    pub event_driven_updates: bool,
+    pub patch_not_rewrite: bool,
+    pub preserve_provenance: bool,
+    pub source_on_demand: bool,
+}
+
+impl Default for MemoryPolicyMemoryCompilation {
+    fn default() -> Self {
+        Self {
+            event_driven_updates: false,
+            patch_not_rewrite: false,
+            preserve_provenance: false,
+            source_on_demand: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicySemanticFallback {
+    pub enabled: bool,
+    pub source_of_truth: bool,
+    pub max_items_per_query: usize,
+    pub rerank_with_visible_memory: bool,
+}
+
+impl Default for MemoryPolicySemanticFallback {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            source_of_truth: false,
+            max_items_per_query: 0,
+            rerank_with_visible_memory: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicySkillGating {
+    pub propose_from_repeated_patterns: bool,
+    pub sandboxed_evaluation: bool,
+    pub auto_activate_low_risk_only: bool,
+    pub gated_activation: bool,
+    pub require_evaluation: bool,
+    pub require_policy_approval: bool,
+}
+
+impl Default for MemoryPolicySkillGating {
+    fn default() -> Self {
+        Self {
+            propose_from_repeated_patterns: false,
+            sandboxed_evaluation: false,
+            auto_activate_low_risk_only: false,
+            gated_activation: false,
+            require_evaluation: false,
+            require_policy_approval: false,
+        }
+    }
+}
+
+fn default_rehydration_limit() -> usize {
+    3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1710,6 +1933,7 @@ mod tests {
                 budget_chars: 1600,
                 max_chars_per_item: 220,
                 default_limit: 8,
+                rehydration_limit: 3,
             },
             retrieval_feedback: MemoryPolicyFeedback {
                 enabled: true,
@@ -1722,6 +1946,34 @@ mod tests {
                 max_items_per_request: 3,
             },
             source_trust_floor: 0.6,
+            runtime: MemoryPolicyRuntime {
+                live_truth: MemoryPolicyLiveTruth {
+                    read_once_sources: true,
+                    raw_reopen_requires_change_or_doubt: true,
+                    visible_memory_objects: true,
+                    compile_from_events: true,
+                },
+                memory_compilation: MemoryPolicyMemoryCompilation {
+                    event_driven_updates: true,
+                    patch_not_rewrite: true,
+                    preserve_provenance: true,
+                    source_on_demand: true,
+                },
+                semantic_fallback: MemoryPolicySemanticFallback {
+                    enabled: true,
+                    source_of_truth: false,
+                    max_items_per_query: 3,
+                    rerank_with_visible_memory: true,
+                },
+                skill_gating: MemoryPolicySkillGating {
+                    propose_from_repeated_patterns: true,
+                    sandboxed_evaluation: true,
+                    auto_activate_low_risk_only: true,
+                    gated_activation: true,
+                    require_evaluation: true,
+                    require_policy_approval: true,
+                },
+            },
             promotion: MemoryPolicyPromotion {
                 min_salience: 0.22,
                 min_events: 3,
@@ -1749,6 +2001,9 @@ mod tests {
         assert_eq!(decoded.working_memory.default_limit, 8);
         assert!(decoded.retrieval_feedback.enabled);
         assert_eq!(decoded.source_trust_floor, 0.6);
+        assert!(decoded.runtime.live_truth.read_once_sources);
+        assert!(decoded.runtime.skill_gating.gated_activation);
+        assert!(decoded.runtime.skill_gating.sandboxed_evaluation);
         assert_eq!(decoded.decay.max_decay, 0.12);
         assert_eq!(decoded.consolidation.max_groups, 24);
     }

@@ -15,6 +15,8 @@ unverified until they are checked again.
 - `memd-server` is reachable over Tailscale at `http://100.104.154.24:8787`
 - OpenClaw VM Tailscale DNS name is `openclaw.tail8fd5f4.ts.net`
 - Portainer on `openclaw-vm` is reachable at `https://100.104.154.24:9443`
+- shared `memd-server` is intended to be accessed over Tailscale or an
+  equivalent private VPN/private network, not exposed publicly
 
 ## Verification Rule
 

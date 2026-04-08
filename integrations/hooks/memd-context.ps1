@@ -1,5 +1,5 @@
 param(
-  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://127.0.0.1:8787" }),
+  [string]$BaseUrl = $(if ($env:MEMD_BASE_URL) { $env:MEMD_BASE_URL } else { "http://100.104.154.24:8787" }),
   [Parameter(Mandatory = $true)][string]$Project = $(if ($env:MEMD_PROJECT) { $env:MEMD_PROJECT } else { throw "MEMD_PROJECT is required" }),
   [string]$Namespace = $(if ($env:MEMD_NAMESPACE) { $env:MEMD_NAMESPACE } else { "" }),
   [Parameter(Mandatory = $true)][string]$Agent = $(if ($env:MEMD_AGENT) { $env:MEMD_AGENT } else { throw "MEMD_AGENT is required" }),
@@ -23,7 +23,7 @@ if (Test-Path $envPath) {
 
 $args = @(
   "--base-url", $BaseUrl,
-  "resume",
+  "wake",
   "--output", $bundleRoot,
   "--project", $Project,
   "--agent", $Agent,
@@ -31,7 +31,7 @@ $args = @(
   "--intent", $Intent,
   "--limit", $Limit,
   "--rehydration-limit", $RehydrationLimit,
-  "--prompt"
+  "--write"
 )
 if ($Namespace) {
   $args += @("--namespace", $Namespace)

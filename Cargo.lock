@@ -1086,10 +1086,13 @@ name = "memd-sidecar"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "clap",
  "memd-schema",
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
  "url",
  "uuid",
 ]

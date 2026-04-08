@@ -2,6 +2,10 @@
 
 OpenClaw should use `memd` as the shared memory control plane.
 
+This is the second harness pack after Codex. It keeps the OpenClaw flow
+compact: read context before task work, spill compact state at the boundary,
+and keep the visible bundle markdown in sync.
+
 Recommended flow:
 
 1. fetch compact context before a task
@@ -11,6 +15,8 @@ Recommended flow:
 If you are using a bundle, read:
 
 - `.memd/MEMD_MEMORY.md`
+- `.memd/MEMD_WAKEUP.md`
+- `.memd/agents/OPENCLAW_WAKEUP.md`
 - `.memd/agents/OPENCLAW_MEMORY.md`
 
 And use the OpenClaw-specific entrypoint:
@@ -25,6 +31,13 @@ And use the OpenClaw-specific entrypoint:
 MEMD_PROJECT=my-project \
 MEMD_AGENT=openclaw \
 ./integrations/hooks/memd-context.sh
+```
+
+Or use the bundle-aware flow:
+
+```bash
+memd context --project my-project --agent openclaw --compact
+memd hook spill --output .memd --stdin --apply
 ```
 
 Or after installing the hook kit:

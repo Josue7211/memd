@@ -63,7 +63,7 @@ Maintainers should not state or approve claims about:
 - DNS
 - domains or subdomains
 - public accessibility
-- LAN or Tailscale reachability
+- LAN, Tailscale, or equivalent private VPN reachability
 - VM ownership or service location
 
 unless they were verified locally first. Use [Infrastructure Facts](./infra-facts.md)

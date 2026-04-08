@@ -16,10 +16,12 @@ use memd_schema::{
     PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse, PeerTaskAssignRequest,
     PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
-    WorkspaceMemoryResponse,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
+    TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 
 #[derive(Clone)]
@@ -294,6 +296,30 @@ impl MemdClient {
         req: &PeerCoordinationReceiptsRequest,
     ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
         self.get_json_with_query("/coordination/receipts", req)
+            .await
+    }
+
+    pub async fn record_skill_policy_apply(
+        &self,
+        req: &SkillPolicyApplyRequest,
+    ) -> anyhow::Result<SkillPolicyApplyResponse> {
+        self.post_json("/coordination/skill-policy/apply", req)
+            .await
+    }
+
+    pub async fn skill_policy_apply_receipts(
+        &self,
+        req: &SkillPolicyApplyReceiptsRequest,
+    ) -> anyhow::Result<SkillPolicyApplyReceiptsResponse> {
+        self.get_json_with_query("/coordination/skill-policy/apply", req)
+            .await
+    }
+
+    pub async fn skill_policy_activations(
+        &self,
+        req: &SkillPolicyActivationEntriesRequest,
+    ) -> anyhow::Result<SkillPolicyActivationEntriesResponse> {
+        self.get_json_with_query("/coordination/skill-policy/activations", req)
             .await
     }
 

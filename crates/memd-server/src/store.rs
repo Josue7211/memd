@@ -1,5 +1,5 @@
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
@@ -14,10 +14,14 @@ use memd_schema::{
     PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
     PeerSessionRecord, PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse,
     PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest,
-    PeerTasksResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    PeerTasksResponse, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyActivationEntry, SkillPolicyApplyReceipt, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::keys::redundancy_key;
@@ -43,12 +47,37 @@ pub struct ConsolidationCandidate {
 
 #[derive(Clone)]
 pub struct SqliteStore {
-    conn: Arc<Mutex<Connection>>,
+    db_path: Arc<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordEventArgs {
+    pub event_type: String,
+    pub summary: String,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub related_entity_ids: Vec<Uuid>,
+    pub tags: Vec<String>,
+    pub context: Option<MemoryContextFrame>,
+    pub confidence: f32,
+    pub salience_score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillPolicyApplyRecordPayload {
+    receipt: SkillPolicyApplyReceipt,
+    request: SkillPolicyApplyRequest,
 }
 
 impl SqliteStore {
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let conn = Connection::open(path).context("open sqlite database")?;
+        let db_path = path.as_ref().to_path_buf();
+        let mut conn = Connection::open(&db_path).context("open sqlite database")?;
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
@@ -198,12 +227,40 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_project_namespace
               ON peer_coordination_receipts(project, namespace, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS skill_policy_apply_receipts (
+              id TEXT PRIMARY KEY,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_skill_policy_apply_receipts_project_namespace
+              ON skill_policy_apply_receipts(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS skill_policy_activations (
+              id TEXT PRIMARY KEY,
+              receipt_id TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              created_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_skill_policy_activations_receipt
+              ON skill_policy_activations(receipt_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_skill_policy_activations_project_namespace
+              ON skill_policy_activations(project, namespace, created_at DESC);
+
             CREATE TABLE IF NOT EXISTS peer_sessions (
               session_key TEXT PRIMARY KEY,
               session TEXT NOT NULL,
               project TEXT,
               namespace TEXT,
               workspace TEXT,
+              peer_system TEXT,
+              peer_role TEXT,
+              host TEXT,
               status TEXT NOT NULL,
               last_seen TEXT NOT NULL,
               payload_json TEXT NOT NULL
@@ -212,15 +269,44 @@ impl SqliteStore {
               ON peer_sessions(session, last_seen DESC);
             CREATE INDEX IF NOT EXISTS idx_peer_sessions_project_namespace
               ON peer_sessions(project, namespace, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_sessions_project_namespace_workspace
+              ON peer_sessions(project, namespace, workspace, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_peer_sessions_last_seen
+              ON peer_sessions(last_seen DESC);
+            CREATE TABLE IF NOT EXISTS peer_session_groups (
+              session_key TEXT NOT NULL,
+              peer_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, peer_group),
+              FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
+              ON peer_session_groups(session_key);
+            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
+              ON peer_session_groups(peer_group, session_key);
             "#,
         )
         .context("initialize sqlite schema")?;
 
         migrate_redundancy_key(&conn)?;
+        migrate_peer_sessions_identity_columns(&mut conn)?;
+        create_peer_session_identity_indexes(&conn)?;
 
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            db_path: Arc::new(db_path),
         })
+    }
+
+    fn connect(&self) -> anyhow::Result<Connection> {
+        let conn = Connection::open(self.db_path.as_ref())
+            .with_context(|| format!("open sqlite database {}", self.db_path.display()))?;
+        conn.execute_batch(
+            r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )
+        .context("configure sqlite connection")?;
+        Ok(conn)
     }
 
     pub fn insert_or_get_duplicate(
@@ -235,29 +321,31 @@ impl SqliteStore {
         let stage = serde_json::to_string(&item.stage).context("serialize memory stage")?;
         let status = serde_json::to_string(&item.status).context("serialize memory status")?;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        let rows = conn.execute(
-            r#"
-            INSERT INTO memory_items (
-              id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-            "#,
-            params![
-                item.id.to_string(),
-                kind,
-                scope,
-                stage,
-                item.project,
-                item.namespace,
-                item.source_agent,
-                redundancy_key,
-                status,
-                item.confidence,
-                canonical_key,
-                item.updated_at.to_rfc3339(),
-                payload_json,
-            ],
-        );
+        let rows = {
+            let conn = self.connect()?;
+            conn.execute(
+                r#"
+                INSERT INTO memory_items (
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                "#,
+                params![
+                    item.id.to_string(),
+                    kind,
+                    scope,
+                    stage,
+                    item.project,
+                    item.namespace,
+                    item.source_agent,
+                    redundancy_key,
+                    status,
+                    item.confidence,
+                    canonical_key,
+                    item.updated_at.to_rfc3339(),
+                    payload_json,
+                ],
+            )
+        };
 
         match rows {
             Ok(_) => Ok(None),
@@ -285,8 +373,8 @@ impl SqliteStore {
         let stage = serde_json::to_string(&item.stage).context("serialize memory stage")?;
         let status = serde_json::to_string(&item.status).context("serialize memory status")?;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        conn.execute(
+        let mut conn = self.connect()?;
+        let update_result = conn.execute(
             r#"
             UPDATE memory_items
             SET kind = ?2,
@@ -305,23 +393,80 @@ impl SqliteStore {
             "#,
             params![
                 item.id.to_string(),
-                kind,
-                scope,
-                stage,
+                &kind,
+                &scope,
+                &stage,
                 item.project,
                 item.namespace,
                 item.source_agent,
                 redundancy_key,
-                status,
+                &status,
                 item.confidence,
                 canonical_key,
                 item.updated_at.to_rfc3339(),
-                payload_json,
+                &payload_json,
             ],
-        )
-        .context("update memory item")?;
+        );
 
-        Ok(())
+        match update_result {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(err, _))
+                if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+            {
+                let duplicate = self
+                    .find_by_any_key(redundancy_key, canonical_key, &item.stage)?
+                    .context("unique update conflict but no duplicate row found")?;
+                if duplicate.id == item.id {
+                    return Ok(());
+                }
+
+                let tx = conn
+                    .transaction()
+                    .context("begin duplicate merge transaction")?;
+                tx.execute(
+                    "DELETE FROM memory_items WHERE id = ?1",
+                    params![item.id.to_string()],
+                )
+                .context("delete conflicting memory item before merge")?;
+                tx.execute(
+                    r#"
+                    UPDATE memory_items
+                    SET kind = ?2,
+                        scope = ?3,
+                        stage = ?4,
+                        project = ?5,
+                        namespace = ?6,
+                        source_agent = ?7,
+                        redundancy_key = ?8,
+                        status = ?9,
+                        confidence = ?10,
+                        canonical_key = ?11,
+                        updated_at = ?12,
+                        payload_json = ?13
+                    WHERE id = ?1
+                    "#,
+                    params![
+                        duplicate.id.to_string(),
+                        &kind,
+                        &scope,
+                        &stage,
+                        item.project,
+                        item.namespace,
+                        item.source_agent,
+                        redundancy_key,
+                        &status,
+                        item.confidence,
+                        canonical_key,
+                        item.updated_at.to_rfc3339(),
+                        &payload_json,
+                    ],
+                )
+                .context("merge duplicate memory item")?;
+                tx.commit().context("commit duplicate merge")?;
+                Ok(())
+            }
+            Err(err) => Err(err).context("update memory item"),
+        }
     }
 
     pub fn resolve_entity_for_item(
@@ -371,7 +516,7 @@ impl SqliteStore {
         let record_events = request.record_events.unwrap_or(true);
 
         let rows: Vec<(String, MemoryEntityRecord)> = {
-            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let conn = self.connect()?;
             let mut stmt = conn
                 .prepare(
                     r#"
@@ -487,7 +632,7 @@ impl SqliteStore {
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
 
         let rows: Vec<MemoryEntityRecord> = {
-            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let conn = self.connect()?;
             let mut stmt = conn
                 .prepare(
                     r#"
@@ -546,7 +691,7 @@ impl SqliteStore {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(lookback_days);
 
         let rows: Vec<(String, i64, String, String)> = {
-            let conn = self.conn.lock().expect("sqlite mutex poisoned");
+            let conn = self.connect()?;
             let mut stmt = conn
                 .prepare(
                     r#"
@@ -673,7 +818,7 @@ impl SqliteStore {
     }
 
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn.query_row(
             r#"
             SELECT e.payload_json
@@ -699,7 +844,7 @@ impl SqliteStore {
     }
 
     pub fn entity_by_id(&self, entity_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn.query_row(
             "SELECT payload_json FROM memory_entities WHERE id = ?1",
             [entity_id.to_string()],
@@ -722,12 +867,14 @@ impl SqliteStore {
         entity_id: Uuid,
         salience_boost: f32,
     ) -> anyhow::Result<Option<MemoryEntityRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        let row = conn.query_row(
-            "SELECT entity_key, payload_json FROM memory_entities WHERE id = ?1",
-            [entity_id.to_string()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        );
+        let row = {
+            let conn = self.connect()?;
+            conn.query_row(
+                "SELECT entity_key, payload_json FROM memory_entities WHERE id = ?1",
+                [entity_id.to_string()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+        };
 
         let (entity_key, payload) = match row {
             Ok(row) => row,
@@ -753,7 +900,7 @@ impl SqliteStore {
         let tags_json = serde_json::to_string(&link.tags).context("serialize entity link tags")?;
         let relation_kind =
             serde_json::to_string(&link.relation_kind).context("serialize entity link relation")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO memory_entity_links (
@@ -810,7 +957,7 @@ impl SqliteStore {
         &self,
         request: &EntityLinksRequest,
     ) -> anyhow::Result<Vec<MemoryEntityLinkRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -859,7 +1006,7 @@ impl SqliteStore {
             updated_at: now,
         };
         let payload_json = serde_json::to_string(&profile).context("serialize agent profile")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO memory_agent_profiles (
@@ -887,7 +1034,7 @@ impl SqliteStore {
         &self,
         request: &AgentProfileRequest,
     ) -> anyhow::Result<Option<MemoryAgentProfile>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1156,7 +1303,7 @@ impl SqliteStore {
     }
 
     pub fn list_entities(&self) -> anyhow::Result<Vec<MemoryEntityRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare("SELECT payload_json FROM memory_entities ORDER BY updated_at DESC")
             .context("prepare entity list query")?;
@@ -1221,7 +1368,7 @@ impl SqliteStore {
     }
 
     fn stale_item_count(&self, request: &MemoryMaintenanceReportRequest) -> anyhow::Result<usize> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1284,7 +1431,7 @@ impl SqliteStore {
         entity_id: Uuid,
         limit: usize,
     ) -> anyhow::Result<Vec<MemoryEventRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1316,26 +1463,29 @@ impl SqliteStore {
         &self,
         entity: &MemoryEntityRecord,
         memory_item_id: Uuid,
-        event_type: &str,
-        summary: String,
-        occurred_at: chrono::DateTime<chrono::Utc>,
-        project: Option<String>,
-        namespace: Option<String>,
-        workspace: Option<String>,
-        source_agent: Option<String>,
-        source_system: Option<String>,
-        source_path: Option<String>,
-        related_entity_ids: Vec<Uuid>,
-        tags: Vec<String>,
-        context: Option<MemoryContextFrame>,
-        confidence: f32,
-        salience_score: f32,
+        args: RecordEventArgs,
     ) -> anyhow::Result<MemoryEventRecord> {
+        let RecordEventArgs {
+            event_type,
+            summary,
+            occurred_at,
+            project,
+            namespace,
+            workspace,
+            source_agent,
+            source_system,
+            source_path,
+            related_entity_ids,
+            tags,
+            context,
+            confidence,
+            salience_score,
+        } = args;
         let now = chrono::Utc::now();
         let event = MemoryEventRecord {
             id: Uuid::new_v4(),
             entity_id: Some(entity.id),
-            event_type: event_type.to_string(),
+            event_type,
             summary,
             occurred_at,
             recorded_at: now,
@@ -1359,7 +1509,7 @@ impl SqliteStore {
     }
 
     pub fn get(&self, id: Uuid) -> anyhow::Result<Option<MemoryItem>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn.query_row(
             "SELECT payload_json FROM memory_items WHERE id = ?1",
             [id.to_string()],
@@ -1378,7 +1528,7 @@ impl SqliteStore {
     }
 
     pub fn list(&self) -> anyhow::Result<Vec<MemoryItem>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare("SELECT payload_json FROM memory_items ORDER BY updated_at DESC")
             .context("prepare list query")?;
@@ -1399,7 +1549,7 @@ impl SqliteStore {
     }
 
     pub fn count(&self) -> anyhow::Result<usize> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_items", [], |row| row.get(0))
             .context("count memory items")?;
@@ -1431,7 +1581,7 @@ impl SqliteStore {
         let payload_json =
             serde_json::to_string(&message).context("serialize peer message payload")?;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO peer_messages (
@@ -1463,7 +1613,7 @@ impl SqliteStore {
         let include_acknowledged = request.include_acknowledged.unwrap_or(false);
         let limit = request.limit.unwrap_or(64).clamp(1, 512) as i64;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1510,7 +1660,7 @@ impl SqliteStore {
         &self,
         request: &PeerMessageAckRequest,
     ) -> anyhow::Result<PeerMessagesResponse> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn
             .query_row(
                 "SELECT payload_json FROM peer_messages WHERE id = ?1 AND to_session = ?2",
@@ -1561,6 +1711,7 @@ impl SqliteStore {
         let claim = PeerClaimRecord {
             scope: request.scope.trim().to_string(),
             session: request.session.trim().to_string(),
+            tab_id: request.tab_id.clone(),
             agent: request.agent.clone(),
             effective_agent: request.effective_agent.clone(),
             project: request.project.clone(),
@@ -1572,7 +1723,7 @@ impl SqliteStore {
             expires_at,
         };
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let existing = conn
             .query_row(
                 "SELECT payload_json FROM peer_claims WHERE scope = ?1",
@@ -1632,7 +1783,7 @@ impl SqliteStore {
         &self,
         request: &PeerClaimReleaseRequest,
     ) -> anyhow::Result<PeerClaimsResponse> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn
             .query_row(
                 "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
@@ -1662,7 +1813,7 @@ impl SqliteStore {
     ) -> anyhow::Result<PeerClaimsResponse> {
         self.prune_expired_peer_claims()?;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn
             .query_row(
                 "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
@@ -1678,6 +1829,7 @@ impl SqliteStore {
         let mut claim: PeerClaimRecord =
             serde_json::from_str(&payload).context("deserialize peer claim for transfer")?;
         claim.session = request.to_session.trim().to_string();
+        claim.tab_id = request.to_tab_id.clone();
         claim.agent = request.to_agent.clone();
         claim.effective_agent = request.to_effective_agent.clone();
         let updated_payload =
@@ -1707,7 +1859,7 @@ impl SqliteStore {
     ) -> anyhow::Result<PeerClaimsResponse> {
         self.prune_expired_peer_claims()?;
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn
             .query_row(
                 "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
@@ -1730,6 +1882,7 @@ impl SqliteStore {
             .filter(|value| !value.is_empty())
         {
             claim.session = to_session.to_string();
+            claim.tab_id = request.to_tab_id.clone();
             claim.agent = request.to_agent.clone();
             claim.effective_agent = request.to_effective_agent.clone();
             let updated_payload =
@@ -1768,7 +1921,7 @@ impl SqliteStore {
 
         let limit = request.limit.unwrap_or(256).clamp(1, 1024) as i64;
         let active_only = request.active_only.unwrap_or(true);
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1839,6 +1992,12 @@ impl SqliteStore {
             .map(str::to_string);
         let record = PeerSessionRecord {
             session: session.clone(),
+            tab_id: request
+                .tab_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             agent: request
                 .agent
                 .as_deref()
@@ -1847,6 +2006,44 @@ impl SqliteStore {
                 .map(str::to_string),
             effective_agent: request
                 .effective_agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            peer_system: request
+                .peer_system
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            peer_role: request
+                .peer_role
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            capabilities: request
+                .capabilities
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            peer_groups: request
+                .peer_groups
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            peer_group_goal: request
+                .peer_group_goal
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            authority: request
+                .authority
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -1910,24 +2107,35 @@ impl SqliteStore {
         let payload_json = serde_json::to_string(&record).context("serialize peer session")?;
         let session_key = peer_session_key(
             &session,
-            project.as_deref(),
-            namespace.as_deref(),
-            workspace.as_deref(),
-            record.agent.as_deref(),
-            record.effective_agent.as_deref(),
+            PeerSessionKeyArgs {
+                project: project.as_deref(),
+                namespace: namespace.as_deref(),
+                workspace: workspace.as_deref(),
+                agent: record.agent.as_deref(),
+                effective_agent: record.effective_agent.as_deref(),
+                peer_system: record.peer_system.as_deref(),
+                peer_role: record.peer_role.as_deref(),
+                host: record.host.as_deref(),
+            },
         );
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        conn.execute(
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction()
+            .context("begin peer session upsert transaction")?;
+        tx.execute(
             r#"
             INSERT INTO peer_sessions (
-              session_key, session, project, namespace, workspace, status, last_seen, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+              session_key, session, project, namespace, workspace, peer_system, peer_role, host, status, last_seen, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
               namespace = excluded.namespace,
               workspace = excluded.workspace,
+              peer_system = excluded.peer_system,
+              peer_role = excluded.peer_role,
+              host = excluded.host,
               status = excluded.status,
               last_seen = excluded.last_seen,
               payload_json = excluded.payload_json
@@ -1938,12 +2146,31 @@ impl SqliteStore {
                 &record.project,
                 &record.namespace,
                 &record.workspace,
+                &record.peer_system,
+                &record.peer_role,
+                &record.host,
                 record.status,
                 record.last_seen.to_rfc3339(),
                 payload_json,
             ],
         )
         .context("upsert peer session")?;
+        tx.execute(
+            "DELETE FROM peer_session_groups WHERE session_key = ?1",
+            params![session_key],
+        )
+        .context("clear peer session groups")?;
+
+        {
+            let mut insert_group_stmt = tx.prepare(
+                "INSERT OR REPLACE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+            )?;
+            for peer_group in record.peer_groups.iter() {
+                insert_group_stmt.execute(params![session_key, peer_group])?;
+            }
+        }
+        tx.commit()
+            .context("commit peer session upsert transaction")?;
 
         Ok(PeerSessionsResponse {
             sessions: vec![record],
@@ -1959,8 +2186,53 @@ impl SqliteStore {
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
+        let peer_system = request
+            .peer_system
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let peer_role = request
+            .peer_role
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let host = request
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let peer_group = request
+            .peer_group
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
 
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
+        let session_filter = request
+            .session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let project_filter = request
+            .project
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let namespace_filter = request
+            .namespace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let workspace_filter = request
+            .workspace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
         let mut stmt = conn
             .prepare(
                 r#"
@@ -1971,20 +2243,35 @@ impl SqliteStore {
                   AND (?3 IS NULL OR namespace = ?3)
                   AND (?4 IS NULL OR workspace = ?4)
                   AND (?5 = 0 OR last_seen >= ?6)
+                  AND (?7 IS NULL OR peer_system = ?7)
+                  AND (?8 IS NULL OR peer_role = ?8)
+                  AND (?9 IS NULL OR host = ?9)
+                  AND (
+                    ?10 IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM peer_session_groups
+                      WHERE peer_session_groups.session_key = peer_sessions.session_key
+                        AND peer_session_groups.peer_group = ?10
+                    )
+                  )
                 ORDER BY last_seen DESC
-                LIMIT ?7
+                LIMIT ?11
                 "#,
             )
             .context("prepare peer sessions query")?;
         let rows = stmt
             .query_map(
                 params![
-                    request.session.clone(),
-                    request.project.clone(),
-                    request.namespace.clone(),
-                    request.workspace.clone(),
+                    session_filter,
+                    project_filter,
+                    namespace_filter,
+                    workspace_filter,
                     if active_only { 1 } else { 0 },
                     active_cutoff,
+                    peer_system,
+                    peer_role,
+                    host,
+                    peer_group,
                     limit,
                 ],
                 |row| row.get::<_, String>(0),
@@ -2007,7 +2294,7 @@ impl SqliteStore {
         &self,
         request: &PeerTaskUpsertRequest,
     ) -> anyhow::Result<PeerTasksResponse> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let existing = conn
             .query_row(
                 "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
@@ -2143,7 +2430,7 @@ impl SqliteStore {
         &self,
         request: &PeerTaskAssignRequest,
     ) -> anyhow::Result<PeerTasksResponse> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn
             .query_row(
                 "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
@@ -2195,7 +2482,7 @@ impl SqliteStore {
     pub fn peer_tasks(&self, request: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_only = request.active_only.unwrap_or(true);
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -2305,7 +2592,7 @@ impl SqliteStore {
         };
         let payload_json =
             serde_json::to_string(&receipt).context("serialize coordination receipt")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO peer_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
@@ -2332,7 +2619,7 @@ impl SqliteStore {
         request: &PeerCoordinationReceiptsRequest,
     ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
@@ -2370,6 +2657,159 @@ impl SqliteStore {
         Ok(PeerCoordinationReceiptsResponse { receipts })
     }
 
+    pub fn record_skill_policy_apply_receipt(
+        &self,
+        request: &SkillPolicyApplyRequest,
+    ) -> anyhow::Result<SkillPolicyApplyResponse> {
+        let receipt = SkillPolicyApplyReceipt {
+            id: Uuid::new_v4().to_string(),
+            bundle_root: request.bundle_root.trim().to_string(),
+            runtime_defaulted: request.runtime_defaulted,
+            source_queue_path: request.source_queue_path.trim().to_string(),
+            applied_count: request.applied_count,
+            skipped_count: request.skipped_count,
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            created_at: chrono::Utc::now(),
+        };
+        let payload_json = serde_json::to_string(&SkillPolicyApplyRecordPayload {
+            receipt: receipt.clone(),
+            request: request.clone(),
+        })
+        .context("serialize skill policy apply receipt")?;
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO skill_policy_apply_receipts (id, project, namespace, workspace, created_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                receipt.id.as_str(),
+                &receipt.project,
+                &receipt.namespace,
+                &receipt.workspace,
+                receipt.created_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("insert skill policy apply receipt")?;
+
+        for record in request.applied.iter() {
+            let activation = SkillPolicyActivationEntry {
+                receipt_id: receipt.id.clone(),
+                bundle_root: receipt.bundle_root.clone(),
+                runtime_defaulted: receipt.runtime_defaulted,
+                source_queue_path: receipt.source_queue_path.clone(),
+                record: record.clone(),
+                project: receipt.project.clone(),
+                namespace: receipt.namespace.clone(),
+                workspace: receipt.workspace.clone(),
+                created_at: receipt.created_at,
+            };
+            let activation_json = serde_json::to_string(&activation)
+                .context("serialize skill policy activation entry")?;
+            conn.execute(
+                r#"
+                INSERT INTO skill_policy_activations (id, receipt_id, project, namespace, workspace, created_at, payload_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "#,
+                params![
+                    Uuid::new_v4().to_string(),
+                    receipt.id.as_str(),
+                    &activation.project,
+                    &activation.namespace,
+                    &activation.workspace,
+                    activation.created_at.to_rfc3339(),
+                    activation_json,
+                ],
+            )
+            .context("insert skill policy activation entry")?;
+        }
+        Ok(SkillPolicyApplyResponse { receipt })
+    }
+
+    pub fn skill_policy_apply_receipts(
+        &self,
+        request: &SkillPolicyApplyReceiptsRequest,
+    ) -> anyhow::Result<SkillPolicyApplyReceiptsResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM skill_policy_apply_receipts
+                WHERE (?1 IS NULL OR project = ?1)
+                  AND (?2 IS NULL OR namespace = ?2)
+                  AND (?3 IS NULL OR workspace = ?3)
+                ORDER BY created_at DESC
+                LIMIT ?4
+                "#,
+            )
+            .context("prepare skill policy apply receipts query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query skill policy apply receipts")?;
+        let mut receipts = Vec::new();
+        for row in rows {
+            let payload = row.context("read skill policy apply receipt row")?;
+            let payload = serde_json::from_str::<SkillPolicyApplyRecordPayload>(&payload)
+                .context("deserialize skill policy apply receipt payload")?;
+            receipts.push(payload.receipt);
+        }
+        Ok(SkillPolicyApplyReceiptsResponse { receipts })
+    }
+
+    pub fn skill_policy_activations(
+        &self,
+        request: &SkillPolicyActivationEntriesRequest,
+    ) -> anyhow::Result<SkillPolicyActivationEntriesResponse> {
+        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT payload_json
+                FROM skill_policy_activations
+                WHERE (?1 IS NULL OR project = ?1)
+                  AND (?2 IS NULL OR namespace = ?2)
+                  AND (?3 IS NULL OR workspace = ?3)
+                ORDER BY created_at DESC
+                LIMIT ?4
+                "#,
+            )
+            .context("prepare skill policy activations query")?;
+        let rows = stmt
+            .query_map(
+                params![
+                    request.project.clone(),
+                    request.namespace.clone(),
+                    request.workspace.clone(),
+                    limit,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .context("query skill policy activations")?;
+        let mut activations = Vec::new();
+        for row in rows {
+            let payload = row.context("read skill policy activation row")?;
+            activations.push(
+                serde_json::from_str::<SkillPolicyActivationEntry>(&payload)
+                    .context("deserialize skill policy activation payload")?,
+            );
+        }
+        Ok(SkillPolicyActivationEntriesResponse { activations })
+    }
+
     pub fn find_duplicate(
         &self,
         redundancy_key: &str,
@@ -2382,7 +2822,7 @@ impl SqliteStore {
     }
 
     fn prune_expired_peer_claims(&self) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             "DELETE FROM peer_claims WHERE expires_at <= ?1",
             params![chrono::Utc::now().to_rfc3339()],
@@ -2392,7 +2832,7 @@ impl SqliteStore {
     }
 
     fn prune_stale_peer_sessions(&self) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             "DELETE FROM peer_sessions WHERE last_seen < ?1",
             params![(chrono::Utc::now() - chrono::TimeDelta::hours(24)).to_rfc3339()],
@@ -2408,7 +2848,7 @@ impl SqliteStore {
         stage: &memd_schema::MemoryStage,
     ) -> anyhow::Result<Option<DuplicateMatch>> {
         let stage = serde_json::to_string(stage).context("serialize lookup stage")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let row = conn.query_row(
             r#"
             SELECT id, payload_json
@@ -2434,7 +2874,7 @@ impl SqliteStore {
     }
 
     fn get_entity_by_key(&self, entity_key: &str) -> anyhow::Result<Option<MemoryEntityRecord>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         let payload = conn.query_row(
             "SELECT payload_json FROM memory_entities WHERE entity_key = ?1",
             [entity_key],
@@ -2454,7 +2894,7 @@ impl SqliteStore {
 
     fn upsert_entity(&self, entity_key: &str, record: &MemoryEntityRecord) -> anyhow::Result<()> {
         let payload_json = serde_json::to_string(record).context("serialize memory entity")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO memory_entities (id, entity_key, entity_type, updated_at, payload_json)
@@ -2491,7 +2931,7 @@ impl SqliteStore {
         memory_item_id: Option<Uuid>,
         payload_json: String,
     ) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.connect()?;
         conn.execute(
             r#"
             INSERT INTO memory_events (
@@ -2545,22 +2985,29 @@ fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {
     )
 }
 
-fn peer_session_key(
-    session: &str,
-    project: Option<&str>,
-    namespace: Option<&str>,
-    workspace: Option<&str>,
-    agent: Option<&str>,
-    effective_agent: Option<&str>,
-) -> String {
+struct PeerSessionKeyArgs<'a> {
+    project: Option<&'a str>,
+    namespace: Option<&'a str>,
+    workspace: Option<&'a str>,
+    agent: Option<&'a str>,
+    effective_agent: Option<&'a str>,
+    peer_system: Option<&'a str>,
+    peer_role: Option<&'a str>,
+    host: Option<&'a str>,
+}
+
+fn peer_session_key(session: &str, args: PeerSessionKeyArgs<'_>) -> String {
     format!(
-        "{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         session.trim(),
-        project.unwrap_or("").trim(),
-        namespace.unwrap_or("").trim(),
-        workspace.unwrap_or("").trim(),
-        agent.unwrap_or("").trim(),
-        effective_agent.unwrap_or("").trim()
+        args.project.unwrap_or("").trim(),
+        args.namespace.unwrap_or("").trim(),
+        args.workspace.unwrap_or("").trim(),
+        args.agent.unwrap_or("").trim(),
+        args.effective_agent.unwrap_or("").trim(),
+        args.peer_system.unwrap_or("").trim(),
+        args.peer_role.unwrap_or("").trim(),
+        args.host.unwrap_or("").trim()
     )
 }
 
@@ -3064,9 +3511,172 @@ fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
+    let columns = {
+        let mut stmt = conn.prepare("PRAGMA table_info(peer_sessions)")?;
+        stmt.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let has_peer_system = columns.iter().any(|value| value == "peer_system");
+    let has_peer_role = columns.iter().any(|value| value == "peer_role");
+    let has_host = columns.iter().any(|value| value == "host");
+
+    if !has_peer_system {
+        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_system TEXT;")?;
+    }
+    if !has_peer_role {
+        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_role TEXT;")?;
+    }
+    if !has_host {
+        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN host TEXT;")?;
+    }
+
+    let has_peer_session_groups = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'peer_session_groups'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_peer_session_groups {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS peer_session_groups (
+              session_key TEXT NOT NULL,
+              peer_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, peer_group),
+              FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
+              ON peer_session_groups(session_key);
+            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
+              ON peer_session_groups(peer_group, session_key);
+            "#,
+        )?;
+    }
+
+    let peer_session_groups_empty = conn
+        .query_row("SELECT 1 FROM peer_session_groups LIMIT 1", [], |_| Ok(()))
+        .optional()?
+        .is_none();
+
+    if !has_peer_system || !has_peer_role || !has_host || peer_session_groups_empty {
+        let tx = conn
+            .transaction()
+            .context("begin peer session migration backfill")?;
+
+        {
+            let mut statement =
+                tx.prepare("SELECT session_key, payload_json FROM peer_sessions")?;
+            let mut rows = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+
+            let mut update = if !has_peer_system || !has_peer_role || !has_host {
+                Some(tx.prepare(
+                    "UPDATE peer_sessions SET peer_system = ?1, peer_role = ?2, host = ?3 WHERE session_key = ?4",
+                )?)
+            } else {
+                None
+            };
+            let mut insert_group = if peer_session_groups_empty {
+                Some(tx.prepare(
+                    "INSERT OR IGNORE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+                )?)
+            } else {
+                None
+            };
+
+            if peer_session_groups_empty {
+                tx.execute("DELETE FROM peer_session_groups", [])?;
+            }
+
+            for row in rows.by_ref() {
+                let (session_key, payload) = row?;
+                let record: PeerSessionRecord =
+                    serde_json::from_str(&payload).context("deserialize peer session record")?;
+                if let Some(update) = update.as_mut() {
+                    update.execute(params![
+                        record.peer_system,
+                        record.peer_role,
+                        record.host,
+                        session_key
+                    ])?;
+                }
+                if let Some(insert_group) = insert_group.as_mut() {
+                    for peer_group in record.peer_groups.iter() {
+                        insert_group.execute(params![session_key, peer_group])?;
+                    }
+                }
+            }
+        }
+        tx.commit()
+            .context("commit peer session migration backfill")?;
+    }
+
+    Ok(())
+}
+
+fn create_peer_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_system
+          ON peer_sessions(peer_system);
+        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_role
+          ON peer_sessions(peer_role);
+        CREATE INDEX IF NOT EXISTS idx_peer_sessions_host
+          ON peer_sessions(host);
+        "#,
+    )
+    .context("create peer session identity indexes")?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canonical_key;
+    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+
+    fn open_temp_store(prefix: &str) -> (std::path::PathBuf, SqliteStore) {
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+        (dir, store)
+    }
+
+    fn sample_memory_item() -> MemoryItem {
+        let now = chrono::Utc::now();
+        MemoryItem {
+            id: Uuid::new_v4(),
+            content: "peer resume state".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Status,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex@test".to_string()),
+            source_system: Some("memd-test".to_string()),
+            source_path: None,
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: vec!["resume_state".to_string()],
+            status: MemoryStatus::Active,
+            source_quality: Some(SourceQuality::Canonical),
+            stage: MemoryStage::Canonical,
+        }
+    }
 
     #[test]
     fn fuzzy_entity_search_scores_alias_hits_highest() {
@@ -3123,6 +3733,192 @@ mod tests {
     }
 
     #[test]
+    fn insert_or_get_duplicate_returns_existing_item_without_deadlock() {
+        let (dir, store) = open_temp_store("memd-duplicate-path");
+        let item = sample_memory_item();
+        let canonical_key = canonical_key(&item);
+        let redundancy_key = redundancy_key(&item);
+
+        assert!(
+            store
+                .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)
+                .expect("insert first item")
+                .is_none()
+        );
+
+        let duplicate = store
+            .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)
+            .expect("resolve duplicate");
+
+        assert!(duplicate.is_some());
+        assert_eq!(duplicate.as_ref().map(|found| found.id), Some(item.id));
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn rehearse_entity_by_id_updates_entity_without_deadlock() {
+        let (dir, store) = open_temp_store("memd-rehearse-entity");
+        let item = sample_memory_item();
+        let canonical_key = canonical_key(&item);
+        let entity = store
+            .resolve_entity_for_item(&item, &canonical_key)
+            .expect("resolve entity");
+
+        let rehearsed = store
+            .rehearse_entity_by_id(entity.record.id, 0.15)
+            .expect("rehearse entity")
+            .expect("entity should exist");
+
+        assert_eq!(rehearsed.id, entity.record.id);
+        assert_eq!(
+            rehearsed.rehearsal_count,
+            entity.record.rehearsal_count.saturating_add(1)
+        );
+        assert!(rehearsed.salience_score >= entity.record.salience_score);
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn concurrent_write_and_cross_workspace_reads_complete() {
+        let (dir, store) = open_temp_store("memd-cross-workspace-concurrency");
+
+        let mut seed = sample_memory_item();
+        seed.project = Some("demo".to_string());
+        seed.namespace = Some("main".to_string());
+        seed.workspace = Some("shared".to_string());
+        seed.visibility = MemoryVisibility::Workspace;
+        seed.content = "seed item".to_string();
+        seed.source_agent = Some("codex@test-a@session-a".to_string());
+        seed.source_system = Some("memd".to_string());
+        seed.tags = vec!["seed".to_string()];
+        let seed_canonical_key = canonical_key(&seed);
+        let seed_redundancy_key = redundancy_key(&seed);
+        store
+            .insert_or_get_duplicate(&seed, &seed_canonical_key, &seed_redundancy_key)
+            .expect("insert seed item");
+        let entity = store
+            .resolve_entity_for_item(&seed, &seed_canonical_key)
+            .expect("resolve seed entity");
+        store
+            .record_event(
+                &entity.record,
+                seed.id,
+                RecordEventArgs {
+                    event_type: "stored".to_string(),
+                    summary: "seed stored".to_string(),
+                    occurred_at: seed.updated_at,
+                    project: seed.project.clone(),
+                    namespace: seed.namespace.clone(),
+                    workspace: seed.workspace.clone(),
+                    source_agent: seed.source_agent.clone(),
+                    source_system: seed.source_system.clone(),
+                    source_path: seed.source_path.clone(),
+                    related_entity_ids: Vec::new(),
+                    tags: seed.tags.clone(),
+                    context: None,
+                    confidence: seed.confidence,
+                    salience_score: entity.record.salience_score,
+                },
+            )
+            .expect("record seed event");
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<&'static str>();
+
+        let writer_store = store.clone();
+        let writer_barrier = barrier.clone();
+        let writer_tx = done_tx.clone();
+        let writer = std::thread::spawn(move || {
+            writer_barrier.wait();
+            let mut item = sample_memory_item();
+            item.project = Some("demo".to_string());
+            item.namespace = Some("main".to_string());
+            item.workspace = Some("shared".to_string());
+            item.visibility = MemoryVisibility::Workspace;
+            item.content = "concurrent item".to_string();
+            item.source_agent = Some("codex@test-a@session-a".to_string());
+            item.source_system = Some("memd".to_string());
+            item.tags = vec!["repro".to_string()];
+            let canonical_key = canonical_key(&item);
+            let redundancy_key = redundancy_key(&item);
+            writer_store
+                .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)
+                .expect("insert concurrent item");
+            let entity = writer_store
+                .resolve_entity_for_item(&item, &canonical_key)
+                .expect("resolve concurrent entity");
+            writer_store
+                .record_event(
+                    &entity.record,
+                    item.id,
+                    RecordEventArgs {
+                        event_type: "stored".to_string(),
+                        summary: "concurrent item stored".to_string(),
+                        occurred_at: item.updated_at,
+                        project: item.project.clone(),
+                        namespace: item.namespace.clone(),
+                        workspace: item.workspace.clone(),
+                        source_agent: item.source_agent.clone(),
+                        source_system: item.source_system.clone(),
+                        source_path: item.source_path.clone(),
+                        related_entity_ids: Vec::new(),
+                        tags: item.tags.clone(),
+                        context: None,
+                        confidence: item.confidence,
+                        salience_score: entity.record.salience_score,
+                    },
+                )
+                .expect("record concurrent event");
+            writer_tx.send("writer").expect("send writer completion");
+        });
+
+        let reader_store = store.clone();
+        let reader_barrier = barrier.clone();
+        let reader_tx = done_tx.clone();
+        let reader = std::thread::spawn(move || {
+            reader_barrier.wait();
+            let workspaces = reader_store
+                .workspace_memory(&WorkspaceMemoryRequest {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("other".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    source_agent: None,
+                    source_system: None,
+                    limit: Some(6),
+                })
+                .expect("cross-workspace lanes");
+            let sources = reader_store
+                .source_memory(&SourceMemoryRequest {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("other".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    source_agent: None,
+                    source_system: None,
+                    limit: Some(6),
+                })
+                .expect("cross-workspace sources");
+            assert!(workspaces.workspaces.is_empty());
+            assert!(sources.sources.is_empty());
+            reader_tx.send("reader").expect("send reader completion");
+        });
+
+        barrier.wait();
+        let first = done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("first concurrent operation should finish");
+        let second = done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("second concurrent operation should finish");
+        assert_ne!(first, second);
+
+        writer.join().expect("join writer");
+        reader.join().expect("join reader");
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn peer_sessions_keep_same_named_sessions_separate_across_agents() {
         let dir = std::env::temp_dir().join(format!("memd-peer-sessions-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
@@ -3133,7 +3929,14 @@ mod tests {
                 session: "shared-session".to_string(),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
+                peer_system: Some("codex".to_string()),
+                peer_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                peer_groups: vec!["openclaw-stack".to_string()],
+                peer_group_goal: None,
+                authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("initiative-alpha".to_string()),
@@ -3153,7 +3956,14 @@ mod tests {
                 session: "shared-session".to_string(),
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@shared-session".to_string()),
+                peer_system: Some("claude-code".to_string()),
+                peer_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                peer_groups: vec!["openclaw-stack".to_string()],
+                peer_group_goal: None,
+                authority: Some("participant".to_string()),
                 heartbeat_model: Some("claude-sonnet-4".to_string()),
+                tab_id: None,
                 project: Some("repo-b".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("initiative-alpha".to_string()),
@@ -3175,6 +3985,10 @@ mod tests {
                 project: None,
                 namespace: None,
                 workspace: Some("initiative-alpha".to_string()),
+                peer_system: None,
+                peer_role: None,
+                host: None,
+                peer_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -3195,6 +4009,317 @@ mod tests {
                 .filter(|session| session.agent.as_deref() == Some("claude-code"))
                 .count(),
             1
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn peer_sessions_preserve_service_peer_metadata() {
+        let dir = std::env::temp_dir().join(format!("memd-peer-service-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shell-a".to_string(),
+                agent: Some("agent-shell".to_string()),
+                effective_agent: Some("agent-shell@shell-a".to_string()),
+                peer_system: Some("agent-shell".to_string()),
+                peer_role: Some("runtime-shell".to_string()),
+                capabilities: vec![
+                    "shell".to_string(),
+                    "exec".to_string(),
+                    "workspace".to_string(),
+                ],
+                peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+                peer_group_goal: None,
+                authority: Some("worker".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: None,
+                project: Some("openclaw".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("stack-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("vm-a".to_string()),
+                pid: Some(333),
+                focus: Some("repair runtime dependency".to_string()),
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert service peer");
+
+        let sessions = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shell-a".to_string()),
+                project: Some("openclaw".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("stack-alpha".to_string()),
+                peer_system: None,
+                peer_role: None,
+                host: None,
+                peer_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("query service peer");
+
+        assert_eq!(sessions.sessions.len(), 1);
+        let peer = &sessions.sessions[0];
+        assert_eq!(peer.peer_system.as_deref(), Some("agent-shell"));
+        assert_eq!(peer.peer_role.as_deref(), Some("runtime-shell"));
+        assert_eq!(peer.authority.as_deref(), Some("worker"));
+        assert!(peer.capabilities.iter().any(|value| value == "shell"));
+        assert!(peer.capabilities.iter().any(|value| value == "exec"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn peer_sessions_filter_by_peer_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-peer-filter-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("agent-a".to_string()),
+                effective_agent: Some("agent-a@shared-session".to_string()),
+                peer_system: Some("codex".to_string()),
+                peer_role: Some("runtime-shell".to_string()),
+                capabilities: vec!["memory".to_string()],
+                peer_groups: vec!["runtime-core".to_string()],
+                peer_group_goal: None,
+                authority: Some("worker".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: None,
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("vm-a".to_string()),
+                pid: Some(111),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert codex runtime shell session");
+
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("agent-b".to_string()),
+                effective_agent: Some("agent-b@shared-session".to_string()),
+                peer_system: Some("codex".to_string()),
+                peer_role: Some("orchestrator".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                peer_groups: vec!["openclaw-stack".to_string()],
+                peer_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: None,
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:9797".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("vm-b".to_string()),
+                pid: Some(222),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert codex orchestrator session");
+
+        store
+            .upsert_peer_session(&PeerSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("agent-c".to_string()),
+                effective_agent: Some("agent-c@shared-session".to_string()),
+                peer_system: Some("claude-code".to_string()),
+                peer_role: Some("runtime-shell".to_string()),
+                capabilities: vec!["memory".to_string()],
+                peer_groups: vec!["runtime-core".to_string()],
+                peer_group_goal: None,
+                authority: Some("worker".to_string()),
+                heartbeat_model: Some("claude-opus".to_string()),
+                tab_id: None,
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:9898".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("vm-a".to_string()),
+                pid: Some(333),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert claude runtime shell session");
+
+        let codex_sessions = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                peer_system: Some("codex".to_string()),
+                peer_role: None,
+                host: None,
+                peer_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions by peer system");
+        assert_eq!(codex_sessions.sessions.len(), 2);
+
+        let runtime_session = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                peer_system: Some("codex".to_string()),
+                peer_role: Some("runtime-shell".to_string()),
+                host: Some("vm-a".to_string()),
+                peer_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions by peer role and host");
+        assert_eq!(runtime_session.sessions.len(), 1);
+        assert_eq!(
+            runtime_session.sessions[0].peer_system.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            runtime_session.sessions[0].peer_role.as_deref(),
+            Some("runtime-shell")
+        );
+        assert_eq!(runtime_session.sessions[0].host.as_deref(), Some("vm-a"));
+
+        let host_a_sessions = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                peer_system: None,
+                peer_role: None,
+                host: Some("vm-a".to_string()),
+                peer_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions by host");
+        assert_eq!(host_a_sessions.sessions.len(), 2);
+        assert!(
+            host_a_sessions
+                .sessions
+                .iter()
+                .all(|session| session.host.as_deref() == Some("vm-a"))
+        );
+
+        let runtime_group_sessions = store
+            .peer_sessions(&PeerSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                peer_system: None,
+                peer_role: None,
+                host: None,
+                peer_group: Some("runtime-core".to_string()),
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions by peer group");
+        assert_eq!(runtime_group_sessions.sessions.len(), 2);
+        assert!(runtime_group_sessions.sessions.iter().all(|session| {
+            session
+                .peer_groups
+                .iter()
+                .any(|value| value == "runtime-core")
+        }));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn open_migrates_legacy_peer_sessions_before_identity_indexes() {
+        let dir = std::env::temp_dir().join(format!("legacy-peer-sessions-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("state.sqlite");
+        let conn = Connection::open(&path).expect("open sqlite database");
+
+        conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE peer_sessions (
+              session_key TEXT PRIMARY KEY,
+              session TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              status TEXT NOT NULL,
+              last_seen TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            "#,
+        )
+        .expect("create legacy peer_sessions");
+
+        drop(conn);
+
+        let store = SqliteStore::open(&path).expect("open migrated sqlite store");
+        let conn = store.connect().expect("connect migrated sqlite store");
+        let columns = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(peer_sessions)")
+                .expect("prepare table info");
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .expect("query table info")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect peer session columns")
+        };
+        assert!(columns.iter().any(|value| value == "peer_system"));
+        assert!(columns.iter().any(|value| value == "peer_role"));
+        assert!(columns.iter().any(|value| value == "host"));
+
+        let indexes = {
+            let mut stmt = conn
+                .prepare("PRAGMA index_list(peer_sessions)")
+                .expect("prepare index list");
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .expect("query index list")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect peer session indexes")
+        };
+        assert!(
+            indexes
+                .iter()
+                .any(|value| value == "idx_peer_sessions_peer_system")
+        );
+        assert!(
+            indexes
+                .iter()
+                .any(|value| value == "idx_peer_sessions_peer_role")
+        );
+        assert!(
+            indexes
+                .iter()
+                .any(|value| value == "idx_peer_sessions_host")
         );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");

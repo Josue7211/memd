@@ -165,19 +165,19 @@ async fn verify_or_expire(
     confidence_bump: f32,
     item: &memd_schema::MemoryItem,
 ) -> anyhow::Result<VerificationAction> {
-    if let Some(source_path) = &item.source_path {
-        if Path::new(source_path).exists() {
-            let confidence = (item.confidence + confidence_bump).min(1.0);
-            client
-                .verify(&VerifyMemoryRequest {
-                    id: item.id,
-                    confidence: Some(confidence),
-                    status: Some(MemoryStatus::Active),
-                })
-                .await
-                .context("verify memory item")?;
-            return Ok(VerificationAction::Verified);
-        }
+    if let Some(source_path) = &item.source_path
+        && Path::new(source_path).exists()
+    {
+        let confidence = (item.confidence + confidence_bump).min(1.0);
+        client
+            .verify(&VerifyMemoryRequest {
+                id: item.id,
+                confidence: Some(confidence),
+                status: Some(MemoryStatus::Active),
+            })
+            .await
+            .context("verify memory item")?;
+        return Ok(VerificationAction::Verified);
     }
 
     client

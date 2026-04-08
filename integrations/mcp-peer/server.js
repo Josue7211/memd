@@ -188,7 +188,7 @@ function currentIdentity(bundleRoot) {
   const effectiveAgent = agent && session ? `${agent}@${session}` : agent;
   return {
     bundleRoot,
-    baseUrl: runtime.base_url ?? "http://127.0.0.1:8787",
+    baseUrl: runtime.base_url ?? "http://100.104.154.24:8787",
     project: runtime.project ?? null,
     namespace: runtime.namespace ?? null,
     workspace: heartbeat.workspace ?? runtime.workspace ?? null,

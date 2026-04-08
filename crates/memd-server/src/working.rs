@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::{AppState, build_context, compact_record, internal_error};
+use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
     MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
@@ -16,9 +16,16 @@ pub(crate) fn working_memory(
     state: &AppState,
     req: WorkingMemoryRequest,
 ) -> Result<WorkingMemoryResponse, (StatusCode, String)> {
-    let req = apply_working_profile_defaults(&state, req).map_err(internal_error)?;
-    let admission_limit = req.limit.unwrap_or(8).min(32);
-    let rehydration_limit = req.rehydration_limit.unwrap_or(3).clamp(1, 12);
+    let policy = memory_policy_snapshot();
+    let working_policy = &policy.working_memory;
+    let consolidation_policy = &policy.consolidation;
+    let source_trust_floor = policy.source_trust_floor;
+    let req = apply_working_profile_defaults(state, req).map_err(internal_error)?;
+    let admission_limit = req.limit.unwrap_or(working_policy.default_limit).min(32);
+    let rehydration_limit = req
+        .rehydration_limit
+        .unwrap_or(working_policy.rehydration_limit)
+        .clamp(1, 12);
     let candidate_window = (admission_limit + rehydration_limit).min(32);
     let compact_req = ContextRequest {
         project: req.project.clone(),
@@ -30,7 +37,11 @@ pub(crate) fn working_memory(
         limit: Some(candidate_window),
         max_chars_per_item: req.max_chars_per_item,
     };
-    let (plan, retrieval_order, items) = build_context(&state, &compact_req)?;
+    let BuildContextResult {
+        plan,
+        retrieval_order,
+        items,
+    } = build_context(state, &compact_req)?;
     state.rehearse_items(&items, 3).map_err(internal_error)?;
     state
         .record_retrieval_feedback(&items, 3, "retrieved_working", &plan)
@@ -43,8 +54,13 @@ pub(crate) fn working_memory(
             .store
             .trust_score_for_item(&item)
             .map_err(internal_error)?;
-        let (score, reasons) =
-            working_item_priority(&item, entity.as_ref(), source_trust_score, now);
+        let (score, reasons) = working_item_priority(
+            &item,
+            entity.as_ref(),
+            source_trust_score,
+            source_trust_floor,
+            now,
+        );
         ranked_items.push((score, reasons, item));
     }
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
@@ -121,16 +137,16 @@ pub(crate) fn working_memory(
         })
         .collect::<Vec<_>>();
 
-    let traces = working_traces_for_items(&state, &selected_items, 3).map_err(internal_error)?;
+    let traces = working_traces_for_items(state, &selected_items, 3).map_err(internal_error)?;
     let semantic_consolidation = if req.auto_consolidate.unwrap_or(false) {
         let auto_request = MemoryConsolidationRequest {
             project: req.project.clone(),
             namespace: req.agent.clone(),
-            max_groups: Some(8),
-            min_events: Some(3),
-            lookback_days: Some(14),
-            min_salience: Some(0.22),
-            record_events: Some(true),
+            max_groups: Some(consolidation_policy.max_groups.min(8)),
+            min_events: Some(consolidation_policy.min_events),
+            lookback_days: Some(consolidation_policy.lookback_days),
+            min_salience: Some(consolidation_policy.min_salience),
+            record_events: Some(consolidation_policy.record_events),
         };
         Some(
             state
@@ -246,6 +262,7 @@ fn working_item_priority(
     item: &memd_schema::MemoryItem,
     entity: Option<&MemoryEntityRecord>,
     source_trust_score: f32,
+    source_trust_floor: f32,
     now: chrono::DateTime<Utc>,
 ) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
@@ -325,15 +342,15 @@ fn working_item_priority(
             }
         }
     };
-    let trust_score = if source_trust_score < 0.35 {
+    let trust_score = if source_trust_score < source_trust_floor * 0.6 {
         -0.18
-    } else if source_trust_score < 0.5 {
+    } else if source_trust_score < source_trust_floor * 0.83 {
         -0.12
-    } else if source_trust_score < 0.6 {
+    } else if source_trust_score < source_trust_floor {
         -0.06
-    } else if source_trust_score >= 0.9 {
+    } else if source_trust_score >= (source_trust_floor + 0.3).min(1.0) {
         0.08
-    } else if source_trust_score >= 0.75 {
+    } else if source_trust_score >= (source_trust_floor + 0.15).min(1.0) {
         0.04
     } else {
         0.0
@@ -348,10 +365,10 @@ fn working_item_priority(
         format!("recent_use_days={recent_use_days:.0}"),
         format!("rehearsals={rehearsal_count}"),
     ];
-    if source_trust_score < 0.6 {
+    if source_trust_score < source_trust_floor {
         reasons.push("trust_below_floor".to_string());
     }
-    if source_trust_score >= 0.75 {
+    if source_trust_score >= (source_trust_floor + 0.15).min(1.0) {
         reasons.push("trust_boost".to_string());
     }
     if contradiction_score < 0.0 {
@@ -461,8 +478,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&good, None, 0.95, now).0
-                > working_item_priority(&weak, None, 0.22, now).0
+            working_item_priority(&good, None, 0.95, 0.6, now).0
+                > working_item_priority(&weak, None, 0.22, 0.6, now).0
         );
     }
 
@@ -485,8 +502,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&verified, None, 0.8, now).0
-                > working_item_priority(&unverified, None, 0.8, now).0
+            working_item_priority(&verified, None, 0.8, 0.6, now).0
+                > working_item_priority(&unverified, None, 0.8, 0.6, now).0
         );
     }
 
@@ -501,7 +518,7 @@ mod tests {
             now - chrono::Duration::days(40),
         );
 
-        let (_, reasons) = working_item_priority(&item, None, 0.28, now);
+        let (_, reasons) = working_item_priority(&item, None, 0.28, 0.6, now);
         assert!(reasons.iter().any(|reason| reason == "contested"));
         assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
         assert!(reasons.iter().any(|reason| reason == "trust_below_floor"));
@@ -559,6 +576,7 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             budget_chars: 1600,
             max_chars_per_item: 220,
             default_limit: 8,
+            rehydration_limit: 3,
         },
         retrieval_feedback: MemoryPolicyFeedback {
             enabled: true,
@@ -573,6 +591,34 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             max_items_per_request: 3,
         },
         source_trust_floor: 0.6,
+        runtime: memd_schema::MemoryPolicyRuntime {
+            live_truth: memd_schema::MemoryPolicyLiveTruth {
+                read_once_sources: true,
+                raw_reopen_requires_change_or_doubt: true,
+                visible_memory_objects: true,
+                compile_from_events: true,
+            },
+            memory_compilation: memd_schema::MemoryPolicyMemoryCompilation {
+                event_driven_updates: true,
+                patch_not_rewrite: true,
+                preserve_provenance: true,
+                source_on_demand: true,
+            },
+            semantic_fallback: memd_schema::MemoryPolicySemanticFallback {
+                enabled: true,
+                source_of_truth: false,
+                max_items_per_query: 3,
+                rerank_with_visible_memory: true,
+            },
+            skill_gating: memd_schema::MemoryPolicySkillGating {
+                propose_from_repeated_patterns: true,
+                sandboxed_evaluation: true,
+                auto_activate_low_risk_only: true,
+                gated_activation: true,
+                require_evaluation: true,
+                require_policy_approval: true,
+            },
+        },
         promotion: MemoryPolicyPromotion {
             min_salience: 0.22,
             min_events: 3,

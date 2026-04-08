@@ -38,13 +38,16 @@ use memd_schema::{
     PeerSessionsResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest,
     PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
     RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SearchMemoryResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
-    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
-use store::{DuplicateMatch, SqliteStore};
+use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -97,6 +100,21 @@ impl AppState {
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
+        if let Some(found) = duplicate.as_ref() {
+            if let Some(revived) = self.revive_duplicate_on_explicit_store(
+                found,
+                &item,
+                &canonical_key,
+                &redundancy_key,
+            )? {
+                let _ = self.record_item_event(
+                    &revived,
+                    "restored",
+                    "duplicate memory item restored to active canonical state".to_string(),
+                );
+                return Ok((revived, None));
+            }
+        }
         if duplicate.is_none() {
             let _ = self.record_item_event(
                 &item,
@@ -111,6 +129,49 @@ impl AppState {
             );
         }
         Ok((item, duplicate))
+    }
+
+    fn revive_duplicate_on_explicit_store(
+        &self,
+        duplicate: &DuplicateMatch,
+        incoming: &MemoryItem,
+        canonical_key: &str,
+        redundancy_key: &str,
+    ) -> anyhow::Result<Option<MemoryItem>> {
+        if incoming.stage != MemoryStage::Canonical || incoming.status != MemoryStatus::Active {
+            return Ok(None);
+        }
+        if duplicate.item.status == MemoryStatus::Active {
+            return Ok(None);
+        }
+
+        let mut revived = duplicate.item.clone();
+        revived.content = incoming.content.clone();
+        revived.belief_branch = incoming.belief_branch.clone();
+        revived.project = incoming.project.clone();
+        revived.namespace = incoming.namespace.clone();
+        revived.workspace = incoming.workspace.clone();
+        revived.visibility = incoming.visibility;
+        revived.source_agent = incoming.source_agent.clone();
+        revived.source_system = incoming.source_system.clone();
+        revived.source_path = incoming.source_path.clone();
+        revived.source_quality = incoming.source_quality;
+        revived.confidence = incoming.confidence;
+        revived.ttl_seconds = incoming.ttl_seconds;
+        revived.last_verified_at = incoming.last_verified_at;
+        revived.tags = incoming.tags.clone();
+        revived.status = MemoryStatus::Active;
+        revived.updated_at = Utc::now();
+        revived.supersedes.extend(incoming.supersedes.clone());
+        revived.supersedes.retain(|id| *id != revived.id);
+        revived.supersedes.sort_unstable();
+        revived.supersedes.dedup();
+        let revived = MemoryItem {
+            redundancy_key: Some(redundancy_key.to_string()),
+            ..revived
+        };
+        self.store.update(&revived, canonical_key, redundancy_key)?;
+        Ok(Some(revived))
     }
 
     fn snapshot(&self) -> anyhow::Result<Vec<MemoryItem>> {
@@ -190,20 +251,22 @@ impl AppState {
         self.store.record_event(
             &entity.record,
             item.id,
-            event_type,
-            summary,
-            item.updated_at,
-            item.project.clone(),
-            item.namespace.clone(),
-            item.workspace.clone(),
-            item.source_agent.clone(),
-            item.source_system.clone(),
-            item.source_path.clone(),
-            vec![],
-            item.tags.clone(),
-            context,
-            item.confidence,
-            entity.record.salience_score,
+            RecordEventArgs {
+                event_type: event_type.to_string(),
+                summary,
+                occurred_at: item.updated_at,
+                project: item.project.clone(),
+                namespace: item.namespace.clone(),
+                workspace: item.workspace.clone(),
+                source_agent: item.source_agent.clone(),
+                source_system: item.source_system.clone(),
+                source_path: item.source_path.clone(),
+                related_entity_ids: Vec::new(),
+                tags: item.tags.clone(),
+                context,
+                confidence: item.confidence,
+                salience_score: entity.record.salience_score,
+            },
         )
     }
 }
@@ -254,6 +317,14 @@ async fn main() {
         .route(
             "/coordination/receipts",
             get(get_peer_coordination_receipts),
+        )
+        .route(
+            "/coordination/skill-policy/apply",
+            post(post_skill_policy_apply_receipt).get(get_skill_policy_apply_receipts),
+        )
+        .route(
+            "/coordination/skill-policy/activations",
+            get(get_skill_policy_activations),
         )
         .route(
             "/coordination/claims/acquire",
@@ -432,13 +503,17 @@ async fn search_memory(
     State(state): State<AppState>,
     Json(req): Json<SearchMemoryRequest>,
 ) -> Result<Json<SearchMemoryResponse>, (StatusCode, String)> {
+    let policy = working::memory_policy_snapshot();
+    let feedback_limit = policy.retrieval_feedback.max_items_per_request;
     let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
         .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let items = filter_items(&items, &req, &plan);
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
     state
-        .record_retrieval_feedback(&items, 3, "retrieved_search", &plan)
+        .rehearse_items(&items, feedback_limit)
+        .map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, feedback_limit, "retrieved_search", &plan)
         .map_err(internal_error)?;
     Ok(Json(SearchMemoryResponse {
         route: plan.route,
@@ -451,11 +526,19 @@ async fn get_context(
     State(state): State<AppState>,
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<ContextResponse>, (StatusCode, String)> {
+    let policy = working::memory_policy_snapshot();
+    let feedback_limit = policy.retrieval_feedback.max_items_per_request;
     let req = apply_agent_profile_defaults(&state, req).map_err(internal_error)?;
-    let (plan, retrieval_order, items) = build_context(&state, &req)?;
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
+    let BuildContextResult {
+        plan,
+        retrieval_order,
+        items,
+    } = build_context(&state, &req)?;
     state
-        .record_retrieval_feedback(&items, 3, "retrieved_context", &plan)
+        .rehearse_items(&items, feedback_limit)
+        .map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, feedback_limit, "retrieved_context", &plan)
         .map_err(internal_error)?;
     Ok(Json(ContextResponse {
         route: plan.route,
@@ -469,10 +552,18 @@ async fn get_compact_context(
     State(state): State<AppState>,
     Query(req): Query<ContextRequest>,
 ) -> Result<Json<CompactContextResponse>, (StatusCode, String)> {
-    let (plan, retrieval_order, items) = build_context(&state, &req)?;
-    state.rehearse_items(&items, 3).map_err(internal_error)?;
+    let policy = working::memory_policy_snapshot();
+    let feedback_limit = policy.retrieval_feedback.max_items_per_request;
+    let BuildContextResult {
+        plan,
+        retrieval_order,
+        items,
+    } = build_context(&state, &req)?;
     state
-        .record_retrieval_feedback(&items, 3, "retrieved_compact_context", &plan)
+        .rehearse_items(&items, feedback_limit)
+        .map_err(internal_error)?;
+    state
+        .record_retrieval_feedback(&items, feedback_limit, "retrieved_compact_context", &plan)
         .map_err(internal_error)?;
     let records = items
         .into_iter()
@@ -602,7 +693,7 @@ async fn get_entity_search(
                 query: query.clone(),
                 project: req.project.clone(),
                 namespace: req.namespace.clone(),
-                at: req.at.clone(),
+                at: req.at,
                 host: req.host.clone(),
                 branch: req.branch.clone(),
                 location: req.location.clone(),
@@ -812,6 +903,51 @@ async fn get_peer_coordination_receipts(
     let response = state
         .store
         .peer_coordination_receipts(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_skill_policy_apply_receipt(
+    State(state): State<AppState>,
+    Json(req): Json<SkillPolicyApplyRequest>,
+) -> Result<Json<SkillPolicyApplyResponse>, (StatusCode, String)> {
+    if req.bundle_root.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "bundle_root must not be empty".to_string(),
+        ));
+    }
+    if req.source_queue_path.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "source_queue_path must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .record_skill_policy_apply_receipt(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_skill_policy_apply_receipts(
+    State(state): State<AppState>,
+    Query(req): Query<SkillPolicyApplyReceiptsRequest>,
+) -> Result<Json<SkillPolicyApplyReceiptsResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .skill_policy_apply_receipts(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_skill_policy_activations(
+    State(state): State<AppState>,
+    Query(req): Query<SkillPolicyActivationEntriesRequest>,
+) -> Result<Json<SkillPolicyActivationEntriesResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .skill_policy_activations(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
@@ -1085,28 +1221,31 @@ impl AppState {
             if let Some(branch) = &item.belief_branch {
                 tags.push(format!("belief_branch:{branch}"));
             }
+            let context = Some(entity_context_frame(&entity.record, item));
             self.store.record_event(
                 &entity.record,
                 item.id,
-                event_type,
-                format!(
-                    "{} route={} intent={}",
-                    event_type,
-                    enum_label_route(plan.route),
-                    enum_label_intent(plan.intent)
-                ),
-                Utc::now(),
-                item.project.clone(),
-                item.namespace.clone(),
-                item.workspace.clone(),
-                item.source_agent.clone(),
-                item.source_system.clone(),
-                item.source_path.clone(),
-                vec![],
-                tags,
-                Some(entity_context_frame(&entity.record, item)),
-                item.confidence,
-                entity.record.salience_score,
+                RecordEventArgs {
+                    event_type: event_type.to_string(),
+                    summary: format!(
+                        "{} route={} intent={}",
+                        event_type,
+                        enum_label_route(plan.route),
+                        enum_label_intent(plan.intent)
+                    ),
+                    occurred_at: Utc::now(),
+                    project: item.project.clone(),
+                    namespace: item.namespace.clone(),
+                    workspace: item.workspace.clone(),
+                    source_agent: item.source_agent.clone(),
+                    source_system: item.source_system.clone(),
+                    source_path: item.source_path.clone(),
+                    related_entity_ids: Vec::new(),
+                    tags,
+                    context,
+                    confidence: item.confidence,
+                    salience_score: entity.record.salience_score,
+                },
             )?;
         }
         Ok(())
@@ -1130,13 +1269,20 @@ impl AppState {
         &self,
         req: &MemoryConsolidationRequest,
     ) -> anyhow::Result<MemoryConsolidationResponse> {
+        let policy = working::memory_policy_snapshot();
+        let consolidation_policy = &policy.consolidation;
         let candidates = self
             .store
             .consolidation_candidates(req)
             .context("load consolidation candidates")?;
 
-        let min_salience = req.min_salience.unwrap_or(0.22).clamp(0.0, 1.0);
-        let record_events = req.record_events.unwrap_or(true);
+        let min_salience = req
+            .min_salience
+            .unwrap_or(consolidation_policy.min_salience)
+            .clamp(0.0, 1.0);
+        let record_events = req
+            .record_events
+            .unwrap_or(consolidation_policy.record_events);
 
         let mut scanned = 0usize;
         let mut groups = 0usize;
@@ -1238,57 +1384,60 @@ impl AppState {
             }
             consolidated += 1;
             if record_events {
+                let context = Some(entity_context_frame(&candidate.entity, &item));
                 let _ = self.store.record_event(
                     &candidate.entity,
                     item.id,
-                    "consolidated",
-                    format!(
-                        "episodic traces consolidated after {} events into semantic memory",
-                        candidate.event_count
-                    ),
-                    candidate.last_recorded_at,
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.project.clone()),
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.namespace.clone()),
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.workspace.clone()),
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.agent.clone()),
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.repo.clone())
-                        .or_else(|| {
-                            candidate
-                                .entity
-                                .context
-                                .as_ref()
-                                .and_then(|context| context.location.clone())
-                        }),
-                    candidate
-                        .entity
-                        .context
-                        .as_ref()
-                        .and_then(|context| context.location.clone()),
-                    vec![item.id],
-                    consolidation_tags(&candidate.entity, candidate.event_count),
-                    Some(entity_context_frame(&candidate.entity, &item)),
-                    item.confidence,
-                    candidate.entity.salience_score,
+                    RecordEventArgs {
+                        event_type: "consolidated".to_string(),
+                        summary: format!(
+                            "episodic traces consolidated after {} events into semantic memory",
+                            candidate.event_count
+                        ),
+                        occurred_at: candidate.last_recorded_at,
+                        project: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.project.clone()),
+                        namespace: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.namespace.clone()),
+                        workspace: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.workspace.clone()),
+                        source_agent: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.agent.clone()),
+                        source_system: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.repo.clone())
+                            .or_else(|| {
+                                candidate
+                                    .entity
+                                    .context
+                                    .as_ref()
+                                    .and_then(|context| context.location.clone())
+                            }),
+                        source_path: candidate
+                            .entity
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.location.clone()),
+                        related_entity_ids: vec![item.id],
+                        tags: consolidation_tags(&candidate.entity, candidate.event_count),
+                        context,
+                        confidence: item.confidence,
+                        salience_score: candidate.entity.salience_score,
+                    },
                 )?;
                 events += 1;
             }
@@ -1461,64 +1610,107 @@ fn enrich_with_entities(
         .collect()
 }
 
+pub(crate) struct BuildContextResult {
+    pub plan: RetrievalPlan,
+    pub retrieval_order: Vec<MemoryScope>,
+    pub items: Vec<MemoryItem>,
+}
+
 fn build_context(
     state: &AppState,
     req: &ContextRequest,
-) -> Result<(RetrievalPlan, Vec<MemoryScope>, Vec<MemoryItem>), (StatusCode, String)> {
+) -> Result<BuildContextResult, (StatusCode, String)> {
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     let limit = req.limit.unwrap_or(8).min(32);
     let max_chars = req.max_chars_per_item.unwrap_or(280).clamp(80, 2000);
-    let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
+    let items = enrich_with_entities(state, state.snapshot().map_err(internal_error)?)
         .map_err(internal_error)?;
     let retrieval_order = plan.scopes();
 
     let mut scoped: Vec<MemoryItem> = Vec::new();
-    for scope in retrieval_order.iter().copied() {
-        let mut bucket: Vec<MemoryViewItem> = items
-            .iter()
-            .filter(|entry| plan.allows(entry.item.scope))
-            .filter(|entry| entry.item.scope == scope)
-            .filter(|entry| entry.item.status == MemoryStatus::Active)
-            .filter(|entry| match (&req.project, &entry.item.project, scope) {
+    let mut live_truth: Vec<MemoryViewItem> = items
+        .iter()
+        .filter(|entry| entry.item.kind == MemoryKind::LiveTruth)
+        .filter(|entry| entry.item.status == MemoryStatus::Active)
+        .filter(|entry| plan.allows(entry.item.scope))
+        .filter(
+            |entry| match (&req.project, &entry.item.project, entry.item.scope) {
+                (Some(project), Some(item_project), MemoryScope::Project | MemoryScope::Synced) => {
+                    item_project == project
+                }
+                (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
+                _ => true,
+            },
+        )
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .cloned()
+        .collect();
+    live_truth.sort_by(|a, b| b.item.updated_at.cmp(&a.item.updated_at));
+
+    for entry in live_truth {
+        let mut item = entry.item;
+        item.content = compact_content(&item.content, max_chars);
+        scoped.push(item);
+        if scoped.len() >= limit {
+            scoped.truncate(limit);
+            return Ok(BuildContextResult {
+                plan,
+                retrieval_order,
+                items: scoped,
+            });
+        }
+    }
+
+    let mut ranked_items: Vec<MemoryViewItem> = items
+        .iter()
+        .filter(|entry| plan.allows(entry.item.scope))
+        .filter(|entry| entry.item.kind != MemoryKind::LiveTruth)
+        .filter(|entry| entry.item.status == MemoryStatus::Active)
+        .filter(
+            |entry| match (&req.project, &entry.item.project, entry.item.scope) {
                 (Some(project), Some(item_project), MemoryScope::Project) => {
                     item_project == project
                 }
                 (Some(project), Some(item_project), MemoryScope::Synced) => item_project == project,
                 (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
                 _ => true,
-            })
-            .filter(|entry| {
-                req.visibility
-                    .is_none_or(|visibility| entry.item.visibility == visibility)
-            })
-            .cloned()
-            .collect();
+            },
+        )
+        .filter(|entry| {
+            req.visibility
+                .is_none_or(|visibility| entry.item.visibility == visibility)
+        })
+        .cloned()
+        .collect();
 
-        bucket.sort_by(|a, b| {
-            context_score(&b.item, b.entity.as_ref(), b.source_trust_score, req, &plan)
-                .partial_cmp(&context_score(
-                    &a.item,
-                    a.entity.as_ref(),
-                    a.source_trust_score,
-                    req,
-                    &plan,
-                ))
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
-        });
+    ranked_items.sort_by(|a, b| {
+        context_score(&b.item, b.entity.as_ref(), b.source_trust_score, req, &plan)
+            .partial_cmp(&context_score(
+                &a.item,
+                a.entity.as_ref(),
+                a.source_trust_score,
+                req,
+                &plan,
+            ))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+    });
 
-        scoped.extend(bucket.into_iter().map(|entry| entry.item));
-        if scoped.len() >= limit {
-            break;
-        }
-    }
+    scoped.extend(ranked_items.into_iter().map(|entry| entry.item));
 
     for item in &mut scoped {
         item.content = compact_content(&item.content, max_chars);
     }
     scoped.truncate(limit);
 
-    Ok((plan, retrieval_order, scoped))
+    Ok(BuildContextResult {
+        plan,
+        retrieval_order,
+        items: scoped,
+    })
 }
 
 fn apply_agent_profile_defaults(
@@ -1730,6 +1922,7 @@ fn consolidation_kind(entity_type: &str) -> MemoryKind {
         "self_model" => MemoryKind::SelfModel,
         "topology" => MemoryKind::Topology,
         "status" => MemoryKind::Status,
+        "live_truth" => MemoryKind::LiveTruth,
         "pattern" => MemoryKind::Pattern,
         "constraint" => MemoryKind::Constraint,
         _ => MemoryKind::Pattern,
@@ -2271,6 +2464,7 @@ fn enum_label_kind(kind: MemoryKind) -> &'static str {
         MemoryKind::SelfModel => "self_model",
         MemoryKind::Topology => "topology",
         MemoryKind::Status => "status",
+        MemoryKind::LiveTruth => "live_truth",
         MemoryKind::Pattern => "pattern",
         MemoryKind::Constraint => "constraint",
     }
@@ -2594,6 +2788,7 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memd_schema::MemoryRepairMode;
 
     fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         let now = Utc::now();
@@ -2623,6 +2818,16 @@ mod tests {
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
         }
+    }
+
+    fn temp_state(name: &str) -> (std::path::PathBuf, AppState) {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp state dir");
+        let db_path = dir.join("memd.db");
+        let state = AppState {
+            store: SqliteStore::open(&db_path).expect("open temp store"),
+        };
+        (dir, state)
     }
 
     #[test]
@@ -2678,5 +2883,457 @@ mod tests {
             search_score(&verified, None, 0.7, &Some("workspace".to_string()), &plan)
                 > search_score(&inferred, None, 0.7, &Some("workspace".to_string()), &plan)
         );
+    }
+
+    #[test]
+    fn live_truth_precedes_project_memory() {
+        let db_path =
+            std::env::temp_dir().join(format!("memd-live-truth-{}.db", uuid::Uuid::new_v4()));
+        let state = AppState {
+            store: SqliteStore::open(&db_path).expect("open temp db"),
+        };
+
+        let _ = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "recent repo change: update live truth".to_string(),
+                    kind: MemoryKind::LiveTruth,
+                    scope: MemoryScope::Local,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("memd".to_string()),
+                    source_system: Some("memd-live-truth".to_string()),
+                    source_path: Some("/tmp/demo".to_string()),
+                    source_quality: Some(SourceQuality::Derived),
+                    confidence: Some(0.98),
+                    ttl_seconds: Some(3_600),
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["live_truth".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store live truth");
+
+        let _ = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "older project fact".to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("cli".to_string()),
+                    source_path: Some("notes.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.9),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["fact".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store fact");
+
+        let BuildContextResult { items, .. } = build_context(
+            &state,
+            &ContextRequest {
+                project: Some("demo".to_string()),
+                agent: Some("codex".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                route: Some(RetrievalRoute::ProjectFirst),
+                intent: Some(RetrievalIntent::CurrentTask),
+                limit: Some(4),
+                max_chars_per_item: Some(220),
+            },
+        )
+        .expect("build context");
+
+        assert_eq!(
+            items.first().map(|item| item.kind),
+            Some(MemoryKind::LiveTruth)
+        );
+        assert!(
+            items
+                .iter()
+                .any(|item| item.content.contains("older project fact"))
+        );
+    }
+
+    #[test]
+    fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
+        let db_path = std::env::temp_dir().join(format!(
+            "memd-current-task-project-fact-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AppState {
+            store: SqliteStore::open(&db_path).expect("open temp db"),
+        };
+
+        let _ = state
+            .store_item(
+                StoreMemoryRequest {
+                    content:
+                        "remembered project fact: memd must preserve important user corrections"
+                            .to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("memd".to_string()),
+                    source_path: Some("notes.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.98),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["project_fact".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store durable project fact");
+
+        for index in 0..5 {
+            let _ = state
+                .store_item(
+                    StoreMemoryRequest {
+                        content: format!("resume state noise {index}: synced session snapshot"),
+                        kind: MemoryKind::Status,
+                        scope: MemoryScope::Synced,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: Some(MemoryVisibility::Workspace),
+                        belief_branch: None,
+                        source_agent: Some(format!("codex@session-{index}")),
+                        source_system: Some("memd-resume-state".to_string()),
+                        source_path: None,
+                        source_quality: Some(SourceQuality::Derived),
+                        confidence: Some(0.94),
+                        ttl_seconds: Some(86_400),
+                        last_verified_at: Some(Utc::now()),
+                        supersedes: Vec::new(),
+                        tags: vec!["resume_state".to_string(), "session_state".to_string()],
+                        status: Some(MemoryStatus::Active),
+                    },
+                    MemoryStage::Canonical,
+                )
+                .expect("store synced session noise");
+        }
+
+        let BuildContextResult { items, .. } = build_context(
+            &state,
+            &ContextRequest {
+                project: Some("demo".to_string()),
+                agent: Some("codex".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                route: Some(RetrievalRoute::LocalFirst),
+                intent: Some(RetrievalIntent::CurrentTask),
+                limit: Some(4),
+                max_chars_per_item: Some(220),
+            },
+        )
+        .expect("build current-task context");
+
+        assert!(
+            items
+                .iter()
+                .any(|item| item.content.contains("remembered project fact")),
+            "durable project fact should survive current-task retrieval even when synced session-state noise exists"
+        );
+    }
+
+    #[test]
+    fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_noise() {
+        let db_path = std::env::temp_dir().join(format!(
+            "memd-current-task-workspace-fact-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AppState {
+            store: SqliteStore::open(&db_path).expect("open temp db"),
+        };
+
+        let _ = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "shared workspace handoff: team-alpha owns the memory audit"
+                        .to_string(),
+                    kind: MemoryKind::Status,
+                    scope: MemoryScope::Synced,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex@shared-a".to_string()),
+                    source_system: Some("handoff".to_string()),
+                    source_path: Some("handoff.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.96),
+                    ttl_seconds: Some(86_400),
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["handoff".to_string(), "workspace".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store matching workspace memory");
+
+        for index in 0..5 {
+            let _ = state
+                .store_item(
+                    StoreMemoryRequest {
+                        content: format!(
+                            "team-beta session noise {index}: unrelated workspace state"
+                        ),
+                        kind: MemoryKind::Status,
+                        scope: MemoryScope::Synced,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-beta".to_string()),
+                        visibility: Some(MemoryVisibility::Workspace),
+                        belief_branch: None,
+                        source_agent: Some(format!("codex@team-beta-{index}")),
+                        source_system: Some("memd-resume-state".to_string()),
+                        source_path: None,
+                        source_quality: Some(SourceQuality::Derived),
+                        confidence: Some(0.94),
+                        ttl_seconds: Some(86_400),
+                        last_verified_at: Some(Utc::now()),
+                        supersedes: Vec::new(),
+                        tags: vec!["resume_state".to_string(), "session_state".to_string()],
+                        status: Some(MemoryStatus::Active),
+                    },
+                    MemoryStage::Canonical,
+                )
+                .expect("store unrelated workspace noise");
+        }
+
+        let BuildContextResult { items, .. } = build_context(
+            &state,
+            &ContextRequest {
+                project: Some("demo".to_string()),
+                agent: Some("codex".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                route: Some(RetrievalRoute::LocalFirst),
+                intent: Some(RetrievalIntent::CurrentTask),
+                limit: Some(4),
+                max_chars_per_item: Some(220),
+            },
+        )
+        .expect("build current-task context");
+
+        assert!(
+            items
+                .iter()
+                .any(|item| item.content.contains("team-alpha owns the memory audit")),
+            "matching workspace memory should survive current-task retrieval even when unrelated synced workspace noise exists"
+        );
+        assert!(
+            items
+                .iter()
+                .any(|item| item.workspace.as_deref() == Some("team-alpha")),
+            "matching workspace should remain represented in the retrieved set"
+        );
+    }
+
+    #[test]
+    fn superseded_memory_drops_out_after_manual_correction_loop() {
+        let db_path =
+            std::env::temp_dir().join(format!("memd-correction-loop-{}.db", uuid::Uuid::new_v4()));
+        let state = AppState {
+            store: SqliteStore::open(&db_path).expect("open temp db"),
+        };
+
+        let (old_item, _) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "stale belief: roadmap completion proves memd functionality"
+                        .to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("memd".to_string()),
+                    source_path: Some("notes.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.92),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["fact".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store stale belief");
+
+        repair::repair_item(
+            &state,
+            RepairMemoryRequest {
+                id: old_item.id,
+                mode: MemoryRepairMode::Supersede,
+                confidence: Some(0.25),
+                status: Some(MemoryStatus::Superseded),
+                workspace: None,
+                visibility: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                content: None,
+                tags: None,
+                supersedes: vec![],
+            },
+        )
+        .expect("supersede stale belief");
+
+        let _ = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "corrected fact: roadmap status is not proof of working memory recall"
+                        .to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("user".to_string()),
+                    source_system: Some("correction".to_string()),
+                    source_path: Some("conversation".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.99),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: vec![old_item.id],
+                    tags: vec!["correction".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store corrected fact");
+
+        let BuildContextResult { items, .. } = build_context(
+            &state,
+            &ContextRequest {
+                project: Some("demo".to_string()),
+                agent: Some("codex".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                route: Some(RetrievalRoute::ProjectFirst),
+                intent: Some(RetrievalIntent::CurrentTask),
+                limit: Some(4),
+                max_chars_per_item: Some(220),
+            },
+        )
+        .expect("build corrected context");
+
+        assert!(
+            items.iter().any(|item| {
+                item.content
+                    .contains("roadmap status is not proof of working memory recall")
+            }),
+            "corrected fact should be visible after the correction loop"
+        );
+        assert!(
+            !items.iter().any(|item| item
+                .content
+                .contains("roadmap completion proves memd functionality")),
+            "superseded stale belief should not remain in active current-task context"
+        );
+    }
+
+    #[test]
+    fn explicit_store_revives_superseded_canonical_duplicate() {
+        let (dir, state) = temp_state("memd-revive-duplicate");
+        let (old_item, duplicate) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content:
+                        "corrected fact: hosted backend health does not prove usable agent memory"
+                            .to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: Some(MemoryVisibility::Private),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("memd".to_string()),
+                    source_path: Some("hook-capture-promotion".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.25),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["correction".to_string()],
+                    status: Some(MemoryStatus::Superseded),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store old superseded correction");
+        assert!(duplicate.is_none());
+
+        let (revived, duplicate) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content:
+                        "corrected fact: hosted backend health does not prove usable agent memory"
+                            .to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: Some(MemoryVisibility::Private),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("memd".to_string()),
+                    source_path: Some("hook-capture-promotion".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.99),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: vec![uuid::Uuid::new_v4()],
+                    tags: vec!["correction".to_string(), "product-direction".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("revive duplicate");
+
+        assert!(duplicate.is_none());
+        assert_eq!(revived.id, old_item.id);
+        assert_eq!(revived.status, MemoryStatus::Active);
+        assert_eq!(revived.confidence, 0.99);
+        assert!(revived.tags.iter().any(|tag| tag == "product-direction"));
+        assert!(!revived.supersedes.contains(&revived.id));
+        std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
     }
 }

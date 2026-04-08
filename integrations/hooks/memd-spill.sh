@@ -21,6 +21,6 @@ load_bundle_env() {
 
 load_bundle_env
 
-MEMD_BASE_URL="${MEMD_BASE_URL:-http://127.0.0.1:8787}"
+MEMD_BASE_URL="${MEMD_BASE_URL:-http://100.104.154.24:8787}"
 
 exec memd --base-url "$MEMD_BASE_URL" hook spill "$@"

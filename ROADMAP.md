@@ -7,6 +7,16 @@
 Priority 1 is Codex memory: if Codex cannot persist, retrieve, and inspect its
 own state across sessions, the system is not doing its job.
 
+The top-line product contract is seamless live memory:
+
+- the agent reads memory once on startup or task entry
+- the live backend becomes the canonical source of active truth while work
+  continues
+- edits, decisions, blockers, and corrections stream into memory as the agent
+  works
+- later recall comes from memory and the knowledge base first, not from
+  repeatedly reconstructing context from repo rereads or transcript bloat
+
 It should solve memory as infrastructure:
 
 - token-efficient delivery is the first constraint
@@ -39,19 +49,29 @@ The target is not a feature. The target is an open-source platform.
 The product standard is:
 
 - zero-friction memory
+- seamless live memory
 - epistemic memory
 - short-term-first memory
 - global-first memory with project overlays
+- universal capability memory
 - native multi-agent interoperability
 - inspectable memory
 - token-efficient memory by default
 
 In practical terms:
 
-- resume should feel automatic
+- wake-up should feel automatic
+- the agent should read once and then stay synced live while it keeps working
+- recall should come from memory and the knowledge base before expensive repo
+  rereads
+- resume should be a compact working-memory view, not the center of the product
 - `memd` should behave like a global memory add-on before it behaves like a per-repo tool
 - short-term state should stay sharp without transcript bloat
 - short-term state must sync quickly across machines and harnesses when active work changes
+- infrastructure peers like `memd`, `claw-control`, `agent-shell`, and `agent-secrets` should publish as first-class service peers so product sessions can route help to the right active specialist instead of guessing
+- `memd init` and `memd refresh` should discover enabled plugins, skills, commands, hooks, agents, and team surfaces across configured harnesses instead of only reading markdown files
+- once a capability is discovered, `memd` should classify it as universal, harness-native, bridgeable, or blocked and publish that capability map as shared memory
+- bridgeable capabilities should spread automatically to other harnesses through generated bridge surfaces or explicit install guidance, so the system behaves like controlled self-propagation instead of manual per-harness setup
 - cross-project state should sync through scoped live lanes instead of flattening every repo into one pool
 - verified, inferred, claimed, stale, and contested memory should stay explicit
 - Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
@@ -82,11 +102,15 @@ The right way to track progress now is by capability versions:
 Current version state:
 
 - `v0`: complete
-- `v1`: complete enough to build past
-- `v2`: complete
-- `v3`: complete
-- `v4`: complete
+- `v1`: in progress
+- `v2`: in progress
+- `v3`: in progress
+- `v4`: in progress
 - `v5`: in progress
+
+These states are product-truth states, not "some phases landed in code" states.
+Nothing past `v0` should be treated as complete until the end-to-end user
+behavior is verified under real multi-session and multi-harness use.
 
 What is already real in the repo:
 
@@ -105,9 +129,17 @@ What is already real in the repo:
 
 What is still not good enough yet:
 
+- the live event spine is still too weak, so important active-state changes do
+  not persist aggressively enough while the agent works
+- wake-up, recall, capture, promotion, and correction still need to function as
+  one memory loop instead of adjacent commands
 - the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading unchanged ones
 - runtime adoption still needs to reach every major agent surface beyond the core bootstrap hooks
+- peer groups, shared-memory recall, and cross-session continuity are still below the product bar
 - the operator-facing status and summary views can still expose the layered memory model more clearly
+- capability discovery still needs to inventory plugin-backed workflows, not just memory files and a curated skill list
+- bridge generation still needs to turn discovered portable capabilities into actual installed surfaces across harnesses instead of leaving them trapped in one plugin system
+- corrections from the user still need to consolidate into durable operating policy so `memd`, dream, and autoresearch stop repeating the same deployment or workflow mistakes
 
 ## Deployment Tiers
 
@@ -174,6 +206,17 @@ Clients consume it through one API:
 - Mission Control
 - OpenClaw
 - generic HTTP/CLI users
+
+Capability surfaces should also be first-class:
+
+- skills
+- plugins
+- commands
+- hooks
+- agents
+- teams
+- harness-native tools
+- bridge/install instructions
 
 Artifact classes should also be first-class:
 
@@ -584,6 +627,24 @@ Success:
 16. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable, and prune stale or noisy items aggressively.
 17. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
 
+## Auto Research Loops
+
+`memd` now coordinates eight compact autoresearch loops inspired by the prompt-surface screenshot plan so that optimization work is measurable, reversible, and loop-driven. Each loop is scoped to a single hypothesis, reports a percent-improvement and token-cost delta when it runs, and stops once its metric budget is met so the system can orbit toward the next loop without burning gilt-edge context.
+
+The prioritized loops are:
+
+1. **Prompt Surface Compression** – target: the repeated resume/handoff bundles and handoff text that drive everyday coworking. Metric: chars/tokens saved after compaction, stop condition: no new reductions in two consecutive passes, risk: low.
+2. **Live Truth Freshness** – target: re-reading just-changed files, misaligned beliefs, and stale assertions. Metric: reread count and stale-belief occurrences per loop, stop when replays hit baseline freshness and no stale-belief regressions appear, risk: low to medium.
+3. **Capability Contract Detection** – target: mismatches between skill wrappers and the missing CLI binaries so that we know automatically when an interface is broken. Metric: wrong-interface failures detected vs overall interactions, stop once all known capability surfaces map to a documented contract, risk: medium.
+4. **Event Spine Compaction** – target: noisy event deltas from the integration stream, coordination hooks, and budget telemetry. Metric: token burn per resume due to unfiltered events, stop when compaction yields <5% incremental cost, risk: low.
+5. **Correction Learning** – target: repetitive user-corrected mistakes and policy drift in hooked tooling. Metric: correction recurrence rate and newly repeated corrections prevented; stop on zero recurrence for three loops, risk: medium.
+6. **Long-Context Avoidance** – target: bursts where the system re-injects massive transcripts instead of leveraging compact state. Metric: average prompt size and long-context spikes per session; stop when the working set stays within its target budget without losing accuracy, risk: low.
+7. **Cross-Harness Portability** – target: ensuring memories, skills, and promoted abstractions stay portable across Codex, Claude Code, and other harnesses. Metric: contract coverage and adapter-required warnings; stop when every promoted abstraction has a portability class defined, risk: medium.
+8. **Controlled Self-Evolution** – target: because actual self-improvement must accept only validated wins, this loop enforces rollout gates, pod-based evaluations, and percent-improvement telemetry. Metric: accepted-change rate, rollback incidents, and promotion evidence coverage; stop when promotion confidence reaches the threshold defined in the promotion registry, risk: high so run it later once the baseline is stable.
+
+Autoresearch triggers these loops sequentially and reports the percent improvement/per-loop so operators can understand where token budgets are being saved. Each accepted loop result feeds directly into the evolution engine, autopromotes relevant artifacts, and handsoffs to autodream for consolidation. When loops exhaust their remaining gains, autoresearch either spins a refresh cycle or surfaces a new loop candidate from `memd gap` so the system never settles for stale performance.
+
+See `docs/research-loops.md` for the detailed checklist, stop conditions, and how each loop contributes to the 90% token-reduction goal.
 ## Non-Goals
 
 - transcript dumping

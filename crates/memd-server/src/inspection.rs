@@ -240,6 +240,7 @@ fn build_policy_hooks(
     match item.kind {
         memd_schema::MemoryKind::Procedural => hooks.push("procedural_memory".to_string()),
         memd_schema::MemoryKind::SelfModel => hooks.push("self_model_memory".to_string()),
+        memd_schema::MemoryKind::LiveTruth => hooks.push("live_truth_memory".to_string()),
         _ => {}
     }
 

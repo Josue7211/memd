@@ -48,6 +48,7 @@ The bridge is filesystem-first:
 - notes can be mirrored back in place with a small `memd` sync block for round-trip editing
 - compiled query pages and compiled memory pages should be treated as the preferred repeat-entry surface before cold raw rereads
 - if a topic is already represented in `.memd/compiled/`, prefer that artifact for new agent sessions and only fall back to raw sources when proof-level drilldown is needed
+- when `obsidian compile --apply` writes a compiled query page or compiled memory page, memd also syncs the same fetched items into the configured LightRAG backend when one is available
 - repeated scans should reuse `.memd/obsidian-scan-cache.json` when file size and modified time match, so unchanged vault material is not reopened unnecessarily
 
 ## Scan
@@ -206,9 +207,10 @@ Each applied compile also updates:
 so generated wiki pages accumulate into a browsable vault index instead of
 staying as isolated one-off files. Query pages land under `.memd/compiled/`
 and compiled memory evidence pages land under `.memd/compiled/memory/`.
-When the active bundle has RAG enabled, compiled query pages also include a
-bounded `Semantic Recall` section so the vault view matches the hybrid
-markdown-plus-semantic retrieval lane used by `memd resume` and `memd handoff`.
+When the active bundle has RAG enabled, compiled query pages and compiled memory
+pages also include a bounded `Semantic Recall` section so the vault view
+matches the hybrid markdown-plus-semantic retrieval lane used by `memd resume`,
+`memd handoff`, and `obsidian compile`.
 
 Round-trip a vault and annotate source notes in place:
 

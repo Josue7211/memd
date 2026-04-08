@@ -1,10 +1,21 @@
+use serde::Serialize;
+use serde_json::Value;
+
 use memd_schema::{
     AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, ExplainMemoryResponse,
-    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SourceMemoryResponse,
-    WorkingMemoryResponse, WorkspaceMemoryResponse,
+    MemoryPolicyResponse, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
+    SourceMemoryResponse, WorkingMemoryResponse, WorkspaceMemoryResponse,
 };
 
-use crate::obsidian::ObsidianVaultScan;
+use crate::{
+    SkillCatalog, SkillCatalogEntry,
+    harness::{
+        codex::CodexHarnessPack,
+        index::{HarnessPackIndex, HarnessPackIndexEntry},
+        openclaw::OpenClawHarnessPack,
+    },
+    obsidian::ObsidianVaultScan,
+};
 
 pub(crate) fn render_obsidian_scan_summary(scan: &ObsidianVaultScan, follow: bool) -> String {
     let mut summary = format!(
@@ -101,6 +112,381 @@ pub(crate) fn render_obsidian_import_summary(
         ));
     }
     summary
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_codex_harness_pack_markdown(pack: &CodexHarnessPack) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# Codex Harness Pack\n\n");
+    markdown.push_str(&format!("- agent: `{}`\n", pack.agent));
+    markdown.push_str(&format!("- project: `{}`\n", pack.project));
+    markdown.push_str(&format!("- namespace: `{}`\n", pack.namespace));
+    markdown.push_str(&format!(
+        "- bundle root: `{}`\n\n",
+        pack.bundle_root.display()
+    ));
+
+    markdown.push_str("## Files\n");
+    for file in &pack.files {
+        markdown.push_str(&format!("- `{}`\n", file.display()));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Behaviors\n");
+    for behavior in &pack.behaviors {
+        markdown.push_str(&format!("- {}\n", behavior));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Commands\n");
+    for command in &pack.commands {
+        markdown.push_str(&format!("- `{}`\n", command));
+    }
+
+    markdown
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_openclaw_harness_pack_markdown(pack: &OpenClawHarnessPack) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# OpenClaw Harness Pack\n\n");
+    markdown.push_str(&format!("- agent: `{}`\n", pack.agent));
+    markdown.push_str(&format!("- project: `{}`\n", pack.project));
+    markdown.push_str(&format!("- namespace: `{}`\n", pack.namespace));
+    markdown.push_str(&format!(
+        "- bundle root: `{}`\n\n",
+        pack.bundle_root.display()
+    ));
+
+    markdown.push_str("## Files\n");
+    for file in &pack.files {
+        markdown.push_str(&format!("- `{}`\n", file.display()));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Behaviors\n");
+    for behavior in &pack.behaviors {
+        markdown.push_str(&format!("- {}\n", behavior));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Commands\n");
+    for command in &pack.commands {
+        markdown.push_str(&format!("- `{}`\n", command));
+    }
+
+    markdown
+}
+
+pub(crate) fn render_harness_pack_index_summary(
+    bundle_root: &std::path::Path,
+    index: &HarnessPackIndex,
+    query: Option<&str>,
+) -> String {
+    let mut summary = format!(
+        "pack index root={} project={} namespace={} packs={}",
+        bundle_root.display(),
+        index.project,
+        index.namespace,
+        index.pack_count
+    );
+    if let Some(query) = query {
+        summary.push_str(&format!(" query={}", compact_inline(query, 48)));
+    }
+    if !index.packs.is_empty() {
+        summary.push_str(&format!(
+            " names={}",
+            index
+                .packs
+                .iter()
+                .map(|pack| pack.name.as_str())
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    summary
+}
+
+pub(crate) fn render_harness_pack_index_markdown(
+    bundle_root: &std::path::Path,
+    index: &HarnessPackIndex,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd harness packs\n\n");
+    markdown.push_str(&format!("- Root: `{}`\n", bundle_root.display()));
+    markdown.push_str(&format!("- Project: `{}`\n", index.project));
+    markdown.push_str(&format!("- Namespace: `{}`\n", index.namespace));
+    markdown.push_str(&format!("- Packs: `{}`\n\n", index.pack_count));
+
+    if index.packs.is_empty() {
+        markdown.push_str("No visible harness packs found.\n");
+        return markdown;
+    }
+
+    for pack in &index.packs {
+        render_harness_pack_section(&mut markdown, pack);
+    }
+
+    markdown
+}
+
+pub(crate) fn render_harness_pack_index_json(index: &HarnessPackIndex) -> HarnessPackIndexJson {
+    HarnessPackIndexJson {
+        root: index.root.clone(),
+        project: index.project.clone(),
+        namespace: index.namespace.clone(),
+        pack_count: index.pack_count,
+        packs: index
+            .packs
+            .iter()
+            .map(HarnessPackIndexEntryJson::from)
+            .collect(),
+    }
+}
+
+fn render_harness_pack_section(markdown: &mut String, pack: &HarnessPackIndexEntry) {
+    markdown.push_str(&format!("## {}\n\n", pack.name));
+    markdown.push_str(&format!("- role: `{}`\n", pack.role));
+    markdown.push_str(&format!("- project: `{}`\n", pack.project));
+    markdown.push_str(&format!("- namespace: `{}`\n", pack.namespace));
+    markdown.push_str(&format!("- bundle root: `{}`\n\n", pack.bundle_root));
+
+    markdown.push_str("### Files\n");
+    for file in &pack.files {
+        markdown.push_str(&format!("- `{}`\n", file));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("### Commands\n");
+    for command in &pack.commands {
+        markdown.push_str(&format!("- `{}`\n", command));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("### Behaviors\n");
+    for behavior in &pack.behaviors {
+        markdown.push_str(&format!("- {}\n", behavior));
+    }
+    markdown.push('\n');
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct HarnessPackIndexJson {
+    pub(crate) root: String,
+    pub(crate) project: String,
+    pub(crate) namespace: String,
+    pub(crate) pack_count: usize,
+    pub(crate) packs: Vec<HarnessPackIndexEntryJson>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct HarnessPackIndexEntryJson {
+    pub(crate) name: String,
+    pub(crate) role: String,
+    pub(crate) project: String,
+    pub(crate) namespace: String,
+    pub(crate) bundle_root: String,
+    pub(crate) files: Vec<String>,
+    pub(crate) commands: Vec<String>,
+    pub(crate) behaviors: Vec<String>,
+}
+
+impl From<&HarnessPackIndexEntry> for HarnessPackIndexEntryJson {
+    fn from(value: &HarnessPackIndexEntry) -> Self {
+        Self {
+            name: value.name.clone(),
+            role: value.role.clone(),
+            project: value.project.clone(),
+            namespace: value.namespace.clone(),
+            bundle_root: value.bundle_root.clone(),
+            files: value.files.clone(),
+            commands: value.commands.clone(),
+            behaviors: value.behaviors.clone(),
+        }
+    }
+}
+
+pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
+    let bundle = status
+        .get("bundle")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    let setup_ready = status
+        .get("setup_ready")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let server = status
+        .get("server")
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let rag = status
+        .get("rag")
+        .and_then(|value| value.get("healthy"))
+        .and_then(Value::as_bool)
+        .map(|healthy| if healthy { "ready" } else { "degraded" })
+        .unwrap_or("off");
+
+    let mut output = format!(
+        "status bundle={} ready={} setup={} server={} rag={}",
+        bundle, setup_ready, setup_ready, server, rag
+    );
+
+    let resume = status
+        .get("resume_preview")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let defaults = status
+        .get("defaults")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let heartbeat = status
+        .get("heartbeat")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    let project = resume
+        .and_then(|value| value.get("project").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("project").and_then(Value::as_str)))
+        .or_else(|| heartbeat.and_then(|value| value.get("project").and_then(Value::as_str)))
+        .unwrap_or("none");
+    let namespace = resume
+        .and_then(|value| value.get("namespace").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("namespace").and_then(Value::as_str)))
+        .or_else(|| heartbeat.and_then(|value| value.get("namespace").and_then(Value::as_str)))
+        .unwrap_or("none");
+    let session = resume
+        .and_then(|value| value.get("session").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("session").and_then(Value::as_str)))
+        .or_else(|| heartbeat.and_then(|value| value.get("session").and_then(Value::as_str)))
+        .unwrap_or("none");
+    let tab_id = resume
+        .and_then(|value| value.get("tab_id").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("tab_id").and_then(Value::as_str)))
+        .or_else(|| heartbeat.and_then(|value| value.get("tab_id").and_then(Value::as_str)))
+        .unwrap_or("none");
+    let agent = resume
+        .and_then(|value| value.get("agent").and_then(Value::as_str))
+        .or_else(|| defaults.and_then(|value| value.get("agent").and_then(Value::as_str)))
+        .or_else(|| {
+            heartbeat.and_then(|value| {
+                value
+                    .get("effective_agent")
+                    .and_then(Value::as_str)
+                    .or_else(|| value.get("agent").and_then(Value::as_str))
+            })
+        })
+        .unwrap_or("none");
+    output.push_str(&format!(
+        " project={} namespace={} session={} tab={} agent={} voice=caveman-ultra",
+        project, namespace, session, tab_id, agent
+    ));
+
+    if let Some(resume) = resume {
+        let pressure = resume
+            .get("context_pressure")
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        let tokens = resume
+            .get("estimated_prompt_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let refresh = resume
+            .get("refresh_recommended")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let mut drivers = Vec::new();
+        if tokens >= 1_800 {
+            drivers.push("tokens");
+        } else if tokens >= 1_000 {
+            drivers.push("tokens");
+        }
+        if resume
+            .get("redundant_context_items")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        {
+            drivers.push("duplicates");
+        }
+        if resume
+            .get("inbox_items")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 3
+        {
+            drivers.push("inbox");
+        }
+        if resume
+            .get("rehydration_queue")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 3
+        {
+            drivers.push("rehydration");
+        }
+        if resume
+            .get("semantic_hits")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 4
+        {
+            drivers.push("semantic");
+        }
+        if refresh {
+            drivers.push("refresh");
+        }
+        drivers.sort();
+        drivers.dedup();
+
+        let action = if refresh || pressure == "high" {
+            if drivers.iter().any(|value| *value == "inbox") {
+                "drain inbox before the next prompt"
+            } else if drivers.iter().any(|value| *value == "rehydration") {
+                "resolve rehydration backlog before the next prompt"
+            } else if drivers.iter().any(|value| *value == "duplicates") {
+                "collapse repeated context before the next prompt"
+            } else {
+                "trim context before the next prompt"
+            }
+        } else if pressure == "medium" {
+            if drivers.iter().any(|value| *value == "inbox") {
+                "handle inbox items before pulling more context"
+            } else if drivers.iter().any(|value| *value == "rehydration") {
+                "resolve rehydration before the prompt grows"
+            } else {
+                "watch prompt growth"
+            }
+        } else {
+            "none"
+        };
+
+        output.push_str(&format!(" prompt_pressure={} tok={}", pressure, tokens));
+        if !drivers.is_empty() {
+            output.push_str(&format!(" drivers={}", drivers.join(",")));
+        }
+        if action != "none" {
+            output.push_str(&format!(" action=\"{}\"", action));
+        }
+        if let Some(focus) = resume.get("focus").and_then(Value::as_str) {
+            output.push_str(&format!(" focus=\"{}\"", compact_inline(focus, 72)));
+        }
+        if let Some(next) = resume.get("next_recovery").and_then(Value::as_str) {
+            output.push_str(&format!(" next=\"{}\"", compact_inline(next, 72)));
+        }
+        if refresh || pressure == "high" {
+            output.push_str(" warning=\"prompt pressure high\"");
+        }
+    }
+
+    if let Some(missing) = status.get("missing").and_then(Value::as_array) {
+        let missing = missing
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(",");
+        if !missing.is_empty() {
+            output.push_str(&format!(" missing={missing}"));
+        }
+    }
+
+    output
 }
 
 pub(crate) fn render_entity_summary(
@@ -393,6 +779,201 @@ pub(crate) fn render_working_summary(response: &WorkingMemoryResponse, follow: b
     output
 }
 
+pub(crate) fn render_policy_summary(response: &MemoryPolicyResponse, follow: bool) -> String {
+    let runtime = &response.runtime;
+    let runtime_state = if is_default_runtime(runtime) {
+        "defaulted"
+    } else {
+        "live"
+    };
+    let mut output = format!(
+        "policy trust_floor={:.2} working_limit={} rehydrate_limit={} feedback={} semantic_fallback={} skill_gating={} runtime={} read_once={} event_driven={} sandbox_eval={} low_risk_auto={} approval={}",
+        response.source_trust_floor,
+        response.working_memory.default_limit,
+        response.working_memory.rehydration_limit,
+        bool_label(response.retrieval_feedback.enabled),
+        bool_label(runtime.semantic_fallback.enabled),
+        bool_label(runtime.skill_gating.gated_activation),
+        runtime_state,
+        bool_label(runtime.live_truth.read_once_sources),
+        bool_label(runtime.memory_compilation.event_driven_updates),
+        bool_label(runtime.skill_gating.sandboxed_evaluation),
+        bool_label(runtime.skill_gating.auto_activate_low_risk_only),
+        bool_label(runtime.skill_gating.require_policy_approval),
+    );
+
+    if follow {
+        output.push_str(&format!(
+            " route_defaults={} surfaces={} promote_min_salience={:.2} consolidate_min_salience={:.2}",
+            response.route_defaults.len(),
+            response.retrieval_feedback.tracked_surfaces.join("|"),
+            response.promotion.min_salience,
+            response.consolidation.min_salience
+        ));
+    }
+
+    output
+}
+
+pub(crate) fn render_skill_policy_summary(response: &MemoryPolicyResponse, follow: bool) -> String {
+    let runtime = &response.runtime;
+    let skill = &runtime.skill_gating;
+    let runtime_state = if is_default_runtime(runtime) {
+        "defaulted"
+    } else {
+        "live"
+    };
+    let mut output = format!(
+        "skill-policy propose={} sandbox={} activate={} low_risk_auto={} eval={} approval={} runtime={} read_once={} event_driven={} visible_memory={} semantic_fallback={}",
+        bool_label(skill.propose_from_repeated_patterns),
+        bool_label(skill.sandboxed_evaluation),
+        bool_label(skill.gated_activation),
+        bool_label(skill.auto_activate_low_risk_only),
+        bool_label(skill.require_evaluation),
+        bool_label(skill.require_policy_approval),
+        runtime_state,
+        bool_label(runtime.live_truth.read_once_sources),
+        bool_label(runtime.memory_compilation.event_driven_updates),
+        bool_label(runtime.live_truth.visible_memory_objects),
+        bool_label(runtime.semantic_fallback.enabled),
+    );
+
+    if follow {
+        output.push_str(&format!(
+            " flow=pattern->proposal->sandbox->eval->policy->activate runtime={} trust_floor={:.2} semantic_max={}",
+            if skill.gated_activation { "gated" } else { "open" },
+            response.source_trust_floor,
+            runtime.semantic_fallback.max_items_per_query
+        ));
+    }
+
+    output
+}
+
+pub(crate) fn render_skill_catalog_summary(catalog: &SkillCatalog) -> String {
+    let custom_visible = catalog.custom.len();
+    let builtin_visible = catalog.builtins.len();
+    let mut output = format!(
+        "skills root={} builtin={} custom={} cache_hits={} scanned={} mode=hybrid",
+        catalog.root.display(),
+        builtin_visible,
+        custom_visible,
+        catalog.cache_hits,
+        catalog.cache_scanned,
+    );
+    if let Some(first) = catalog.custom.first() {
+        output.push_str(&format!(" first_custom={}::{}", first.name, first.status));
+    }
+    output
+}
+
+pub(crate) fn render_skill_catalog_markdown(catalog: &SkillCatalog) -> String {
+    let mut output = String::new();
+    output.push_str("# memd skills\n\n");
+    output.push_str(&format!("- Root: `{}`\n", catalog.root.display()));
+    output.push_str(&format!("- Built-in: `{}`\n", catalog.builtins.len()));
+    output.push_str(&format!("- Custom: `{}`\n\n", catalog.custom.len()));
+    output.push_str("## Built-in\n\n");
+    for entry in &catalog.builtins {
+        push_skill_entry_markdown(&mut output, entry);
+    }
+    output.push_str("\n## Custom\n\n");
+    if catalog.custom.is_empty() {
+        output.push_str("No custom skills found.\n");
+    } else {
+        for entry in &catalog.custom {
+            push_skill_entry_markdown(&mut output, entry);
+        }
+    }
+    output
+}
+
+pub(crate) fn render_skill_catalog_match_summary(
+    catalog: &SkillCatalog,
+    query: &str,
+    matches: &[&SkillCatalogEntry],
+) -> String {
+    let mut output = format!(
+        "skills query=\"{}\" root={} matches={} builtins={} custom={}",
+        compact_inline(query, 48),
+        catalog.root.display(),
+        matches.len(),
+        catalog.builtins.len(),
+        catalog.custom.len(),
+    );
+    if let Some(first) = matches.first() {
+        output.push_str(&format!(
+            " best={} source={} status={} path={} next={} usage={} decision={}",
+            first.name,
+            first.source,
+            first.status,
+            first
+                .path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "builtin".to_string()),
+            skill_activation_path(first),
+            first.usage,
+            first.decision
+        ));
+    }
+    output
+}
+
+pub(crate) fn render_skill_catalog_match_markdown(
+    catalog: &SkillCatalog,
+    query: &str,
+    matches: &[&SkillCatalogEntry],
+) -> String {
+    let mut output = String::new();
+    output.push_str("# memd skill drilldown\n\n");
+    output.push_str(&format!("- Query: `{}`\n", query));
+    output.push_str(&format!("- Root: `{}`\n", catalog.root.display()));
+    output.push_str(&format!("- Matches: `{}`\n\n", matches.len()));
+    if matches.is_empty() {
+        output.push_str("No skill matched.\n");
+        return output;
+    }
+    for entry in matches {
+        output.push_str(&format!(
+            "## {}\n\n- source: `{}`\n- status: `{}`\n- next: `{}`\n- usage: `{}`\n- decision: `{}`\n- summary: {}\n",
+            entry.name,
+            entry.source,
+            entry.status,
+            skill_activation_path(entry),
+            entry.usage,
+            entry.decision,
+            entry.summary
+        ));
+        if let Some(path) = entry.path.as_ref() {
+            output.push_str(&format!("- path: `{}`\n", path.display()));
+        }
+        output.push('\n');
+    }
+    output
+}
+
+fn skill_activation_path(entry: &SkillCatalogEntry) -> &'static str {
+    if entry.source == "built-in" {
+        "use memd subcommand"
+    } else {
+        "edit the file, then propose via skill-policy"
+    }
+}
+
+fn push_skill_entry_markdown(output: &mut String, entry: &SkillCatalogEntry) {
+    output.push_str(&format!(
+        "- `{}` [{}] - {}\n",
+        entry.name, entry.status, entry.summary
+    ));
+    output.push_str(&format!("  - usage: `{}`\n", entry.usage));
+    output.push_str(&format!("  - decision: `{}`\n", entry.decision));
+    if let Some(path) = entry.path.as_ref() {
+        output.push_str(&format!("  - path: `{}`\n", path.display()));
+    }
+    output.push_str(&format!("  - source: `{}`\n", entry.source));
+}
+
 pub(crate) fn render_profile_summary(response: &AgentProfileResponse, follow: bool) -> String {
     let Some(profile) = response.profile.as_ref() else {
         return "profile=none".to_string();
@@ -536,9 +1117,9 @@ pub(crate) fn render_workspace_summary(response: &WorkspaceMemoryResponse, follo
 
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
-    output.push_str("# memd resume\n\n");
+    output.push_str("# r\n\n");
     output.push_str(&format!(
-        "- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        "- p={} | n={} | a={} | w={} | v={} | r={} | i={}\n",
         snapshot.project.as_deref().unwrap_or("none"),
         snapshot.namespace.as_deref().unwrap_or("none"),
         snapshot.agent.as_deref().unwrap_or("none"),
@@ -549,7 +1130,7 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     ));
     output.push_str("\n## Context Budget\n\n");
     output.push_str(&format!(
-        "- estimated_chars: {}\n- estimated_tokens: {}\n- pressure: {}\n- redundant_items: {}\n- working_budget_used: {}/{}\n",
+        "- ch={} | tok={} | p={} | dup={} | use={}/{}",
         snapshot.estimated_prompt_chars(),
         snapshot.estimated_prompt_tokens(),
         snapshot.context_pressure(),
@@ -558,63 +1139,101 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
         snapshot.working.budget_chars,
     ));
     if let Some(age_minutes) = snapshot.resume_state_age_minutes {
-        output.push_str(&format!("- resume_state_age_minutes: {}\n", age_minutes));
+        output.push_str(&format!(" | age={}", age_minutes));
     }
-    output.push_str(&format!(
-        "- refresh_recommended: {}\n",
-        snapshot.refresh_recommended
-    ));
+    output.push_str(&format!(" | ref={}\n", snapshot.refresh_recommended));
     let hints = snapshot.optimization_hints();
     if !hints.is_empty() {
-        output.push_str("- optimization_hints:\n");
-        for hint in hints.iter().take(4) {
-            output.push_str(&format!("  - {}\n", compact_inline(hint, 180)));
-        }
+        output.push_str(&format!(
+            "- h={}\n",
+            hints
+                .iter()
+                .take(4)
+                .map(|hint| compact_inline(hint, 180))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
     }
 
     let current_task = render_current_task_snapshot(snapshot);
     if !current_task.is_empty() {
-        output.push_str("\n## Current Task Snapshot\n\n");
+        output.push_str("\n## T\n\n");
         output.push_str(&current_task);
     }
 
-    if !snapshot.change_summary.is_empty() {
-        output.push_str("\n## Since Last Resume\n\n");
-        for change in snapshot.change_summary.iter().take(6) {
-            output.push_str(&format!("- {}\n", compact_inline(change, 180)));
+    let event_spine = snapshot.event_spine();
+    if !event_spine.is_empty() || !snapshot.recent_repo_changes.is_empty() {
+        output.push_str("\n## E+LT\n\n");
+        let event_part = if event_spine.is_empty() {
+            None
+        } else {
+            let compacted = event_spine
+                .iter()
+                .take(2)
+                .map(|change| compact_inline(change, 180))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            Some(format!("E={}", compacted))
+        };
+        let lt_part = if snapshot.recent_repo_changes.is_empty() {
+            None
+        } else {
+            let compacted = snapshot
+                .recent_repo_changes
+                .iter()
+                .take(2)
+                .map(|change| compact_inline(change, 180))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            Some(format!("LT={}", compacted))
+        };
+        let mut parts = Vec::new();
+        if let Some(part) = event_part {
+            parts.push(part);
         }
+        if let Some(part) = lt_part {
+            parts.push(part);
+        }
+        output.push_str(&format!("- {}\n", parts.join(" | ")));
     }
 
-    output.push_str("\n## Working Memory\n\n");
+    output.push_str("\n## W\n\n");
     if snapshot.working.records.is_empty() {
         output.push_str("- none\n");
     } else {
-        for record in snapshot.working.records.iter().take(8) {
-            output.push_str(&format!("- {}\n", compact_inline(&record.record, 220)));
+        let records = snapshot
+            .working
+            .records
+            .iter()
+            .take(2)
+            .map(|record| compact_inline(&record.record, 220))
+            .collect::<Vec<_>>();
+        output.push_str(&format!("- w={}", records.join(" | ")));
+        if snapshot.working.records.len() > 2 {
+            output.push_str(&format!(" (+{} more)", snapshot.working.records.len() - 2));
         }
+        output.push('\n');
     }
 
+    let mut ri_parts = Vec::new();
     if !snapshot.working.rehydration_queue.is_empty() {
-        output.push_str("\n## Rehydration Queue\n\n");
         for artifact in snapshot.working.rehydration_queue.iter().take(4) {
-            output.push_str(&format!(
-                "- {}: {}\n",
+            ri_parts.push(format!(
+                "r={}:{}",
                 artifact.label,
                 compact_inline(&artifact.summary, 180)
             ));
         }
     }
-
     if !snapshot.inbox.items.is_empty() {
-        output.push_str("\n## Inbox\n\n");
         for item in snapshot.inbox.items.iter().take(5) {
             let reasons = if item.reasons.is_empty() {
                 "none".to_string()
             } else {
                 compact_inline(&item.reasons.join(", "), 100)
             };
-            output.push_str(&format!(
-                "- {:?} {:?}: {} | reasons: {}\n",
+            ri_parts.push(format!(
+                "i={:?}/{:?}:{}|r={}",
                 item.item.kind,
                 item.item.status,
                 compact_inline(&item.item.content, 160),
@@ -622,39 +1241,49 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
             ));
         }
     }
-
-    if !snapshot.workspaces.workspaces.is_empty() {
-        output.push_str("\n## Workspace Lanes\n\n");
-        for workspace in snapshot.workspaces.workspaces.iter().take(4) {
-            output.push_str(&format!(
-                "- {} / {} / {} | items {} | sources {} | trust {:.2}\n",
-                workspace.project.as_deref().unwrap_or("none"),
-                workspace.namespace.as_deref().unwrap_or("none"),
-                workspace.workspace.as_deref().unwrap_or("none"),
-                workspace.item_count,
-                workspace.source_lane_count,
-                workspace.trust_score
-            ));
-        }
+    if !ri_parts.is_empty() {
+        output.push_str("\n## RI\n\n");
+        output.push_str(&format!("- {}\n", ri_parts.join(" | ")));
     }
 
+    if let Some(first) = snapshot.workspaces.workspaces.first() {
+        output.push_str("\n## L\n\n");
+        let extras = snapshot.workspaces.workspaces.len() - 1;
+        output.push_str(&format!(
+            "- l={}/{}/{} | v={} | it={} | src={} | tr={:.2}{} \n",
+            first.project.as_deref().unwrap_or("none"),
+            first.namespace.as_deref().unwrap_or("none"),
+            first.workspace.as_deref().unwrap_or("none"),
+            format_visibility(first.visibility),
+            first.item_count,
+            first.source_lane_count,
+            first.trust_score,
+            if extras > 0 {
+                format!(" (+{} more)", extras)
+            } else {
+                "".to_string()
+            }
+        ));
+    }
+
+    let mut sc_parts = Vec::new();
     if let Some(semantic) = snapshot
         .semantic
         .as_ref()
         .filter(|semantic| !semantic.items.is_empty())
     {
-        output.push_str("\n## Semantic Recall\n\n");
-        for item in semantic.items.iter().take(4) {
-            output.push_str(&format!(
-                "- {}{} | score {:.2}\n",
-                compact_inline(&item.content, 180),
-                item.source
-                    .as_deref()
-                    .map(|source| format!(" | source {}", compact_inline(source, 48)))
-                    .unwrap_or_default(),
-                item.score
-            ));
-        }
+        let items = semantic
+            .items
+            .iter()
+            .take(2)
+            .map(|item| format!("{}@{:.2}", compact_inline(&item.content, 180), item.score))
+            .collect::<Vec<_>>();
+        sc_parts.push(format!("S={}", items.join(" | ")));
+    }
+
+    if !sc_parts.is_empty() {
+        output.push_str("\n## S\n\n");
+        output.push_str(&format!("- {}\n", sc_parts.join(" | ")));
     }
 
     output
@@ -663,40 +1292,15 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
 fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
 
-    if let Some(focus) = snapshot.working.records.first() {
-        output.push_str(&format!(
-            "- focus: {}\n",
-            compact_inline(&focus.record, 180)
-        ));
-    }
-
-    if let Some(blocker) = snapshot.inbox.items.first() {
-        output.push_str(&format!(
-            "- pressure: {:?} {:?}: {}\n",
-            blocker.item.kind,
-            blocker.item.status,
-            compact_inline(&blocker.item.content, 160)
-        ));
-    }
-
-    if let Some(next) = snapshot.working.rehydration_queue.first() {
-        output.push_str(&format!(
-            "- next_recovery: {}: {}\n",
-            next.label,
-            compact_inline(&next.summary, 160)
-        ));
-    }
-
-    if !snapshot.workspaces.workspaces.is_empty() {
-        let lane = &snapshot.workspaces.workspaces[0];
-        output.push_str(&format!(
-            "- lane: {} / {} / {} | visibility {} | trust {:.2}\n",
-            lane.project.as_deref().unwrap_or("none"),
-            lane.namespace.as_deref().unwrap_or("none"),
-            lane.workspace.as_deref().unwrap_or("none"),
-            format_visibility(lane.visibility),
-            lane.trust_score
-        ));
+    let capsule = snapshot.workflow_capsule();
+    if !capsule.is_empty() {
+        let summary = capsule
+            .iter()
+            .take(4)
+            .map(|line| compact_inline(line, 180))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        output.push_str(&format!("- t={}\n", summary));
     }
 
     output
@@ -704,9 +1308,9 @@ fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
 
 pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String {
     let mut output = String::new();
-    output.push_str("# memd handoff\n\n");
+    output.push_str("# h\n\n");
     output.push_str(&format!(
-        "- generated_at: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- workspace: {}\n- visibility: {}\n- route: {}\n- intent: {}\n",
+        "- at={} | p={} | n={} | a={} | w={} | v={} | r={} | i={}\n",
         snapshot.generated_at.to_rfc3339(),
         snapshot.resume.project.as_deref().unwrap_or("none"),
         snapshot.resume.namespace.as_deref().unwrap_or("none"),
@@ -717,36 +1321,47 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         snapshot.resume.intent,
     ));
 
-    output.push_str("\n## Working Memory\n\n");
+    output.push_str("\n## W\n\n");
     if snapshot.resume.working.records.is_empty() {
         output.push_str("- none\n");
     } else {
-        for record in snapshot.resume.working.records.iter().take(8) {
-            output.push_str(&format!("- {}\n", compact_inline(&record.record, 220)));
+        let records = snapshot
+            .resume
+            .working
+            .records
+            .iter()
+            .take(2)
+            .map(|record| compact_inline(&record.record, 220))
+            .collect::<Vec<_>>();
+        output.push_str(&format!("- w={}", records.join(" | ")));
+        if snapshot.resume.working.records.len() > 2 {
+            output.push_str(&format!(
+                " (+{} more)",
+                snapshot.resume.working.records.len() - 2
+            ));
         }
+        output.push('\n');
     }
 
+    let mut ri_parts_resume = Vec::new();
     if !snapshot.resume.working.rehydration_queue.is_empty() {
-        output.push_str("\n## Rehydration Queue\n\n");
         for artifact in snapshot.resume.working.rehydration_queue.iter().take(5) {
-            output.push_str(&format!(
-                "- {}: {}\n",
+            ri_parts_resume.push(format!(
+                "r={}:{}",
                 artifact.label,
                 compact_inline(&artifact.summary, 180)
             ));
         }
     }
-
     if !snapshot.resume.inbox.items.is_empty() {
-        output.push_str("\n## Inbox Pressure\n\n");
         for item in snapshot.resume.inbox.items.iter().take(5) {
             let reasons = if item.reasons.is_empty() {
                 "none".to_string()
             } else {
                 compact_inline(&item.reasons.join(", "), 100)
             };
-            output.push_str(&format!(
-                "- {:?} {:?}: {} | reasons: {}\n",
+            ri_parts_resume.push(format!(
+                "i={:?}/{:?}:{}|r={}",
                 item.item.kind,
                 item.item.status,
                 compact_inline(&item.item.content, 160),
@@ -754,12 +1369,16 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
             ));
         }
     }
+    if !ri_parts_resume.is_empty() {
+        output.push_str("\n## RI\n\n");
+        output.push_str(&format!("- {}\n", ri_parts_resume.join(" | ")));
+    }
 
     if !snapshot.resume.workspaces.workspaces.is_empty() {
-        output.push_str("\n## Workspace Lanes\n\n");
+        output.push_str("\n## L\n\n");
         for workspace in snapshot.resume.workspaces.workspaces.iter().take(5) {
             output.push_str(&format!(
-                "- {} / {} / {} | visibility {} | items {} | sources {} | trust {:.2}\n",
+                "- {}/{}/{} | v={} | it={} | src={} | tr={:.2}\n",
                 workspace.project.as_deref().unwrap_or("none"),
                 workspace.namespace.as_deref().unwrap_or("none"),
                 workspace.workspace.as_deref().unwrap_or("none"),
@@ -771,40 +1390,25 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
         }
     }
 
+    let mut sc_resume_parts = Vec::new();
     if let Some(semantic) = snapshot
         .resume
         .semantic
         .as_ref()
         .filter(|semantic| !semantic.items.is_empty())
     {
-        output.push_str("\n## Semantic Recall\n\n");
-        for item in semantic.items.iter().take(5) {
-            output.push_str(&format!(
-                "- {}{} | score {:.2}\n",
-                compact_inline(&item.content, 180),
-                item.source
-                    .as_deref()
-                    .map(|source| format!(" | source {}", compact_inline(source, 48)))
-                    .unwrap_or_default(),
-                item.score
-            ));
-        }
+        let items = semantic
+            .items
+            .iter()
+            .take(2)
+            .map(|item| format!("{}@{:.2}", compact_inline(&item.content, 180), item.score))
+            .collect::<Vec<_>>();
+        sc_resume_parts.push(format!("S={}", items.join(" | ")));
     }
 
-    if !snapshot.sources.sources.is_empty() {
-        output.push_str("\n## Source Lanes\n\n");
-        for source in snapshot.sources.sources.iter().take(5) {
-            output.push_str(&format!(
-                "- {} / {} | workspace {} | visibility {} | items {} | trust {:.2} | confidence {:.2}\n",
-                source.source_agent.as_deref().unwrap_or("none"),
-                source.source_system.as_deref().unwrap_or("none"),
-                source.workspace.as_deref().unwrap_or("none"),
-                format_visibility(source.visibility),
-                source.item_count,
-                source.trust_score,
-                source.avg_confidence
-            ));
-        }
+    if !sc_resume_parts.is_empty() {
+        output.push_str("\n## S\n\n");
+        output.push_str(&format!("- {}\n", sc_resume_parts.join(" | ")));
     }
 
     output
@@ -968,6 +1572,37 @@ pub(crate) fn render_gap_summary(response: &crate::GapReport) -> String {
     output
 }
 
+pub(crate) fn render_scenario_summary(response: &crate::ScenarioReport) -> String {
+    let mut output = format!(
+        "scenario name={} bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} score={}/{} passed={} failed={}",
+        response.scenario,
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.score,
+        response.max_score,
+        response.passed_checks,
+        response.failed_checks
+    );
+
+    if let Some(top_check) = response.checks.first() {
+        output.push_str(&format!(
+            " first_check={}:{}",
+            top_check.name, top_check.status
+        ));
+    }
+
+    if let Some(next) = response.next_actions.first() {
+        output.push_str(&format!(" next_action={next}"));
+    }
+
+    output
+}
+
 pub(crate) fn render_improvement_summary(response: &crate::ImprovementReport) -> String {
     let mut output = format!(
         "improve bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} apply={} iterations={} converged={} initial_candidates={} final_candidates={} final_score={}",
@@ -1003,10 +1638,10 @@ pub(crate) fn render_improvement_summary(response: &crate::ImprovementReport) ->
         response.max_iterations,
         response.started_at.format("%Y-%m-%d %H:%M:%S UTC")
     ));
-    if response.final_gap.is_some() {
-        if let Some(changes) = response.final_changes.first() {
-            output.push_str(&format!(" next=top:{}", changes));
-        }
+    if response.final_gap.is_some()
+        && let Some(changes) = response.final_changes.first()
+    {
+        output.push_str(&format!(" next=top:{}", changes));
     }
     if !response.iterations.is_empty() {
         let iteration_overview = response
@@ -1029,6 +1664,299 @@ pub(crate) fn render_improvement_summary(response: &crate::ImprovementReport) ->
         output.push_str(&format!(" iterations=[{}]", iteration_overview));
     }
     output
+}
+
+pub(crate) fn render_scenario_markdown(response: &crate::ScenarioReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str(&format!(
+        "# memd scenario report: {}\n\n",
+        response.scenario
+    ));
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- score: {}/{}\n- passed_checks: {}\n- failed_checks: {}\n- generated_at: {}\n- completed_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.score,
+        response.max_score,
+        response.passed_checks,
+        response.failed_checks,
+        response.generated_at,
+        response.completed_at
+    ));
+
+    markdown.push_str("\n## Checks\n\n");
+    if response.checks.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for check in &response.checks {
+            markdown.push_str(&format!(
+                "- [{}] {} ({}pts): {}\n",
+                check.status, check.name, check.points, check.details
+            ));
+        }
+    }
+
+    markdown.push_str("\n## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Findings\n\n");
+    if response.findings.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.findings {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Next Actions\n\n");
+    if response.next_actions.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.next_actions {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown
+}
+
+pub(crate) fn render_composite_summary(response: &crate::CompositeReport) -> String {
+    let mut output = format!(
+        "composite bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} score={}/{}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.score,
+        response.max_score
+    );
+    if let Some(scenario) = response.scenario.as_deref() {
+        output.push_str(&format!(" scenario={scenario}"));
+    }
+    if let Some(gate) = response.gates.first() {
+        output.push_str(&format!(" first_gate={}:{}", gate.name, gate.status));
+    }
+    if let Some(dim) = response.dimensions.first() {
+        output.push_str(&format!(" first_dimension={}:{}", dim.name, dim.score));
+    }
+    output
+}
+
+pub(crate) fn render_composite_markdown(response: &crate::CompositeReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd composite report\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- scenario: {}\n- score: {}/{}\n- generated_at: {}\n- completed_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.scenario.as_deref().unwrap_or("none"),
+        response.score,
+        response.max_score,
+        response.generated_at,
+        response.completed_at
+    ));
+
+    markdown.push_str("\n## Dimensions\n\n");
+    if response.dimensions.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for dimension in &response.dimensions {
+            markdown.push_str(&format!(
+                "- [{}] {} (weight {}): {}\n",
+                dimension.score, dimension.name, dimension.weight, dimension.details
+            ));
+        }
+    }
+
+    markdown.push_str("\n## Gates\n\n");
+    if response.gates.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for gate in &response.gates {
+            markdown.push_str(&format!(
+                "- [{}] {}: {}\n",
+                gate.status, gate.name, gate.details
+            ));
+        }
+    }
+
+    markdown.push_str("\n## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Findings\n\n");
+    if response.findings.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.findings {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.recommendations {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown
+}
+
+pub(crate) fn render_experiment_summary(response: &crate::ExperimentReport) -> String {
+    let mut output = format!(
+        "experiment bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} accepted={} restored={} score={}/{} iterations={}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.accepted,
+        response.restored,
+        response.composite.score,
+        response.composite.max_score,
+        response.improvement.iterations.len()
+    );
+    output.push_str(&format!(
+        " max_iterations={} accept_below={} apply={} consolidate={}",
+        response.max_iterations, response.accept_below, response.apply, response.consolidate
+    ));
+    if let Some(entry) = response.trail.first() {
+        output.push_str(&format!(" first_trail={entry}"));
+    }
+    output
+}
+
+pub(crate) fn render_experiment_markdown(response: &crate::ExperimentReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd experiment report\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- max_iterations: {}\n- accept_below: {}\n- apply: {}\n- consolidate: {}\n- accepted: {}\n- restored: {}\n- started_at: {}\n- completed_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.max_iterations,
+        response.accept_below,
+        response.apply,
+        response.consolidate,
+        response.accepted,
+        response.restored,
+        response.started_at,
+        response.completed_at
+    ));
+
+    markdown.push_str("\n## Trail\n\n");
+    if response.trail.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.trail {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Learnings\n\n");
+    if response.learnings.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.learnings {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Findings\n\n");
+    if response.findings.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.findings {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.recommendations {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Improvement\n\n");
+    markdown.push_str(&format!(
+        "- iterations: {}\n- converged: {}\n- final_candidates: {}\n- final_score: {}\n",
+        response.improvement.iterations.len(),
+        response.improvement.converged,
+        response
+            .improvement
+            .final_gap
+            .as_ref()
+            .map(|value| value.candidate_count)
+            .unwrap_or(0),
+        response
+            .improvement
+            .final_gap
+            .as_ref()
+            .and_then(|value| value.eval_score)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    ));
+
+    markdown.push_str("\n## Composite\n\n");
+    markdown.push_str(&format!(
+        "- score: {}/{}\n- scenario: {}\n",
+        response.composite.score,
+        response.composite.max_score,
+        response.composite.scenario.as_deref().unwrap_or("none"),
+    ));
+    for gate in &response.composite.gates {
+        markdown.push_str(&format!(
+            "- gate [{}] {}: {}\n",
+            gate.status, gate.name, gate.details
+        ));
+    }
+
+    markdown
 }
 
 pub(crate) fn render_improvement_markdown(response: &crate::ImprovementReport) -> String {
@@ -1351,5 +2279,274 @@ fn format_visibility(value: memd_schema::MemoryVisibility) -> &'static str {
         memd_schema::MemoryVisibility::Private => "private",
         memd_schema::MemoryVisibility::Workspace => "workspace",
         memd_schema::MemoryVisibility::Public => "public",
+    }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
+pub(crate) fn is_default_runtime(runtime: &memd_schema::MemoryPolicyRuntime) -> bool {
+    !runtime.live_truth.read_once_sources
+        && !runtime.live_truth.raw_reopen_requires_change_or_doubt
+        && !runtime.live_truth.visible_memory_objects
+        && !runtime.live_truth.compile_from_events
+        && !runtime.memory_compilation.event_driven_updates
+        && !runtime.memory_compilation.patch_not_rewrite
+        && !runtime.memory_compilation.preserve_provenance
+        && !runtime.memory_compilation.source_on_demand
+        && !runtime.semantic_fallback.enabled
+        && !runtime.semantic_fallback.source_of_truth
+        && runtime.semantic_fallback.max_items_per_query == 0
+        && !runtime.semantic_fallback.rerank_with_visible_memory
+        && !runtime.skill_gating.propose_from_repeated_patterns
+        && !runtime.skill_gating.sandboxed_evaluation
+        && !runtime.skill_gating.auto_activate_low_risk_only
+        && !runtime.skill_gating.gated_activation
+        && !runtime.skill_gating.require_evaluation
+        && !runtime.skill_gating.require_policy_approval
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_bundle_status_summary, render_policy_summary, render_skill_policy_summary};
+    use memd_schema::{
+        MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth,
+        MemoryPolicyMemoryCompilation, MemoryPolicyPromotion, MemoryPolicyResponse,
+        MemoryPolicyRouteDefault, MemoryPolicyRuntime, MemoryPolicySemanticFallback,
+        MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope, RetrievalIntent,
+        RetrievalRoute,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn policy_summary_includes_skill_gates() {
+        let response = MemoryPolicyResponse {
+            retrieval_order: vec![MemoryScope::Local, MemoryScope::Project],
+            route_defaults: vec![MemoryPolicyRouteDefault {
+                intent: RetrievalIntent::CurrentTask,
+                route: RetrievalRoute::LocalFirst,
+            }],
+            working_memory: MemoryPolicyWorkingMemory {
+                budget_chars: 1600,
+                max_chars_per_item: 220,
+                default_limit: 8,
+                rehydration_limit: 3,
+            },
+            retrieval_feedback: MemoryPolicyFeedback {
+                enabled: true,
+                tracked_surfaces: vec!["search".to_string(), "working".to_string()],
+                max_items_per_request: 3,
+            },
+            source_trust_floor: 0.6,
+            runtime: MemoryPolicyRuntime {
+                live_truth: MemoryPolicyLiveTruth {
+                    read_once_sources: true,
+                    raw_reopen_requires_change_or_doubt: true,
+                    visible_memory_objects: true,
+                    compile_from_events: true,
+                },
+                memory_compilation: MemoryPolicyMemoryCompilation {
+                    event_driven_updates: true,
+                    patch_not_rewrite: true,
+                    preserve_provenance: true,
+                    source_on_demand: true,
+                },
+                semantic_fallback: MemoryPolicySemanticFallback {
+                    enabled: true,
+                    source_of_truth: false,
+                    max_items_per_query: 3,
+                    rerank_with_visible_memory: true,
+                },
+                skill_gating: MemoryPolicySkillGating {
+                    propose_from_repeated_patterns: true,
+                    sandboxed_evaluation: true,
+                    auto_activate_low_risk_only: true,
+                    gated_activation: true,
+                    require_evaluation: true,
+                    require_policy_approval: true,
+                },
+            },
+            promotion: MemoryPolicyPromotion {
+                min_salience: 0.22,
+                min_events: 3,
+                lookback_days: 14,
+                default_ttl_days: 90,
+            },
+            decay: MemoryPolicyDecay {
+                max_items: 128,
+                inactive_days: 21,
+                max_decay: 0.12,
+                record_events: true,
+            },
+            consolidation: MemoryPolicyConsolidation {
+                max_groups: 24,
+                min_events: 3,
+                lookback_days: 14,
+                min_salience: 0.22,
+                record_events: true,
+            },
+        };
+
+        let summary = render_policy_summary(&response, true);
+        assert!(summary.contains("skill_gating=on"));
+        assert!(summary.contains("sandbox_eval=on"));
+        assert!(summary.contains("low_risk_auto=on"));
+        assert!(summary.contains("approval=on"));
+        assert!(summary.contains("read_once=on"));
+    }
+
+    #[test]
+    fn skill_policy_summary_includes_lifecycle_flow() {
+        let response = MemoryPolicyResponse {
+            retrieval_order: vec![MemoryScope::Local, MemoryScope::Project],
+            route_defaults: vec![MemoryPolicyRouteDefault {
+                intent: RetrievalIntent::CurrentTask,
+                route: RetrievalRoute::LocalFirst,
+            }],
+            working_memory: MemoryPolicyWorkingMemory {
+                budget_chars: 1600,
+                max_chars_per_item: 220,
+                default_limit: 8,
+                rehydration_limit: 3,
+            },
+            retrieval_feedback: MemoryPolicyFeedback {
+                enabled: true,
+                tracked_surfaces: vec!["search".to_string(), "working".to_string()],
+                max_items_per_request: 3,
+            },
+            source_trust_floor: 0.6,
+            runtime: MemoryPolicyRuntime {
+                live_truth: MemoryPolicyLiveTruth {
+                    read_once_sources: true,
+                    raw_reopen_requires_change_or_doubt: true,
+                    visible_memory_objects: true,
+                    compile_from_events: true,
+                },
+                memory_compilation: MemoryPolicyMemoryCompilation {
+                    event_driven_updates: true,
+                    patch_not_rewrite: true,
+                    preserve_provenance: true,
+                    source_on_demand: true,
+                },
+                semantic_fallback: MemoryPolicySemanticFallback {
+                    enabled: true,
+                    source_of_truth: false,
+                    max_items_per_query: 3,
+                    rerank_with_visible_memory: true,
+                },
+                skill_gating: MemoryPolicySkillGating {
+                    propose_from_repeated_patterns: true,
+                    sandboxed_evaluation: true,
+                    auto_activate_low_risk_only: true,
+                    gated_activation: true,
+                    require_evaluation: true,
+                    require_policy_approval: true,
+                },
+            },
+            promotion: MemoryPolicyPromotion {
+                min_salience: 0.22,
+                min_events: 3,
+                lookback_days: 14,
+                default_ttl_days: 90,
+            },
+            decay: MemoryPolicyDecay {
+                max_items: 128,
+                inactive_days: 21,
+                max_decay: 0.12,
+                record_events: true,
+            },
+            consolidation: MemoryPolicyConsolidation {
+                max_groups: 24,
+                min_events: 3,
+                lookback_days: 14,
+                min_salience: 0.22,
+                record_events: true,
+            },
+        };
+
+        let summary = render_skill_policy_summary(&response, true);
+        assert!(summary.contains("skill-policy"));
+        assert!(summary.contains("propose=on"));
+        assert!(summary.contains("sandbox=on"));
+        assert!(summary.contains("activate=on"));
+        assert!(summary.contains("flow=pattern->proposal->sandbox->eval->policy->activate"));
+    }
+
+    #[test]
+    fn status_summary_surfaces_prompt_pressure_warning() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex",
+                "context_pressure": "high",
+                "estimated_prompt_tokens": 1842,
+                "refresh_recommended": true,
+                "inbox_items": 4,
+                "rehydration_queue": 3,
+                "redundant_context_items": 2,
+                "semantic_hits": 4,
+                "focus": "Trim the live bundle before loading more context",
+                "next_recovery": "reopen only the changed files"
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("status bundle=/tmp/memd"));
+        assert!(summary.contains("project=demo"));
+        assert!(summary.contains("namespace=main"));
+        assert!(summary.contains("session=codex-a"));
+        assert!(summary.contains("tab=tab-a"));
+        assert!(summary.contains("agent=codex"));
+        assert!(summary.contains("voice=caveman-ultra"));
+        assert!(summary.contains("server=ok"));
+        assert!(summary.contains("rag=ready"));
+        assert!(summary.contains("prompt_pressure=high"));
+        assert!(summary.contains("tok=1842"));
+        assert!(summary.contains("drivers=duplicates,inbox,refresh,rehydration,semantic,tokens"));
+        assert!(summary.contains("action=\"drain inbox before the next prompt\""));
+        assert!(summary.contains("warning=\"prompt pressure high\""));
+    }
+
+    #[test]
+    fn status_summary_ignores_null_resume_preview_and_keeps_defaults_scope() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": null
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("project=demo"));
+        assert!(summary.contains("namespace=main"));
+        assert!(summary.contains("session=codex-a"));
+        assert!(summary.contains("tab=tab-a"));
+        assert!(summary.contains("agent=codex"));
+        assert!(summary.contains("voice=caveman-ultra"));
     }
 }

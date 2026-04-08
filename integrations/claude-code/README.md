@@ -7,8 +7,9 @@ Recommended flow:
 
 1. import `memd` into project `CLAUDE.md`
 2. verify the import chain with `/memory`
-3. refresh short-term state with `memd resume` and `memd checkpoint`
-4. write durable takeaways back through `memd`
+3. refresh wake-up state with `memd wake`
+4. use `memd lookup` before answering about prior decisions, preferences, or history
+5. write durable takeaways back through `memd`
 5. let dream/autodream flow back into the same imported surface
 
 If you want a shell-level integration, reuse the shared hook kit in
@@ -18,7 +19,9 @@ If you want a shell-level integration, reuse the shared hook kit in
 
 If you are using a bundle, `memd` generates:
 
+- `.memd/MEMD_WAKEUP.md`
 - `.memd/MEMD_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_WAKEUP.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
 - `.memd/agents/CLAUDE_IMPORTS.md`
 - `.memd/agents/CLAUDE.md.example`
@@ -37,7 +40,9 @@ Then verify the loaded files inside Claude Code:
 
 The generated import chain pulls in both:
 
+- `.memd/MEMD_WAKEUP.md`
 - `.memd/MEMD_MEMORY.md`
+- `.memd/agents/CLAUDE_CODE_WAKEUP.md`
 - `.memd/agents/CLAUDE_CODE_MEMORY.md`
 
 And use the Claude-specific entrypoint:
@@ -51,7 +56,7 @@ And use the Claude-specific entrypoint:
 Refresh Claude's loaded `memd` surface on the hot path:
 
 ```bash
-memd resume --output .memd --intent current_task
+memd wake --output .memd --intent current_task --write
 memd checkpoint --output .memd --content "Current blocker: ..."
 ```
 
@@ -59,6 +64,22 @@ Use semantic fallback only when you want deeper recall:
 
 ```bash
 memd resume --output .memd --intent current_task --semantic
+```
+
+Before answering memory-dependent questions, run bundle-aware recall:
+
+```bash
+memd lookup --output .memd --query "what did we already decide about this?"
+```
+
+Generated bundle shortcuts:
+
+```bash
+.memd/agents/lookup.sh --query "what did we already decide?"
+.memd/agents/recall-decisions.sh --query "memory recall"
+.memd/agents/recall-preferences.sh --query "design taste"
+.memd/agents/recall-design.sh --query "design memory"
+.memd/agents/recall-history.sh --query "what happened last session?"
 ```
 
 ## Dream / Autodream
@@ -161,6 +182,6 @@ JSON
 ## Shell Spill Example
 
 ```bash
-MEMD_BASE_URL=http://127.0.0.1:8787 \
+MEMD_BASE_URL=http://100.104.154.24:8787 \
 ./integrations/hooks/memd-spill.sh --stdin --apply < compaction.json
 ```

@@ -21,7 +21,7 @@ load_bundle_env() {
 
 load_bundle_env
 
-MEMD_BASE_URL="${MEMD_BASE_URL:-http://127.0.0.1:8787}"
+MEMD_BASE_URL="${MEMD_BASE_URL:-http://100.104.154.24:8787}"
 MEMD_PROJECT="${MEMD_PROJECT:?MEMD_PROJECT is required}"
 MEMD_NAMESPACE="${MEMD_NAMESPACE:-}"
 MEMD_AGENT="${MEMD_AGENT:?MEMD_AGENT is required}"
@@ -32,7 +32,7 @@ MEMD_REHYDRATION_LIMIT="${MEMD_REHYDRATION_LIMIT:-4}"
 
 args=(
   --base-url "$MEMD_BASE_URL"
-  resume
+  wake
   --output "${MEMD_BUNDLE_ROOT:-.memd}"
   --project "$MEMD_PROJECT"
   --agent "$MEMD_AGENT"
@@ -40,7 +40,7 @@ args=(
   --intent "$MEMD_INTENT"
   --limit "$MEMD_LIMIT"
   --rehydration-limit "$MEMD_REHYDRATION_LIMIT"
-  --prompt
+  --write
 )
 
 if [ -n "$MEMD_NAMESPACE" ]; then
@@ -53,4 +53,15 @@ if [ -n "${MEMD_VISIBILITY:-}" ]; then
   args+=(--visibility "$MEMD_VISIBILITY")
 fi
 
-exec memd "${args[@]}"
+if memd "${args[@]}"; then
+  exit 0
+fi
+
+bundle_root="${MEMD_BUNDLE_ROOT:-.memd}"
+if [ -f "$bundle_root/MEMD_WAKEUP.md" ]; then
+  cat "$bundle_root/MEMD_WAKEUP.md"
+  exit 0
+fi
+if [ -f "$bundle_root/agents/CODEX_WAKEUP.md" ]; then
+  cat "$bundle_root/agents/CODEX_WAKEUP.md"
+fi

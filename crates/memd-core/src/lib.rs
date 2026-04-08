@@ -11,29 +11,31 @@ const MAX_LIST_ITEMS: usize = 4;
 const MAX_RECORDS: usize = 4;
 const MAX_LINE_CHARS: usize = 240;
 
-pub fn build_compaction_packet(
-    session: CompactionSession,
-    goal: impl Into<String>,
-    hard_constraints: Vec<String>,
-    active_work: Vec<String>,
-    decisions: Vec<CompactionDecision>,
-    open_loops: Vec<CompactionOpenLoop>,
-    exact_refs: Vec<CompactionReference>,
-    next_actions: Vec<String>,
-    do_not_drop: Vec<String>,
-    memory: CompactContextResponse,
-) -> CompactionPacket {
+pub struct BuildCompactionPacketArgs {
+    pub session: CompactionSession,
+    pub goal: String,
+    pub hard_constraints: Vec<String>,
+    pub active_work: Vec<String>,
+    pub decisions: Vec<CompactionDecision>,
+    pub open_loops: Vec<CompactionOpenLoop>,
+    pub exact_refs: Vec<CompactionReference>,
+    pub next_actions: Vec<String>,
+    pub do_not_drop: Vec<String>,
+    pub memory: CompactContextResponse,
+}
+
+pub fn build_compaction_packet(args: BuildCompactionPacketArgs) -> CompactionPacket {
     CompactionPacket {
-        session,
-        goal: goal.into(),
-        hard_constraints,
-        active_work,
-        decisions,
-        open_loops,
-        exact_refs,
-        next_actions,
-        do_not_drop,
-        memory,
+        session: args.session,
+        goal: args.goal,
+        hard_constraints: args.hard_constraints,
+        active_work: args.active_work,
+        decisions: args.decisions,
+        open_loops: args.open_loops,
+        exact_refs: args.exact_refs,
+        next_actions: args.next_actions,
+        do_not_drop: args.do_not_drop,
+        memory: args.memory,
     }
 }
 
@@ -233,27 +235,31 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "session",
-            MemoryKind::Status,
-            working_scope,
-            source_agent.clone(),
-            0.55,
-            Some(3 * 24 * 60 * 60),
-            format!("session {}", compact_string(&packet.session.task)),
-            vec!["compaction".into(), "session".into()],
+            SessionItemConfig {
+                label: "session",
+                kind: MemoryKind::Status,
+                scope: working_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.55,
+                ttl_seconds: Some(3 * 24 * 60 * 60),
+                content: format!("session {}", compact_string(&packet.session.task)),
+                tags: Vec::new(),
+            },
         );
 
         push_session_item(
             &mut items,
             packet,
-            "goal",
-            MemoryKind::Status,
-            working_scope,
-            source_agent.clone(),
-            0.65,
-            Some(7 * 24 * 60 * 60),
-            format!("goal {}", compact_string(&packet.goal)),
-            vec!["compaction".into(), "goal".into()],
+            SessionItemConfig {
+                label: "goal",
+                kind: MemoryKind::Status,
+                scope: working_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.65,
+                ttl_seconds: Some(7 * 24 * 60 * 60),
+                content: format!("goal {}", compact_string(&packet.goal)),
+                tags: Vec::new(),
+            },
         );
     } else {
         dropped.push("session".to_string());
@@ -264,14 +270,16 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "constraint",
-            MemoryKind::Constraint,
-            project_scope,
-            source_agent.clone(),
-            0.88,
-            None,
-            compact_string(constraint),
-            vec!["compaction".into(), "constraint".into()],
+            SessionItemConfig {
+                label: "constraint",
+                kind: MemoryKind::Constraint,
+                scope: project_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.88,
+                ttl_seconds: None,
+                content: compact_string(constraint),
+                tags: vec!["constraint".to_string()],
+            },
         );
     }
 
@@ -280,14 +288,16 @@ pub fn derive_compaction_spill_with_options(
             push_session_item(
                 &mut items,
                 packet,
-                "active_work",
-                MemoryKind::Status,
-                working_scope,
-                source_agent.clone(),
-                0.4,
-                Some(3 * 24 * 60 * 60),
-                compact_string(work),
-                vec!["compaction".into(), "active_work".into()],
+                SessionItemConfig {
+                    label: "active_work",
+                    kind: MemoryKind::Status,
+                    scope: working_scope,
+                    source_agent: source_agent.clone(),
+                    confidence: 0.4,
+                    ttl_seconds: Some(3 * 24 * 60 * 60),
+                    content: compact_string(work),
+                    tags: Vec::new(),
+                },
             );
         }
     } else if !packet.active_work.is_empty() {
@@ -298,18 +308,20 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "decision",
-            MemoryKind::Decision,
-            project_scope,
-            source_agent.clone(),
-            0.92,
-            None,
-            format!(
-                "{} {}",
-                compact_string(&decision.id),
-                compact_string(&decision.text)
-            ),
-            vec!["compaction".into(), "decision".into()],
+            SessionItemConfig {
+                label: "decision",
+                kind: MemoryKind::Decision,
+                scope: project_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.92,
+                ttl_seconds: None,
+                content: format!(
+                    "{} {}",
+                    compact_string(&decision.id),
+                    compact_string(&decision.text)
+                ),
+                tags: Vec::new(),
+            },
         );
     }
 
@@ -317,19 +329,21 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "open_loop",
-            MemoryKind::Status,
-            working_scope,
-            source_agent.clone(),
-            0.75,
-            Some(14 * 24 * 60 * 60),
-            format!(
-                "{}[{}] {}",
-                compact_string(&open_loop.id),
-                compact_string(&open_loop.status),
-                compact_string(&open_loop.text)
-            ),
-            vec!["compaction".into(), "open_loop".into()],
+            SessionItemConfig {
+                label: "open_loop",
+                kind: MemoryKind::Status,
+                scope: working_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.75,
+                ttl_seconds: Some(14 * 24 * 60 * 60),
+                content: format!(
+                    "{}[{}] {}",
+                    compact_string(&open_loop.id),
+                    compact_string(&open_loop.status),
+                    compact_string(&open_loop.text)
+                ),
+                tags: Vec::new(),
+            },
         );
     }
 
@@ -343,23 +357,25 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "anchor",
-            kind,
-            project_scope,
-            source_agent.clone(),
-            0.86,
-            None,
-            format!(
-                "{} {}",
-                compact_string(&reference.kind),
-                compact_string(&reference.value)
-            ),
-            vec!["compaction".into(), "anchor".into()],
+            SessionItemConfig {
+                label: "anchor",
+                kind,
+                scope: project_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.86,
+                ttl_seconds: None,
+                content: format!(
+                    "{} {}",
+                    compact_string(&reference.kind),
+                    compact_string(&reference.value)
+                ),
+                tags: vec!["anchor".to_string()],
+            },
         );
-        if let Some(last) = items.last_mut() {
-            if reference.kind.trim().eq_ignore_ascii_case("file") {
-                last.source_path = Some(compact_string(&reference.value));
-            }
+        if let Some(last) = items.last_mut()
+            && reference.kind.trim().eq_ignore_ascii_case("file")
+        {
+            last.source_path = Some(compact_string(&reference.value));
         }
     }
 
@@ -368,14 +384,16 @@ pub fn derive_compaction_spill_with_options(
             push_session_item(
                 &mut items,
                 packet,
-                "next_action",
-                MemoryKind::Status,
-                working_scope,
-                source_agent.clone(),
-                0.35,
-                Some(3 * 24 * 60 * 60),
-                compact_string(action),
-                vec!["compaction".into(), "next_action".into()],
+                SessionItemConfig {
+                    label: "next_action",
+                    kind: MemoryKind::Status,
+                    scope: working_scope,
+                    source_agent: source_agent.clone(),
+                    confidence: 0.35,
+                    ttl_seconds: Some(3 * 24 * 60 * 60),
+                    content: compact_string(action),
+                    tags: Vec::new(),
+                },
             );
         }
     } else if !packet.next_actions.is_empty() {
@@ -386,14 +404,16 @@ pub fn derive_compaction_spill_with_options(
         push_session_item(
             &mut items,
             packet,
-            "do_not_drop",
-            MemoryKind::Constraint,
-            project_scope,
-            source_agent.clone(),
-            0.9,
-            None,
-            compact_string(keep),
-            vec!["compaction".into(), "do_not_drop".into()],
+            SessionItemConfig {
+                label: "do_not_drop",
+                kind: MemoryKind::Constraint,
+                scope: project_scope,
+                source_agent: source_agent.clone(),
+                confidence: 0.9,
+                ttl_seconds: None,
+                content: compact_string(keep),
+                tags: vec!["do_not_drop".to_string()],
+            },
         );
     }
 
@@ -407,37 +427,42 @@ pub fn derive_compaction_spill_with_options(
     CompactionSpillBatch { items, dropped }
 }
 
-fn push_session_item(
-    items: &mut Vec<CandidateMemoryRequest>,
-    packet: &CompactionPacket,
-    label: &str,
+struct SessionItemConfig {
+    label: &'static str,
     kind: MemoryKind,
     scope: MemoryScope,
     source_agent: Option<String>,
     confidence: f32,
     ttl_seconds: Option<u64>,
     content: String,
-    mut tags: Vec<String>,
+    tags: Vec<String>,
+}
+
+fn push_session_item(
+    items: &mut Vec<CandidateMemoryRequest>,
+    packet: &CompactionPacket,
+    config: SessionItemConfig,
 ) {
-    let mut tags_out = vec!["compaction".to_string(), label.to_string()];
+    let mut tags_out = vec!["compaction".to_string(), config.label.to_string()];
+    let mut tags = config.tags;
     tags_out.append(&mut tags);
     let project = packet.session.project.clone();
 
     items.push(CandidateMemoryRequest {
-        content,
-        kind,
-        scope,
+        content: config.content,
+        kind: config.kind,
+        scope: config.scope,
         project,
         namespace: Some("compaction".to_string()),
         workspace: None,
         visibility: None,
         belief_branch: None,
-        source_agent,
+        source_agent: config.source_agent,
         source_system: Some("memd".to_string()),
         source_path: None,
         source_quality: Some(SourceQuality::Derived),
-        confidence: Some(confidence),
-        ttl_seconds,
+        confidence: Some(config.confidence),
+        ttl_seconds: config.ttl_seconds,
         last_verified_at: None,
         supersedes: Vec::new(),
         tags: tags_out,
@@ -520,31 +545,31 @@ mod tests {
 
     #[test]
     fn builds_packet_without_losing_fields() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("proj".into()),
                 agent: Some("codex".into()),
                 task: "task".into(),
             },
-            "goal",
-            vec!["constraint".into()],
-            vec!["work".into()],
-            vec![CompactionDecision {
+            goal: "goal".to_string(),
+            hard_constraints: vec!["constraint".into()],
+            active_work: vec!["work".into()],
+            decisions: vec![CompactionDecision {
                 id: "d1".into(),
                 text: "keep".into(),
             }],
-            vec![CompactionOpenLoop {
+            open_loops: vec![CompactionOpenLoop {
                 id: "l1".into(),
                 text: "check".into(),
                 status: "open".into(),
             }],
-            vec![CompactionReference {
+            exact_refs: vec![CompactionReference {
                 kind: "file".into(),
                 value: "/tmp/file".into(),
             }],
-            vec!["next".into()],
-            vec!["drop".into()],
-            CompactContextResponse {
+            next_actions: vec!["next".into()],
+            do_not_drop: vec!["drop".into()],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::ProjectFirst,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![MemoryScope::Project],
@@ -553,7 +578,7 @@ mod tests {
                     record: "id=1 | c=test".into(),
                 }],
             },
-        );
+        });
 
         assert_eq!(packet.goal, "goal");
         assert_eq!(packet.session.agent.as_deref(), Some("codex"));
@@ -586,28 +611,28 @@ mod tests {
 
     #[test]
     fn compaction_packet_roundtrips_through_json_without_losing_state() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "inspect compaction".into(),
             },
-            "preserve context",
-            vec![
+            goal: "preserve context".to_string(),
+            hard_constraints: vec![
                 "do not lose exact refs".into(),
                 "do not flatten open loops".into(),
             ],
-            vec!["build the packet".into()],
-            vec![CompactionDecision {
+            active_work: vec!["build the packet".into()],
+            decisions: vec![CompactionDecision {
                 id: "decision-1".into(),
                 text: "keep the packet structured".into(),
             }],
-            vec![CompactionOpenLoop {
+            open_loops: vec![CompactionOpenLoop {
                 id: "loop-1".into(),
                 text: "should compaction preserve command text verbatim?".into(),
                 status: "open".into(),
             }],
-            vec![
+            exact_refs: vec![
                 CompactionReference {
                     kind: "file".into(),
                     value: "crates/memd-core/src/lib.rs".into(),
@@ -617,9 +642,9 @@ mod tests {
                     value: "cargo check".into(),
                 },
             ],
-            vec!["serialize the packet".into()],
-            vec!["do not drop anchors".into()],
-            CompactContextResponse {
+            next_actions: vec!["serialize the packet".into()],
+            do_not_drop: vec!["do not drop anchors".into()],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![MemoryScope::Local, MemoryScope::Project],
@@ -634,7 +659,7 @@ mod tests {
                     },
                 ],
             },
-        );
+        });
 
         let encoded = serde_json::to_string(&packet).expect("serialize packet");
         let decoded: CompactionPacket = serde_json::from_str(&encoded).expect("deserialize packet");
@@ -653,29 +678,29 @@ mod tests {
 
     #[test]
     fn wire_format_is_smaller_than_json_and_keeps_anchors() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "build memory manager".into(),
             },
-            "Preserve memory without token waste",
-            vec![
+            goal: "Preserve memory without token waste".to_string(),
+            hard_constraints: vec![
                 "compact retrieval only".into(),
                 "no transcript dumps".into(),
                 "cross-project reuse must stay scoped".into(),
             ],
-            vec!["verification worker scans stale canonical items".into()],
-            vec![CompactionDecision {
+            active_work: vec!["verification worker scans stale canonical items".into()],
+            decisions: vec![CompactionDecision {
                 id: "decision-1".into(),
                 text: "keep the packet structured".into(),
             }],
-            vec![CompactionOpenLoop {
+            open_loops: vec![CompactionOpenLoop {
                 id: "loop-1".into(),
                 text: "Should compaction preserve command text verbatim?".into(),
                 status: "open".into(),
             }],
-            vec![
+            exact_refs: vec![
                 CompactionReference {
                     kind: "file".into(),
                     value: "crates/memd-server/src/main.rs".into(),
@@ -685,18 +710,23 @@ mod tests {
                     value: "cargo check".into(),
                 },
             ],
-            vec!["Define the promotion boundary for compaction output".into()],
-            vec!["scope".into(), "exact refs".into(), "open loops".into()],
-            CompactContextResponse {
+            next_actions: vec!["Define the promotion boundary for compaction output".into()],
+            do_not_drop: vec!["scope".into(), "exact refs".into(), "open loops".into()],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
-                retrieval_order: vec![MemoryScope::Local, MemoryScope::Synced, MemoryScope::Project, MemoryScope::Global],
+                retrieval_order: vec![
+                    MemoryScope::Local,
+                    MemoryScope::Synced,
+                    MemoryScope::Project,
+                    MemoryScope::Global,
+                ],
                 records: vec![CompactMemoryRecord {
                     id: Uuid::nil(),
                     record: "id=... | stage=canonical | scope=project | kind=fact | status=active | c=keep anchors".into(),
                 }],
             },
-        );
+        });
 
         let json = serde_json::to_string(&packet).expect("serialize json");
         let wire = render_compaction_wire(&packet);
@@ -711,42 +741,42 @@ mod tests {
 
     #[test]
     fn wire_format_truncates_with_explicit_markers() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "build memory manager with a very long task description that should still preserve the first anchor and then stop".into(),
             },
-            "goal text that is intentionally very long so that it has to be truncated in the wire output while keeping the start intact",
-            (0..10)
+            goal: "goal text that is intentionally very long so that it has to be truncated in the wire output while keeping the start intact".to_string(),
+            hard_constraints: (0..10)
                 .map(|i| format!("hard constraint number {i} with extra filler text to force truncation"))
                 .collect(),
-            (0..10)
+            active_work: (0..10)
                 .map(|i| format!("active work item {i} with extra filler text to force truncation"))
                 .collect(),
-            (0..10)
+            decisions: (0..10)
                 .map(|i| CompactionDecision {
                     id: format!("decision-{i}"),
                     text: format!("decision text {i} with extra filler text to force truncation"),
                 })
                 .collect(),
-            (0..10)
+            open_loops: (0..10)
                 .map(|i| CompactionOpenLoop {
                     id: format!("loop-{i}"),
                     text: format!("open loop text {i} with extra filler text to force truncation"),
                     status: "open".into(),
                 })
                 .collect(),
-            (0..10)
+            exact_refs: (0..10)
                 .map(|i| CompactionReference {
                     kind: "file".into(),
                     value: format!("/tmp/example-{i}.md"),
                 })
                 .collect(),
-            (0..10)
+            next_actions: (0..10)
                 .map(|i| format!("next action {i} with extra filler text to force truncation"))
                 .collect(),
-            vec![
+            do_not_drop: vec![
                 "scope".into(),
                 "project".into(),
                 "exact refs".into(),
@@ -754,7 +784,7 @@ mod tests {
                 "hard constraints".into(),
                 "more items to force truncation".into(),
             ],
-            CompactContextResponse {
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![
@@ -772,7 +802,7 @@ mod tests {
                     })
                     .collect(),
             },
-        );
+        });
 
         let wire = render_compaction_wire(&packet);
 
@@ -789,25 +819,25 @@ mod tests {
 
     #[test]
     fn spill_batch_extracts_durable_state_with_scopes_and_tags() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "stabilize memory".into(),
             },
-            "keep both short-term and long-term recall",
-            vec!["do not lose exact refs".into()],
-            vec!["working on spill layer".into()],
-            vec![CompactionDecision {
+            goal: "keep both short-term and long-term recall".to_string(),
+            hard_constraints: vec!["do not lose exact refs".into()],
+            active_work: vec!["working on spill layer".into()],
+            decisions: vec![CompactionDecision {
                 id: "decision-1".into(),
                 text: "use a structured spill".into(),
             }],
-            vec![CompactionOpenLoop {
+            open_loops: vec![CompactionOpenLoop {
                 id: "loop-1".into(),
                 text: "should active work be synced or project scoped?".into(),
                 status: "open".into(),
             }],
-            vec![
+            exact_refs: vec![
                 CompactionReference {
                     kind: "file".into(),
                     value: "crates/memd-client/src/main.rs".into(),
@@ -817,9 +847,9 @@ mod tests {
                     value: "cargo check".into(),
                 },
             ],
-            vec!["make spill durable".into()],
-            vec!["open loops".into(), "anchors".into()],
-            CompactContextResponse {
+            next_actions: vec!["make spill durable".into()],
+            do_not_drop: vec!["open loops".into(), "anchors".into()],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![
@@ -830,7 +860,7 @@ mod tests {
                 ],
                 records: vec![],
             },
-        );
+        });
 
         let spill = derive_compaction_spill(&packet);
 
@@ -866,25 +896,25 @@ mod tests {
 
     #[test]
     fn spill_batch_omits_transient_state_by_default() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "stabilize memory".into(),
             },
-            "keep both short-term and long-term recall",
-            vec!["do not lose exact refs".into()],
-            vec!["working on spill layer".into()],
-            vec![CompactionDecision {
+            goal: "keep both short-term and long-term recall".to_string(),
+            hard_constraints: vec!["do not lose exact refs".into()],
+            active_work: vec!["working on spill layer".into()],
+            decisions: vec![CompactionDecision {
                 id: "decision-1".into(),
                 text: "use a structured spill".into(),
             }],
-            vec![CompactionOpenLoop {
+            open_loops: vec![CompactionOpenLoop {
                 id: "loop-1".into(),
                 text: "should active work be synced or project scoped?".into(),
                 status: "open".into(),
             }],
-            vec![
+            exact_refs: vec![
                 CompactionReference {
                     kind: "file".into(),
                     value: "crates/memd-client/src/main.rs".into(),
@@ -894,9 +924,9 @@ mod tests {
                     value: "cargo check".into(),
                 },
             ],
-            vec!["make spill durable".into()],
-            vec!["open loops".into(), "anchors".into()],
-            CompactContextResponse {
+            next_actions: vec!["make spill durable".into()],
+            do_not_drop: vec!["open loops".into(), "anchors".into()],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![
@@ -907,7 +937,7 @@ mod tests {
                 ],
                 records: vec![],
             },
-        );
+        });
 
         let spill = derive_compaction_spill(&packet);
         let contents = spill
@@ -939,30 +969,30 @@ mod tests {
 
     #[test]
     fn file_anchors_carry_source_path_for_verification() {
-        let packet = build_compaction_packet(
-            CompactionSession {
+        let packet = build_compaction_packet(BuildCompactionPacketArgs {
+            session: CompactionSession {
                 project: Some("memd".into()),
                 agent: Some("codex".into()),
                 task: "anchor file".into(),
             },
-            "keep source path",
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![CompactionReference {
+            goal: "keep source path".to_string(),
+            hard_constraints: vec![],
+            active_work: vec![],
+            decisions: vec![],
+            open_loops: vec![],
+            exact_refs: vec![CompactionReference {
                 kind: "file".into(),
                 value: "crates/memd-client/src/main.rs".into(),
             }],
-            vec![],
-            vec![],
-            CompactContextResponse {
+            next_actions: vec![],
+            do_not_drop: vec![],
+            memory: CompactContextResponse {
                 route: RetrievalRoute::All,
                 intent: RetrievalIntent::General,
                 retrieval_order: vec![MemoryScope::Project],
                 records: vec![],
             },
-        );
+        });
 
         let spill = derive_compaction_spill(&packet);
         let anchor = spill

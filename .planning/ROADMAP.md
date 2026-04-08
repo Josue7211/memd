@@ -3,6 +3,34 @@
 This planning roadmap mirrors the strategic roadmap in [`ROADMAP.md`](../ROADMAP.md)
 but keeps execution anchored to phase-shaped work inside `.planning/`.
 
+## Biological Design Principles
+
+`memd` should borrow what the human brain does well at the systems level while rejecting its failure modes.
+
+Use these as design constraints for future phases:
+
+- keep working memory small, high-priority, and action-oriented
+- let fresh validated local truth outrank older ambiguous memory
+- layer memory instead of flattening everything into one store:
+  - live truth
+  - task and project memory
+  - durable policy
+  - promoted abstractions
+- prefer selective consolidation and compression over storing raw history forever
+- retrieve by cue, relevance, and current task pressure instead of replaying entire context
+- continuously compact active work so long tasks do not require long prompts
+- treat energy efficiency as token efficiency:
+  - compiled knowledge and deltas should beat rereads and recomputation
+- learn from repeated validated outcomes, not from single noisy events
+
+Do **not** copy the brain's failure modes:
+
+- confabulation without provenance
+- hidden belief changes with no audit trail
+- emotionally biased retrieval
+- uninspected contradiction collapse
+- runtime mutation as a side effect of cognition
+
 ## Active Milestone
 
 ### Milestone 0: OSS Foundations
@@ -258,6 +286,52 @@ Success:
 #### Phase 19: `v4` Hot-Path Memory Defaults
 
 - keep bundle-backed short-term memory on the critical path
+
+Status: Complete
+
+Success:
+
+- the default bundle path stays current-task-first and avoids semantic fallback unless explicitly requested
+
+### Milestone 5: `v5` Memory-Native Cognition Infrastructure
+
+#### Phase 46.5: `v5` Universal Capability Discovery
+
+- make `memd init` and `memd refresh` inventory configured harnesses instead of only importing repo files
+- detect enabled plugins, plugin commands, hooks, skill registries, agents, teams, and harness-specific memory surfaces
+- write a canonical capability registry so agents can read once from `memd` instead of rediscovering each harness repeatedly
+- preserve provenance and content hashes so unchanged capability sources are treated as read-once inputs
+
+Status: Complete
+
+Success:
+
+- `memd` can explain which capabilities exist across Codex, Claude, OpenClaw, OpenCode, and future harnesses without re-scanning everything on every session
+
+#### Phase 46.6: `v5` Capability Canonicalization and Bridge Generation
+
+- classify discovered capabilities as universal, harness-native, bridgeable, or blocked
+- automatically generate bridge surfaces for bridgeable capabilities where the target harness supports them
+- surface install instructions for blocked or partially portable capabilities instead of hiding the mismatch
+- keep generated bridge output inspectable so users can see exactly what `memd` propagated and why
+
+Status: Complete
+
+Success:
+
+- a plugin like `superpowers` can be discovered once, normalized into `memd`, and exposed consistently across supported harnesses
+
+#### Phase 46.7: `v5` Learned Operating Policy
+
+- promote repeated user corrections into durable operating policy through dream/autodream and refresh flows
+- make deployment, bridge, and workflow corrections influence future agent decisions instead of living only in chat history
+- keep learned policy explicit, inspectable, and reversible so self-improvement does not become silent drift
+
+Status: Complete
+
+Success:
+
+- `memd` behaves like a controlled self-propagating memory and capability substrate that improves from corrections without becoming opaque or unsafe
 - move semantic recall behind explicit opt-in flags for resume and handoff
 - align generated bundle docs and operator docs with the fast-default contract
 
@@ -634,6 +708,7 @@ Success:
   - ports / base URLs
   - heartbeat / presence
   - help, review, and handoff requests
+- treat stack services like `memd`, `claw-control`, `agent-shell`, and `agent-secrets` as first-class peers with explicit capabilities and authority so product agents can ask the right active service for help during development
 - preserve local bundle projections for harness-native ergonomics while making server state the shared source of truth
 - keep the first slice delta-based and bounded instead of replaying transcripts or large freeform scratchpads
 
@@ -852,7 +927,7 @@ Success:
 - preserve reproducibility so experiments can compare baseline against candidate behavior
 - make scenario outputs compact enough to feed nightly research loops
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -865,7 +940,7 @@ Success:
 - preserve explicit weighting instead of hidden judgment
 - make acceptance criteria clear enough for automated experiment loops
 
-Status: Planned
+Status: Complete
 
 Success:
 
@@ -879,37 +954,191 @@ Success:
 - consolidate accepted learnings into durable project memory and autodream inputs
 - make the handoff explicit: autoresearch produces accepted findings, then autodream consolidates only those accepted findings
 
-Status: Planned
+Status: Complete
 
 Success:
 
 - `memd` can improve itself through measured overnight loops without unsafe drift or silent truth changes
 
-#### Phase 51: `v6` Harness-Aware Learning Registry
+#### Phase 50.1: `v6` Recent Edit Hot Lane for Token Compression
 
-- add a registry for promoted skills, CLIs, harnesses, and procedures that records harness-specific strengths, weaknesses, compatibility, and portability class
-- keep the first slice focused on metadata and promotion evidence, not fully automatic cross-harness execution yet
-- preserve portability by keeping learning in the substrate while still allowing harness-native and adapter-required abstractions
-- make rollback and deprecation explicit when a learned abstraction stops fitting a given harness
+- capture a bounded repo-change summary on bundle resume and refresh so the latest verified edits are visible without re-reading files
+- keep the first slice lightweight by using git status and diff summaries instead of a heavyweight file watcher
+- surface the recent-edit lane in generated memory and prompt views so sessions anchor on current changes before falling back to stale assumptions
+- use the lane to reduce repeated same-session reads and wasted clarification tokens after local edits
+
+Status: Complete
+
+Success:
+
+- memd surfaces the latest repo changes in the hot path, cutting the need to re-open files just to recover what changed moments ago
+
+#### Phase 51: `v6` Live Truth Substrate and Truth-First Retrieval
+
+- add a first-class `live_truth` lane for the freshest verified local reality:
+  - recent edits
+  - user corrections
+  - command outcomes
+  - capability discoveries
+- make retrieval truth-first instead of refresh-first:
+  - `live_truth`
+  - current-task working memory
+  - inbox and workspace lanes
+  - durable memory
+  - semantic fallback
+- suppress stale or contradicted lower-priority memories automatically when fresher local truth exists
+- keep the lane aggressively compact so it replaces rereads instead of becoming another noisy transcript
+- treat normal memory operations as read/observe/compile only; no shared runtime mutation is allowed in this path
 
 Status: Planned
 
 Success:
 
-- learned abstractions can move across agents and harnesses without pretending every shell exposes the same native capabilities
+- after a local edit or correction, the next memd-backed response can recover that fact from the hot lane without reopening raw files or repeating stale beliefs
 
-#### Phase 52: `v6` Harness Skill Bridge and Adapter Generation
+#### Phase 52: `v6` Event Spine and Seamless Context Compaction
 
-- require every promoted skill, CLI, harness, and procedure to declare its harness coverage and portability class at the point of promotion
-- if a harness mapping is missing, mark the abstraction adapter-required and surface the gap immediately instead of treating it as universally available
-- generate or scaffold harness-specific bridge instructions where a native mapping does not exist yet, so the user has a concrete next step
-- keep the registry as the canonical source of truth for which skills are portable, harness-native, or require an adapter
+- add an event spine for repo-local cognition:
+  - file edited
+  - file created
+  - file deleted
+  - patch applied
+  - user corrected
+  - command succeeded/failed
+  - capability verified/broken
+- compile raw events into compact truth items instead of exposing raw churn to prompts
+- make compaction seamless and automatic:
+  - delta-only refresh
+  - bounded hot lane
+  - no manual long-context rebuild for routine iterative work
+- preserve provenance and timestamps so compacted truth stays inspectable and reversible
 
 Status: Planned
 
 Success:
 
-- memd can tell the user when a skill is not mapped for their harness and can either provide a bridge path or clearly mark the abstraction as adapter-required
+- memd can continuously compact active work into current truth, so long sessions stop depending on broad context accumulation
+
+#### Phase 53: `v6` Capability Contract Registry and Runtime Safety Boundary
+
+- maintain a canonical registry of what each harness can actually do right now:
+  - installed skills
+  - runnable CLIs
+  - hooks
+  - plugins
+  - agents
+  - bridgeable surfaces
+- record the canonical invocation contract for every promoted capability per harness:
+  - native skill
+  - native CLI
+  - adapter-required
+  - broken
+- detect broken contracts immediately instead of letting agents guess from docs or `PATH`
+- enforce a hard safety split:
+  - normal `memd` operations may observe, summarize, learn, and advise
+  - explicit repair/install flows are the only places allowed to mutate shared runtimes
+
+Status: Planned
+
+Success:
+
+- agents stop guessing how capabilities are invoked and stop breaking runtimes while trying to “help”
+
+#### Phase 54: `v6` Migration and Bootstrap Without Re-Import Loops
+
+- add a migration engine that can convert existing memory, bundles, skills metadata, and project docs into the new layered model without forcing cold-start re-ingestion
+- keep bootstrap read-once and delta-driven:
+  - unchanged sources are not reread
+  - changed sources are recompiled into truth and durable memory
+- migrate current refresh-oriented bundle state into:
+  - live truth
+  - project brain
+  - user policy
+  - promoted abstractions
+- preserve rollback points and migration provenance so upgrades are safe to audit
+
+Status: Planned
+
+Success:
+
+- memd can evolve into the ceiling architecture without blowing away existing bundles or forcing expensive rebootstrap loops
+
+#### Phase 55: `v6` Token Maximizer and 90% Best-Case Reduction Path
+
+- make token efficiency a first-class optimization target, not an incidental side effect
+- add prompt-budget policies that prefer:
+  - live truth
+  - compiled knowledge
+  - delta summaries
+  - canonical contracts
+  over raw rereads and repeated derivation
+- explicitly optimize for:
+  - no reread of just-edited files
+  - no re-derivation of stable facts
+  - no repeated capability confusion
+  - no repeated correction failures
+- measure best-case token reduction on iterative coding workflows with a stated target of up to `90%` while rejecting quality regressions
+
+Status: Planned
+
+Success:
+
+- repetitive iterative sessions can run mostly from compact truth and delta context, dramatically reducing token burn without accepting degraded answers
+
+#### Phase 56: `v6` Long-Horizon Short-Context Workflows
+
+- make long tasks work without long prompts by default:
+  - rolling briefs
+  - compact task state
+  - entity sheets
+  - contradiction ledgers
+  - active claims and blockers
+- keep the active prompt shaped around the minimum current truth needed to act, not the full narrative history
+- support seamless compaction and resumption so context windows stop being the limiting resource for extended work
+
+Status: Planned
+
+Success:
+
+- agents can continue long, complex efforts without depending on fragile long-context sessions
+
+#### Phase 57: `v6` Controlled Self-Evolution and Policy Learning
+
+- let memd evolve itself at the policy layer:
+  - learn from repeated corrections
+  - learn from repeated successes
+  - demote stale or harmful heuristics
+  - propose candidate operating policies
+- keep self-evolution bounded and evidence-backed:
+  - promotion gates
+  - explicit acceptance criteria
+  - rollback
+  - deprecation
+  - provenance
+- never let self-evolution mutate shared runtime state during normal memory operations
+- treat policy evolution and runtime mutation as separate systems with separate authority
+
+Status: Planned
+
+Success:
+
+- memd gets smarter over time without silent drift, poisoning, or runtime breakage
+
+#### Phase 58: `v6` Cross-Project Cortex and Superhuman Memory Ceiling
+
+- complete the layered external-cortex model:
+  - `live_truth` for freshest local reality
+  - project brain for durable project knowledge
+  - user policy for cross-project stable preferences and corrections
+  - promoted abstractions for reusable skills, adapters, and procedures
+- require explicit promotion rules between layers so project noise does not contaminate global behavior
+- use the full layered system to minimize context, maximize carry-forward intelligence, and keep quality stable under pressure
+
+Status: Planned
+
+Success:
+
+- memd behaves like a superhuman external brain: current, compact, durable, self-improving, and safe
 
 ---
-*Last updated: 2026-04-05 after shipping `v5` coordination receipts*
+*Last updated: 2026-04-06 after rewriting the roadmap toward live truth, seamless compaction, runtime safety, and self-evolving token-efficient memory*

@@ -5,7 +5,22 @@
 See: `.planning/PROJECT.md` (updated 2026-04-05)
 
 **Core value:** Give agents global, cross-project, project, and short-term memory that stays compact, durable, inspectable, and useful under real task pressure.
-**Current focus:** finish `v5` as a global-first shared memory system with explicit cross-project overlays and provider-collision controls, then layer `v6` token optimization on top of that shared substrate.
+**Current focus:** turn `v6` into a truth-first external cortex: live local truth, seamless compaction, capability-contract detection, controlled self-evolution, and maximum token efficiency without shared-runtime breakage.
+
+**Biological stance:** copy the brain where it is strong:
+- small high-priority working memory
+- fresh local truth precedence
+- layered memory
+- selective consolidation
+- cue-driven retrieval
+- energy-efficient compressed cognition
+
+Do not copy its weaknesses:
+- confabulation
+- hidden belief drift
+- poor provenance
+- contradiction collapse
+- unsafe side effects
 
 ## Current Status
 
@@ -52,6 +67,9 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - phase 46 policy-aware coordination suggestions now generate bounded action hints from current inbox, recovery, policy, and pressure signals
 - MCP peer coordination now exposes a `coordination_suggestions` surface that returns those suggested actions for richer operator tools
 - phase 47 gap-finding foundations now emit evidence-driven candidates from eval, resume, and coordination state plus baseline delta summaries
+- phase 48 scenario harnesses now exist for resume, handoff, workspace retrieval, stale-session recovery, and coworking flows
+- phase 49 composite scoring now combines eval, scenario, coordination, latency, and bloat signals into one explicit acceptance gate
+- phase 50 bounded experiments now snapshot, run, score, consolidate, and restore rejected bundle changes automatically
 - shared short-term state now has a real-time canonical sync layer across machines and harnesses
 - the next architectural gap is that global-first memory, cross-project live lanes, and provider-collision controls still need to become first-class shipped behavior
 - the roadmap now explicitly treats token optimization as a primary `memd` capability, not an incidental benefit
@@ -78,26 +96,36 @@ See: `.planning/PROJECT.md` (updated 2026-04-05)
 - phase 47 gap-finding foundations are now implemented as a bounded, repo-aware research pass over planning artifacts, docs, git state, eval snapshots, and runtime wiring
 - the roadmap now requires harness coverage enforcement so promoted skills, CLIs, and procedures cannot masquerade as universal when a harness mapping is missing
 - the next learning-system gap is adapter generation and bridge surfacing for missing harness mappings, not just portability labels
+- the next capability gap is full harness inventory: enabled plugins, plugin commands, hooks, agents, teams, and bridgeable install surfaces still need to become canonical memd data instead of hidden harness-local state
+- user corrections now need to become learned operating policy so dream/autodream/refresh can stop repeating the same workflow mistakes
+- the ceiling roadmap now targets a layered external cortex:
+  - `live_truth` for freshest verified local reality
+  - project brain for durable project knowledge
+  - user policy for cross-project stable operating rules
+  - promoted abstractions for reusable skills, adapters, and procedures
+- the ceiling roadmap now treats token efficiency as a first-class success metric with a stated goal of up to `90%` best-case token reduction on iterative workflows without quality regression
+- the ceiling roadmap now treats seamless compaction and short-context operation as core product behavior, not optional optimization
+- the ceiling roadmap now requires a hard runtime safety boundary: normal memory operations may not mutate shared runtime state
+- the ceiling roadmap now requires harness capability contracts so agents know what is actually runnable and stop guessing
 
 ## Open Loops
 
-- the highest-priority open loop has moved from canonical short-term sync to global-first overlays and cross-project lanes on top of the shared substrate.
-- the next open loop after that is making `memd` global-first, with explicit cross-project live lanes and provider-collision controls so one shared substrate can span harnesses safely.
-- the bootstrap UX still needs a deeper import path for projects with lots of existing docs or memory files so the default seed can stay concise without losing important context.
-- the single front door still needs to stay as one obvious command that auto-routes without making the user think about helper commands.
-- the project bootstrap flow still needs to report whether agent scaffolding exists instead of assuming a separate Codex `/init`.
-- the project bundle still needs structured import from repo state and git diffs, not just a bootstrap sweep.
-- memory health needs visibility into stale, duplicated, inferred, and conflicting facts.
-- the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading the unchanged ones.
-- the runtime adoption layer still needs to be wired into every major agent surface, not just Codex and Claude/OpenClaw bootstrap surfaces.
-- the next layer after canonical collision controls is broadening the same safety model into more UI/status surfaces and eventual automatic reconciliation.
-- the learning registry still needs a bridge layer so adapter-required skills surface concrete next steps instead of only classification metadata.
-- the gap loop now needs to drive the next `v6` phases, starting with dream/autodream foundations and token/context observability.
-- after those `v5` gaps are closed, phase 47 refinement should continue with token observability and compiled-first retrieval on top of the shared sync substrate.
+- the highest-priority open loop is replacing refresh-first behavior with live truth and truth-first retrieval.
+- seamless compaction still needs to become event-driven and automatic so long work stops depending on long context sessions.
+- capability discovery now surfaces a canonical capability-contract registry and bridge contract summary, but it still needs deeper per-harness contract semantics.
+- the runtime safety boundary is now enforced on passive bundle refresh/resume paths so normal memory operations cannot mutate shared user runtime state; explicit init still owns bridge application.
+- migration now has a provenance manifest and reuse path for existing bundle/source registries, but it still needs deeper conversion of old bundle state into the layered live-truth architecture.
+- token optimization is now being enforced in the prompt budget estimator and optimization hints, but it still needs broader cross-harness policy coverage.
+- self-evolution still needs to become a controlled policy-learning loop with promotion gates, rollback, and deprecation.
+- cross-project memory still needs explicit promotion rules so global intelligence does not become contamination.
+- bundle resume now carries a bounded live-truth lane plus a compact event spine derived from git status, diff summaries, and resume deltas, but that is still only a stepping stone toward a full event-driven cognition layer.
+- the current system still needs to make user corrections durable enough that the next answer cannot fall back to stale assumptions.
 
 ## Next Command
 
-Prioritize the shared-memory substrate: make `memd-server` the canonical real-time state hub for focus, blockers, claims, heartbeats, branch/port awareness, and handoffs across machines and harnesses; then make `memd` global-first with cross-project live lanes and provider-collision controls, keep the Codex front door to one obvious command, make project bootstrap preflight explicit, add structured repo introspection and incremental sync, wire adoption into Codex/Claude/OpenClaw startup paths, and keep `memd init` seeding project bundles from existing docs before continuing phase 47 token observability and compiled-first retrieval.
+Prioritize the ceiling substrate: make `memd-server` the canonical live-truth hub for fresh local reality, corrections, command outcomes, capability discoveries, focus, blockers, claims, and handoffs; make retrieval truth-first and compaction seamless; add harness capability contracts so agents know what is actually runnable; enforce runtime non-interference for normal memory operations; migrate existing bundles into the layered model safely; then push token efficiency toward the `90%` best-case target without accepting quality regressions.
+
+OpenClaw stack peers must be treated as first-class services, not vague labels: `memd`, `claw-control`, `agent-shell`, and `agent-secrets` need explicit peer identity, capability, and authority metadata so one session can escalate dependency/runtime failures to the right active service peer and get a proper product-level fix instead of an isolated patch.
 
 ---
 *Created: 2026-04-04 during GSD brownfield initialization*

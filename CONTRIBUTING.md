@@ -58,8 +58,8 @@ Useful commands while developing:
 ```bash
 cargo run -p memd-server
 cargo run -p memd-client --bin memd -- healthz
-cargo run -p memd-client --bin memd -- status --output .memd
-cargo run -p memd-client --bin memd -- resume --output .memd --intent current_task
+memd status --output .memd
+memd resume --output .memd --intent current_task
 ```
 
 When working on bundle setup or agent integration, use `status --output .memd`
