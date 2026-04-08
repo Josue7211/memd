@@ -1,8 +1,20 @@
 # memd
 
-`memd` is a memory control plane for agents.
+`memd` is a memory control plane and knowledge base for agents.
 
-It keeps memory compact, visible, scoped, and reusable across turns, tabs, and projects.
+It turns raw work into a compact, visible, source-linked memory system that stays
+usable across turns, tabs, machines, and projects. The goal is not just to store
+more context. The goal is to make memory reliable: read once, compile once,
+reuse forever, and always keep a path back to the evidence.
+
+`memd` combines:
+
+- harness packs for Codex, OpenClaw, and other agent surfaces
+- compiled memory pages that stay visible on disk
+- Obsidian wikilinks for human navigation
+- LightRAG as the semantic recall backend
+- session, tab, and project scope so live work stays separated
+- quality scoring so gaps, stale facts, and contradictions are obvious
 
 ## What it does
 
