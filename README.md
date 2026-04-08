@@ -25,6 +25,12 @@ memd resume --output .memd --intent current_task
 
 If you are using Codex, `memd` can load or reload the current bundle for you.
 
+## Architecture
+
+![memd architecture](./docs/architecture.png)
+
+See the editable source at [docs/architecture.excalidraw](./docs/architecture.excalidraw).
+
 ## Docs
 
 - [Setup](./docs/setup.md)
