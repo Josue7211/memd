@@ -31403,6 +31403,9 @@ mod tests {
         let index =
             crate::harness::index::build_harness_pack_index(&root, Some("demo"), Some("main"));
         assert_eq!(index.pack_count, 2);
+        assert_eq!(index.preset_names.len(), 5);
+        assert!(index.preset_names.iter().any(|name| name == "Codex"));
+        assert!(index.preset_names.iter().any(|name| name == "Hermes"));
         assert!(index.packs.iter().any(|pack| pack.name == "Codex"));
         assert!(index.packs.iter().any(|pack| pack.name == "OpenClaw"));
 
@@ -31411,6 +31414,12 @@ mod tests {
         assert!(summary.contains("packs=2"));
         assert!(summary.contains("Codex"));
         assert!(summary.contains("OpenClaw"));
+        assert!(summary.contains("presets=Codex|OpenClaw|Hermes|OpenCode|Agent Zero"));
+
+        let markdown = render_harness_pack_index_markdown(&root, &index);
+        assert!(markdown.contains("## Harness Presets"));
+        assert!(markdown.contains("Codex"));
+        assert!(markdown.contains("Agent Zero"));
 
         fs::remove_dir_all(root).expect("cleanup pack index temp dir");
     }
@@ -31456,6 +31465,7 @@ mod tests {
         let json = render_harness_pack_index_json(&index);
         assert_eq!(json.root, root.display().to_string());
         assert_eq!(json.pack_count, 2);
+        assert_eq!(json.preset_names.len(), 5);
         assert_eq!(json.packs.len(), 2);
         assert!(json.packs.iter().any(|pack| pack.name == "Codex"));
         assert!(json.packs.iter().any(|pack| pack.name == "OpenClaw"));

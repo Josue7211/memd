@@ -12,6 +12,7 @@ pub(crate) struct HarnessPackIndex {
     pub(crate) project: String,
     pub(crate) namespace: String,
     pub(crate) pack_count: usize,
+    pub(crate) preset_names: Vec<String>,
     pub(crate) packs: Vec<HarnessPackIndexEntry>,
 }
 
@@ -39,6 +40,11 @@ pub(crate) fn build_harness_pack_index(
     let project = project.unwrap_or("none").trim().to_string();
     let namespace = namespace.unwrap_or("none").trim().to_string();
     let registry = harness_preset_registry();
+    let preset_names = registry
+        .packs
+        .iter()
+        .map(|preset| preset.display_name.to_string())
+        .collect::<Vec<_>>();
     let codex = super::codex::build_codex_harness_pack(bundle_root, &project, &namespace);
     let openclaw = super::openclaw::build_openclaw_harness_pack(bundle_root, &project, &namespace);
     let packs = registry
@@ -56,6 +62,7 @@ pub(crate) fn build_harness_pack_index(
         project,
         namespace,
         pack_count: packs.len(),
+        preset_names,
         packs,
     }
 }
@@ -64,23 +71,40 @@ pub(crate) fn filter_harness_pack_index(
     index: HarnessPackIndex,
     query: Option<&str>,
 ) -> HarnessPackIndex {
+    let HarnessPackIndex {
+        root,
+        project,
+        namespace,
+        pack_count: _,
+        preset_names,
+        packs,
+    } = index;
     let Some(query) = query
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty())
     else {
-        return index;
+        return HarnessPackIndex {
+            root,
+            project,
+            namespace,
+            pack_count: packs.len(),
+            preset_names,
+            packs,
+        };
     };
 
-    let packs = index
-        .packs
+    let packs = packs
         .into_iter()
         .filter(|pack| harness_pack_matches(pack, &query))
         .collect::<Vec<_>>();
 
     HarnessPackIndex {
+        root,
+        project,
+        namespace,
         pack_count: packs.len(),
+        preset_names,
         packs,
-        ..index
     }
 }
 

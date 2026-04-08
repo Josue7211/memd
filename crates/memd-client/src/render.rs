@@ -233,6 +233,12 @@ pub(crate) fn render_harness_pack_index_summary(
                 .join("|")
         ));
     }
+    if !index.preset_names.is_empty() {
+        summary.push_str(&format!(
+            " presets={}",
+            index.preset_names.join("|")
+        ));
+    }
     summary
 }
 
@@ -246,6 +252,13 @@ pub(crate) fn render_harness_pack_index_markdown(
     markdown.push_str(&format!("- Project: `{}`\n", index.project));
     markdown.push_str(&format!("- Namespace: `{}`\n", index.namespace));
     markdown.push_str(&format!("- Packs: `{}`\n\n", index.pack_count));
+    if !index.preset_names.is_empty() {
+        markdown.push_str("## Harness Presets\n");
+        for preset in &index.preset_names {
+            markdown.push_str(&format!("- `{}`\n", preset));
+        }
+        markdown.push('\n');
+    }
 
     if index.packs.is_empty() {
         markdown.push_str("No visible harness packs found.\n");
@@ -265,6 +278,7 @@ pub(crate) fn render_harness_pack_index_json(index: &HarnessPackIndex) -> Harnes
         project: index.project.clone(),
         namespace: index.namespace.clone(),
         pack_count: index.pack_count,
+        preset_names: index.preset_names.clone(),
         packs: index
             .packs
             .iter()
@@ -305,6 +319,7 @@ pub(crate) struct HarnessPackIndexJson {
     pub(crate) project: String,
     pub(crate) namespace: String,
     pub(crate) pack_count: usize,
+    pub(crate) preset_names: Vec<String>,
     pub(crate) packs: Vec<HarnessPackIndexEntryJson>,
 }
 
