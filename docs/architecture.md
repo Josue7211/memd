@@ -40,6 +40,7 @@ Current packs:
 
 - Codex
 - OpenClaw
+- Hermes is the next planned harness pack.
 
 ### Control Plane
 
