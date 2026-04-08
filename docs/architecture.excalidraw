@@ -4,31 +4,6 @@
   "source": "https://excalidraw.com",
   "elements": [
     {
-      "type": "rectangle",
-      "id": "canvas_bg",
-      "x": 20,
-      "y": 10,
-      "width": 1450,
-      "height": 980,
-      "strokeColor": "#15181d",
-      "backgroundColor": "#15181d",
-      "fillStyle": "solid",
-      "strokeWidth": 1,
-      "strokeStyle": "solid",
-      "roughness": 0,
-      "opacity": 100,
-      "angle": 0,
-      "seed": 90001,
-      "version": 1,
-      "versionNonce": 90002,
-      "isDeleted": false,
-      "groupIds": [],
-      "boundElements": null,
-      "link": null,
-      "locked": false,
-      "roundness": {"type": 3}
-    },
-    {
       "type": "text",
       "id": "title_text",
       "x": 60,
@@ -907,7 +882,7 @@
   ],
   "appState": {
     "gridSize": null,
-    "viewBackgroundColor": "#0f172a"
+    "viewBackgroundColor": "#15181d"
   },
   "files": {}
 }

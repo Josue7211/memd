@@ -39,7 +39,7 @@ If you are using Codex, `memd` can load or reload the current bundle for you.
 
 ## Architecture
 
-![memd architecture](./docs/architecture-preview.png)
+<img src="./docs/architecture-preview.png" alt="memd architecture" width="100%" />
 
 See the editable source at [docs/architecture.excalidraw](./docs/architecture.excalidraw).
 
