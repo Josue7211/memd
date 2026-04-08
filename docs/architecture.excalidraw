@@ -10,8 +10,8 @@
       "y": 10,
       "width": 1450,
       "height": 980,
-      "strokeColor": "#0f172a",
-      "backgroundColor": "#0f172a",
+      "strokeColor": "#15181d",
+      "backgroundColor": "#15181d",
       "fillStyle": "solid",
       "strokeWidth": 1,
       "strokeStyle": "solid",
@@ -907,7 +907,7 @@
   ],
   "appState": {
     "gridSize": null,
-    "viewBackgroundColor": "#ffffff"
+    "viewBackgroundColor": "#0f172a"
   },
   "files": {}
 }
