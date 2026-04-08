@@ -3,6 +3,7 @@
 ## Diagram
 
 See the repo diagram source at [docs/architecture.excalidraw](./architecture.excalidraw).
+The landing page preview is [docs/architecture-dark.png](./architecture-dark.png).
 
 ## Summary
 
