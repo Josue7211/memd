@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{codex::CodexHarnessPack, openclaw::OpenClawHarnessPack};
+use super::{
+    codex::CodexHarnessPack, openclaw::OpenClawHarnessPack, preset::HarnessPresetRegistry,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HarnessPackIndex {
@@ -25,6 +27,10 @@ pub(crate) struct HarnessPackIndexEntry {
     pub(crate) behaviors: Vec<String>,
 }
 
+pub(crate) fn harness_preset_registry() -> HarnessPresetRegistry {
+    HarnessPresetRegistry::default_registry()
+}
+
 pub(crate) fn build_harness_pack_index(
     bundle_root: &Path,
     project: Option<&str>,
@@ -32,12 +38,18 @@ pub(crate) fn build_harness_pack_index(
 ) -> HarnessPackIndex {
     let project = project.unwrap_or("none").trim().to_string();
     let namespace = namespace.unwrap_or("none").trim().to_string();
+    let registry = harness_preset_registry();
     let codex = super::codex::build_codex_harness_pack(bundle_root, &project, &namespace);
     let openclaw = super::openclaw::build_openclaw_harness_pack(bundle_root, &project, &namespace);
-    let packs = vec![
-        HarnessPackIndexEntry::from(&codex),
-        HarnessPackIndexEntry::from(&openclaw),
-    ];
+    let packs = registry
+        .packs
+        .iter()
+        .filter_map(|preset| match preset.pack_id {
+            "codex" => Some(HarnessPackIndexEntry::from(&codex)),
+            "openclaw" => Some(HarnessPackIndexEntry::from(&openclaw)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
 
     HarnessPackIndex {
         root: bundle_root.display().to_string(),

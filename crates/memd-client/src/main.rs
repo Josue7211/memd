@@ -27088,6 +27088,27 @@ mod tests {
         assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     }
 
+    #[test]
+    fn harness_registry_exposes_shared_preset_ids_and_defaults() {
+        let registry = crate::harness::preset::HarnessPresetRegistry::default_registry();
+
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "codex"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "openclaw"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "hermes"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "opencode"));
+        assert!(registry.packs.iter().any(|pack| pack.pack_id == "agent-zero"));
+
+        let codex = registry
+            .get("codex")
+            .expect("codex preset should exist in the shared registry");
+        assert_eq!(codex.display_name, "Codex");
+        assert_eq!(codex.entrypoint, "memd wake --output .memd --intent current_task --write");
+        assert!(codex.surface_set.iter().any(|path| path.ends_with("CODEX_WAKEUP.md")));
+        assert!(codex.cache_policy.contains("turn-scoped"));
+        assert!(codex.copy_tone.contains("turn-first"));
+        assert_eq!(codex.default_verbs, vec!["wake", "resume", "checkpoint"]);
+    }
+
     #[tokio::test]
     async fn codex_pack_refreshes_wakeup_and_memory_files_after_capture() {
         let bundle_root =
