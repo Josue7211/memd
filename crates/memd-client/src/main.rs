@@ -27293,17 +27293,17 @@ mod tests {
         assert!(setup.contains("turn-scoped cache"));
         assert!(setup.contains(".memd/MEMD_WAKEUP.md"));
         assert!(setup.contains(".memd/agents/CODEX_MEMORY.md"));
-        assert!(setup.contains("Hermes, OpenCode, and Agent Zero"));
+        assert!(setup.contains("shared preset schema"));
 
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
         assert!(api.contains(".memd/MEMD_MEMORY.md"));
-        assert!(api.contains("Hermes, OpenCode, and Agent Zero"));
+        assert!(api.contains("shared preset schema"));
 
         assert!(positioning.contains("Codex is the first harness pack"));
         assert!(positioning.contains("local-first fallback path"));
-        assert!(positioning.contains("Hermes, OpenCode, and Agent Zero"));
+        assert!(positioning.contains("shared preset schema"));
 
         assert!(codex.contains("# Codex Harness Pack"));
         assert!(codex.contains("pack id: `codex`"));

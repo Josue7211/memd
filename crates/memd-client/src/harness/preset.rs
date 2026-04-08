@@ -92,6 +92,7 @@ impl HarnessPresetRegistry {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn get(&self, pack_id: &str) -> Option<&HarnessPreset> {
         self.packs.iter().find(|pack| pack.pack_id == pack_id)
     }

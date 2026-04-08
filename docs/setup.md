@@ -167,22 +167,13 @@ Repeated reads in the same turn reuse the turn-scoped cache. If backend recall
 or capture fails, memd keeps the local bundle markdown on disk and continues
 from that compact truth.
 
-OpenClaw is the second harness pack. All packs now come from the shared
-preset schema. OpenClaw uses the same bundle truth, but its primary loop is
-compact context before the task and spill at compaction boundaries.
+OpenClaw is the second harness pack. All packs now come from the shared preset schema. OpenClaw uses the same bundle truth, but its primary loop is compact context before the task and spill at compaction boundaries.
 
-Hermes is the adoption-focused harness pack. It also comes from the shared
-preset schema. It uses the same bundle truth, but its primary loop is
-onboarding-friendly wake and capture with cloud-first reach and self-host
-later.
+Hermes is the adoption-focused harness pack. It also comes from the shared preset schema. It uses the same bundle truth, but its primary loop is onboarding-friendly wake and capture with cloud-first reach and self-host later.
 
-Agent Zero is the zero-friction harness pack. It also comes from the shared
-preset schema. It uses the same bundle truth, but its primary loop is fast
-resume, durable remember, and clean handoff for fresh sessions.
+Agent Zero is the zero-friction harness pack. It also comes from the shared preset schema. It uses the same bundle truth, but its primary loop is fast resume, durable remember, and clean handoff for fresh sessions.
 
-OpenCode is the shared-lane harness pack. It also comes from the shared
-preset schema. It uses the same bundle truth, but its primary loop is resume,
-remember, and handoff for clients that want explicit continuity commands.
+OpenCode is the shared-lane harness pack. It also comes from the shared preset schema. It uses the same bundle truth, but its primary loop is resume, remember, and handoff for clients that want explicit continuity commands.
 
 ## Core Bundle Commands
 
