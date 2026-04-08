@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::preset::HarnessPresetRegistry;
 use super::shared::pack_index_entry_from_view;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +11,7 @@ pub(crate) struct HarnessPackIndex {
     pub(crate) project: String,
     pub(crate) namespace: String,
     pub(crate) pack_count: usize,
+    pub(crate) preset_names: Vec<String>,
     pub(crate) packs: Vec<HarnessPackIndexEntry>,
 }
 
@@ -25,6 +27,10 @@ pub(crate) struct HarnessPackIndexEntry {
     pub(crate) behaviors: Vec<String>,
 }
 
+pub(crate) fn harness_preset_registry() -> HarnessPresetRegistry {
+    HarnessPresetRegistry::default_registry()
+}
+
 pub(crate) fn build_harness_pack_index(
     bundle_root: &Path,
     project: Option<&str>,
@@ -32,6 +38,12 @@ pub(crate) fn build_harness_pack_index(
 ) -> HarnessPackIndex {
     let project = project.unwrap_or("none").trim().to_string();
     let namespace = namespace.unwrap_or("none").trim().to_string();
+    let registry = harness_preset_registry();
+    let preset_names = registry
+        .packs
+        .iter()
+        .map(|preset| preset.display_name.to_string())
+        .collect::<Vec<_>>();
     let codex = super::codex::build_codex_harness_pack(bundle_root, &project, &namespace);
     let claude_code =
         super::claude_code::build_claude_code_harness_pack(bundle_root, &project, &namespace);
@@ -54,6 +66,7 @@ pub(crate) fn build_harness_pack_index(
         project,
         namespace,
         pack_count: packs.len(),
+        preset_names,
         packs,
     }
 }
@@ -69,16 +82,27 @@ pub(crate) fn filter_harness_pack_index(
         return index;
     };
 
-    let packs = index
-        .packs
+    let HarnessPackIndex {
+        root,
+        project,
+        namespace,
+        pack_count: _,
+        preset_names,
+        packs,
+    } = index;
+
+    let packs = packs
         .into_iter()
         .filter(|pack| harness_pack_matches(pack, &query))
         .collect::<Vec<_>>();
 
     HarnessPackIndex {
+        root,
+        project,
+        namespace,
         pack_count: packs.len(),
+        preset_names,
         packs,
-        ..index
     }
 }
 

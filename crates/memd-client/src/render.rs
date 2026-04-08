@@ -16,6 +16,7 @@ use crate::{
         codex::CodexHarnessPack,
         hermes::HermesHarnessPack,
         index::{HarnessPackIndex, HarnessPackIndexEntry},
+        preset::HarnessPreset,
         openclaw::OpenClawHarnessPack,
         opencode::OpenCodeHarnessPack,
         shared::render_harness_pack_markdown,
@@ -151,6 +152,34 @@ pub(crate) fn render_opencode_harness_pack_markdown(pack: &OpenCodeHarnessPack) 
     render_harness_pack_markdown(pack)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn render_harness_preset_markdown(preset: &HarnessPreset) -> String {
+    let mut markdown = String::new();
+    markdown.push_str(&format!("# {} Harness Pack\n\n", preset.display_name));
+    markdown.push_str(&format!("- pack id: `{}`\n", preset.pack_id));
+    markdown.push_str(&format!("- entrypoint: `{}`\n", preset.entrypoint));
+    markdown.push_str(&format!("- cache policy: {}\n", preset.cache_policy));
+    markdown.push_str(&format!("- tone: {}\n\n", preset.copy_tone));
+
+    markdown.push_str("## Surface Set\n");
+    for surface in preset.surface_set {
+        markdown.push_str(&format!("- `{}`\n", surface));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Default Verbs\n");
+    for verb in preset.default_verbs {
+        markdown.push_str(&format!("- `{}`\n", verb));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Shared Core\n");
+    markdown.push_str(
+        "memd owns the same memory control plane, compiled pages, and turn-scoped cache.\n",
+    );
+    markdown
+}
+
 pub(crate) fn render_harness_pack_index_summary(
     bundle_root: &std::path::Path,
     index: &HarnessPackIndex,
@@ -177,6 +206,12 @@ pub(crate) fn render_harness_pack_index_summary(
                 .join("|")
         ));
     }
+    if !index.preset_names.is_empty() {
+        summary.push_str(&format!(
+            " presets={}",
+            index.preset_names.join("|")
+        ));
+    }
     summary
 }
 
@@ -190,6 +225,13 @@ pub(crate) fn render_harness_pack_index_markdown(
     markdown.push_str(&format!("- Project: `{}`\n", index.project));
     markdown.push_str(&format!("- Namespace: `{}`\n", index.namespace));
     markdown.push_str(&format!("- Packs: `{}`\n\n", index.pack_count));
+    if !index.preset_names.is_empty() {
+        markdown.push_str("## Harness Presets\n");
+        for preset in &index.preset_names {
+            markdown.push_str(&format!("- `{}`\n", preset));
+        }
+        markdown.push('\n');
+    }
 
     if index.packs.is_empty() {
         markdown.push_str("No visible harness packs found.\n");
@@ -209,6 +251,7 @@ pub(crate) fn render_harness_pack_index_json(index: &HarnessPackIndex) -> Harnes
         project: index.project.clone(),
         namespace: index.namespace.clone(),
         pack_count: index.pack_count,
+        preset_names: index.preset_names.clone(),
         packs: index
             .packs
             .iter()
@@ -561,6 +604,7 @@ pub(crate) struct HarnessPackIndexJson {
     pub(crate) project: String,
     pub(crate) namespace: String,
     pub(crate) pack_count: usize,
+    pub(crate) preset_names: Vec<String>,
     pub(crate) packs: Vec<HarnessPackIndexEntryJson>,
 }
 
