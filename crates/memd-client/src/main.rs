@@ -16,7 +16,7 @@ use std::{
 use crate::harness::cache;
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use commands::{
     parse_entity_relation_kind, parse_memory_kind_value, parse_memory_scope_value,
     parse_memory_visibility_value, parse_retrieval_intent, parse_retrieval_route,
@@ -59,7 +59,8 @@ use render::{
     render_command_catalog_markdown, render_command_catalog_summary, render_composite_markdown,
     render_composite_summary, render_consolidate_summary, render_entity_search_summary,
     render_entity_summary, render_eval_summary, render_experiment_markdown,
-    render_experiment_summary, render_explain_summary, render_gap_summary, render_handoff_prompt,
+    render_experiment_summary, render_explain_summary, render_feature_benchmark_markdown,
+    render_feature_benchmark_summary, render_gap_summary, render_handoff_prompt,
     render_harness_pack_index_json, render_harness_pack_index_markdown,
     render_harness_pack_index_summary, render_improvement_markdown, render_improvement_summary,
     render_maintenance_report_summary, render_obsidian_import_summary,
@@ -111,6 +112,7 @@ enum Commands {
     Improve(ImproveArgs),
     Scenario(ScenarioArgs),
     Composite(CompositeArgs),
+    Benchmark(BenchmarkArgs),
     Experiment(ExperimentArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
@@ -1983,6 +1985,18 @@ struct CompositeArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct BenchmarkArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    write: bool,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct ExperimentArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -2859,6 +2873,17 @@ async fn main() -> anyhow::Result<()> {
             }
             if args.summary {
                 println!("{}", render_composite_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Benchmark(args) => {
+            let response = run_feature_benchmark_command(&args, &base_url).await?;
+            if args.write {
+                write_feature_benchmark_artifacts(&args.output, &response)?;
+            }
+            if args.summary {
+                println!("{}", render_feature_benchmark_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -23288,6 +23313,570 @@ async fn run_composite_command(
     })
 }
 
+fn top_level_command_names() -> BTreeSet<String> {
+    let mut root = Cli::command();
+    root.build();
+    root.get_subcommands()
+        .map(|command| command.get_name().to_string())
+        .collect()
+}
+
+fn benchmark_command_coverage(
+    available: &BTreeSet<String>,
+    required: &[&str],
+) -> (usize, Vec<String>) {
+    let missing = required
+        .iter()
+        .filter(|name| !available.contains(**name))
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+    (required.len().saturating_sub(missing.len()), missing)
+}
+
+fn benchmark_status(score: u8) -> &'static str {
+    if score >= 80 {
+        "pass"
+    } else if score >= 60 {
+        "warn"
+    } else {
+        "fail"
+    }
+}
+
+fn benchmark_dim_score(report: &CompiledMemoryQualityReport, name: &str, fallback: u8) -> u8 {
+    report
+        .dimensions
+        .iter()
+        .find(|dimension| dimension.name == name)
+        .map(|dimension| dimension.score)
+        .unwrap_or(fallback)
+}
+
+fn benchmark_area_from_commands(
+    slug: &str,
+    name: &str,
+    available: &BTreeSet<String>,
+    required: &[&str],
+    evidence: Vec<String>,
+    recommendations: Vec<String>,
+    bonus_score: u8,
+) -> FeatureBenchmarkArea {
+    let (implemented_commands, missing) = benchmark_command_coverage(available, required);
+    let coverage_score = if required.is_empty() {
+        100
+    } else {
+        ((implemented_commands * 100) / required.len()) as u8
+    };
+    let score = ((coverage_score as u16 * 70) / 100 + (bonus_score as u16 * 30) / 100) as u8;
+    let mut merged_evidence = evidence;
+    merged_evidence.push(format!(
+        "command_coverage={}/{}",
+        implemented_commands,
+        required.len()
+    ));
+    let mut merged_recommendations = recommendations;
+    if !missing.is_empty() {
+        merged_recommendations.push(format!(
+            "fill missing command surfaces: {}",
+            missing.join(", ")
+        ));
+    }
+    FeatureBenchmarkArea {
+        slug: slug.to_string(),
+        name: name.to_string(),
+        score,
+        max_score: 100,
+        status: benchmark_status(score).to_string(),
+        implemented_commands,
+        expected_commands: required.len(),
+        evidence: merged_evidence,
+        recommendations: merged_recommendations,
+    }
+}
+
+async fn run_feature_benchmark_command(
+    args: &BenchmarkArgs,
+    base_url: &str,
+) -> anyhow::Result<FeatureBenchmarkReport> {
+    let started_at = Utc::now();
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let status = tokio::time::timeout(
+        Duration::from_secs(2),
+        read_bundle_status(&args.output, base_url),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
+    let command_names = top_level_command_names();
+    let command_catalog = command_catalog::build_command_catalog(&args.output);
+    let skill_catalog = build_skill_catalog(&args.output.join("skills"))?;
+    let pack_index = crate::harness::index::build_harness_pack_index(
+        &args.output,
+        runtime
+            .as_ref()
+            .and_then(|config| config.project.as_deref()),
+        runtime
+            .as_ref()
+            .and_then(|config| config.namespace.as_deref()),
+    );
+    let compiled_index = render_compiled_memory_index(&args.output).ok();
+    let memory_quality = build_compiled_memory_quality_report(&args.output).ok();
+    let eval = read_latest_bundle_eval(&args.output).ok().flatten();
+    let scenario = read_latest_scenario_report(&args.output).ok().flatten();
+    let maintain = read_latest_maintain_report(&args.output).ok().flatten();
+    let experiment = read_latest_experiment_report(&args.output).ok().flatten();
+    let evolution_proposal = read_latest_evolution_proposal(&args.output).ok().flatten();
+    let evolution_branch = read_latest_evolution_branch_manifest(&args.output)
+        .ok()
+        .flatten();
+    let event_log = read_bundle_event_log(&args.output).unwrap_or_default();
+
+    let setup_ready = status
+        .as_ref()
+        .and_then(|value| value.get("setup_ready"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(runtime.is_some());
+    let memory_pages = compiled_index
+        .as_ref()
+        .map(|index| index.pages.len())
+        .unwrap_or(0);
+    let launcher_count = fs::read_dir(args.output.join("agents"))
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().and_then(|value| value.to_str()) == Some("sh"))
+        .count();
+    let has_commands_file = args.output.join("COMMANDS.md").exists();
+    let has_memory_file = args.output.join("MEMD_MEMORY.md").exists();
+    let has_wakeup_file = args.output.join("MEMD_WAKEUP.md").exists();
+    let has_events_file = args.output.join("MEMD_EVENTS.md").exists();
+    let has_compiled_events = compiled_event_dir(&args.output).join("latest.md").exists();
+
+    let quality_score = memory_quality
+        .as_ref()
+        .map(|report| report.score)
+        .unwrap_or(50);
+    let retrieval_score = memory_quality
+        .as_ref()
+        .map(|report| benchmark_dim_score(report, "retrieval", 50))
+        .unwrap_or(50);
+    let freshness_score = memory_quality
+        .as_ref()
+        .map(|report| benchmark_dim_score(report, "freshness", 50))
+        .unwrap_or(50);
+    let provenance_score = memory_quality
+        .as_ref()
+        .map(|report| benchmark_dim_score(report, "provenance", 50))
+        .unwrap_or(50);
+    let token_efficiency_score = memory_quality
+        .as_ref()
+        .map(|report| benchmark_dim_score(report, "token_efficiency", 50))
+        .unwrap_or(50);
+
+    let mut areas = Vec::new();
+
+    areas.push(benchmark_area_from_commands(
+        "core_memory",
+        "Core Memory",
+        &command_names,
+        &[
+            "memory",
+            "store",
+            "candidate",
+            "promote",
+            "expire",
+            "verify",
+            "repair",
+            "search",
+            "lookup",
+            "working",
+            "source",
+            "inbox",
+            "explain",
+            "recall",
+            "timeline",
+            "events",
+        ],
+        vec![
+            format!("memory_quality={quality_score}"),
+            format!("freshness={freshness_score} provenance={provenance_score}"),
+            format!(
+                "memory_file={} event_log={}",
+                has_memory_file,
+                !event_log.is_empty()
+            ),
+        ],
+        Vec::new(),
+        ((quality_score as u16 + freshness_score as u16 + provenance_score as u16) / 3) as u8,
+    ));
+
+    areas.push(benchmark_area_from_commands(
+        "retrieval_context",
+        "Retrieval And Context",
+        &command_names,
+        &[
+            "lookup", "context", "recall", "search", "memory", "resume", "explain", "working",
+        ],
+        vec![
+            format!("retrieval_score={retrieval_score} token_efficiency={token_efficiency_score}"),
+            format!(
+                "route={} intent={}",
+                runtime
+                    .as_ref()
+                    .and_then(|config| config.route.as_deref())
+                    .unwrap_or("none"),
+                runtime
+                    .as_ref()
+                    .and_then(|config| config.intent.as_deref())
+                    .unwrap_or("none")
+            ),
+            format!(
+                "eval_snapshot={} scenario_snapshot={}",
+                eval.is_some(),
+                scenario.is_some()
+            ),
+        ],
+        Vec::new(),
+        ((retrieval_score as u16 + token_efficiency_score as u16) / 2) as u8,
+    ));
+
+    let visible_bonus = if has_memory_file && has_wakeup_file && memory_pages > 0 {
+        100
+    } else if has_memory_file || memory_pages > 0 {
+        75
+    } else {
+        45
+    };
+    areas.push(benchmark_area_from_commands(
+        "visible_memory",
+        "Visible Memory And Inspection",
+        &command_names,
+        &[
+            "memory",
+            "explain",
+            "entity",
+            "entity-search",
+            "timeline",
+            "source",
+            "workspaces",
+            "ui",
+        ],
+        vec![
+            format!(
+                "memory_pages={} wakeup={} memory={} commands_md={}",
+                memory_pages, has_wakeup_file, has_memory_file, has_commands_file
+            ),
+            format!("compiled_events={has_compiled_events}"),
+        ],
+        Vec::new(),
+        visible_bonus,
+    ));
+
+    let session_bonus = if setup_ready {
+        (100u16
+            + (launcher_count.min(6) as u16 * 100 / 6)
+            + if runtime
+                .as_ref()
+                .and_then(|config| config.tab_id.as_ref())
+                .is_some()
+            {
+                100
+            } else {
+                60
+            })
+            / 3
+    } else {
+        30
+    } as u8;
+    areas.push(benchmark_area_from_commands(
+        "bundle_session",
+        "Bundle And Session Workflow",
+        &command_names,
+        &[
+            "setup",
+            "init",
+            "status",
+            "doctor",
+            "config",
+            "agent",
+            "attach",
+            "resume",
+            "refresh",
+            "wake",
+            "watch",
+            "handoff",
+            "checkpoint",
+            "session",
+            "bundle",
+        ],
+        vec![
+            format!("setup_ready={setup_ready}"),
+            format!("launcher_scripts={launcher_count}"),
+            format!(
+                "session={} tab={}",
+                runtime
+                    .as_ref()
+                    .and_then(|config| config.session.as_deref())
+                    .unwrap_or("none"),
+                runtime
+                    .as_ref()
+                    .and_then(|config| config.tab_id.as_deref())
+                    .unwrap_or("none")
+            ),
+        ],
+        Vec::new(),
+        session_bonus,
+    ));
+
+    let capture_bonus = if has_events_file && !event_log.is_empty() {
+        100
+    } else if has_events_file {
+        75
+    } else {
+        45
+    };
+    areas.push(benchmark_area_from_commands(
+        "capture_compaction_events",
+        "Capture, Compaction, And Events",
+        &command_names,
+        &[
+            "hook",
+            "compact",
+            "checkpoint",
+            "consolidate",
+            "maintain",
+            "events",
+            "watch",
+            "remember",
+        ],
+        vec![
+            format!("event_count={}", event_log.len()),
+            format!(
+                "events_file={} compiled_events={}",
+                has_events_file, has_compiled_events
+            ),
+            format!("maintain_snapshot={}", maintain.is_some()),
+        ],
+        Vec::new(),
+        capture_bonus,
+    ));
+
+    let coordination_bonus = status
+        .as_ref()
+        .and_then(|value| value.get("cowork_surface"))
+        .map(|_| 100)
+        .or_else(|| {
+            status
+                .as_ref()
+                .and_then(|value| value.get("live_session"))
+                .map(|_| 80)
+        })
+        .unwrap_or(60);
+    areas.push(benchmark_area_from_commands(
+        "coordination_hive",
+        "Multi-Agent Coordination And Hive",
+        &command_names,
+        &[
+            "hive",
+            "hive-project",
+            "hive-join",
+            "awareness",
+            "heartbeat",
+            "claims",
+            "messages",
+            "tasks",
+            "coordination",
+            "session",
+        ],
+        vec![
+            format!(
+                "live_session_overlay={}",
+                status
+                    .as_ref()
+                    .and_then(|value| value.get("live_session"))
+                    .is_some()
+            ),
+            format!(
+                "cowork_surface={}",
+                status
+                    .as_ref()
+                    .and_then(|value| value.get("cowork_surface"))
+                    .is_some()
+            ),
+            format!(
+                "scenario_coworking={}",
+                scenario
+                    .as_ref()
+                    .map(|value| value.scenario == "coworking")
+                    .unwrap_or(false)
+            ),
+        ],
+        vec!["keep lane/worktree arbitration hot to prevent shared-branch drift".to_string()],
+        coordination_bonus,
+    ));
+
+    let obsidian_bonus = if command_names.contains("obsidian") {
+        85
+    } else {
+        20
+    };
+    areas.push(benchmark_area_from_commands(
+        "obsidian",
+        "Obsidian Integration",
+        &command_names,
+        &["obsidian", "memory", "search", "explain", "handoff"],
+        vec![
+            "obsidian command surface present".to_string(),
+            format!("vault_artifacts_active={}", false),
+        ],
+        vec![
+            "run obsidian scan/import/compile in a real vault to benchmark roundtrip quality"
+                .to_string(),
+        ],
+        obsidian_bonus,
+    ));
+
+    let semantic_bonus = if command_names.contains("rag") && command_names.contains("multimodal") {
+        if memory_pages > 0 { 90 } else { 75 }
+    } else {
+        30
+    };
+    areas.push(benchmark_area_from_commands(
+        "semantic_multimodal",
+        "Semantic And Multimodal Backend",
+        &command_names,
+        &["rag", "multimodal", "ingest", "memory", "context", "recall"],
+        vec![
+            format!(
+                "semantic_lane_present={}",
+                compiled_index
+                    .as_ref()
+                    .map(|index| {
+                        index.entries.iter().any(|entry| {
+                            entry.kind == "lane" && entry.lane == MemoryObjectLane::Semantic.slug()
+                        })
+                    })
+                    .unwrap_or(false)
+            ),
+            format!("backend_env={}", args.output.join("backend.env").exists()),
+        ],
+        Vec::new(),
+        semantic_bonus,
+    ));
+
+    let skill_count = skill_catalog.builtins.len() + skill_catalog.custom.len();
+    let evolution_bonus = match (&experiment, &evolution_proposal, &evolution_branch) {
+        (Some(_), Some(_), Some(_)) => 100,
+        (Some(_), _, _) => 80,
+        _ => 60,
+    };
+    areas.push(benchmark_area_from_commands(
+        "policy_skills_evolution",
+        "Policy, Skills, And Self-Evolution",
+        &command_names,
+        &[
+            "policy",
+            "skill-policy",
+            "skills",
+            "loops",
+            "telemetry",
+            "autoresearch",
+            "experiment",
+            "composite",
+            "improve",
+            "gap",
+        ],
+        vec![
+            format!("skills={skill_count}"),
+            format!(
+                "experiment={} proposal={} branch={}",
+                experiment.is_some(),
+                evolution_proposal.is_some(),
+                evolution_branch.is_some()
+            ),
+        ],
+        Vec::new(),
+        evolution_bonus,
+    ));
+
+    let diagnostics_bonus = if has_commands_file { 100 } else { 70 };
+    areas.push(benchmark_area_from_commands(
+        "diagnostics_admin",
+        "Diagnostics And Admin Surfaces",
+        &command_names,
+        &[
+            "healthz",
+            "status",
+            "doctor",
+            "config",
+            "commands",
+            "packs",
+            "skills",
+            "inspiration",
+            "maintenance-report",
+            "maintain",
+            "ui",
+        ],
+        vec![
+            format!("commands_md={has_commands_file}"),
+            format!("pack_count={}", pack_index.pack_count),
+            format!("catalog_count={}", command_catalog.command_count),
+        ],
+        Vec::new(),
+        diagnostics_bonus,
+    ));
+
+    let score = if areas.is_empty() {
+        0
+    } else {
+        (areas.iter().map(|area| area.score as u16).sum::<u16>() / areas.len() as u16) as u8
+    };
+
+    let mut evidence = vec![
+        format!("setup_ready={setup_ready}"),
+        format!("commands={}", command_catalog.command_count),
+        format!("skills={skill_count} packs={}", pack_index.pack_count),
+        format!("memory_pages={memory_pages} events={}", event_log.len()),
+    ];
+    if let Some(report) = memory_quality.as_ref() {
+        evidence.push(format!(
+            "memory_quality score={}/{} latency_ms={}",
+            report.score, report.max_score, report.latency_ms
+        ));
+    }
+
+    let recommendations = areas
+        .iter()
+        .filter(|area| area.status != "pass")
+        .flat_map(|area| area.recommendations.clone())
+        .collect::<Vec<_>>();
+
+    Ok(FeatureBenchmarkReport {
+        bundle_root: args.output.display().to_string(),
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        agent: runtime.as_ref().and_then(|config| config.agent.clone()),
+        session: runtime.as_ref().and_then(|config| config.session.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+        visibility: runtime
+            .as_ref()
+            .and_then(|config| config.visibility.clone()),
+        score,
+        max_score: 100,
+        command_count: command_catalog.command_count,
+        skill_count,
+        pack_count: pack_index.pack_count,
+        memory_pages,
+        event_count: event_log.len(),
+        areas,
+        evidence,
+        recommendations,
+        generated_at: started_at,
+        completed_at: Utc::now(),
+    })
+}
+
 async fn run_experiment_command(
     args: &ExperimentArgs,
     base_url: &str,
@@ -23721,6 +24310,35 @@ fn write_composite_artifacts(output: &Path, response: &CompositeReport) -> anyho
         .with_context(|| format!("write {}", baseline_json.display()))?;
     fs::write(&baseline_md, &markdown)
         .with_context(|| format!("write {}", baseline_md.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    fs::write(&timestamp_md, &markdown)
+        .with_context(|| format!("write {}", timestamp_md.display()))?;
+    Ok(())
+}
+
+fn feature_benchmark_reports_dir(output: &Path) -> PathBuf {
+    output.join("benchmarks").join("features")
+}
+
+fn write_feature_benchmark_artifacts(
+    output: &Path,
+    response: &FeatureBenchmarkReport,
+) -> anyhow::Result<()> {
+    let benchmark_dir = feature_benchmark_reports_dir(output);
+    fs::create_dir_all(&benchmark_dir)
+        .with_context(|| format!("create {}", benchmark_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let latest_json = benchmark_dir.join("latest.json");
+    let latest_md = benchmark_dir.join("latest.md");
+    let timestamp_json = benchmark_dir.join(format!("{timestamp}.json"));
+    let timestamp_md = benchmark_dir.join(format!("{timestamp}.md"));
+    let json = serde_json::to_string_pretty(response)? + "\n";
+    let markdown = render_feature_benchmark_markdown(response);
+
+    fs::write(&latest_json, &json).with_context(|| format!("write {}", latest_json.display()))?;
+    fs::write(&latest_md, &markdown).with_context(|| format!("write {}", latest_md.display()))?;
     fs::write(&timestamp_json, &json)
         .with_context(|| format!("write {}", timestamp_json.display()))?;
     fs::write(&timestamp_md, &markdown)
@@ -33579,6 +34197,42 @@ struct CompositeReport {
     findings: Vec<String>,
     recommendations: Vec<String>,
     evidence: Vec<String>,
+    generated_at: DateTime<Utc>,
+    completed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureBenchmarkArea {
+    slug: String,
+    name: String,
+    score: u8,
+    max_score: u8,
+    status: String,
+    implemented_commands: usize,
+    expected_commands: usize,
+    evidence: Vec<String>,
+    recommendations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FeatureBenchmarkReport {
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    score: u8,
+    max_score: u8,
+    command_count: usize,
+    skill_count: usize,
+    pack_count: usize,
+    memory_pages: usize,
+    event_count: usize,
+    areas: Vec<FeatureBenchmarkArea>,
+    evidence: Vec<String>,
+    recommendations: Vec<String>,
     generated_at: DateTime<Utc>,
     completed_at: DateTime<Utc>,
 }
@@ -46810,6 +47464,159 @@ mod tests {
         assert!(composite_dir.join("latest.md").exists());
 
         fs::remove_dir_all(dir).expect("cleanup composite temp bundle");
+    }
+
+    #[test]
+    fn cli_parses_benchmark_command() {
+        let cli = Cli::try_parse_from(["memd", "benchmark", "--output", ".memd", "--summary"])
+            .expect("benchmark command should parse");
+
+        match cli.command {
+            Commands::Benchmark(args) => {
+                assert_eq!(args.output, PathBuf::from(".memd"));
+                assert!(args.summary);
+            }
+            other => panic!("expected benchmark command, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_feature_benchmark_command_scores_feature_inventory_and_writes_artifacts() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-feature-benchmark-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create benchmark temp bundle");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        write_test_bundle_config(&dir, &base_url);
+        write_bundle_command_catalog_files(&dir).expect("write command catalog");
+
+        let snapshot = test_autoresearch_snapshot(
+            false,
+            vec!["keep the hive compact".to_string()],
+            vec!["crates/memd-client/src/main.rs".to_string()],
+        );
+        write_bundle_memory_files(&dir, &snapshot, None, false)
+            .await
+            .expect("write bundle memory files");
+        refresh_live_bundle_event_pages(&dir, &snapshot, None).expect("refresh event pages");
+
+        let eval = high_scoring_eval(&dir);
+        write_bundle_eval_artifacts(&dir, &eval).expect("write eval artifacts");
+        let scenario = high_scoring_scenario(&dir);
+        write_scenario_artifacts(&dir, &scenario).expect("write scenario artifacts");
+        write_maintain_artifacts(
+            &dir,
+            &MaintainReport {
+                mode: "scan".to_string(),
+                receipt_id: Some("maint-1".to_string()),
+                compacted_items: 2,
+                refreshed_items: 1,
+                repaired_items: 0,
+                findings: vec!["memory drift low".to_string()],
+                generated_at: Utc::now(),
+            },
+        )
+        .expect("write maintain artifacts");
+
+        let experiment = test_experiment_report(&dir, true, false, 92, 100, Utc::now());
+        let experiments_dir = experiment_reports_dir(&dir);
+        fs::create_dir_all(&experiments_dir).expect("create experiments dir");
+        fs::write(
+            experiments_dir.join("latest.json"),
+            serde_json::to_string_pretty(&experiment).expect("serialize experiment") + "\n",
+        )
+        .expect("write experiment latest");
+
+        let evolution_dir = evolution_reports_dir(&dir);
+        fs::create_dir_all(&evolution_dir).expect("create evolution dir");
+        let proposal = EvolutionProposalReport {
+            bundle_root: dir.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("codex-a".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            proposal_id: "prop-1".to_string(),
+            scenario: Some("self_evolution".to_string()),
+            topic: "feature benchmark".to_string(),
+            branch: "auto/evolution/feature-benchmark".to_string(),
+            state: "accepted_proposal".to_string(),
+            scope_class: "low_risk_evaluation_code".to_string(),
+            scope_gate: "auto_merge".to_string(),
+            authority_tier: "bundle".to_string(),
+            allowed_write_surface: vec!["crates/memd-client/src/main.rs".to_string()],
+            merge_eligible: true,
+            durable_truth: false,
+            accepted: true,
+            restored: false,
+            composite_score: 92,
+            composite_max: 100,
+            evidence: vec!["benchmark gate passed".to_string()],
+            scope_reasons: vec!["bounded change".to_string()],
+            generated_at: Utc::now(),
+            durability_due_at: None,
+        };
+        fs::write(
+            evolution_dir.join("latest-proposal.json"),
+            serde_json::to_string_pretty(&proposal).expect("serialize proposal") + "\n",
+        )
+        .expect("write proposal latest");
+        let branch = EvolutionBranchManifest {
+            proposal_id: "prop-1".to_string(),
+            branch: "auto/evolution/feature-benchmark".to_string(),
+            branch_prefix: "auto/evolution".to_string(),
+            project_root: Some(dir.display().to_string()),
+            head_sha: Some("abc123".to_string()),
+            base_branch: Some("main".to_string()),
+            status: "ready".to_string(),
+            merge_eligible: true,
+            durable_truth: false,
+            scope_class: "low_risk_evaluation_code".to_string(),
+            scope_gate: "auto_merge".to_string(),
+            generated_at: Utc::now(),
+            notes: vec!["benchmark branch".to_string()],
+        };
+        fs::write(
+            evolution_dir.join("latest-branch.json"),
+            serde_json::to_string_pretty(&branch).expect("serialize branch") + "\n",
+        )
+        .expect("write branch latest");
+
+        let report = run_feature_benchmark_command(
+            &BenchmarkArgs {
+                output: dir.clone(),
+                write: false,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run feature benchmark");
+
+        assert_eq!(report.areas.len(), 10);
+        assert!(report.score > 0);
+        assert!(
+            report
+                .areas
+                .iter()
+                .any(|area| area.slug == "coordination_hive" && area.score > 0)
+        );
+        assert!(report.areas.iter().any(|area| {
+            area.slug == "core_memory"
+                && area
+                    .evidence
+                    .iter()
+                    .any(|item| item.contains("memory_quality="))
+        }));
+
+        write_feature_benchmark_artifacts(&dir, &report).expect("write benchmark artifacts");
+        let benchmark_dir = feature_benchmark_reports_dir(&dir);
+        assert!(benchmark_dir.join("latest.json").exists());
+        assert!(benchmark_dir.join("latest.md").exists());
+
+        fs::remove_dir_all(dir).expect("cleanup benchmark dir");
     }
 
     fn high_scoring_eval(output: &Path) -> BundleEvalResponse {

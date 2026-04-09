@@ -2304,6 +2304,125 @@ pub(crate) fn render_composite_markdown(response: &crate::CompositeReport) -> St
     markdown
 }
 
+pub(crate) fn render_feature_benchmark_summary(response: &crate::FeatureBenchmarkReport) -> String {
+    let pass = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "pass")
+        .count();
+    let warn = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "warn")
+        .count();
+    let fail = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "fail")
+        .count();
+    let lead = response
+        .areas
+        .first()
+        .map(|area| format!(" first_area={}:{}", area.slug, area.score))
+        .unwrap_or_default();
+    format!(
+        "benchmark bundle={} project={} namespace={} agent={} session={} score={}/{} areas={} pass={} warn={} fail={} commands={} skills={} packs={} pages={} events={}{}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.score,
+        response.max_score,
+        response.areas.len(),
+        pass,
+        warn,
+        fail,
+        response.command_count,
+        response.skill_count,
+        response.pack_count,
+        response.memory_pages,
+        response.event_count,
+        lead
+    )
+}
+
+pub(crate) fn render_feature_benchmark_markdown(
+    response: &crate::FeatureBenchmarkReport,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd feature benchmark\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- score: {}/{}\n- commands: {}\n- skills: {}\n- packs: {}\n- memory_pages: {}\n- event_count: {}\n- generated_at: {}\n- completed_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.score,
+        response.max_score,
+        response.command_count,
+        response.skill_count,
+        response.pack_count,
+        response.memory_pages,
+        response.event_count,
+        response.generated_at,
+        response.completed_at
+    ));
+
+    markdown.push_str("\n## Areas\n\n");
+    for area in &response.areas {
+        markdown.push_str(&format!(
+            "### {} [{}]\n\n- score: {}/{}\n- command coverage: {}/{}\n",
+            area.name,
+            area.status,
+            area.score,
+            area.max_score,
+            area.implemented_commands,
+            area.expected_commands
+        ));
+        markdown.push_str("\n#### Evidence\n\n");
+        if area.evidence.is_empty() {
+            markdown.push_str("- none\n");
+        } else {
+            for item in &area.evidence {
+                markdown.push_str(&format!("- {item}\n"));
+            }
+        }
+        markdown.push_str("\n#### Recommendations\n\n");
+        if area.recommendations.is_empty() {
+            markdown.push_str("- none\n");
+        } else {
+            for item in &area.recommendations {
+                markdown.push_str(&format!("- {item}\n"));
+            }
+        }
+        markdown.push('\n');
+    }
+
+    markdown.push_str("## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.recommendations {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown
+}
+
 pub(crate) fn render_experiment_summary(response: &crate::ExperimentReport) -> String {
     let mut output = format!(
         "experiment bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} accepted={} restored={} score={}/{} iterations={}",
