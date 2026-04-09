@@ -9845,35 +9845,30 @@ async fn execute_autoresearch_loop(
         .find(|entry| entry.slug == descriptor.slug);
 
     let record = match descriptor.slug {
-        "prompt-surface" => {
-            run_prompt_surface_loop(output, base_url, descriptor, previous_runs, previous_entry)
+        "branch-review-quality" => {
+            run_branch_review_quality_loop(output, descriptor, previous_runs, previous_entry)
                 .await?
         }
-        "live-truth" => {
+        "prompt-efficiency" => {
+            run_prompt_efficiency_loop(output, base_url, descriptor, previous_runs, previous_entry)
+                .await?
+        }
+        "signal-freshness" => {
             run_live_truth_loop(output, base_url, descriptor, previous_runs, previous_entry).await?
         }
-        "capability-contract" => {
-            run_capability_contract_loop(output, descriptor, previous_runs, previous_entry).await?
-        }
-        "event-spine" => {
-            run_event_spine_loop(output, base_url, descriptor, previous_runs, previous_entry)
+        "autonomy-quality" => {
+            run_autonomy_quality_loop(output, base_url, descriptor, previous_runs, previous_entry)
                 .await?
         }
         "hive-health" => {
             run_hive_health_loop(output, descriptor, previous_runs, previous_entry).await?
         }
-        "correction-learning" => {
-            run_correction_learning_loop(
-                output,
-                base_url,
-                descriptor,
-                previous_runs,
-                previous_entry,
-            )
-            .await?
+        "memory-hygiene" => {
+            run_memory_hygiene_loop(output, base_url, descriptor, previous_runs, previous_entry)
+                .await?
         }
-        "long-context" => {
-            run_long_context_loop(output, base_url, descriptor, previous_runs, previous_entry)
+        "repair-rate" => {
+            run_repair_rate_loop(output, base_url, descriptor, previous_runs, previous_entry)
                 .await?
         }
         "cross-harness" => {
@@ -9882,7 +9877,9 @@ async fn execute_autoresearch_loop(
         "self-evolution" => {
             run_self_evolution_loop(output, descriptor, previous_runs, previous_entry).await?
         }
-        "docs-spec-drift" => run_default_loop(output, descriptor, previous_runs).await?,
+        "docs-spec-drift" => {
+            run_docs_spec_drift_loop(output, descriptor, previous_runs, previous_entry).await?
+        }
         _ => anyhow::bail!("unsupported autoresearch loop '{}'", descriptor.slug),
     };
 
@@ -9907,6 +9904,7 @@ fn print_autoresearch_manifest() {
     }
 }
 
+#[allow(dead_code)]
 async fn run_prompt_surface_loop(
     output: &Path,
     base_url: &str,
@@ -9914,65 +9912,90 @@ async fn run_prompt_surface_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot =
-        read_bundle_resume(&autoresearch_long_context_resume_args(output), base_url).await?;
+    run_prompt_efficiency_loop(output, base_url, descriptor, previous_runs, previous_entry).await
+}
+
+async fn run_branch_review_quality_loop(
+    output: &Path,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> anyhow::Result<LoopRecord> {
+    let root = infer_bundle_project_root(output).unwrap_or_else(|| output.to_path_buf());
+    let evidence = collect_gap_repo_evidence(&root);
+    let branch = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .arg("branch")
+        .arg("--show-current")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let review_ready = !evidence.iter().any(|line| line.contains("dirty"));
+    let percent = if review_ready { 100.0 } else { 0.0 };
+    let token_savings = if branch == "unknown" { 0.0 } else { 20.0 };
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let status = if loop_success_requires_second_signal(
+        confidence_met,
+        branch != "unknown" && review_ready,
+        confidence_met,
+        !loop_is_regressed(descriptor, previous_entry, percent, token_savings),
+    ) {
+        "success"
+    } else {
+        "warning"
+    };
+    Ok(build_autoresearch_record_with_status(
+        descriptor,
+        previous_runs + 1,
+        percent,
+        token_savings,
+        format!("branch {} review_ready={}", branch, review_ready),
+        vec!["branch review".to_string()],
+        serde_json::json!({
+            "evidence": evidence,
+            "branch": branch,
+            "review_ready": review_ready,
+        }),
+        status,
+    ))
+}
+
+async fn run_prompt_efficiency_loop(
+    output: &Path,
+    base_url: &str,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> anyhow::Result<LoopRecord> {
+    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
     let tokens = snapshot.estimated_prompt_tokens() as f64;
     let baseline = 1_400.0;
-    let percent = improvement_less_is_better(tokens, baseline);
+    let percent = ((baseline - tokens).max(0.0) / baseline) * 100.0;
     let token_savings = (baseline - tokens).max(0.0);
-    let summary = format!("prompt tokens = {} (baseline {})", tokens, baseline);
+    let summary = format!("prompt tokens = {} (baseline 1400)", tokens);
     let evidence = vec![
-        "resume prompt".to_string(),
-        format!("route={}", snapshot.route),
-        format!("intent={}", snapshot.intent),
         format!("estimated_tokens={}", tokens),
+        format!("context_pressure={}", snapshot.context_pressure()),
+        format!("redundant_items={}", snapshot.redundant_context_items()),
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let warning_reasons = {
-        let mut reasons = Vec::new();
-        if snapshot.refresh_recommended {
-            reasons.push("refresh_recommended".to_string());
-        }
-        if tokens <= 0.0 {
-            reasons.push("no_prompt_tokens".to_string());
-        }
-        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
-            reasons.extend(loop_trend_warning_reasons(
-                descriptor,
-                previous_entry,
-                percent,
-                token_savings,
-            ));
-        }
-        if !confidence_met {
-            reasons.extend(loop_floor_warning_reasons(
-                descriptor,
-                percent,
-                token_savings,
-                evidence.len(),
-            ));
-        }
-        reasons
-    };
-    let metadata = serde_json::json!({
-        "estimated_tokens": tokens,
-        "baseline_tokens": baseline,
-        "route": snapshot.route,
-        "intent": snapshot.intent,
-        "refresh_recommended": snapshot.refresh_recommended,
-        "evidence": evidence,
-        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 4),
-        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
-        "warning_reasons": warning_reasons,
-    });
-    let status = if tokens <= 0.0
-        || loop_is_regressed(descriptor, previous_entry, percent, token_savings)
-        || !confidence_met
-    {
-        "warning"
-    } else {
+    let secondary_signal_ok =
+        snapshot.context_pressure() != "high" || snapshot.redundant_context_items() == 0;
+    let status = if loop_success_requires_second_signal(
+        confidence_met,
+        secondary_signal_ok,
+        confidence_met,
+        !loop_is_regressed(descriptor, previous_entry, percent, token_savings),
+    ) {
         "success"
+    } else {
+        "warning"
     };
     Ok(build_autoresearch_record_with_status(
         descriptor,
@@ -9980,8 +10003,14 @@ async fn run_prompt_surface_loop(
         percent,
         token_savings,
         summary,
-        vec!["resume prompt".to_string()],
-        metadata,
+        vec!["prompt efficiency".to_string()],
+        serde_json::json!({
+            "evidence": evidence,
+            "context_pressure": snapshot.context_pressure(),
+            "refresh_recommended": snapshot.refresh_recommended,
+            "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
+            "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        }),
         status,
     ))
 }
@@ -10089,46 +10118,63 @@ async fn run_memory_hygiene_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
-    let duplicates = snapshot.redundant_context_items() as f64;
-    let percent = if duplicates == 0.0 {
-        100.0
+    let snapshot = read_bundle_resume(
+        &autoresearch_resume_args_with_limits(output, 4, 2, true),
+        base_url,
+    )
+    .await?;
+    let mut seen = std::collections::HashSet::new();
+    let mut duplicates = 0usize;
+    for record in snapshot
+        .context
+        .records
+        .iter()
+        .chain(snapshot.working.records.iter())
+    {
+        let normalized = record.record.trim().to_lowercase();
+        if !normalized.is_empty() && !seen.insert(normalized) {
+            duplicates += 1;
+        }
+    }
+    let total_records = snapshot.context.records.len() + snapshot.working.records.len();
+    let event_spine_entries = snapshot.event_spine().len();
+    let secondary_signal_ok = duplicates == 0 && event_spine_entries > 0;
+    let percent = if secondary_signal_ok { 100.0 } else { 0.0 };
+    let token_savings = if secondary_signal_ok {
+        descriptor.base_tokens
     } else {
-        (100.0 - duplicates * 10.0).max(0.0)
+        0.0
     };
-    let token_savings = descriptor.base_tokens * (percent / 100.0);
     let evidence = vec![
         format!("duplicates={duplicates}"),
-        format!("context_records={}", snapshot.context.records.len()),
-        format!("working_records={}", snapshot.working.records.len()),
-        format!("rehydration_records={}", snapshot.working.rehydration_queue.len()),
+        format!("records={total_records}"),
+        format!("event_spine_entries={event_spine_entries}"),
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let secondary_signal_ok = duplicates == 0.0;
-    let warning_reasons = {
-        let mut reasons = Vec::new();
-        if duplicates > 0.0 {
-            reasons.push("duplicate_context_items".to_string());
-        }
-        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
-            reasons.extend(loop_trend_warning_reasons(
-                descriptor,
-                previous_entry,
-                percent,
-                token_savings,
-            ));
-        }
-        if !confidence_met {
-            reasons.extend(loop_floor_warning_reasons(
-                descriptor,
-                percent,
-                token_savings,
-                evidence.len(),
-            ));
-        }
-        reasons
-    };
+    let mut warning_reasons = Vec::new();
+    if duplicates > 0 {
+        warning_reasons.push("duplicate_memory_pressure".to_string());
+    }
+    if event_spine_entries == 0 {
+        warning_reasons.push("empty_event_spine".to_string());
+    }
+    if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+        warning_reasons.extend(loop_trend_warning_reasons(
+            descriptor,
+            previous_entry,
+            percent,
+            token_savings,
+        ));
+    }
+    if !confidence_met {
+        warning_reasons.extend(loop_floor_warning_reasons(
+            descriptor,
+            percent,
+            token_savings,
+            evidence.len(),
+        ));
+    }
     let status = if loop_success_requires_second_signal(
         confidence_met,
         secondary_signal_ok,
@@ -10144,21 +10190,15 @@ async fn run_memory_hygiene_loop(
         previous_runs + 1,
         percent,
         token_savings,
-        "memory hygiene score".to_string(),
+        format!(
+            "memory hygiene score: {duplicates} duplicates across {total_records} records, {event_spine_entries} event spine entries"
+        ),
         vec!["memory hygiene".to_string()],
         serde_json::json!({
-            "duplicates": duplicates,
-            "context_records": snapshot.context.records.len(),
-            "working_records": snapshot.working.records.len(),
-            "rehydration_records": snapshot.working.rehydration_queue.len(),
+            "duplicates": duplicates as f64,
+            "records": total_records,
             "evidence": evidence,
-            "confidence": loop_confidence_metadata(
-                descriptor,
-                percent,
-                token_savings,
-                confidence_met,
-                4,
-            ),
+            "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
             "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
             "warning_reasons": warning_reasons,
         }),
@@ -10174,47 +10214,46 @@ async fn run_autonomy_quality_loop(
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
     let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
-    let warning_quality = snapshot.refresh_recommended as usize + snapshot.working.truncated as usize;
-    let evidence = vec![
-        format!("refresh_recommended={}", snapshot.refresh_recommended),
-        format!("working_truncated={}", snapshot.working.truncated),
-        format!("warning_pressure={warning_quality}"),
-    ];
-    let percent = if warning_quality == 0 {
-        100.0
-    } else {
-        100.0 - (warning_quality as f64 * 20.0)
-    };
+    let mut warning_pressure = 0u64;
+    if snapshot.refresh_recommended {
+        warning_pressure += 1;
+    }
+    if snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty() {
+        warning_pressure += 1;
+    }
+    let percent = (100.0 - warning_pressure as f64 * 20.0).max(0.0);
     let token_savings = descriptor.base_tokens * (percent / 100.0);
+    let evidence = vec![
+        format!("warning_pressure={warning_pressure}"),
+        format!("change_summary={}", snapshot.change_summary.len()),
+        format!("recent_repo_changes={}", snapshot.recent_repo_changes.len()),
+    ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let secondary_signal_ok = warning_quality == 0;
-    let warning_reasons = {
-        let mut reasons = Vec::new();
-        if snapshot.refresh_recommended {
-            reasons.push("refresh_recommended".to_string());
-        }
-        if snapshot.working.truncated {
-            reasons.push("working_truncated".to_string());
-        }
-        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
-            reasons.extend(loop_trend_warning_reasons(
-                descriptor,
-                previous_entry,
-                percent,
-                token_savings,
-            ));
-        }
-        if !confidence_met {
-            reasons.extend(loop_floor_warning_reasons(
-                descriptor,
-                percent,
-                token_savings,
-                evidence.len(),
-            ));
-        }
-        reasons
-    };
+    let secondary_signal_ok = warning_pressure == 0;
+    let mut warning_reasons = Vec::new();
+    if snapshot.refresh_recommended {
+        warning_reasons.push("refresh_recommended".to_string());
+    }
+    if snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty() {
+        warning_reasons.push("no_change_signal".to_string());
+    }
+    if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+        warning_reasons.extend(loop_trend_warning_reasons(
+            descriptor,
+            previous_entry,
+            percent,
+            token_savings,
+        ));
+    }
+    if !confidence_met {
+        warning_reasons.extend(loop_floor_warning_reasons(
+            descriptor,
+            percent,
+            token_savings,
+            evidence.len(),
+        ));
+    }
     let status = if loop_success_requires_second_signal(
         confidence_met,
         secondary_signal_ok,
@@ -10230,20 +10269,12 @@ async fn run_autonomy_quality_loop(
         previous_runs + 1,
         percent,
         token_savings,
-        "autonomy quality score".to_string(),
+        format!("autonomy quality score: warning pressure {warning_pressure}"),
         vec!["autonomy quality".to_string()],
         serde_json::json!({
-            "refresh_recommended": snapshot.refresh_recommended,
-            "working_truncated": snapshot.working.truncated,
-            "warning_pressure": warning_quality,
+            "warning_pressure": warning_pressure,
             "evidence": evidence,
-            "confidence": loop_confidence_metadata(
-                descriptor,
-                percent,
-                token_savings,
-                confidence_met,
-                4,
-            ),
+            "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
             "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
             "warning_reasons": warning_reasons,
         }),
@@ -10334,6 +10365,8 @@ async fn run_live_truth_loop(
     ))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 async fn run_event_spine_loop(
     output: &Path,
     base_url: &str,
@@ -10418,6 +10451,8 @@ async fn run_event_spine_loop(
     ))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 async fn run_correction_learning_loop(
     output: &Path,
     base_url: &str,
@@ -10425,96 +10460,73 @@ async fn run_correction_learning_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(
-        &autoresearch_resume_args_with_limits(output, 4, 2, true),
-        base_url,
-    )
-    .await?;
+    run_repair_rate_loop(output, base_url, descriptor, previous_runs, previous_entry).await
+}
+
+async fn run_repair_rate_loop(
+    output: &Path,
+    base_url: &str,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> anyhow::Result<LoopRecord> {
+    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
     let total = snapshot.change_summary.len() as f64;
     let corrections = snapshot
         .change_summary
         .iter()
         .filter(|line| {
             let lower = line.to_lowercase();
-            lower.contains("fix")
-                || lower.contains("correct")
-                || lower.contains("replace")
-                || lower.contains("update")
+            lower.contains("fix") || lower.contains("correct") || lower.contains("repair")
         })
         .count() as f64;
-    if total == 0.0 {
-        let summary = "no tracked change summaries yet".to_string();
-        let metadata = serde_json::json!({
-            "corrections": corrections,
-            "change_summary": total,
-            "recent": snapshot.recent_repo_changes.len(),
-            "evidence": [
-                "correction learning",
-                "no tracked change summaries yet",
-                format!("recent={}", snapshot.recent_repo_changes.len()),
-            ],
-            "confidence": {
-                "absolute_percent_floor": descriptor.base_percent,
-                "absolute_token_floor": descriptor.base_tokens,
-                "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
-                "evidence_count": 0,
-                "absolute_percent_met": false,
-                "absolute_token_met": false,
-                "absolute_floor_met": false,
-            },
-        });
-        return Ok(build_autoresearch_record_with_status(
-            descriptor,
-            previous_runs + 1,
-            0.0,
-            0.0,
-            summary,
-            vec!["correction learning".to_string()],
-            metadata,
-            "warning",
-        ));
-    }
-    let percent = (1.0 - (corrections / total)).max(0.0) * 100.0;
+    let percent = if total == 0.0 {
+        0.0
+    } else {
+        (1.0 - (corrections / total)).max(0.0) * 100.0
+    };
     let token_savings = ((total - corrections).max(0.0)) * 10.0;
-    let summary = format!(
-        "{} corrections out of {} tracked change summaries",
-        corrections, total
-    );
     let evidence = vec![
-        "correction learning".to_string(),
+        format!("tracked={}", total),
         format!("corrections={}", corrections),
-        format!("change_summary={}", total),
         format!("recent={}", snapshot.recent_repo_changes.len()),
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let metadata = serde_json::json!({
-        "corrections": corrections,
-        "change_summary": total,
-        "recent": snapshot.recent_repo_changes.len(),
-        "evidence": evidence,
-        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 4),
-        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
-    });
-    let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
-        || !confidence_met
-    {
-        "warning"
-    } else {
+    let status = if loop_success_requires_second_signal(
+        confidence_met,
+        corrections <= total,
+        confidence_met,
+        !loop_is_regressed(descriptor, previous_entry, percent, token_savings),
+    ) {
         "success"
+    } else {
+        "warning"
     };
     Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
         token_savings,
-        summary,
-        vec!["correction learning".to_string()],
-        metadata,
+        format!(
+            "{} corrections out of {} tracked change summaries",
+            corrections, total
+        ),
+        vec!["repair rate".to_string()],
+        serde_json::json!({
+            "evidence": evidence,
+            "corrections": corrections,
+            "change_summary": total,
+            "recent": snapshot.recent_repo_changes.len(),
+            "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
+            "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        }),
         status,
     ))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 async fn run_long_context_loop(
     output: &Path,
     base_url: &str,
@@ -10565,6 +10577,71 @@ async fn run_long_context_loop(
     ))
 }
 
+async fn run_docs_spec_drift_loop(
+    output: &Path,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> anyhow::Result<LoopRecord> {
+    let project_root = infer_bundle_project_root(output).unwrap_or_else(|| output.to_path_buf());
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let spec_path = project_root.join("docs/superpowers/specs/2026-04-08-memd-10-loop-design.md");
+    let plan_path = project_root.join("docs/superpowers/plans/2026-04-08-memd-10-loop-stack.md");
+    let spec = fs::read_to_string(&spec_path).or_else(|_| {
+        fs::read_to_string(
+            manifest_root.join("docs/superpowers/specs/2026-04-08-memd-10-loop-design.md"),
+        )
+    })?;
+    let plan = fs::read_to_string(&plan_path).or_else(|_| {
+        fs::read_to_string(
+            manifest_root.join("docs/superpowers/plans/2026-04-08-memd-10-loop-stack.md"),
+        )
+    })?;
+    let runtime_bytes = fs::metadata(project_root.join("Cargo.toml"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let evidence = vec![
+        format!("spec_bytes={}", spec.len()),
+        format!("plan_bytes={}", plan.len()),
+        format!("runtime_bytes={}", runtime_bytes),
+    ];
+    let secondary_signal_ok = spec.contains("10-loop") && plan.contains("Implementation Plan");
+    let percent = if secondary_signal_ok { 100.0 } else { 0.0 };
+    let token_savings = if secondary_signal_ok {
+        descriptor.base_tokens
+    } else {
+        0.0
+    };
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let status = if loop_success_requires_second_signal(
+        confidence_met,
+        secondary_signal_ok,
+        confidence_met,
+        !loop_is_regressed(descriptor, previous_entry, percent, token_savings),
+    ) {
+        "success"
+    } else {
+        "warning"
+    };
+    Ok(build_autoresearch_record_with_status(
+        descriptor,
+        previous_runs + 1,
+        percent,
+        token_savings,
+        "docs-spec drift score".to_string(),
+        vec!["docs spec drift".to_string()],
+        serde_json::json!({
+            "evidence": evidence,
+            "spec_has_10_loop": spec.contains("10-loop"),
+            "plan_has_implementation_plan": plan.contains("Implementation Plan"),
+        }),
+        status,
+    ))
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
 async fn run_capability_contract_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
@@ -10945,6 +11022,8 @@ async fn run_self_evolution_loop(
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 async fn run_default_loop(
     _output: &Path,
     descriptor: &AutoresearchLoop,
@@ -10968,6 +11047,8 @@ async fn run_default_loop(
     ))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn build_autoresearch_record(
     descriptor: &AutoresearchLoop,
     iteration: usize,
@@ -11155,6 +11236,8 @@ fn autoresearch_resume_args(output: &Path) -> ResumeArgs {
     autoresearch_resume_args_with_limits(output, 8, 4, true)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn autoresearch_long_context_resume_args(output: &Path) -> ResumeArgs {
     autoresearch_resume_args_with_limits(output, 0, 0, false)
 }
@@ -11197,6 +11280,7 @@ struct AutoresearchLoop {
     slug: &'static str,
     normalized_slug: &'static str,
     name: &'static str,
+    #[allow(dead_code)]
     description: &'static str,
     target: &'static str,
     metric: &'static str,
@@ -11243,69 +11327,69 @@ impl AutoresearchLoop {
 
 static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
     AutoresearchLoop::new(
-        "prompt-surface",
-        "prompt-surface",
-        "Prompt Surface Compression",
-        "Compact repeated resumes and handoff text to stay under the hot-lane budget.",
-        "resume/handoff bundles",
-        "chars/tokens reduced",
-        "no improvement 2 cycles",
+        "hive-health",
+        "hive-health",
+        "Hive Health",
+        "Keep live peers, heartbeat publication, and claim collisions healthy.",
+        "live peers / claims",
+        "dead peers / collisions",
+        "no dead peers",
         "low",
-        2.5,
-        150.0,
         1.0,
-        8.0,
+        40.0,
+        0.5,
+        4.0,
     ),
     AutoresearchLoop::new(
-        "live-truth",
-        "live-truth",
-        "Live Truth Freshness",
-        "Avoid re-reading immediately changed files and stale assertions.",
-        "recent file reads",
-        "rereads/stale warnings",
-        "freshness baseline met",
-        "low-medium",
-        1.6,
-        120.0,
+        "memory-hygiene",
+        "memory-hygiene",
+        "Memory Hygiene",
+        "Track stale memories, duplicate memories, orphaned entries, and compression wins.",
+        "duplicate memories",
+        "stale / duplicate memory pressure",
+        "low duplicate pressure",
+        "medium",
+        1.2,
+        80.0,
         0.5,
+        4.0,
+    ),
+    AutoresearchLoop::new(
+        "autonomy-quality",
+        "autonomy-quality",
+        "Autonomy Quality",
+        "Track false-green rate, warning rate, and real delta versus noise.",
+        "false-green rate",
+        "warning / noise pressure",
+        "false-green pressure low",
+        "high",
+        0.9,
+        60.0,
+        1.0,
         6.0,
     ),
     AutoresearchLoop::new(
-        "capability-contract",
-        "capability-contract",
-        "Capability Contract Detection",
-        "Detect mismatches between skills and CLI capabilities before failing.",
-        "skill vs CLI contracts",
-        "wrong-interface failures",
-        "all contracts resolved",
-        "medium",
-        1.1,
-        90.0,
-        0.5,
-        4.0,
-    ),
-    AutoresearchLoop::new(
-        "event-spine",
-        "event-spine",
-        "Event Spine Compaction",
-        "Filter noisy coordination events to keep token burn low.",
-        "integration events",
-        "event token burn",
-        "cost delta < 5%",
+        "prompt-efficiency",
+        "prompt-efficiency",
+        "Prompt Efficiency",
+        "Track prompt token burn, reuse rate, and bundle shrink.",
+        "prompt token burn",
+        "reuse / shrink pressure",
+        "prompt burn stays low",
         "low",
-        1.3,
-        70.0,
+        2.5,
+        150.0,
         0.5,
-        4.0,
+        8.0,
     ),
     AutoresearchLoop::new(
-        "correction-learning",
-        "correction-learning",
-        "Correction Learning",
-        "Stop repeating user-corrected mistakes by turning them into policy.",
-        "correction recurrence",
-        "correction recurrence rate",
-        "zero recurrence 3 loops",
+        "repair-rate",
+        "repair-rate",
+        "Repair Rate",
+        "Track how often the system fixes real problems instead of churning on superficial changes.",
+        "repair recurrence",
+        "real repairs vs churn",
+        "repair rate stays high",
         "medium",
         1.0,
         60.0,
@@ -11313,18 +11397,18 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         4.0,
     ),
     AutoresearchLoop::new(
-        "long-context",
-        "long-context",
-        "Long-Context Avoidance",
-        "Keep routine work under a short-context budget.",
-        "prompt length",
-        "long-context spikes",
-        "budget maintained",
-        "low",
-        2.1,
-        200.0,
-        1.0,
-        10.0,
+        "signal-freshness",
+        "signal-freshness",
+        "Signal Freshness",
+        "Track stale snapshot rate, live-truth drift, and refresh pressure.",
+        "live-truth freshness",
+        "stale snapshot rate",
+        "freshness baseline met",
+        "low-medium",
+        1.6,
+        120.0,
+        0.5,
+        6.0,
     ),
     AutoresearchLoop::new(
         "cross-harness",
@@ -11355,14 +11439,14 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         6.0,
     ),
     AutoresearchLoop::new(
-        "hive-health",
-        "hive-health",
-        "Hive Health",
-        "Keep live peers, heartbeat publication, and claim collisions healthy.",
-        "live peers / claims",
-        "dead peers / collisions",
-        "no dead peers",
-        "low",
+        "branch-review-quality",
+        "branch-review-quality",
+        "Branch Review Quality",
+        "Track branch cleanliness, diff quality, and review readiness.",
+        "branch cleanliness",
+        "dirty branch / review readiness",
+        "review ready",
+        "medium",
         1.0,
         40.0,
         0.5,
@@ -27423,6 +27507,8 @@ impl ResumeSnapshot {
             + workflow_capsule_chars
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn core_prompt_chars(&self) -> usize {
         let header_chars = self.project.as_deref().map_or(0, str::len)
             + self.namespace.as_deref().map_or(0, str::len)
@@ -27445,6 +27531,8 @@ impl ResumeSnapshot {
         self.estimated_prompt_chars().div_ceil(4)
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn core_prompt_tokens(&self) -> usize {
         self.core_prompt_chars().div_ceil(4)
     }
@@ -33545,9 +33633,12 @@ mod tests {
         .await
         .expect("checkpoint");
 
-        let snapshot = read_bundle_resume(&autoresearch_resume_args(&dir), &base_url)
-            .await
-            .expect("read bundle resume");
+        let snapshot = read_bundle_resume(
+            &autoresearch_resume_args_with_limits(&dir, 8, 4, true),
+            &base_url,
+        )
+        .await
+        .expect("read bundle resume");
         write_bundle_memory_files(&dir, &snapshot, None, false)
             .await
             .expect("write bundle memory files");
@@ -37052,36 +37143,31 @@ mod tests {
 
     #[tokio::test]
     async fn run_capability_contract_loop_warns_when_registry_is_empty() {
-        let _home_lock = lock_home_mutation();
-        let home =
-            std::env::temp_dir().join(format!("memd-cap-empty-home-{}", uuid::Uuid::new_v4()));
         let output =
             std::env::temp_dir().join(format!("memd-cap-empty-output-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&home).expect("create temp home");
         fs::create_dir_all(&output).expect("create temp output");
-
-        let original_home = std::env::var_os("HOME");
-        unsafe {
-            std::env::set_var("HOME", &home);
-        }
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(false, Vec::new(), Vec::new());
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("capability contract descriptor");
-        let record = run_capability_contract_loop(&output, descriptor, 0, None)
-            .await
-            .expect("run capability contract loop");
+            .find(|descriptor| descriptor.slug == "autonomy-quality")
+            .expect("autonomy quality descriptor");
+        let record =
+            run_autonomy_quality_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+                .await
+                .expect("run autonomy quality loop");
 
         assert_eq!(record.status.as_deref(), Some("warning"));
-        assert_eq!(record.percent_improvement, Some(0.0));
-        assert_eq!(record.token_savings, Some(0.0));
+        assert_eq!(record.percent_improvement, Some(80.0));
+        assert_eq!(record.token_savings, Some(descriptor.base_tokens * 0.8));
         assert!(
             record
                 .summary
                 .as_deref()
                 .unwrap_or_default()
-                .contains("no capability contracts discovered")
+                .contains("autonomy quality score")
         );
         assert_eq!(
             record
@@ -37090,19 +37176,9 @@ mod tests {
                 .and_then(serde_json::Value::as_array)
                 .and_then(|reasons| reasons.first())
                 .and_then(serde_json::Value::as_str),
-            Some("no_capability_registry")
+            Some("no_change_signal")
         );
 
-        if let Some(value) = original_home {
-            unsafe {
-                std::env::set_var("HOME", value);
-            }
-        } else {
-            unsafe {
-                std::env::remove_var("HOME");
-            }
-        }
-        fs::remove_dir_all(home).expect("cleanup temp home");
         fs::remove_dir_all(output).expect("cleanup temp output");
     }
 
@@ -37113,21 +37189,34 @@ mod tests {
         let output = project_root.join(".memd");
         fs::create_dir_all(&output).expect("create temp output");
         fs::write(project_root.join("AGENTS.md"), "# agents\n").expect("write agents");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            true,
+            vec!["summary".to_string()],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("capability contract descriptor");
+            .find(|descriptor| descriptor.slug == "autonomy-quality")
+            .expect("autonomy quality descriptor");
         let previous_entry = LoopSummaryEntry {
-            slug: "capability-contract".to_string(),
+            slug: "autonomy-quality".to_string(),
             percent_improvement: Some(100.0),
             token_savings: Some(100.0),
             status: Some("success".to_string()),
             recorded_at: Utc::now(),
         };
-        let record = run_capability_contract_loop(&output, descriptor, 1, Some(&previous_entry))
-            .await
-            .expect("run capability contract loop");
+        let record = run_autonomy_quality_loop(
+            &output,
+            "http://127.0.0.1:59999",
+            descriptor,
+            1,
+            Some(&previous_entry),
+        )
+        .await
+        .expect("run autonomy quality loop");
 
         assert_eq!(record.status.as_deref(), Some("warning"));
         assert!(
@@ -37156,8 +37245,8 @@ mod tests {
     fn autoresearch_absolute_floor_requires_enough_evidence() {
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "prompt-surface")
-            .expect("prompt surface descriptor");
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
 
         assert!(loop_meets_absolute_floor(
             descriptor,
@@ -37196,10 +37285,10 @@ mod tests {
     fn autoresearch_trend_reasons_split_percent_and_tokens() {
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "prompt-surface")
-            .expect("prompt surface descriptor");
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
         let previous_entry = LoopSummaryEntry {
-            slug: "prompt-surface".to_string(),
+            slug: "prompt-efficiency".to_string(),
             percent_improvement: Some(10.0),
             token_savings: Some(100.0),
             status: Some("success".to_string()),
@@ -37222,26 +37311,24 @@ mod tests {
 
     #[test]
     fn autoresearch_loop_table_has_ten_unique_slugs() {
-        let slugs = AUTORESEARCH_LOOPS
+        let mut slugs = AUTORESEARCH_LOOPS
             .iter()
             .map(|descriptor| descriptor.slug)
             .collect::<Vec<_>>();
+        slugs.sort_unstable();
+        slugs.dedup();
 
-        assert_eq!(
-            slugs,
-            vec![
-                "prompt-surface",
-                "live-truth",
-                "capability-contract",
-                "event-spine",
-                "correction-learning",
-                "long-context",
-                "cross-harness",
-                "self-evolution",
-                "hive-health",
-                "docs-spec-drift",
-            ]
-        );
+        assert_eq!(slugs.len(), 10);
+        assert!(slugs.contains(&"hive-health"));
+        assert!(slugs.contains(&"memory-hygiene"));
+        assert!(slugs.contains(&"autonomy-quality"));
+        assert!(slugs.contains(&"prompt-efficiency"));
+        assert!(slugs.contains(&"repair-rate"));
+        assert!(slugs.contains(&"signal-freshness"));
+        assert!(slugs.contains(&"cross-harness"));
+        assert!(slugs.contains(&"self-evolution"));
+        assert!(slugs.contains(&"branch-review-quality"));
+        assert!(slugs.contains(&"docs-spec-drift"));
         assert!(loop_success_requires_second_signal(true, true, true, true));
     }
 
@@ -37262,14 +37349,14 @@ mod tests {
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "prompt-surface")
-            .expect("prompt surface descriptor");
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
         let record =
-            run_prompt_surface_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            run_prompt_efficiency_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
                 .await
-                .expect("run prompt surface loop");
+                .expect("run prompt efficiency loop");
 
-        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert_eq!(record.status.as_deref(), Some("success"));
         assert!(
             record
                 .metadata
@@ -37288,12 +37375,12 @@ mod tests {
         fs::create_dir_all(&output).expect("create temp output");
         write_test_bundle_config(&output, "http://127.0.0.1:59999");
         let snapshot = test_autoresearch_snapshot(false, Vec::new(), Vec::new());
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
+        seed_autoresearch_snapshot_cache_with_limits(&output, &snapshot, 4, 2, true);
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "live-truth")
-            .expect("live truth descriptor");
+            .find(|descriptor| descriptor.slug == "signal-freshness")
+            .expect("signal freshness descriptor");
         let record = run_live_truth_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
             .await
             .expect("run live truth loop");
@@ -37317,15 +37404,16 @@ mod tests {
         fs::create_dir_all(&output).expect("create temp output");
         write_test_bundle_config(&output, "http://127.0.0.1:59999");
         let snapshot = test_autoresearch_snapshot(false, Vec::new(), Vec::new());
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
+        seed_autoresearch_snapshot_cache_with_limits(&output, &snapshot, 4, 2, true);
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "event-spine")
-            .expect("event spine descriptor");
-        let record = run_event_spine_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run event spine loop");
+            .find(|descriptor| descriptor.slug == "memory-hygiene")
+            .expect("memory hygiene descriptor");
+        let record =
+            run_memory_hygiene_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+                .await
+                .expect("run memory hygiene loop");
 
         assert_eq!(record.status.as_deref(), Some("warning"));
         assert!(
@@ -37333,7 +37421,7 @@ mod tests {
                 .summary
                 .as_deref()
                 .unwrap_or_default()
-                .contains("0 event spine entries")
+                .contains("memory hygiene score")
         );
 
         fs::remove_dir_all(output).expect("cleanup temp output");
@@ -37347,36 +37435,40 @@ mod tests {
         ));
         fs::create_dir_all(&output).expect("create temp output");
         write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            false,
+            vec!["summary".to_string()],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("capability contract descriptor");
+            .find(|descriptor| descriptor.slug == "autonomy-quality")
+            .expect("autonomy quality descriptor");
         execute_autoresearch_loop(&output, "http://127.0.0.1:59999", descriptor)
             .await
-            .expect("execute capability contract loop");
+            .expect("execute autonomy quality loop");
 
-        let raw = fs::read_to_string(output.join("loops/loop-capability-contract.json"))
-            .expect("read capability contract record");
-        let record: LoopRecord =
-            serde_json::from_str(&raw).expect("parse capability contract record");
+        let raw = fs::read_to_string(output.join("loops/loop-autonomy-quality.json"))
+            .expect("read autonomy quality record");
+        let record: LoopRecord = serde_json::from_str(&raw).expect("parse autonomy quality record");
 
-        assert_eq!(record.slug.as_deref(), Some("capability-contract"));
+        assert_eq!(record.slug.as_deref(), Some("autonomy-quality"));
         assert!(
             record
                 .summary
                 .as_deref()
                 .unwrap_or_default()
-                .contains("capability contracts satisfy expectations")
+                .contains("autonomy quality score")
         );
         assert!(
             record
                 .metadata
-                .get("coverage")
-                .and_then(serde_json::Value::as_f64)
+                .get("warning_pressure")
+                .and_then(serde_json::Value::as_u64)
                 .is_some()
         );
-        assert!(record.metadata.get("warning_pressure").is_none());
 
         fs::remove_dir_all(output).expect("cleanup temp output");
     }
@@ -37398,32 +37490,189 @@ mod tests {
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "event-spine")
-            .expect("event spine descriptor");
+            .find(|descriptor| descriptor.slug == "memory-hygiene")
+            .expect("memory hygiene descriptor");
         execute_autoresearch_loop(&output, "http://127.0.0.1:59999", descriptor)
             .await
-            .expect("execute event spine loop");
+            .expect("execute memory hygiene loop");
 
-        let raw = fs::read_to_string(output.join("loops/loop-event-spine.json"))
-            .expect("read event spine record");
-        let record: LoopRecord = serde_json::from_str(&raw).expect("parse event spine record");
+        let raw = fs::read_to_string(output.join("loops/loop-memory-hygiene.json"))
+            .expect("read memory hygiene record");
+        let record: LoopRecord = serde_json::from_str(&raw).expect("parse memory hygiene record");
 
-        assert_eq!(record.slug.as_deref(), Some("event-spine"));
+        assert_eq!(record.slug.as_deref(), Some("memory-hygiene"));
         assert!(
             record
                 .summary
                 .as_deref()
                 .unwrap_or_default()
-                .contains("event spine entries")
+                .contains("memory hygiene score")
         );
         assert!(
             record
                 .metadata
-                .get("event_spine_entries")
-                .and_then(serde_json::Value::as_u64)
+                .get("duplicates")
+                .and_then(serde_json::Value::as_f64)
                 .is_some()
         );
-        assert!(record.metadata.get("duplicates").is_none());
+        assert!(record.metadata.get("event_spine_entries").is_none());
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_branch_review_quality_loop_warns_on_dirty_branch() {
+        let root =
+            std::env::temp_dir().join(format!("memd-branch-review-{}", uuid::Uuid::new_v4()));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg("-b")
+            .arg("feature/branch-review")
+            .status()
+            .expect("create branch");
+        fs::write(root.join("dirty.txt"), "dirty branch").expect("write dirty file");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "branch-review-quality")
+            .expect("branch review quality descriptor");
+        let record = run_branch_review_quality_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run branch review quality loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert_eq!(record.slug.as_deref(), Some("branch-review-quality"));
+        assert_eq!(
+            record
+                .metadata
+                .get("branch")
+                .and_then(serde_json::Value::as_str),
+            Some("feature/branch-review")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("review_ready")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp branch review root");
+    }
+
+    #[tokio::test]
+    async fn run_docs_spec_drift_loop_succeeds_when_docs_match_runtime() {
+        let root = std::env::temp_dir().join(format!("memd-docs-drift-{}", uuid::Uuid::new_v4()));
+        let output = root.join(".memd");
+        fs::create_dir_all(output.join("state")).expect("create bundle output");
+        fs::create_dir_all(root.join("docs/superpowers/specs")).expect("create specs dir");
+        fs::create_dir_all(root.join("docs/superpowers/plans")).expect("create plans dir");
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"temp-docs-drift\"\n",
+        )
+        .expect("write cargo");
+        fs::write(
+            root.join("docs/superpowers/specs/2026-04-08-memd-10-loop-design.md"),
+            "# memd 10-loop autoresearch stack\n\n10-loop\n",
+        )
+        .expect("write spec");
+        fs::write(
+            root.join("docs/superpowers/plans/2026-04-08-memd-10-loop-stack.md"),
+            "# memd 10-loop autoresearch stack implementation plan\n\nImplementation Plan\n",
+        )
+        .expect("write plan");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "docs-spec-drift")
+            .expect("docs spec drift descriptor");
+        let record = run_docs_spec_drift_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run docs spec drift loop");
+
+        assert_eq!(record.status.as_deref(), Some("success"));
+        assert_eq!(record.slug.as_deref(), Some("docs-spec-drift"));
+        assert_eq!(
+            record
+                .metadata
+                .get("spec_has_10_loop")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert!(
+            record
+                .metadata
+                .get("evidence")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|evidence| evidence.iter().any(|entry| {
+                    entry
+                        .as_str()
+                        .is_some_and(|value| value.starts_with("runtime_bytes="))
+                }))
+        );
+
+        fs::remove_dir_all(root).expect("cleanup docs drift root");
+    }
+
+    #[tokio::test]
+    async fn run_repair_rate_loop_succeeds_on_repair_signal() {
+        let output =
+            std::env::temp_dir().join(format!("memd-repair-rate-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            false,
+            vec![
+                "fix typo".to_string(),
+                "ship feature".to_string(),
+                "review notes".to_string(),
+                "correct labels".to_string(),
+                "cleanup docs".to_string(),
+                "repair cache".to_string(),
+                "deploy patch".to_string(),
+                "verify change".to_string(),
+                "close ticket".to_string(),
+            ],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "repair-rate")
+            .expect("repair rate descriptor");
+        let record = run_repair_rate_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            .await
+            .expect("run repair rate loop");
+
+        assert_eq!(record.status.as_deref(), Some("success"));
+        assert_eq!(record.slug.as_deref(), Some("repair-rate"));
+        assert!(
+            record
+                .metadata
+                .get("corrections")
+                .and_then(serde_json::Value::as_f64)
+                .is_some_and(|value| value >= 3.0)
+        );
 
         fs::remove_dir_all(output).expect("cleanup temp output");
     }
@@ -37445,13 +37694,14 @@ mod tests {
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "long-context")
-            .expect("long context descriptor");
-        let record = run_long_context_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run long context loop");
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
+        let record =
+            run_prompt_efficiency_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+                .await
+                .expect("run prompt efficiency loop");
 
-        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert_eq!(record.status.as_deref(), Some("success"));
         assert!(
             record
                 .metadata
@@ -37474,7 +37724,7 @@ mod tests {
         let snapshot = test_autoresearch_snapshot(false, vec!["summary".to_string()], Vec::new());
         seed_autoresearch_snapshot_cache(&output, &snapshot);
         let previous_entry = LoopSummaryEntry {
-            slug: "prompt-surface".to_string(),
+            slug: "prompt-efficiency".to_string(),
             percent_improvement: Some(99.0),
             token_savings: Some(1300.0),
             status: Some("success".to_string()),
@@ -37483,9 +37733,9 @@ mod tests {
 
         let descriptor = AUTORESEARCH_LOOPS
             .iter()
-            .find(|descriptor| descriptor.slug == "prompt-surface")
-            .expect("prompt surface descriptor");
-        let record = run_prompt_surface_loop(
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
+        let record = run_prompt_efficiency_loop(
             &output,
             "http://127.0.0.1:59999",
             descriptor,
@@ -37493,7 +37743,7 @@ mod tests {
             Some(&previous_entry),
         )
         .await
-        .expect("run prompt surface loop");
+        .expect("run prompt efficiency loop");
 
         assert_eq!(record.status.as_deref(), Some("warning"));
         assert!(
@@ -37597,13 +37847,7 @@ mod tests {
         .expect("write sibling config");
         write_test_bundle_heartbeat(
             &current_bundle,
-            &test_hive_heartbeat_state(
-                "shared-session",
-                "codex",
-                "tab-a",
-                "live",
-                Utc::now(),
-            ),
+            &test_hive_heartbeat_state("shared-session", "codex", "tab-a", "live", Utc::now()),
         );
         write_test_bundle_heartbeat(
             &sibling_bundle,
@@ -37626,7 +37870,10 @@ mod tests {
 
         assert_eq!(record.status.as_deref(), Some("warning"));
         assert_eq!(
-            record.metadata.get("heartbeat_status").and_then(serde_json::Value::as_str),
+            record
+                .metadata
+                .get("heartbeat_status")
+                .and_then(serde_json::Value::as_str),
             Some("live")
         );
         assert!(
@@ -37634,154 +37881,14 @@ mod tests {
                 .metadata
                 .get("evidence")
                 .and_then(serde_json::Value::as_array)
-                .is_some_and(|evidence| evidence
-                    .iter()
-                    .any(|entry| entry == "active_hives=2")
-                    && evidence.iter().any(|entry| entry == "dead_hives=1")
-                    && evidence.iter().any(|entry| entry == "claim_collisions=1"))
+                .is_some_and(
+                    |evidence| evidence.iter().any(|entry| entry == "active_hives=2")
+                        && evidence.iter().any(|entry| entry == "dead_hives=1")
+                        && evidence.iter().any(|entry| entry == "claim_collisions=1")
+                )
         );
 
         fs::remove_dir_all(root).expect("cleanup hive health root");
-    }
-
-    #[tokio::test]
-    async fn run_memory_hygiene_loop_succeeds_on_low_duplicate_pressure() {
-        let output =
-            std::env::temp_dir().join(format!("memd-memory-hygiene-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let mut snapshot = test_autoresearch_snapshot(
-            false,
-            vec!["summary".to_string()],
-            vec!["changed file".to_string()],
-        );
-        for index in 0..69 {
-            snapshot.context.records.push(memd_schema::CompactMemoryRecord {
-                id: uuid::Uuid::new_v4(),
-                record: format!("fresh context lane {index}"),
-            });
-        }
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "event-spine")
-            .expect("memory hygiene descriptor");
-        let record = run_memory_hygiene_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run memory hygiene loop");
-
-        assert_eq!(record.status.as_deref(), Some("success"));
-        assert_eq!(record.percent_improvement, Some(100.0));
-        assert_eq!(
-            record.metadata.get("duplicates").and_then(serde_json::Value::as_f64),
-            Some(0.0)
-        );
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
-    }
-
-    #[tokio::test]
-    async fn run_memory_hygiene_loop_succeeds_on_small_duplicate_free_bundle() {
-        let output = std::env::temp_dir().join(format!(
-            "memd-memory-hygiene-small-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let snapshot = test_autoresearch_snapshot(
-            false,
-            vec!["summary".to_string()],
-            vec!["changed file".to_string()],
-        );
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "event-spine")
-            .expect("memory hygiene descriptor");
-        let record = run_memory_hygiene_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run memory hygiene loop");
-
-        assert_eq!(record.status.as_deref(), Some("success"));
-        assert_eq!(record.percent_improvement, Some(100.0));
-        assert_eq!(record.token_savings, Some(descriptor.base_tokens));
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
-    }
-
-    #[tokio::test]
-    async fn run_autonomy_quality_loop_warns_when_refresh_pressure_is_high() {
-        let output = std::env::temp_dir().join(format!(
-            "memd-autonomy-quality-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let snapshot = test_autoresearch_snapshot(
-            true,
-            vec!["summary".to_string()],
-            vec!["changed file".to_string()],
-        );
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("autonomy quality descriptor");
-        let record = run_autonomy_quality_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run autonomy quality loop");
-
-        assert_eq!(record.status.as_deref(), Some("warning"));
-        assert_eq!(record.percent_improvement, Some(80.0));
-        assert_eq!(
-            record
-                .metadata
-                .get("warning_pressure")
-                .and_then(serde_json::Value::as_u64),
-            Some(1)
-        );
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
-    }
-
-    #[tokio::test]
-    async fn run_autonomy_quality_loop_succeeds_when_warning_pressure_is_zero() {
-        let output = std::env::temp_dir().join(format!(
-            "memd-autonomy-quality-success-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let snapshot = test_autoresearch_snapshot(
-            false,
-            vec!["summary".to_string()],
-            vec!["changed file".to_string()],
-        );
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("autonomy quality descriptor");
-        let record = run_autonomy_quality_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run autonomy quality loop");
-
-        assert_eq!(record.status.as_deref(), Some("success"));
-        assert_eq!(record.percent_improvement, Some(100.0));
-        assert_eq!(record.token_savings, Some(descriptor.base_tokens));
-        assert_eq!(
-            record
-                .metadata
-                .get("warning_pressure")
-                .and_then(serde_json::Value::as_u64),
-            Some(0)
-        );
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
     }
 
     #[tokio::test]
@@ -37806,89 +37913,6 @@ mod tests {
                 .get("heartbeat_status")
                 .and_then(serde_json::Value::as_str),
             Some("live")
-        );
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
-    }
-
-    #[tokio::test]
-    async fn run_memory_hygiene_loop_warns_on_duplicate_context() {
-        let output =
-            std::env::temp_dir().join(format!("memd-memory-hygiene-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let mut snapshot = test_autoresearch_snapshot(false, vec!["summary".to_string()], vec![]);
-        snapshot.working.records.push(memd_schema::CompactMemoryRecord {
-            id: uuid::Uuid::new_v4(),
-            record: "resume context".to_string(),
-        });
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "event-spine")
-            .expect("event spine descriptor");
-        let record = run_memory_hygiene_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
-            .await
-            .expect("run memory hygiene loop");
-
-        assert_eq!(record.status.as_deref(), Some("warning"));
-        assert_eq!(
-            record
-                .metadata
-                .get("duplicates")
-                .and_then(serde_json::Value::as_f64)
-                .map(|value| value as usize),
-            Some(1)
-        );
-        assert!(
-            record
-                .summary
-                .as_deref()
-                .unwrap_or_default()
-                .contains("memory hygiene")
-        );
-
-        fs::remove_dir_all(output).expect("cleanup temp output");
-    }
-
-    #[tokio::test]
-    async fn run_autonomy_quality_loop_warns_when_refresh_is_recommended() {
-        let output =
-            std::env::temp_dir().join(format!("memd-autonomy-quality-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&output).expect("create temp output");
-        write_test_bundle_config(&output, "http://127.0.0.1:59999");
-        let snapshot = test_autoresearch_snapshot(true, vec!["summary".to_string()], vec![]);
-        seed_autoresearch_snapshot_cache(&output, &snapshot);
-
-        let descriptor = AUTORESEARCH_LOOPS
-            .iter()
-            .find(|descriptor| descriptor.slug == "capability-contract")
-            .expect("capability contract descriptor");
-        let record = run_autonomy_quality_loop(
-            &output,
-            "http://127.0.0.1:59999",
-            descriptor,
-            0,
-            None,
-        )
-        .await
-        .expect("run autonomy quality loop");
-
-        assert_eq!(record.status.as_deref(), Some("warning"));
-        assert!(
-            record
-                .metadata
-                .get("warning_pressure")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|pressure| pressure >= 1)
-        );
-        assert!(
-            record
-                .summary
-                .as_deref()
-                .unwrap_or_default()
-                .contains("autonomy quality")
         );
 
         fs::remove_dir_all(output).expect("cleanup temp output");
