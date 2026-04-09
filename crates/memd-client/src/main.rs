@@ -99,6 +99,7 @@ enum Commands {
     Coordination(CoordinationArgs),
     Bundle(BundleArgs),
     Hive(HiveArgs),
+    HiveProject(HiveProjectArgs),
     #[command(name = "hive-join", alias = "hive-fix")]
     HiveJoin(HiveJoinArgs),
     Eval(EvalArgs),
@@ -1726,6 +1727,24 @@ struct HiveJoinArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct HiveProjectArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    enable: bool,
+
+    #[arg(long)]
+    disable: bool,
+
+    #[arg(long)]
+    status: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct EvalArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -2606,6 +2625,14 @@ async fn main() -> anyhow::Result<()> {
             let response = run_hive_command(&args).await?;
             if args.summary {
                 println!("{}", render_hive_wire_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::HiveProject(args) => {
+            let response = run_hive_project_command(&args).await?;
+            if args.summary {
+                println!("{}", render_hive_project_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -11062,13 +11089,13 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "hive-health",
         "hive-health",
         "Hive Health",
-        "Track live peers, heartbeat publication, dead sessions, and claim collisions.",
-        "live peers and claims",
-        "heartbeat health",
-        "stable live awareness",
-        "high",
-        1.4,
-        60.0,
+        "Keep live peers, heartbeat publication, and claim collisions healthy.",
+        "live peers / claims",
+        "dead peers / collisions",
+        "no dead peers",
+        "low",
+        1.0,
+        40.0,
         0.5,
         4.0,
     ),
@@ -11076,15 +11103,15 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "docs-spec-drift",
         "docs-spec-drift",
         "Docs Spec Drift",
-        "Keep docs and specs aligned with shipped behavior.",
-        "docs/spec artifacts",
-        "alignment drift",
-        "docs and specs match behavior",
+        "Keep docs and shipped behavior aligned.",
+        "docs alignment",
+        "spec drift",
+        "docs match runtime",
         "medium",
         1.0,
-        24.0,
-        1.0,
-        6.0,
+        40.0,
+        0.5,
+        4.0,
     ),
 ];
 
@@ -13794,6 +13821,18 @@ struct HiveWireResponse {
     heartbeat: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct HiveProjectResponse {
+    action: String,
+    output: String,
+    project_root: Option<String>,
+    enabled: bool,
+    anchor: Option<String>,
+    joined_at: Option<DateTime<Utc>>,
+    live_session: Option<String>,
+    heartbeat: Option<serde_json::Value>,
+}
+
 fn infer_service_agent_from_path(path: &Path) -> Option<String> {
     let normalized = path
         .file_name()
@@ -13887,6 +13926,48 @@ fn default_hive_join_base_url() -> String {
     SHARED_MEMD_BASE_URL.to_string()
 }
 
+fn is_loopback_base_url(value: &str) -> bool {
+    let value = value.trim();
+    if value.is_empty() {
+        return false;
+    }
+    let normalized = value
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    normalized.starts_with("localhost")
+        || normalized.contains("127.0.0.1")
+        || normalized.contains("0.0.0.0")
+}
+
+fn resolve_project_hive_base_url(
+    runtime: Option<&BundleRuntimeConfig>,
+    requested_base_url: Option<&str>,
+) -> Option<String> {
+    let enabled = runtime
+        .map(|value| value.hive_project_enabled)
+        .unwrap_or(false);
+    let base_url = requested_base_url
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() { None } else { Some(value) }
+        })
+        .or_else(|| {
+            runtime.and_then(|value| {
+                value
+                    .base_url
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
+        });
+
+    if enabled && base_url.map(is_loopback_base_url).unwrap_or(true) {
+        Some(SHARED_MEMD_BASE_URL.to_string())
+    } else {
+        base_url.map(str::to_string)
+    }
+}
+
 async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     let current_project_root = detect_current_project_root().ok().flatten();
     let inferred_agent = args
@@ -13972,6 +14053,13 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
 
     let runtime = read_bundle_runtime_config(&output)?
         .context("hive wiring requires a readable bundle runtime config")?;
+    let resolved_base_url = resolve_project_hive_base_url(Some(&runtime), Some(&args.base_url))
+        .unwrap_or_else(|| args.base_url.clone());
+    if runtime.base_url.as_deref() != Some(resolved_base_url.as_str()) {
+        set_bundle_base_url(&output, &resolved_base_url)?;
+    }
+    let runtime = read_bundle_runtime_config(&output)?
+        .context("reload bundle runtime config after hive wiring")?;
     let heartbeat = if args.publish_heartbeat {
         Some(serde_json::to_value(
             refresh_bundle_heartbeat(&output, None, false).await?,
@@ -13996,14 +14084,77 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     })
 }
 
+async fn run_hive_project_command(args: &HiveProjectArgs) -> anyhow::Result<HiveProjectResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?
+        .context("hive-project requires a readable bundle runtime config")?;
+    let project = runtime.project.as_deref().or_else(|| {
+        args.output
+            .parent()
+            .and_then(|value| value.file_name())
+            .and_then(|value| value.to_str())
+    });
+    let anchor = project_hive_group(project);
+    let mut action = "status".to_string();
+
+    if args.enable {
+        let Some(anchor) = anchor.as_deref() else {
+            anyhow::bail!("hive-project enable requires a project name");
+        };
+        set_bundle_hive_project_state(&args.output, true, Some(anchor), Some(Utc::now()))?;
+        let runtime_after_enable = read_bundle_runtime_config(&args.output)?
+            .context("reload bundle runtime config after hive-project enable")?;
+        if let Some(shared_base_url) = resolve_project_hive_base_url(
+            Some(&runtime_after_enable),
+            runtime_after_enable.base_url.as_deref(),
+        ) {
+            if shared_base_url != runtime_after_enable.base_url.as_deref().unwrap_or_default() {
+                set_bundle_base_url(&args.output, &shared_base_url)?;
+            }
+        }
+        write_agent_profiles(&args.output)?;
+        action = "enabled".to_string();
+    } else if args.disable {
+        clear_bundle_hive_project_state(&args.output)?;
+        write_agent_profiles(&args.output)?;
+        action = "disabled".to_string();
+    }
+
+    let runtime = read_bundle_runtime_config(&args.output)?
+        .context("reload bundle runtime config after hive-project update")?;
+    let heartbeat = if runtime.session.is_some() {
+        Some(serde_json::to_value(
+            refresh_bundle_heartbeat(&args.output, None, false).await?,
+        )?)
+    } else {
+        None
+    };
+
+    Ok(HiveProjectResponse {
+        action,
+        output: args.output.display().to_string(),
+        project_root: detect_current_project_root()
+            .ok()
+            .flatten()
+            .map(|value| value.display().to_string()),
+        enabled: runtime.hive_project_enabled,
+        anchor: runtime.hive_project_anchor,
+        joined_at: runtime.hive_project_joined_at,
+        live_session: runtime.session,
+        heartbeat,
+    })
+}
+
 async fn run_hive_join_command(args: &HiveJoinArgs) -> anyhow::Result<HiveJoinResponse> {
     if args.all_local {
         run_hive_join_all_local_command(args).await
     } else if args.all_active {
         run_hive_join_all_active_command(args).await
     } else {
+        let runtime = read_bundle_runtime_config(&args.output)?
+            .context("hive join requires a readable bundle runtime config")?;
+        let join_base_url = resolve_hive_join_base_url(Some(&runtime), &args.base_url);
         let response =
-            join_hive_bundle(&args.output, &args.base_url, args.publish_heartbeat).await?;
+            join_hive_bundle(&args.output, &join_base_url, args.publish_heartbeat).await?;
         Ok(HiveJoinResponse::Single(response))
     }
 }
@@ -14017,6 +14168,7 @@ async fn run_hive_join_all_local_command(args: &HiveJoinArgs) -> anyhow::Result<
     })?;
     let current_runtime = read_bundle_runtime_config_raw(&current_bundle)?
         .context("hive join requires a readable current bundle runtime config")?;
+    let join_base_url = resolve_hive_join_base_url(Some(&current_runtime), &args.base_url);
     let awareness = read_project_awareness_local(&AwarenessArgs {
         output: current_bundle.clone(),
         root: None,
@@ -14043,12 +14195,12 @@ async fn run_hive_join_all_local_command(args: &HiveJoinArgs) -> anyhow::Result<
 
     let mut joined = Vec::new();
     for bundle in bundles {
-        let response = join_hive_bundle(&bundle, &args.base_url, args.publish_heartbeat).await?;
+        let response = join_hive_bundle(&bundle, &join_base_url, args.publish_heartbeat).await?;
         joined.push(response);
     }
 
     Ok(HiveJoinResponse::Batch(HiveJoinBatchResponse {
-        base_url: resolve_hive_join_base_url(&args.base_url),
+        base_url: join_base_url,
         joined,
         mode: "all-local".to_string(),
     }))
@@ -14063,6 +14215,7 @@ async fn run_hive_join_all_active_command(args: &HiveJoinArgs) -> anyhow::Result
     })?;
     let current_runtime = read_bundle_runtime_config_raw(&current_bundle)?
         .context("hive join requires a readable current bundle runtime config")?;
+    let join_base_url = resolve_hive_join_base_url(Some(&current_runtime), &args.base_url);
     let awareness = read_project_awareness_local(&AwarenessArgs {
         output: current_bundle.clone(),
         root: None,
@@ -14092,23 +14245,42 @@ async fn run_hive_join_all_active_command(args: &HiveJoinArgs) -> anyhow::Result
 
     let mut joined = Vec::new();
     for bundle in bundles {
-        let response = join_hive_bundle(&bundle, &args.base_url, args.publish_heartbeat).await?;
+        let response = join_hive_bundle(&bundle, &join_base_url, args.publish_heartbeat).await?;
         joined.push(response);
     }
 
     Ok(HiveJoinResponse::Batch(HiveJoinBatchResponse {
-        base_url: resolve_hive_join_base_url(&args.base_url),
+        base_url: join_base_url,
         joined,
         mode: "all-active".to_string(),
     }))
 }
 
-fn resolve_hive_join_base_url(base_url: &str) -> String {
-    let requested = base_url.trim();
-    if requested.is_empty() {
-        return SHARED_MEMD_BASE_URL.to_string();
-    }
-    requested.to_string()
+fn resolve_hive_join_base_url(runtime: Option<&BundleRuntimeConfig>, base_url: &str) -> String {
+    resolve_project_hive_base_url(runtime, Some(base_url)).unwrap_or_else(|| {
+        let requested = base_url.trim();
+        if requested.is_empty() {
+            SHARED_MEMD_BASE_URL.to_string()
+        } else {
+            requested.to_string()
+        }
+    })
+}
+
+fn render_hive_project_summary(response: &HiveProjectResponse) -> String {
+    format!(
+        "hive-project action={} output={} enabled={} anchor={} joined_at={} session={}",
+        response.action,
+        response.output,
+        if response.enabled { "true" } else { "false" },
+        response.anchor.as_deref().unwrap_or("none"),
+        response
+            .joined_at
+            .as_ref()
+            .map(DateTime::<Utc>::to_rfc3339)
+            .unwrap_or_else(|| "none".to_string()),
+        response.live_session.as_deref().unwrap_or("none"),
+    )
 }
 
 async fn join_hive_bundle(
@@ -14118,7 +14290,7 @@ async fn join_hive_bundle(
 ) -> anyhow::Result<HiveJoinBundleResponse> {
     let runtime = read_bundle_runtime_config_raw(output)?
         .context("hive join requires a readable bundle runtime config")?;
-    let join_base_url = resolve_hive_join_base_url(base_url);
+    let join_base_url = resolve_hive_join_base_url(Some(&runtime), base_url);
 
     set_bundle_base_url(output, &join_base_url)?;
     if let Some(project) = runtime.project.as_deref() {
@@ -15477,7 +15649,6 @@ fn build_hive_heartbeat(
                 .flatten()
                 .and_then(|value| value.next_recovery)
         });
-
     Ok(BundleHeartbeatState {
         session,
         agent,
@@ -21374,14 +21545,21 @@ fn render_bundle_eval_markdown(response: &BundleEvalResponse) -> String {
 }
 
 fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let project_hive_enabled = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| runtime.hive_project_enabled)
+        .unwrap_or(false);
     let mut script = format!(
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
-    script.push_str(&format!(
-        "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
-        SHARED_MEMD_BASE_URL
-    ));
+    if project_hive_enabled {
+        script.push_str(&format!(
+            "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
+            SHARED_MEMD_BASE_URL
+        ));
+    }
     script.push_str(
         "if [[ -z \"${MEMD_TAB_ID:-}\" ]]; then\n  if [[ -n \"${WT_SESSION:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${WT_SESSION:0:8}\"\n  elif [[ -n \"${TERM_SESSION_ID:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${TERM_SESSION_ID:0:8}\"\n  else\n    tty_id=\"$(tty 2>/dev/null || true)\"\n    if [[ -n \"$tty_id\" && \"$tty_id\" != \"not a tty\" ]]; then\n      export MEMD_TAB_ID=\"tab-${tty_id//\\//-}\"\n    else\n      export MEMD_TAB_ID=\"tab-$$\"\n    fi\n  fi\nfi\n",
     );
@@ -21409,14 +21587,21 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
 }
 
 fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let project_hive_enabled = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| runtime.hive_project_enabled)
+        .unwrap_or(false);
     let mut script = format!(
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
-    script.push_str(&format!(
-        "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
-        escape_ps1(SHARED_MEMD_BASE_URL)
-    ));
+    if project_hive_enabled {
+        script.push_str(&format!(
+            "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
+            escape_ps1(SHARED_MEMD_BASE_URL)
+        ));
+    }
     script.push_str(
         "if (-not $env:MEMD_TAB_ID) {\n  if ($env:WT_SESSION) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:WT_SESSION.Substring(0, [Math]::Min(8, $env:WT_SESSION.Length))\n  } elseif ($env:TERM_SESSION_ID) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:TERM_SESSION_ID.Substring(0, [Math]::Min(8, $env:TERM_SESSION_ID.Length))\n  } else {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $PID\n  }\n}\n",
     );
@@ -23424,13 +23609,12 @@ async fn read_project_awareness_shared(
 ) -> anyhow::Result<Option<ProjectAwarenessResponse>> {
     let (current_bundle, _, _) = resolve_awareness_paths(args)?;
     let runtime = read_bundle_runtime_config(&current_bundle)?;
-    let Some(base_url) = runtime
-        .as_ref()
-        .and_then(|config| config.base_url.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-    else {
+    let Some(base_url) = resolve_project_hive_base_url(
+        runtime.as_ref(),
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref()),
+    ) else {
         return Ok(None);
     };
 
@@ -25443,32 +25627,47 @@ fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs {
 
 fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
     let shell = shell.trim().to_ascii_lowercase();
+    let project_hive_enabled = read_bundle_runtime_config(bundle_path)
+        .ok()
+        .flatten()
+        .map(|runtime| runtime.hive_project_enabled)
+        .unwrap_or(false);
     match shell.as_str() {
         "bash" | "zsh" | "sh" => Ok(format!(
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
 source "$MEMD_BUNDLE_ROOT/env"
-if [[ -z "${{MEMD_BASE_URL:-}}" || "${{MEMD_BASE_URL}}" =~ ^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:[0-9]+)?(/|$) ]]; then
-  export MEMD_BASE_URL="{shared_base_url}"
-fi
-nohup memd heartbeat --output "$MEMD_BUNDLE_ROOT" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &
+{base_url_block}nohup memd heartbeat --output "$MEMD_BUNDLE_ROOT" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &
 memd wake --output "$MEMD_BUNDLE_ROOT" --intent current_task --write
 # pre-answer durable recall:
 # .memd/agents/lookup.sh --query "what did we already decide?"
 "#,
             bundle_path = bundle_path.display(),
-            shared_base_url = SHARED_MEMD_BASE_URL,
+            base_url_block = if project_hive_enabled {
+                format!(
+                    "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
+                    SHARED_MEMD_BASE_URL
+                )
+            } else {
+                String::new()
+            },
         )),
         "powershell" | "pwsh" => Ok(format!(
             r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
 . (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
-if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = "{shared_base_url}" }}
-Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput "$env:TEMP\memd-heartbeat.log" -RedirectStandardError "$env:TEMP\memd-heartbeat.err"
+{base_url_block}Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput "$env:TEMP\memd-heartbeat.log" -RedirectStandardError "$env:TEMP\memd-heartbeat.err"
 memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write
 # pre-answer durable recall:
 # .memd/agents/lookup.ps1 --query "what did we already decide?"
 "#,
             bundle_path = escape_ps1(&bundle_path.display().to_string()),
-            shared_base_url = escape_ps1(SHARED_MEMD_BASE_URL),
+            base_url_block = if project_hive_enabled {
+                format!(
+                    "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
+                    escape_ps1(SHARED_MEMD_BASE_URL)
+                )
+            } else {
+                String::new()
+            },
         )),
         other => anyhow::bail!(
             "unsupported shell '{other}'; expected bash, zsh, sh, powershell, or pwsh"
@@ -25947,6 +26146,86 @@ fn set_bundle_authority(output: &Path, authority: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn set_bundle_hive_project_state(
+    output: &Path,
+    enabled: bool,
+    anchor: Option<&str>,
+    joined_at: Option<DateTime<Utc>>,
+) -> anyhow::Result<()> {
+    let (config_path, mut config) = read_bundle_config_file(output)?;
+    config.hive_project_enabled = enabled;
+    config.hive_project_anchor = anchor
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    config.hive_project_joined_at = joined_at;
+    write_bundle_config_file(&config_path, &config)?;
+
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_HIVE_PROJECT_ENABLED=",
+        &format!(
+            "MEMD_HIVE_PROJECT_ENABLED={}\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_HIVE_PROJECT_ENABLED = ",
+        &format!(
+            "$env:MEMD_HIVE_PROJECT_ENABLED = \"{}\"\n",
+            if enabled { "true" } else { "false" }
+        ),
+    )?;
+
+    if let Some(anchor) = config.hive_project_anchor.as_deref() {
+        rewrite_env_assignment(
+            &output.join("env"),
+            "MEMD_HIVE_PROJECT_ANCHOR=",
+            &format!("MEMD_HIVE_PROJECT_ANCHOR={anchor}\n"),
+        )?;
+        rewrite_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_HIVE_PROJECT_ANCHOR = ",
+            &format!(
+                "$env:MEMD_HIVE_PROJECT_ANCHOR = \"{}\"\n",
+                escape_ps1(anchor)
+            ),
+        )?;
+    } else {
+        remove_env_assignment(&output.join("env"), "MEMD_HIVE_PROJECT_ANCHOR=")?;
+        remove_env_assignment(&output.join("env.ps1"), "$env:MEMD_HIVE_PROJECT_ANCHOR = ")?;
+    }
+
+    if let Some(joined_at) = config.hive_project_joined_at {
+        let joined_at = joined_at.to_rfc3339();
+        rewrite_env_assignment(
+            &output.join("env"),
+            "MEMD_HIVE_PROJECT_JOINED_AT=",
+            &format!("MEMD_HIVE_PROJECT_JOINED_AT={joined_at}\n"),
+        )?;
+        rewrite_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_HIVE_PROJECT_JOINED_AT = ",
+            &format!(
+                "$env:MEMD_HIVE_PROJECT_JOINED_AT = \"{}\"\n",
+                escape_ps1(&joined_at)
+            ),
+        )?;
+    } else {
+        remove_env_assignment(&output.join("env"), "MEMD_HIVE_PROJECT_JOINED_AT=")?;
+        remove_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_HIVE_PROJECT_JOINED_AT = ",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn clear_bundle_hive_project_state(output: &Path) -> anyhow::Result<()> {
+    set_bundle_hive_project_state(output, false, None, None)
+}
+
 fn rewrite_env_assignment(path: &Path, prefix: &str, replacement: &str) -> anyhow::Result<()> {
     let mut lines = if path.exists() {
         fs::read_to_string(path)
@@ -25973,6 +26252,24 @@ fn rewrite_env_assignment(path: &Path, prefix: &str, replacement: &str) -> anyho
     for line in lines {
         output.push_str(&line);
     }
+    fs::write(path, output).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn remove_env_assignment(path: &Path, prefix: &str) -> anyhow::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let mut output = String::new();
+    for line in content.lines() {
+        if !line.starts_with(prefix) {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+
     fs::write(path, output).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
@@ -30457,28 +30754,44 @@ mod tests {
 
     #[test]
     fn agent_and_attach_scripts_default_to_current_task_intent() {
-        let shell = render_agent_shell_profile(Path::new(".memd"), Some("codex"));
-        let ps1 = render_agent_ps1_profile(Path::new(".memd"), Some("codex"));
-        let attach = render_attach_snippet("bash", Path::new(".memd")).expect("attach snippet");
-        let lookup = render_lookup_shell_profile(Path::new(".memd"), &[], &[]);
-        let recall_decisions =
-            render_lookup_shell_profile(Path::new(".memd"), &["decision", "constraint"], &[]);
+        let dir = std::env::temp_dir().join(format!("memd-hive-launcher-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "").expect("write env");
+        fs::write(dir.join("env.ps1"), "").expect("write env.ps1");
+        set_bundle_hive_project_state(&dir, true, Some("project:demo"), Some(Utc::now()))
+            .expect("enable hive project");
+
+        let shell = render_agent_shell_profile(&dir, Some("codex"));
+        let ps1 = render_agent_ps1_profile(&dir, Some("codex"));
+        let attach = render_attach_snippet("bash", &dir).expect("attach snippet");
+        let lookup = render_lookup_shell_profile(&dir, &[], &[]);
+        let recall_decisions = render_lookup_shell_profile(&dir, &["decision", "constraint"], &[]);
         let recall_design = render_lookup_shell_profile(
-            Path::new(".memd"),
+            &dir,
             &["preference", "constraint", "decision"],
             &["design-memory"],
         );
-        let remember_decision =
-            render_remember_shell_profile(Path::new(".memd"), "decision", &["basic-memory"]);
-        let remember_short = render_checkpoint_shell_profile(Path::new(".memd"));
-        let remember_long = render_remember_shell_profile(
-            Path::new(".memd"),
-            "fact",
-            &["basic-memory", "long-term"],
-        );
-        let watch = render_watch_shell_profile(Path::new(".memd"));
-        let capture_live = render_capture_shell_profile(Path::new(".memd"), "capture-live");
-        let sync_semantic = render_rag_sync_shell_profile(Path::new(".memd"));
+        let remember_decision = render_remember_shell_profile(&dir, "decision", &["basic-memory"]);
+        let remember_short = render_checkpoint_shell_profile(&dir);
+        let remember_long =
+            render_remember_shell_profile(&dir, "fact", &["basic-memory", "long-term"]);
+        let watch = render_watch_shell_profile(&dir);
+        let capture_live = render_capture_shell_profile(&dir, "capture-live");
+        let sync_semantic = render_rag_sync_shell_profile(&dir);
 
         assert!(shell.contains("--intent current_task"));
         assert!(ps1.contains("--intent current_task"));
@@ -30528,6 +30841,8 @@ mod tests {
         assert!(!workspace_path_should_trigger(Path::new(
             ".memd/config.json"
         )));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
@@ -34459,6 +34774,78 @@ mod tests {
     }
 
     #[test]
+    fn hive_project_command_is_exposed_in_cli_help() {
+        use clap::CommandFactory;
+
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("hive-project")
+            .expect("hive-project command")
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("hive-project"));
+        assert!(help.contains("--enable"));
+        assert!(help.contains("--disable"));
+        assert!(help.contains("--status"));
+    }
+
+    #[tokio::test]
+    async fn hive_project_enable_and_disable_update_bundle_state() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-project-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "").expect("write env");
+        fs::write(dir.join("env.ps1"), "").expect("write env.ps1");
+
+        let enabled = run_hive_project_command(&HiveProjectArgs {
+            output: dir.clone(),
+            enable: true,
+            disable: false,
+            status: false,
+            summary: false,
+        })
+        .await
+        .expect("enable hive project");
+        assert!(enabled.enabled);
+        assert_eq!(enabled.anchor.as_deref(), Some("project:demo"));
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        assert!(config.contains("\"hive_project_enabled\": true"));
+        assert!(config.contains("\"hive_project_anchor\": \"project:demo\""));
+
+        let disabled = run_hive_project_command(&HiveProjectArgs {
+            output: dir.clone(),
+            enable: false,
+            disable: true,
+            status: false,
+            summary: false,
+        })
+        .await
+        .expect("disable hive project");
+        assert!(!disabled.enabled);
+        assert!(disabled.anchor.is_none());
+
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        assert!(config.contains("\"hive_project_enabled\": false"));
+        assert!(!config.contains("\"hive_project_anchor\": \"project:demo\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn set_bundle_scope_metadata_updates_config_and_env_files() {
         let dir =
             std::env::temp_dir().join(format!("memd-bundle-scope-meta-{}", uuid::Uuid::new_v4()));
@@ -36443,12 +36830,23 @@ mod tests {
         let slugs = AUTORESEARCH_LOOPS
             .iter()
             .map(|descriptor| descriptor.slug)
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<Vec<_>>();
 
-        assert_eq!(AUTORESEARCH_LOOPS.len(), 10);
-        assert_eq!(slugs.len(), 10);
-        assert!(slugs.contains("hive-health"));
-        assert!(slugs.contains("docs-spec-drift"));
+        assert_eq!(
+            slugs,
+            vec![
+                "prompt-surface",
+                "live-truth",
+                "capability-contract",
+                "event-spine",
+                "correction-learning",
+                "long-context",
+                "cross-harness",
+                "self-evolution",
+                "hive-health",
+                "docs-spec-drift",
+            ]
+        );
         assert!(loop_success_requires_second_signal(true, true, true, true));
     }
 
