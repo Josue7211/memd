@@ -2652,7 +2652,11 @@ pub(crate) fn render_visible_memory_artifact_detail(
     if follow {
         output.push_str(&format!(
             " source_system={} source_path={} producer={} trust={} repair={} confidence={:.2}",
-            artifact.provenance.source_system.as_deref().unwrap_or("none"),
+            artifact
+                .provenance
+                .source_system
+                .as_deref()
+                .unwrap_or("none"),
             artifact.provenance.source_path.as_deref().unwrap_or("none"),
             artifact.provenance.producer.as_deref().unwrap_or("none"),
             compact_inline(&artifact.provenance.trust_reason, 64),
@@ -2800,7 +2804,12 @@ pub(crate) fn render_visible_memory_knowledge_map(
 
         output.push_str(&format!(
             " focus_workspace={} focus_visibility={} focus_confidence={:.2}",
-            response.home.focus_artifact.workspace.as_deref().unwrap_or("none"),
+            response
+                .home
+                .focus_artifact
+                .workspace
+                .as_deref()
+                .unwrap_or("none"),
             response
                 .home
                 .focus_artifact
@@ -3024,7 +3033,10 @@ fn knowledge_map_status_count(
     map: &VisibleMemoryKnowledgeMap,
     status: VisibleMemoryStatus,
 ) -> usize {
-    map.nodes.iter().filter(|node| node.status == status).count()
+    map.nodes
+        .iter()
+        .filter(|node| node.status == status)
+        .count()
 }
 
 fn knowledge_map_kind_count(map: &VisibleMemoryKnowledgeMap, kind: &str) -> usize {
@@ -3069,15 +3081,15 @@ mod tests {
     use crate::harness::preset::HarnessPresetRegistry;
     use memd_schema::{
         HiveClaimsResponse, HiveSessionsResponse, HiveTasksResponse, MemoryKind,
-        MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
-        MemoryPolicyLiveTruth, MemoryPolicyMemoryCompilation, MemoryPolicyPromotion,
-        MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyRuntime,
-        MemoryPolicySemanticFallback, MemoryPolicySkillGating, MemoryPolicyWorkingMemory,
-        MemoryScope, MemoryVisibility, RetrievalIntent, RetrievalRoute, SourceMemoryResponse,
-        VisibleMemoryArtifact, VisibleMemoryArtifactDetailResponse, VisibleMemoryGraphEdge,
-        VisibleMemoryGraphNode, VisibleMemoryHome, VisibleMemoryKnowledgeMap,
-        VisibleMemoryProvenance, VisibleMemorySnapshotResponse, VisibleMemoryStatus,
-        VisibleMemoryUiActionKind, WorkspaceMemoryResponse,
+        MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth,
+        MemoryPolicyMemoryCompilation, MemoryPolicyPromotion, MemoryPolicyResponse,
+        MemoryPolicyRouteDefault, MemoryPolicyRuntime, MemoryPolicySemanticFallback,
+        MemoryPolicySkillGating, MemoryPolicyWorkingMemory, MemoryScope, MemoryVisibility,
+        RetrievalIntent, RetrievalRoute, SourceMemoryResponse, VisibleMemoryArtifact,
+        VisibleMemoryArtifactDetailResponse, VisibleMemoryGraphEdge, VisibleMemoryGraphNode,
+        VisibleMemoryHome, VisibleMemoryKnowledgeMap, VisibleMemoryProvenance,
+        VisibleMemorySnapshotResponse, VisibleMemoryStatus, VisibleMemoryUiActionKind,
+        WorkspaceMemoryResponse,
     };
     use serde_json::json;
 

@@ -189,9 +189,7 @@ impl MemdClient {
         self.get_json("/memory/policy").await
     }
 
-    pub async fn visible_memory_snapshot(
-        &self,
-    ) -> anyhow::Result<VisibleMemorySnapshotResponse> {
+    pub async fn visible_memory_snapshot(&self) -> anyhow::Result<VisibleMemorySnapshotResponse> {
         self.get_json("/ui/snapshot").await
     }
 

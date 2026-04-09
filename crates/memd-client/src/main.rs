@@ -22607,12 +22607,11 @@ async fn run_composite_command(
     };
     let raw_bloat_score = if let Some(resume) = &resume {
         let mut score = if self_evolution_mode { 90i32 } else { 100i32 };
-        score -= (resume.working.records.len() as i32).min(8)
-            * if self_evolution_mode { 2 } else { 4 };
-        score -= (resume.context.records.len() as i32).min(8)
-            * if self_evolution_mode { 1 } else { 3 };
-        score -= (resume.inbox.items.len() as i32).min(6)
-            * if self_evolution_mode { 2 } else { 4 };
+        score -=
+            (resume.working.records.len() as i32).min(8) * if self_evolution_mode { 2 } else { 4 };
+        score -=
+            (resume.context.records.len() as i32).min(8) * if self_evolution_mode { 1 } else { 3 };
+        score -= (resume.inbox.items.len() as i32).min(6) * if self_evolution_mode { 2 } else { 4 };
         score -= if resume.working.truncated {
             if self_evolution_mode { 10 } else { 20 }
         } else {
@@ -46126,10 +46125,12 @@ mod tests {
 
         assert_eq!(report.improvement.max_iterations, 1);
         assert_eq!(report.improvement.iterations.len(), 1);
-        assert!(report
-            .trail
-            .iter()
-            .any(|line| line.contains("max_iterations=1")));
+        assert!(
+            report
+                .trail
+                .iter()
+                .any(|line| line.contains("max_iterations=1"))
+        );
 
         fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
     }
