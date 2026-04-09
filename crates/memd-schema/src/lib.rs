@@ -169,6 +169,51 @@ pub struct VisibleMemorySnapshotResponse {
     pub knowledge_map: VisibleMemoryKnowledgeMap,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VisibleMemoryUiActionKind {
+    Inspect,
+    Explain,
+    VerifyCurrent,
+    MarkStale,
+    Promote,
+    OpenSource,
+    OpenInObsidian,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisibleMemoryArtifactDetailResponse {
+    pub generated_at: DateTime<Utc>,
+    pub artifact: VisibleMemoryArtifact,
+    pub explain: Option<ExplainMemoryResponse>,
+    pub timeline: Option<TimelineMemoryResponse>,
+    pub sources: SourceMemoryResponse,
+    pub workspaces: WorkspaceMemoryResponse,
+    pub sessions: HiveSessionsResponse,
+    pub tasks: HiveTasksResponse,
+    pub claims: HiveClaimsResponse,
+    pub related_artifacts: Vec<VisibleMemoryArtifact>,
+    pub related_map: VisibleMemoryKnowledgeMap,
+    pub actions: Vec<VisibleMemoryUiActionKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisibleMemoryUiActionRequest {
+    pub id: Uuid,
+    pub action: VisibleMemoryUiActionKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisibleMemoryUiActionResponse {
+    pub action: VisibleMemoryUiActionKind,
+    pub artifact_id: Uuid,
+    pub outcome: String,
+    pub message: String,
+    pub detail: Option<VisibleMemoryArtifactDetailResponse>,
+    pub open_uri: Option<String>,
+    pub source_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryItem {
     pub id: Uuid,
@@ -1734,11 +1779,103 @@ mod tests {
         let json = serde_json::to_string(&snapshot).unwrap();
         let decoded: VisibleMemorySnapshotResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.home.focus_artifact.title, "runtime spine");
-        assert_eq!(decoded.home.focus_artifact.status, VisibleMemoryStatus::Current);
+        assert_eq!(
+            decoded.home.focus_artifact.status,
+            VisibleMemoryStatus::Current
+        );
         assert_eq!(decoded.home.inbox_count, 3);
         assert_eq!(decoded.home.repair_count, 1);
         assert_eq!(decoded.knowledge_map.nodes.len(), 1);
         assert_eq!(decoded.knowledge_map.edges.len(), 1);
+    }
+
+    #[test]
+    fn visible_memory_artifact_detail_round_trips() {
+        let detail = VisibleMemoryArtifactDetailResponse {
+            generated_at: Utc::now(),
+            artifact: VisibleMemoryArtifact {
+                id: Uuid::new_v4(),
+                title: "runtime spine".to_string(),
+                body: "runtime spine is the canonical memory contract".to_string(),
+                artifact_kind: "compiled_page".to_string(),
+                memory_kind: Some(MemoryKind::Decision),
+                scope: Some(MemoryScope::Project),
+                visibility: Some(MemoryVisibility::Workspace),
+                workspace: Some("team-alpha".to_string()),
+                status: VisibleMemoryStatus::Current,
+                freshness: "fresh".to_string(),
+                confidence: 0.93,
+                provenance: VisibleMemoryProvenance {
+                    source_system: Some("obsidian".to_string()),
+                    source_path: Some("wiki/runtime-spine.md".to_string()),
+                    producer: Some("obsidian compile".to_string()),
+                    trust_reason: "verified from compiled workspace page".to_string(),
+                    last_verified_at: None,
+                },
+                sources: vec!["wiki/runtime-spine.md".to_string()],
+                linked_artifact_ids: vec![],
+                linked_sessions: vec!["codex-01".to_string()],
+                linked_agents: vec!["codex".to_string()],
+                repair_state: "healthy".to_string(),
+                actions: vec!["inspect".to_string(), "verify_current".to_string()],
+            },
+            explain: None,
+            timeline: None,
+            sources: SourceMemoryResponse { sources: vec![] },
+            workspaces: WorkspaceMemoryResponse { workspaces: vec![] },
+            sessions: HiveSessionsResponse { sessions: vec![] },
+            tasks: HiveTasksResponse { tasks: vec![] },
+            claims: HiveClaimsResponse { claims: vec![] },
+            related_artifacts: vec![],
+            related_map: VisibleMemoryKnowledgeMap {
+                nodes: vec![],
+                edges: vec![],
+            },
+            actions: vec![
+                VisibleMemoryUiActionKind::Inspect,
+                VisibleMemoryUiActionKind::Explain,
+                VisibleMemoryUiActionKind::VerifyCurrent,
+            ],
+        };
+
+        let json = serde_json::to_string(&detail).unwrap();
+        let decoded: VisibleMemoryArtifactDetailResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.artifact.title, "runtime spine");
+        assert_eq!(decoded.actions.len(), 3);
+    }
+
+    #[test]
+    fn visible_memory_ui_action_round_trips() {
+        let request = VisibleMemoryUiActionRequest {
+            id: Uuid::new_v4(),
+            action: VisibleMemoryUiActionKind::OpenInObsidian,
+        };
+        let response = VisibleMemoryUiActionResponse {
+            action: VisibleMemoryUiActionKind::OpenInObsidian,
+            artifact_id: request.id,
+            outcome: "opened".to_string(),
+            message: "generated obsidian uri".to_string(),
+            detail: None,
+            open_uri: Some("obsidian://open?path=wiki/runtime-spine.md".to_string()),
+            source_path: Some("wiki/runtime-spine.md".to_string()),
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: VisibleMemoryUiActionRequest =
+            serde_json::from_str(&request_json).unwrap();
+        let decoded_response: VisibleMemoryUiActionResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        assert_eq!(
+            decoded_request.action,
+            VisibleMemoryUiActionKind::OpenInObsidian
+        );
+        assert_eq!(decoded_response.artifact_id, request.id);
+        assert_eq!(
+            decoded_response.open_uri.as_deref(),
+            response.open_uri.as_deref()
+        );
     }
 
     #[test]

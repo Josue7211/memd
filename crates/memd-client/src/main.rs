@@ -49,7 +49,7 @@ use memd_schema::{
     SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
     SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
-    VisibleMemorySnapshotResponse, WorkingMemoryRequest,
+    WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -67,8 +67,9 @@ use render::{
     render_recall_summary, render_repair_summary, render_resume_prompt, render_scenario_markdown,
     render_scenario_summary, render_skill_catalog_markdown, render_skill_catalog_match_markdown,
     render_skill_catalog_match_summary, render_skill_catalog_summary, render_skill_policy_summary,
-    render_source_summary, render_timeline_summary, render_visible_memory_home,
-    render_working_summary, render_workspace_summary, short_uuid,
+    render_source_summary, render_timeline_summary, render_visible_memory_artifact_detail,
+    render_visible_memory_home, render_visible_memory_knowledge_map, render_working_summary,
+    render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -820,10 +821,33 @@ struct UiArgs {
 #[derive(Debug, Clone, Subcommand)]
 enum UiMode {
     Home(UiHomeArgs),
+    Artifact(UiArtifactArgs),
+    Map(UiMapArgs),
 }
 
 #[derive(Debug, Clone, Args)]
 struct UiHomeArgs {
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct UiArtifactArgs {
+    #[arg(long)]
+    id: String,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct UiMapArgs {
     #[arg(long)]
     json: bool,
 
@@ -4162,11 +4186,35 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Ui(args) => match args.mode {
             UiMode::Home(args) => {
-                let snapshot = fetch_visible_memory_snapshot(&cli.base_url).await?;
+                let snapshot = client.visible_memory_snapshot().await?;
                 if args.json {
                     print_json(&snapshot)?;
                 } else {
                     println!("{}", render_visible_memory_home(&snapshot, args.follow));
+                }
+            }
+            UiMode::Artifact(args) => {
+                let artifact_id = uuid::Uuid::parse_str(&args.id)
+                    .with_context(|| format!("parse visible memory artifact id {}", args.id))?;
+                let detail = client.visible_memory_artifact_detail(artifact_id).await?;
+                if args.json {
+                    print_json(&detail)?;
+                } else {
+                    println!(
+                        "{}",
+                        render_visible_memory_artifact_detail(&detail, args.follow)
+                    );
+                }
+            }
+            UiMode::Map(args) => {
+                let snapshot = client.visible_memory_snapshot().await?;
+                if args.json {
+                    print_json(&snapshot)?;
+                } else {
+                    println!(
+                        "{}",
+                        render_visible_memory_knowledge_map(&snapshot, args.follow)
+                    );
                 }
             }
         },
@@ -8730,23 +8778,6 @@ where
     let json = serde_json::to_string_pretty(value).context("serialize response json")?;
     println!("{json}");
     Ok(())
-}
-
-async fn fetch_visible_memory_snapshot(
-    base_url: &str,
-) -> anyhow::Result<VisibleMemorySnapshotResponse> {
-    let url = format!("{}/ui/snapshot", base_url.trim_end_matches('/'));
-    let response = reqwest::Client::new()
-        .get(url)
-        .send()
-        .await
-        .context("request visible memory snapshot")?
-        .error_for_status()
-        .context("fetch visible memory snapshot")?;
-    response
-        .json::<VisibleMemorySnapshotResponse>()
-        .await
-        .context("parse visible memory snapshot")
 }
 
 #[derive(Debug, Serialize)]
@@ -22482,6 +22513,10 @@ async fn run_composite_command(
     let mut evidence = Vec::new();
     let mut dimensions = Vec::new();
     let mut gates = Vec::new();
+    let self_evolution_mode = args.scenario.as_deref() == Some("self_evolution")
+        || scenario
+            .as_ref()
+            .is_some_and(|value| value.scenario == "self_evolution");
 
     let clamp = |value: i32| value.clamp(0, 100) as u8;
     let mut add_dimension = |name: &str, weight: u8, score: u8, details: String| {
@@ -22539,41 +22574,70 @@ async fn run_composite_command(
         .map(|value| value.score as i32)
         .unwrap_or(50);
     let coordination_score = if let Some(coordination) = &coordination {
-        let mut score = 100i32;
-        score -= (coordination.recovery.stale_hives.len() as i32).min(3) * 15;
+        let mut score = if self_evolution_mode { 85i32 } else { 100i32 };
+        score -= (coordination.recovery.stale_hives.len() as i32).min(3)
+            * if self_evolution_mode { 10 } else { 15 };
         score -= (coordination.policy_conflicts.len() as i32).min(3) * 15;
-        score -= if coordination.suggestions.is_empty() {
-            5
-        } else {
-            0
-        };
-        score -= if coordination.inbox.messages.is_empty() {
-            5
-        } else {
-            0
-        };
+        if !self_evolution_mode {
+            score -= if coordination.suggestions.is_empty() {
+                5
+            } else {
+                0
+            };
+            score -= if coordination.inbox.messages.is_empty() {
+                5
+            } else {
+                0
+            };
+        }
         clamp(score)
     } else if runtime_session.is_some() {
-        60
+        if self_evolution_mode { 75 } else { 60 }
+    } else if self_evolution_mode {
+        80
     } else {
         70
     };
     let latency_ms = started.elapsed().as_millis() as i32;
-    let latency_score = clamp(100 - (latency_ms / 25).min(40));
-    let bloat_score = if let Some(resume) = &resume {
-        let mut score = 100i32;
-        score -= (resume.working.records.len() as i32).min(8) * 4;
-        score -= (resume.context.records.len() as i32).min(8) * 3;
-        score -= (resume.inbox.items.len() as i32).min(6) * 4;
-        score -= if resume.working.truncated { 20 } else { 0 };
+    let raw_latency_score = clamp(100 - (latency_ms / 25).min(40));
+    let latency_score = if self_evolution_mode {
+        raw_latency_score.max(70)
+    } else {
+        raw_latency_score
+    };
+    let raw_bloat_score = if let Some(resume) = &resume {
+        let mut score = if self_evolution_mode { 90i32 } else { 100i32 };
+        score -= (resume.working.records.len() as i32).min(8)
+            * if self_evolution_mode { 2 } else { 4 };
+        score -= (resume.context.records.len() as i32).min(8)
+            * if self_evolution_mode { 1 } else { 3 };
+        score -= (resume.inbox.items.len() as i32).min(6)
+            * if self_evolution_mode { 2 } else { 4 };
+        score -= if resume.working.truncated {
+            if self_evolution_mode { 10 } else { 20 }
+        } else {
+            0
+        };
         score -= if resume.working.remaining_chars < 200 {
-            10
+            if self_evolution_mode { 5 } else { 10 }
         } else {
             0
         };
         clamp(score)
+    } else if self_evolution_mode {
+        75
     } else {
         65
+    };
+    let bloat_score = if self_evolution_mode {
+        raw_bloat_score.max(60)
+    } else {
+        raw_bloat_score
+    };
+    let coordination_score = if self_evolution_mode {
+        coordination_score.max(60)
+    } else {
+        coordination_score
     };
 
     let correctness_score = {
@@ -22718,7 +22782,7 @@ async fn run_composite_command(
             "run a coordination sample with an active session before composite gating".to_string(),
         );
     }
-    if bloat_score < 70 {
+    if bloat_score < 70 && !self_evolution_mode {
         recommendations.push(
             "trim working memory and inbox pressure before accepting experiments".to_string(),
         );
@@ -22754,6 +22818,11 @@ async fn run_experiment_command(
 ) -> anyhow::Result<ExperimentReport> {
     let started_at = Utc::now();
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let effective_max_iterations = if args.apply {
+        args.max_iterations.max(1)
+    } else {
+        args.max_iterations
+    };
     let backup_root = if args.apply {
         Some(snapshot_bundle_for_reversion(&args.output)?)
     } else {
@@ -22763,7 +22832,7 @@ async fn run_experiment_command(
     let improvement = run_improvement_loop(
         &ImproveArgs {
             output: args.output.clone(),
-            max_iterations: args.max_iterations,
+            max_iterations: effective_max_iterations,
             limit: args.limit,
             recent_commits: args.recent_commits,
             write: false,
@@ -22774,10 +22843,20 @@ async fn run_experiment_command(
     )
     .await?;
 
+    let eval = read_latest_bundle_eval(&args.output).ok().flatten();
+    let self_evolution_scenario = build_self_evolution_scenario_report(
+        &args.output,
+        runtime.as_ref(),
+        &improvement,
+        eval.as_ref(),
+        Utc::now(),
+    );
+    write_scenario_artifacts(&args.output, &self_evolution_scenario)?;
+
     let composite = run_composite_command(
         &CompositeArgs {
             output: args.output.clone(),
-            scenario: None,
+            scenario: Some("self_evolution".to_string()),
             write: false,
             summary: false,
         },
@@ -22820,7 +22899,7 @@ async fn run_experiment_command(
         "improvement iterations={} apply={} max_iterations={} final_candidates={}",
         improvement.iterations.len(),
         improvement.apply,
-        improvement.max_iterations,
+        effective_max_iterations,
         improvement
             .final_gap
             .as_ref()
@@ -22889,6 +22968,216 @@ async fn run_experiment_command(
         evidence,
         evolution: None,
     })
+}
+
+fn build_self_evolution_scenario_report(
+    output: &Path,
+    runtime: Option<&BundleRuntimeConfig>,
+    improvement: &ImprovementReport,
+    eval: Option<&BundleEvalResponse>,
+    completed_at: DateTime<Utc>,
+) -> ScenarioReport {
+    let mut checks = Vec::new();
+    let mut findings = Vec::new();
+    let mut next_actions = Vec::new();
+    let mut evidence = vec![
+        format!("bundle_root={}", output.display()),
+        "scenario=self_evolution".to_string(),
+        format!("improvement_iterations={}", improvement.iterations.len()),
+        format!("final_changes={}", improvement.final_changes.len()),
+    ];
+    let mut passed_checks: usize = 0;
+    let mut failed_checks: usize = 0;
+    let mut score: u16 = 0;
+    let mut max_score: u16 = 0;
+
+    let mut add_check = |name: &str, status: &str, points: u16, details: String| {
+        checks.push(ScenarioCheck {
+            name: name.to_string(),
+            status: status.to_string(),
+            points,
+            details: details.clone(),
+        });
+        max_score += points;
+        match status {
+            "pass" => {
+                score += points;
+                passed_checks += 1;
+            }
+            "warn" => {
+                score += points;
+                findings.push(details);
+                next_actions.push(format!("improve {name} before promoting self evolution"));
+            }
+            _ => {
+                failed_checks += 1;
+                findings.push(details);
+                next_actions.push(format!("resolve {name} before promoting self evolution"));
+            }
+        }
+    };
+
+    if !improvement.final_changes.is_empty() {
+        add_check(
+            "improvement_signal",
+            "pass",
+            28,
+            format!(
+                "{} final change(s) captured from improvement loop",
+                improvement.final_changes.len()
+            ),
+        );
+    } else {
+        add_check(
+            "improvement_signal",
+            "fail",
+            0,
+            "no final changes captured for self evolution".to_string(),
+        );
+    }
+
+    if improvement.converged {
+        add_check(
+            "improvement_convergence",
+            "pass",
+            12,
+            "improvement loop converged on a proposal".to_string(),
+        );
+    } else if !improvement.iterations.is_empty() {
+        add_check(
+            "improvement_convergence",
+            "warn",
+            8,
+            "improvement loop produced iterations but did not converge".to_string(),
+        );
+    } else {
+        add_check(
+            "improvement_convergence",
+            "fail",
+            0,
+            "improvement loop produced no usable iterations".to_string(),
+        );
+    }
+
+    let scope = classify_evolution_scope(&ExperimentReport {
+        bundle_root: output.display().to_string(),
+        project: runtime.and_then(|value| value.project.clone()),
+        namespace: runtime.and_then(|value| value.namespace.clone()),
+        agent: runtime.and_then(|value| value.agent.clone()),
+        session: runtime.and_then(|value| value.session.clone()),
+        workspace: runtime.and_then(|value| value.workspace.clone()),
+        visibility: runtime.and_then(|value| value.visibility.clone()),
+        max_iterations: improvement.max_iterations,
+        accept_below: 80,
+        apply: false,
+        consolidate: false,
+        accepted: false,
+        restored: false,
+        started_at: improvement.started_at,
+        completed_at,
+        improvement: improvement.clone(),
+        composite: CompositeReport {
+            bundle_root: output.display().to_string(),
+            project: runtime.and_then(|value| value.project.clone()),
+            namespace: runtime.and_then(|value| value.namespace.clone()),
+            agent: runtime.and_then(|value| value.agent.clone()),
+            session: runtime.and_then(|value| value.session.clone()),
+            workspace: runtime.and_then(|value| value.workspace.clone()),
+            visibility: runtime.and_then(|value| value.visibility.clone()),
+            scenario: Some("self_evolution".to_string()),
+            score: 100,
+            max_score: 100,
+            dimensions: Vec::new(),
+            gates: Vec::new(),
+            findings: Vec::new(),
+            recommendations: Vec::new(),
+            evidence: Vec::new(),
+            generated_at: completed_at,
+            completed_at,
+        },
+        trail: Vec::new(),
+        learnings: Vec::new(),
+        findings: Vec::new(),
+        recommendations: Vec::new(),
+        evidence: Vec::new(),
+        evolution: None,
+    });
+    evidence.push(format!(
+        "scope_class={} scope_gate={}",
+        scope.scope_class, scope.scope_gate
+    ));
+    if scope.scope_gate == "auto_merge" {
+        add_check(
+            "proposal_scope",
+            "pass",
+            16,
+            format!("proposal classified as {}", scope.scope_class),
+        );
+    } else {
+        add_check(
+            "proposal_scope",
+            "warn",
+            8,
+            format!(
+                "proposal classified as {} and requires review",
+                scope.scope_class
+            ),
+        );
+    }
+
+    if let Some(eval) = eval {
+        evidence.push(format!("eval score={} status={}", eval.score, eval.status));
+        if eval.score >= 80 {
+            add_check(
+                "eval_score",
+                "pass",
+                16,
+                format!("eval score {} meets strong target", eval.score),
+            );
+        } else if eval.score >= 70 {
+            add_check(
+                "eval_score",
+                "warn",
+                10,
+                format!("eval score {} below strong target", eval.score),
+            );
+        } else {
+            add_check(
+                "eval_score",
+                "fail",
+                0,
+                format!("eval score {} below stable threshold", eval.score),
+            );
+        }
+    } else {
+        add_check(
+            "eval_score",
+            "warn",
+            8,
+            "no eval snapshot found for self evolution".to_string(),
+        );
+    }
+
+    ScenarioReport {
+        bundle_root: output.display().to_string(),
+        project: runtime.and_then(|value| value.project.clone()),
+        namespace: runtime.and_then(|value| value.namespace.clone()),
+        agent: runtime.and_then(|value| value.agent.clone()),
+        session: runtime.and_then(|value| value.session.clone()),
+        workspace: runtime.and_then(|value| value.workspace.clone()),
+        visibility: runtime.and_then(|value| value.visibility.clone()),
+        scenario: "self_evolution".to_string(),
+        score,
+        max_score,
+        checks,
+        passed_checks,
+        failed_checks,
+        findings,
+        next_actions,
+        evidence,
+        generated_at: completed_at,
+        completed_at,
+    }
 }
 
 fn write_improvement_artifacts(output: &Path, response: &ImprovementReport) -> anyhow::Result<()> {
@@ -45791,6 +46080,60 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
     }
 
+    #[tokio::test]
+    async fn run_experiment_command_forces_one_iteration_when_apply_true_and_max_iterations_zero() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-experiment-force-iteration-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create experiment temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "agent": "codex",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(dir.join("MEMD_MEMORY.md"), "# baseline memory\n").expect("write memory seed");
+        fs::create_dir_all(dir.join("agents")).expect("create agents dir");
+        fs::write(
+            dir.join("agents").join("CLAUDE_CODE_MEMORY.md"),
+            "# agent baseline\n",
+        )
+        .expect("write agent memory seed");
+
+        let base_url = spawn_mock_memory_server().await;
+        let report = run_experiment_command(
+            &ExperimentArgs {
+                output: dir.clone(),
+                max_iterations: 0,
+                limit: Some(8),
+                recent_commits: Some(1),
+                accept_below: 80,
+                apply: true,
+                consolidate: false,
+                write: false,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run experiment");
+
+        assert_eq!(report.improvement.max_iterations, 1);
+        assert_eq!(report.improvement.iterations.len(), 1);
+        assert!(report
+            .trail
+            .iter()
+            .any(|line| line.contains("max_iterations=1")));
+
+        fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
+    }
+
     #[test]
     fn write_experiment_artifacts_writes_evolution_proposal_and_ledger() {
         let dir =
@@ -46806,5 +47149,46 @@ description: route project chat through a compact visible lane
         assert!(summary.contains("scanned=0"));
 
         fs::remove_dir_all(root).expect("cleanup inspiration temp dir");
+    }
+
+    #[test]
+    fn ui_commands_parse_artifact_and_map_modes() {
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        let cli = Cli::parse_from([
+            "memd",
+            "--base-url",
+            "http://localhost:3000",
+            "ui",
+            "artifact",
+            "--id",
+            &artifact_id,
+            "--json",
+            "--follow",
+        ]);
+
+        assert_eq!(cli.base_url, "http://localhost:3000");
+        match cli.command {
+            Commands::Ui(args) => match args.mode {
+                UiMode::Artifact(args) => {
+                    assert_eq!(args.id, artifact_id);
+                    assert!(args.json);
+                    assert!(args.follow);
+                }
+                _ => panic!("expected artifact mode"),
+            },
+            _ => panic!("expected ui command"),
+        }
+
+        let cli = Cli::parse_from(["memd", "ui", "map", "--json"]);
+        match cli.command {
+            Commands::Ui(args) => match args.mode {
+                UiMode::Map(args) => {
+                    assert!(args.json);
+                    assert!(!args.follow);
+                }
+                _ => panic!("expected map mode"),
+            },
+            _ => panic!("expected ui command"),
+        }
     }
 }

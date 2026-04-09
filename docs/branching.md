@@ -8,6 +8,7 @@
 - `work/<milestone>` is for active milestone work.
 - `feat/<area>` is for scoped feature work inside a milestone.
 - `fix/<area>` is for targeted bug fixes.
+- `auto/evolution/<layer>/<topic>-<timestamp>` is for isolated self-evolution proposals and bounded auto-generated patches.
 - `release/vX.Y.Z` is for preparing a tagged release.
 - `hotfix/<area>` is for urgent release-line fixes.
 
@@ -30,6 +31,9 @@ If a scope is big enough to need its own summary in the roadmap or changelog, it
 - Prefer small, atomic commits over large mixed commits.
 - Split files only at real seams that improve ownership or reuse.
 - Merge or rebase only after the branch is verified.
+- Evolution branches must carry a branch manifest that declares the proposal artifact, allowed write surface, evaluation plan, rollback plan, and authority tier.
+- Evolution branches may only enter the low-risk auto-merge lane when the manifest matches the approved surface and the authority ledger allows that class.
+- Evolution branches that do not qualify for the low-risk lane stay review-gated until they are accepted and merged explicitly.
 - Push milestone and feature branches upstream when they become active so the remote history reflects the real work topology.
 - Do not let one feature branch silently absorb later unrelated phases.
 
@@ -48,3 +52,5 @@ If a scope is big enough to need its own summary in the roadmap or changelog, it
 4. verify with formatting, tests, and docs updates
 5. merge or replay the scoped branch back onto the `work/<milestone>` branch
 6. merge the milestone branch to `main` only when the milestone slice is actually ready
+
+See [Self-Evolution Pipeline](./self-evolution.md) for the proposal artifact, merge queue, durability queue, and state model.

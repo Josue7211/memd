@@ -10,6 +10,7 @@
 - the freshest verified local truth must outrank older ambiguous memory
 - raw events are not prompt material; they must be compiled into compact truth items first
 - project-local live truth is the default; cross-project promotion requires explicit validation
+- self-evolution may propose changes through explicit artifacts and queues, but it may not silently mutate shared runtime state
 - session-local and tab-local scope should stay visible when multiple Codex
   tabs share one project
 
@@ -33,6 +34,8 @@ The live policy snapshot should enforce these defaults:
 - persist applied skill records separately from apply receipts so activation is
   queryable, not just audited
 - expose a query lane for stored apply receipts and activation records
+- keep self-evolution proposals visible as proposal artifacts, branch manifests, authority ledger entries, merge queue entries, and durability queue entries
+- treat `accepted_proposal`, `merged`, and `durable_truth` as different states rather than synonyms
 
 ## Biological Principles Worth Copying
 
@@ -46,6 +49,7 @@ The live policy snapshot should enforce these defaults:
 - selective consolidation instead of replaying full history
 - cue-driven retrieval under current task pressure
 - compressed cognition for energy and token efficiency
+- self-evolution should earn more authority only after durability re-checks keep passing
 
 ## Biological Failure Modes To Reject
 

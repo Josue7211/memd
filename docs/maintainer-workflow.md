@@ -30,6 +30,7 @@ Practical rule:
 - merge scoped work into the milestone branch
 - merge milestone work into `main`
 - do not use `main` as an integration sandbox
+- self-evolution branches may bypass manual merge only when they qualify for the low-risk auto-merge lane and the branch manifest matches the approved authority tier
 
 ## Push Policy
 
@@ -90,3 +91,5 @@ docs, or assistant output invent URLs or accessibility claims from context.
 - delete stale remote branches after merge
 - keep remote branch names aligned with the actual roadmap slices
 - avoid leaving significant local-only history that collaborators cannot see
+
+See [Self-Evolution Pipeline](./self-evolution.md) for the proposal, merge, and durability queues that govern auto-merge behavior.

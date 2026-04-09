@@ -1,0 +1,25 @@
+---
+const { eyebrow, title, description, items, align = "left", tone = "default" } = Astro.props;
+---
+
+<section class:list={["section", `section--${tone}`]}>
+  <div class="container">
+    <div class:list={["feature-split", align === "right" && "feature-split--reverse"]}>
+      <div class="section-heading feature-copy feature-copy--sticky" data-reveal>
+        <p class="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <p class="section-description">{description}</p>
+      </div>
+
+      <div class="feature-list" data-reveal>
+        {items.map((item, index) => (
+          <article class:list={["feature-row", index % 2 === 1 && "feature-row--alt"]} style={`--delay:${index * 70}ms`}>
+            <span class="feature-index">0{index + 1}</span>
+            <h3>{item.title}</h3>
+            <p>{item.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>

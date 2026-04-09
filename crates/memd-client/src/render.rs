@@ -4,7 +4,8 @@ use serde_json::Value;
 use memd_schema::{
     AgentProfileResponse, AssociativeRecallResponse, EntitySearchResponse, ExplainMemoryResponse,
     MemoryPolicyResponse, RepairMemoryResponse, RetrievalIntent, RetrievalRoute,
-    SourceMemoryResponse, VisibleMemorySnapshotResponse, VisibleMemoryStatus,
+    SourceMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemoryKnowledgeMap,
+    VisibleMemorySnapshotResponse, VisibleMemoryStatus, VisibleMemoryUiActionKind,
     WorkingMemoryResponse, WorkspaceMemoryResponse,
 };
 
@@ -2622,6 +2623,197 @@ pub(crate) fn render_visible_memory_home(
     output
 }
 
+pub(crate) fn render_visible_memory_artifact_detail(
+    response: &VisibleMemoryArtifactDetailResponse,
+    follow: bool,
+) -> String {
+    let artifact = &response.artifact;
+    let mut output = format!(
+        "memory_artifact id={} title={} status={} kind={} visibility={} workspace={} explain={} timeline={} sources={} workspaces={} sessions={} tasks={} claims={} related={} map_nodes={} map_edges={} actions={}",
+        short_uuid(artifact.id),
+        compact_inline(&artifact.title, 48),
+        visible_memory_status_label(artifact.status),
+        compact_inline(&artifact.artifact_kind, 24),
+        artifact.visibility.map(format_visibility).unwrap_or("none"),
+        artifact.workspace.as_deref().unwrap_or("none"),
+        bool_label(response.explain.is_some()),
+        bool_label(response.timeline.is_some()),
+        response.sources.sources.len(),
+        response.workspaces.workspaces.len(),
+        response.sessions.sessions.len(),
+        response.tasks.tasks.len(),
+        response.claims.claims.len(),
+        response.related_artifacts.len(),
+        response.related_map.nodes.len(),
+        response.related_map.edges.len(),
+        visible_memory_actions_label(&response.actions)
+    );
+
+    if follow {
+        output.push_str(&format!(
+            " source_system={} source_path={} producer={} trust={} repair={} confidence={:.2}",
+            artifact.provenance.source_system.as_deref().unwrap_or("none"),
+            artifact.provenance.source_path.as_deref().unwrap_or("none"),
+            artifact.provenance.producer.as_deref().unwrap_or("none"),
+            compact_inline(&artifact.provenance.trust_reason, 64),
+            compact_inline(&artifact.repair_state, 24),
+            artifact.confidence
+        ));
+
+        if let Some(explain) = response.explain.as_ref() {
+            output.push_str(&format!(
+                " explain_route={} explain_intent={} explain_sources={} explain_events={} explain_rehydrate={}",
+                route_label(explain.route),
+                intent_label(explain.intent),
+                explain.sources.len(),
+                explain.events.len(),
+                explain.rehydration.len()
+            ));
+            if let Some(first_reason) = explain.reasons.first() {
+                output.push_str(&format!(
+                    " explain_reason={}",
+                    compact_inline(first_reason, 48)
+                ));
+            }
+        }
+
+        if let Some(timeline) = response.timeline.as_ref() {
+            output.push_str(&format!(
+                " timeline_events={} timeline_entity={}",
+                timeline.events.len(),
+                timeline
+                    .entity
+                    .as_ref()
+                    .map(|entity| format!("{}:{}", short_uuid(entity.id), entity.entity_type))
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            let trail = timeline
+                .events
+                .iter()
+                .take(3)
+                .map(|event| {
+                    format!(
+                        "{}:{}",
+                        event.event_type,
+                        compact_inline(&event.summary, 36)
+                    )
+                })
+                .collect::<Vec<_>>();
+            if !trail.is_empty() {
+                output.push_str(&format!(" timeline_trail={}", trail.join(" | ")));
+            }
+        }
+
+        let related_trail = response
+            .related_artifacts
+            .iter()
+            .take(3)
+            .map(|related| {
+                format!(
+                    "{}:{}:{}",
+                    short_uuid(related.id),
+                    compact_inline(&related.title, 24),
+                    visible_memory_status_label(related.status)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !related_trail.is_empty() {
+            output.push_str(&format!(" related_trail={}", related_trail.join(" | ")));
+        }
+
+        let map_trail = response
+            .related_map
+            .nodes
+            .iter()
+            .take(3)
+            .map(|node| {
+                format!(
+                    "{}:{}:{}",
+                    compact_inline(&node.title, 24),
+                    compact_inline(&node.artifact_kind, 18),
+                    visible_memory_status_label(node.status)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !map_trail.is_empty() {
+            output.push_str(&format!(" map_trail={}", map_trail.join(" | ")));
+        }
+    }
+
+    output
+}
+
+pub(crate) fn render_visible_memory_knowledge_map(
+    response: &VisibleMemorySnapshotResponse,
+    follow: bool,
+) -> String {
+    let map = &response.knowledge_map;
+    let mut output = format!(
+        "memory_map focus={} nodes={} edges={} current={} candidate={} stale={} superseded={} conflicted={} archived={} timeline_nodes={} workspace_nodes={}",
+        compact_inline(&response.home.focus_artifact.title, 48),
+        map.nodes.len(),
+        map.edges.len(),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Current),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Candidate),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Stale),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Superseded),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Conflicted),
+        knowledge_map_status_count(map, VisibleMemoryStatus::Archived),
+        knowledge_map_kind_count(map, "timeline_event"),
+        knowledge_map_kind_count(map, "workspace_lane")
+    );
+
+    if follow {
+        let node_trail = map
+            .nodes
+            .iter()
+            .take(4)
+            .map(|node| {
+                format!(
+                    "{}:{}:{}",
+                    compact_inline(&node.title, 24),
+                    compact_inline(&node.artifact_kind, 18),
+                    visible_memory_status_label(node.status)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !node_trail.is_empty() {
+            output.push_str(&format!(" trail={}", node_trail.join(" | ")));
+        }
+
+        let edge_trail = map
+            .edges
+            .iter()
+            .take(3)
+            .map(|edge| {
+                format!(
+                    "{}:{}->{}",
+                    compact_inline(&edge.relation, 18),
+                    short_uuid(edge.from),
+                    short_uuid(edge.to)
+                )
+            })
+            .collect::<Vec<_>>();
+        if !edge_trail.is_empty() {
+            output.push_str(&format!(" edge_trail={}", edge_trail.join(" | ")));
+        }
+
+        output.push_str(&format!(
+            " focus_workspace={} focus_visibility={} focus_confidence={:.2}",
+            response.home.focus_artifact.workspace.as_deref().unwrap_or("none"),
+            response
+                .home
+                .focus_artifact
+                .visibility
+                .map(format_visibility)
+                .unwrap_or("none"),
+            response.home.focus_artifact.confidence
+        ));
+    }
+
+    output
+}
+
 pub(crate) fn render_explain_summary(response: &ExplainMemoryResponse, follow: bool) -> String {
     let mut output = format!(
         "explain item={} route={} intent={} status={} confidence={:.2} preferred={} branch={} siblings={} retrievals={} entity={} events={} sources={} rehydrate={} hooks={} reasons={}",
@@ -2804,6 +2996,44 @@ fn visible_memory_status_label(status: VisibleMemoryStatus) -> &'static str {
     }
 }
 
+fn visible_memory_action_label(action: VisibleMemoryUiActionKind) -> &'static str {
+    match action {
+        VisibleMemoryUiActionKind::Inspect => "inspect",
+        VisibleMemoryUiActionKind::Explain => "explain",
+        VisibleMemoryUiActionKind::VerifyCurrent => "verify_current",
+        VisibleMemoryUiActionKind::MarkStale => "mark_stale",
+        VisibleMemoryUiActionKind::Promote => "promote",
+        VisibleMemoryUiActionKind::OpenSource => "open_source",
+        VisibleMemoryUiActionKind::OpenInObsidian => "open_in_obsidian",
+    }
+}
+
+fn visible_memory_actions_label(actions: &[VisibleMemoryUiActionKind]) -> String {
+    if actions.is_empty() {
+        "none".to_string()
+    } else {
+        actions
+            .iter()
+            .map(|action| visible_memory_action_label(*action))
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+}
+
+fn knowledge_map_status_count(
+    map: &VisibleMemoryKnowledgeMap,
+    status: VisibleMemoryStatus,
+) -> usize {
+    map.nodes.iter().filter(|node| node.status == status).count()
+}
+
+fn knowledge_map_kind_count(map: &VisibleMemoryKnowledgeMap, kind: &str) -> usize {
+    map.nodes
+        .iter()
+        .filter(|node| node.artifact_kind == kind)
+        .count()
+}
+
 fn bool_label(value: bool) -> &'static str {
     if value { "on" } else { "off" }
 }
@@ -2833,18 +3063,21 @@ pub(crate) fn is_default_runtime(runtime: &memd_schema::MemoryPolicyRuntime) -> 
 mod tests {
     use super::{
         render_bundle_status_summary, render_harness_preset_markdown, render_policy_summary,
-        render_skill_policy_summary, render_visible_memory_home,
+        render_skill_policy_summary, render_visible_memory_artifact_detail,
+        render_visible_memory_home, render_visible_memory_knowledge_map,
     };
     use crate::harness::preset::HarnessPresetRegistry;
     use memd_schema::{
-        MemoryKind, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
+        HiveClaimsResponse, HiveSessionsResponse, HiveTasksResponse, MemoryKind,
+        MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
         MemoryPolicyLiveTruth, MemoryPolicyMemoryCompilation, MemoryPolicyPromotion,
         MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyRuntime,
         MemoryPolicySemanticFallback, MemoryPolicySkillGating, MemoryPolicyWorkingMemory,
-        MemoryScope, MemoryVisibility, RetrievalIntent, RetrievalRoute, VisibleMemoryArtifact,
-        VisibleMemoryGraphEdge, VisibleMemoryGraphNode, VisibleMemoryHome,
-        VisibleMemoryKnowledgeMap, VisibleMemoryProvenance, VisibleMemorySnapshotResponse,
-        VisibleMemoryStatus,
+        MemoryScope, MemoryVisibility, RetrievalIntent, RetrievalRoute, SourceMemoryResponse,
+        VisibleMemoryArtifact, VisibleMemoryArtifactDetailResponse, VisibleMemoryGraphEdge,
+        VisibleMemoryGraphNode, VisibleMemoryHome, VisibleMemoryKnowledgeMap,
+        VisibleMemoryProvenance, VisibleMemorySnapshotResponse, VisibleMemoryStatus,
+        VisibleMemoryUiActionKind, WorkspaceMemoryResponse,
     };
     use serde_json::json;
 
@@ -3373,5 +3606,227 @@ mod tests {
         assert!(summary.contains("source_path=wiki/runtime-spine.md"));
         assert!(summary.contains("actions=inspect|explain|verify_current"));
         assert!(summary.contains("trail=runtime spine:compiled_page:current"));
+    }
+
+    #[test]
+    fn visible_memory_artifact_detail_summary_surfaces_related_artifacts_and_actions() {
+        let related_id = uuid::Uuid::new_v4();
+        let snapshot = VisibleMemoryArtifactDetailResponse {
+            generated_at: chrono::Utc::now(),
+            artifact: VisibleMemoryArtifact {
+                id: uuid::Uuid::new_v4(),
+                title: "runtime spine".to_string(),
+                body: "runtime spine is the canonical memory contract".to_string(),
+                artifact_kind: "compiled_page".to_string(),
+                memory_kind: Some(MemoryKind::Decision),
+                scope: Some(MemoryScope::Project),
+                visibility: Some(MemoryVisibility::Workspace),
+                workspace: Some("team-alpha".to_string()),
+                status: VisibleMemoryStatus::Current,
+                freshness: "verified".to_string(),
+                confidence: 0.97,
+                provenance: VisibleMemoryProvenance {
+                    source_system: Some("obsidian".to_string()),
+                    source_path: Some("wiki/runtime-spine.md".to_string()),
+                    producer: Some("obsidian compile".to_string()),
+                    trust_reason: "verified workspace page".to_string(),
+                    last_verified_at: None,
+                },
+                sources: vec!["wiki/runtime-spine.md".to_string()],
+                linked_artifact_ids: vec![related_id],
+                linked_sessions: vec!["codex-01".to_string()],
+                linked_agents: vec!["codex".to_string()],
+                repair_state: "healthy".to_string(),
+                actions: vec!["inspect".to_string(), "open_in_obsidian".to_string()],
+            },
+            explain: None,
+            timeline: None,
+            sources: SourceMemoryResponse { sources: vec![] },
+            workspaces: WorkspaceMemoryResponse { workspaces: vec![] },
+            sessions: HiveSessionsResponse { sessions: vec![] },
+            tasks: HiveTasksResponse { tasks: vec![] },
+            claims: HiveClaimsResponse { claims: vec![] },
+            related_artifacts: vec![VisibleMemoryArtifact {
+                id: related_id,
+                title: "workspace lane".to_string(),
+                body: "lane supports shared memory inspection".to_string(),
+                artifact_kind: "workspace_lane".to_string(),
+                memory_kind: Some(MemoryKind::Status),
+                scope: Some(MemoryScope::Project),
+                visibility: Some(MemoryVisibility::Workspace),
+                workspace: Some("team-alpha".to_string()),
+                status: VisibleMemoryStatus::Candidate,
+                freshness: "fresh".to_string(),
+                confidence: 0.75,
+                provenance: VisibleMemoryProvenance {
+                    source_system: Some("server".to_string()),
+                    source_path: Some("ui/home".to_string()),
+                    producer: Some("visible memory snapshot".to_string()),
+                    trust_reason: "snapshot neighbor".to_string(),
+                    last_verified_at: None,
+                },
+                sources: vec!["ui/home".to_string()],
+                linked_artifact_ids: vec![],
+                linked_sessions: vec![],
+                linked_agents: vec![],
+                repair_state: "candidate".to_string(),
+                actions: vec!["inspect".to_string()],
+            }],
+            related_map: VisibleMemoryKnowledgeMap {
+                nodes: vec![
+                    VisibleMemoryGraphNode {
+                        artifact_id: related_id,
+                        title: "runtime spine".to_string(),
+                        artifact_kind: "compiled_page".to_string(),
+                        status: VisibleMemoryStatus::Current,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "workspace lane".to_string(),
+                        artifact_kind: "workspace_lane".to_string(),
+                        status: VisibleMemoryStatus::Candidate,
+                    },
+                ],
+                edges: vec![VisibleMemoryGraphEdge {
+                    from: related_id,
+                    to: uuid::Uuid::new_v4(),
+                    relation: "related".to_string(),
+                }],
+            },
+            actions: vec![
+                VisibleMemoryUiActionKind::Inspect,
+                VisibleMemoryUiActionKind::OpenInObsidian,
+            ],
+        };
+
+        let summary = render_visible_memory_artifact_detail(&snapshot, true);
+        assert!(summary.contains("memory_artifact id="));
+        assert!(summary.contains("title=runtime spine"));
+        assert!(summary.contains("status=current"));
+        assert!(summary.contains("kind=compiled_page"));
+        assert!(summary.contains("explain=off"));
+        assert!(summary.contains("timeline=off"));
+        assert!(summary.contains("sources=0"));
+        assert!(summary.contains("workspaces=0"));
+        assert!(summary.contains("sessions=0"));
+        assert!(summary.contains("tasks=0"));
+        assert!(summary.contains("claims=0"));
+        assert!(summary.contains("related=1"));
+        assert!(summary.contains("map_nodes=2"));
+        assert!(summary.contains("map_edges=1"));
+        assert!(summary.contains("actions=inspect|open_in_obsidian"));
+        assert!(summary.contains("source_system=obsidian"));
+        assert!(summary.contains("source_path=wiki/runtime-spine.md"));
+        assert!(summary.contains("related_trail="));
+        assert!(summary.contains("workspace lane:workspace_lane:candidate"));
+        assert!(summary.contains("map_trail=runtime spine:compiled_page:current"));
+    }
+
+    #[test]
+    fn visible_memory_knowledge_map_summary_surfaces_graph_counts() {
+        let artifact_id = uuid::Uuid::new_v4();
+        let snapshot = VisibleMemorySnapshotResponse {
+            generated_at: chrono::Utc::now(),
+            home: VisibleMemoryHome {
+                focus_artifact: VisibleMemoryArtifact {
+                    id: artifact_id,
+                    title: "runtime spine".to_string(),
+                    body: "runtime spine is the canonical memory contract".to_string(),
+                    artifact_kind: "compiled_page".to_string(),
+                    memory_kind: Some(MemoryKind::Decision),
+                    scope: Some(MemoryScope::Project),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    workspace: Some("team-alpha".to_string()),
+                    status: VisibleMemoryStatus::Current,
+                    freshness: "verified".to_string(),
+                    confidence: 0.97,
+                    provenance: VisibleMemoryProvenance {
+                        source_system: Some("obsidian".to_string()),
+                        source_path: Some("wiki/runtime-spine.md".to_string()),
+                        producer: Some("obsidian compile".to_string()),
+                        trust_reason: "verified workspace page".to_string(),
+                        last_verified_at: None,
+                    },
+                    sources: vec!["wiki/runtime-spine.md".to_string()],
+                    linked_artifact_ids: vec![],
+                    linked_sessions: vec![],
+                    linked_agents: vec![],
+                    repair_state: "healthy".to_string(),
+                    actions: vec!["inspect".to_string()],
+                },
+                inbox_count: 1,
+                repair_count: 2,
+                awareness_count: 3,
+            },
+            knowledge_map: VisibleMemoryKnowledgeMap {
+                nodes: vec![
+                    VisibleMemoryGraphNode {
+                        artifact_id,
+                        title: "runtime spine".to_string(),
+                        artifact_kind: "compiled_page".to_string(),
+                        status: VisibleMemoryStatus::Current,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "workspace lane".to_string(),
+                        artifact_kind: "workspace_lane".to_string(),
+                        status: VisibleMemoryStatus::Candidate,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "stale note".to_string(),
+                        artifact_kind: "note".to_string(),
+                        status: VisibleMemoryStatus::Stale,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "superseded note".to_string(),
+                        artifact_kind: "note".to_string(),
+                        status: VisibleMemoryStatus::Superseded,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "conflicted note".to_string(),
+                        artifact_kind: "note".to_string(),
+                        status: VisibleMemoryStatus::Conflicted,
+                    },
+                    VisibleMemoryGraphNode {
+                        artifact_id: uuid::Uuid::new_v4(),
+                        title: "archived note".to_string(),
+                        artifact_kind: "note".to_string(),
+                        status: VisibleMemoryStatus::Archived,
+                    },
+                ],
+                edges: vec![
+                    VisibleMemoryGraphEdge {
+                        from: artifact_id,
+                        to: uuid::Uuid::new_v4(),
+                        relation: "related".to_string(),
+                    },
+                    VisibleMemoryGraphEdge {
+                        from: uuid::Uuid::new_v4(),
+                        to: uuid::Uuid::new_v4(),
+                        relation: "links".to_string(),
+                    },
+                ],
+            },
+        };
+
+        let summary = render_visible_memory_knowledge_map(&snapshot, true);
+        assert!(summary.contains("memory_map focus=runtime spine"));
+        assert!(summary.contains("nodes=6"));
+        assert!(summary.contains("edges=2"));
+        assert!(summary.contains("current=1"));
+        assert!(summary.contains("candidate=1"));
+        assert!(summary.contains("stale=1"));
+        assert!(summary.contains("superseded=1"));
+        assert!(summary.contains("conflicted=1"));
+        assert!(summary.contains("archived=1"));
+        assert!(summary.contains("timeline_nodes=0"));
+        assert!(summary.contains("workspace_nodes=1"));
+        assert!(summary.contains("trail=runtime spine:compiled_page:current"));
+        assert!(summary.contains("edge_trail=related:"));
+        assert!(summary.contains("focus_workspace=team-alpha"));
+        assert!(summary.contains("focus_visibility=workspace"));
     }
 }

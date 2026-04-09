@@ -1,0 +1,50 @@
+---
+import Layout from "../components/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Hero from "../components/Hero.astro";
+import SignalStrip from "../components/SignalStrip.astro";
+import PricingTable from "../components/PricingTable.astro";
+import CTA from "../components/CTA.astro";
+import Footer from "../components/Footer.astro";
+import { siteCopy } from "../content/copy";
+
+const title = "memd Cloud - hosted memory for teams that do not want to self-host";
+const description =
+  "memd Cloud is the paid hosted memory layer for agent workflows. OSS stays free; cloud is the hosted product.";
+---
+
+<Layout {title} {description}>
+  <Nav brand={siteCopy.brand} links={siteCopy.nav} />
+
+  <main>
+    <Hero {...siteCopy.hero} />
+    <SignalStrip text="oss free / cloud paid / no docker / hosted sync / source-linked recall" />
+
+    <section class="section section--simple" id="why-it-matters">
+      <div class="container">
+        <div class="section-heading section-heading-tight" data-reveal>
+          <p class="eyebrow">Why cloud</p>
+          <h2>Convenience is the product.</h2>
+          <p class="section-description">
+            If someone does not want to self-host, the cloud is the paid path.
+          </p>
+        </div>
+
+        <div class="simple-grid">
+          {siteCopy.highlights.map((item, index) => (
+            <article class:list={["simple-card panel", index === 1 && "simple-card--accent"]} data-reveal style={`--delay:${index * 80}ms`}>
+              <span class="simple-card__index">0{index + 1}</span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <PricingTable {...siteCopy.pricing} />
+    <CTA {...siteCopy.cta} />
+  </main>
+
+  <Footer brand={siteCopy.brand} links={siteCopy.footer} />
+</Layout>

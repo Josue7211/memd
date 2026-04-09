@@ -1,0 +1,19 @@
+---
+const { eyebrow, title, description, primaryCta, secondaryCta } = Astro.props;
+---
+
+<section class="section">
+  <div class="container">
+    <div class="cta-panel panel" data-reveal>
+      <p class="eyebrow">{eyebrow}</p>
+      <div class="cta-copy">
+        <h2>{title}</h2>
+        <p class="section-description">{description}</p>
+      </div>
+      <div class="cta-actions">
+        <a class="button button-solid" href={primaryCta.href}>{primaryCta.label}</a>
+        <a class="button button-ghost" href={secondaryCta.href}>{secondaryCta.label}</a>
+      </div>
+    </div>
+  </div>
+</section>

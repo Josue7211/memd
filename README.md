@@ -1,30 +1,94 @@
 # memd
 
-`memd` is a memory control plane and knowledge base for agents.
+`memd` is a memory control plane for agents.
 
-It turns raw work into a compact, visible, source-linked memory system that stays
-usable across turns, tabs, machines, and projects. The goal is not just to store
-more context. The goal is to make memory reliable: read once, compile once,
-reuse forever, and always keep a path back to the evidence.
+It turns raw work into compact, source-linked memory that stays usable across
+turns, tabs, machines, and projects. The point is not to store more context.
+The point is to make memory reliable: read once, compile once, reuse many, and
+always keep a path back to the evidence.
 
-`memd` combines:
+## Architecture
 
-- harness packs for Codex, Claude Code, Agent Zero, OpenClaw, Hermes, OpenCode, and other agent surfaces
-- compiled memory pages that stay visible on disk
-- Obsidian wikilinks for human navigation
-- LightRAG as the semantic recall backend
-- session, tab, and project scope so live work stays separated
-- quality scoring so gaps, stale facts, and contradictions are obvious
+The product hero source is [docs/product-loop.svg](./docs/product-loop.svg).
+The landing-page image is [docs/product-loop.png](./docs/product-loop.png).
+The detailed architecture source lives in [docs/architecture.excalidraw](./docs/architecture.excalidraw).
+The detailed architecture image is [docs/architecture-hero.png](./docs/architecture-hero.png).
+The full repo map is [docs/codebase-map.png](./docs/codebase-map.png).
 
-## What it does
+<img src="./docs/product-loop.png" alt="memd memory OS" width="100%" />
 
-- routes memory by intent, scope, and freshness
-- compacts working state without transcript dumps
-- keeps compiled memory pages visible on disk
-- uses Obsidian wikilinks for the graph
-- uses LightRAG as the semantic recall backend
-- tracks session and tab scope for live coordination
-- scores memory quality so gaps are explicit
+## At A Glance
+
+```mermaid
+flowchart LR
+  subgraph Inputs[Live Inputs]
+    Packs[Harness packs]
+    Obsidian[Obsidian vault]
+    Humans[Human review]
+  end
+
+  subgraph Client[memd Client]
+    CLI[memd CLI]
+    Hooks[Hooks / capture / spill]
+    Resume[Resume / handoff / context]
+  end
+
+  subgraph Control[memd Control Plane]
+    API[HTTP API]
+    Router[Routing + intent]
+    Memory[Working memory + inbox + explain]
+    Store[(SQLite store)]
+  end
+
+  subgraph Semantic[Semantic Backend]
+    Sidecar[rag-sidecar]
+    RAG[LightRAG / compatible backend]
+  end
+
+  subgraph Background[Background]
+    Worker[memd-worker]
+    Verify[Verify / decay / consolidate]
+  end
+
+  Packs --> CLI
+  Obsidian --> CLI
+  Humans --> CLI
+  CLI --> Hooks --> API
+  Resume --> API
+  API --> Router --> Store
+  API --> Memory --> Store
+  API --> Sidecar --> RAG
+  Worker --> Verify --> API
+  Store --> Worker
+```
+
+## What It Is
+
+- live truth that stays synced while work changes
+- corrections that replace stale beliefs
+- provenance that lets every claim be inspected and traced
+- shared scope that stays explicit across agents and humans
+- portability across Codex, Claude Code, OpenClaw, Hermes, Agent Zero, and OpenCode
+- compiled pages and semantic fallback behind the control plane
+
+## Core Loops
+
+- capture live turn state from harness packs
+- compile compact evidence into visible pages
+- reuse the right memory on the hot path
+- revise stale beliefs when better evidence arrives
+- verify, decay, and consolidate in the background
+
+## What It Connects
+
+- Codex
+- Claude Code
+- Agent Zero
+- OpenClaw
+- Hermes
+- OpenCode
+- Obsidian
+- LightRAG or a compatible backend
 
 ## Quickstart
 
@@ -38,12 +102,10 @@ memd resume --output .memd --intent current_task
 ```
 
 If you are using Codex, `memd` can load or reload the current bundle for you.
-
-## Architecture
-
-<img src="./docs/architecture-preview-v3.png" alt="memd architecture" width="100%" />
-
-See the editable source at [docs/architecture.excalidraw](./docs/architecture.excalidraw).
+For an opt-in project hive, use `memd hive-project --output .memd --enable --summary`
+to turn the repo on, `memd hive --output .memd --publish-heartbeat --summary` to
+join the live session, and `memd hive-link` only when you need a safe link
+between different projects.
 
 ## Docs
 
@@ -57,12 +119,7 @@ See the editable source at [docs/architecture.excalidraw](./docs/architecture.ex
 
 ## Integrations
 
-- Codex
-- Claude Code
-- Agent Zero
-- OpenClaw
-- Hermes
-- OpenCode
+- Codex, Claude Code, Agent Zero, OpenClaw, Hermes, and OpenCode
 - Obsidian
 - shared hook kit
 

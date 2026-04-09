@@ -1,0 +1,40 @@
+---
+const { eyebrow, title, description, columns } = Astro.props;
+---
+
+<section class="section section--codebase" id="codebase-map">
+  <div class="container">
+    <div class="section-heading section-heading-tight" data-reveal>
+      <p class="eyebrow">{eyebrow}</p>
+      <h2>{title}</h2>
+      <p class="section-description">{description}</p>
+    </div>
+
+    <div class="codebase-board panel" data-reactive data-reveal>
+      <div class="codebase-grid">
+        {columns.map((column) => (
+          <article class="codebase-column">
+            <p class="codebase-column__label">{column.label}</p>
+            <p class="codebase-column__sub">{column.sub}</p>
+
+            <div class="diagram-stack">
+              {column.items.map((item) => (
+                <article class="diagram-card diagram-card--small">
+                  <h3>{item.title}</h3>
+                  <p>{item.body}</p>
+                </article>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div class="codebase-connectors" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  </div>
+</section>

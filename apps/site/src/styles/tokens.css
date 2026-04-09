@@ -1,0 +1,19 @@
+:root {
+  --bg: #0b0813;
+  --bg-alt: #141022;
+  --surface: rgba(16, 14, 27, 0.94);
+  --surface-strong: #161224;
+  --ink: #f0ecff;
+  --muted: #a69abb;
+  --line: rgba(157, 124, 216, 0.2);
+  --accent: #9d7cd8;
+  --accent-2: #68d391;
+  --shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+  --radius-lg: 10px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --container: 1120px;
+  --font-body: "Manrope", system-ui, sans-serif;
+  --font-display: "Unbounded", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}

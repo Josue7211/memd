@@ -22,8 +22,12 @@ use memd_schema::{
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
+use serde::Serialize;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct MemdClient {
@@ -183,6 +187,27 @@ impl MemdClient {
 
     pub async fn policy(&self) -> anyhow::Result<MemoryPolicyResponse> {
         self.get_json("/memory/policy").await
+    }
+
+    pub async fn visible_memory_snapshot(
+        &self,
+    ) -> anyhow::Result<VisibleMemorySnapshotResponse> {
+        self.get_json("/ui/snapshot").await
+    }
+
+    pub async fn visible_memory_artifact_detail(
+        &self,
+        id: Uuid,
+    ) -> anyhow::Result<VisibleMemoryArtifactDetailResponse> {
+        self.get_json_with_query("/ui/artifact", &VisibleMemoryArtifactQuery { id })
+            .await
+    }
+
+    pub async fn visible_memory_action(
+        &self,
+        req: &VisibleMemoryUiActionRequest,
+    ) -> anyhow::Result<VisibleMemoryUiActionResponse> {
+        self.post_json("/ui/action", req).await
     }
 
     pub async fn agent_profile(
@@ -409,6 +434,11 @@ where
         .json::<T>()
         .await
         .context("decode memd response payload")
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VisibleMemoryArtifactQuery {
+    id: Uuid,
 }
 
 fn normalize_base_url(input: &str) -> anyhow::Result<String> {

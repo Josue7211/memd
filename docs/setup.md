@@ -45,6 +45,10 @@ memd status --output .memd
 memd status --output .memd --summary
 ```
 
+`memd status --summary` now includes the self-evolution control-plane fields,
+so operators can see the current loop and gate state without opening the raw
+bundle.
+
 For two Codex tabs in the same project, set a tab ID per tab so memory stays
 session-aware and tab-aware instead of collapsing into one shared turn:
 
@@ -66,6 +70,17 @@ stay separate in the same project:
 memd hive --output .memd --summary
 memd claims --output .memd --summary
 ```
+
+Turn a repository into an opt-in project hive with:
+
+```bash
+memd hive-project --output .memd --enable --summary
+memd hive-project --output .memd --status --summary
+memd hive-project --output .memd --disable --summary
+```
+
+`memd hive` still joins and publishes the live session, while `memd hive-link`
+remains the manual safe link for different projects.
 
 The generated bundle now also writes viewable memory pages under
 `.memd/compiled/memory/`, with per-item drilldown under

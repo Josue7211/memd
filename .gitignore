@@ -13,3 +13,6 @@
 /.memd/
 /.claw/
 /.watch-smoke-new
+/apps/site/node_modules/
+/apps/site/dist/
+/apps/site/.astro/

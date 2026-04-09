@@ -67,6 +67,17 @@ If the item is still useful but not yet canonical, it can stay visible in inbox 
 
 The same rule applies to retrieval policy: expose the visible hooks first, then learn from them later.
 
+For self-evolution, keep these states distinct:
+
+- `accepted_proposal`
+- `merged`
+- `durable_truth`
+- `demoted`
+
+Passing once is not enough for durable truth. `accepted_proposal` means the proposal won in isolation. `merged` means it landed. `durable_truth` requires a later re-check that still validates the win. `demoted` means a merged change failed that later re-check.
+
+See [Self-Evolution Pipeline](./self-evolution.md) for the proposal artifact, branch manifest, authority ledger, merge queue, and durability queue.
+
 See [Source Policy](./source-policy.md) for what counts as acceptable input in the first place.
 
 ## Dream Policy

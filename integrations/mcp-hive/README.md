@@ -51,6 +51,9 @@ It does not create a second coordination store.
 
 The server reads the current bundle identity from `config.json` and uses the
 bundle's configured `base_url` for coordination calls.
+If a project hive is enabled, the bundle should already be opted into the shared
+hive URL with `memd hive-project --enable`; `memd hive` is still the live session
+join, and `memd hive-link` stays the safe cross-project pairing path.
 
 ## Install
 

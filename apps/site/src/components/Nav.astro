@@ -1,0 +1,18 @@
+---
+const { brand, links } = Astro.props;
+---
+
+<header class="topbar" id="top">
+  <a class="brand" href="/">
+    <span class="brand-mark">{brand}</span>
+    <span class="brand-subtitle">open source core + hosted cloud</span>
+  </a>
+
+  <nav class="nav-links" aria-label="Primary">
+    {links.map((link) => (
+      <a href={link.href}>{link.label}</a>
+    ))}
+  </nav>
+
+  <a class="button button-small button-solid" href="/beta#checkout">Start paid beta</a>
+</header>

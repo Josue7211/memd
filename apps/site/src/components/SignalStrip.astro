@@ -1,0 +1,9 @@
+---
+const { text } = Astro.props;
+---
+
+<section class="signal-strip" aria-label="signal strip">
+  <div class="signal-strip__track">
+    {Array.from({ length: 8 }).map(() => <span>{text}</span>)}
+  </div>
+</section>

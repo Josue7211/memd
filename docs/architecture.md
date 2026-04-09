@@ -2,8 +2,48 @@
 
 ## Diagram
 
+See the product hero source at [docs/product-loop.svg](./product-loop.svg).
 See the repo diagram source at [docs/architecture.excalidraw](./architecture.excalidraw).
-The landing page preview is [docs/architecture-preview-v3.png](./architecture-preview-v3.png).
+The landing page image is [docs/product-loop.png](./product-loop.png).
+The detailed architecture image is [docs/architecture-hero.png](./architecture-hero.png).
+The full repo map is [docs/codebase-map.png](./codebase-map.png).
+
+```mermaid
+flowchart LR
+  subgraph Inputs[Live Inputs]
+    Packs[Harness packs<br/>Codex · Claude Code · OpenClaw · Hermes · Agent Zero · OpenCode]
+    Vault[Obsidian vault]
+    Review[Human review]
+  end
+
+  subgraph Core[memd Control Plane]
+    CoreFlow[Core flow<br/>Routing · Working memory · Inbox / explain]
+    Visible[Visible memory]
+    Store[(SQLite store)]
+  end
+
+  subgraph Semantic[Semantic Backend]
+    Sidecar[rag-sidecar]
+    Lightrag[LightRAG / compatible backend]
+  end
+
+  subgraph Maintenance[Background Maintenance]
+    Worker[memd-worker]
+    Loop[verify / decay / consolidate]
+  end
+
+  Packs --> CoreFlow
+  Vault -.-> Visible
+  Review -.-> CoreFlow
+  Review -.-> Visible
+
+  CoreFlow --> Store
+  Store --> Visible
+
+  CoreFlow --> Sidecar
+  Sidecar --> Lightrag
+  Worker --> Loop --> Store
+```
 
 ## Summary
 
@@ -12,8 +52,12 @@ The landing page preview is [docs/architecture-preview-v3.png](./architecture-pr
 The core idea is:
 
 - harness packs produce live events and compact turn state
-- `memd` routes that state by project, session, tab, and intent
-- memd compiles visible pages from the live/bundle state
+- `memd` keeps live truth synced while work changes
+- corrections replace stale beliefs instead of piling up
+- memd compiles visible pages that stay source-linked
+- the server ships a native visible-memory workbench that surfaces Memory Home,
+  Knowledge Map, truth, repair, and source-linked artifact inspection
+- Obsidian stays a first-class markdown workspace and integration surface
 - Obsidian gives the human-readable graph through wikilinks and backlinks
 - LightRAG indexes the same compiled truth for semantic recall
 
@@ -73,6 +117,8 @@ It includes:
 - skill pages
 - pack pages
 - Obsidian wikilink navigation
+- the native Memory Home / Knowledge Map shell
+- vault-aware bridge affordances for opening artifacts in the user's real Obsidian workspace
 
 This is where a user should answer:
 
@@ -80,6 +126,7 @@ This is where a user should answer:
 - what am I doing
 - what changed
 - what needs attention
+- where does this artifact live in my vault
 
 ### Semantic Backend
 

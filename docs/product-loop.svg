@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1800" y2="1200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06101d" />
+      <stop offset="0.55" stop-color="#0b1728" />
+      <stop offset="1" stop-color="#081423" />
+    </linearGradient>
+    <radialGradient id="blueGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(270 290) rotate(90) scale(300 360)">
+      <stop offset="0" stop-color="#60a5fa" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#60a5fa" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="greenGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1430 450) rotate(90) scale(320 400)">
+      <stop offset="0" stop-color="#34d399" stop-opacity="0.16" />
+      <stop offset="1" stop-color="#34d399" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="purpleGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(920 950) rotate(90) scale(340 420)">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.12" />
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(900 1040) rotate(90) scale(420 120)">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.14" />
+      <stop offset="1" stop-color="#f59e0b" stop-opacity="0" />
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.34" />
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.24" />
+    </filter>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7dd3fc" />
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399" />
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa" />
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" />
+    </marker>
+    <style>
+      .title { font: 700 46px/1.0 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #f8fafc; letter-spacing: -0.045em; }
+      .sub { font: 500 17px/1.35 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #cbd5e1; }
+      .coreLabel { font: 700 22px/1.2 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #f8fafc; letter-spacing: -0.02em; }
+      .coreSub { font: 500 14px/1.35 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #b8c6de; }
+      .cardTitle { font: 700 17px/1.15 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #eff6ff; letter-spacing: -0.02em; }
+      .cardBody { font: 500 11px/1.35 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #a9bbd7; }
+      .cardMini { font: 600 11px/1.15 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #dbeafe; letter-spacing: 0.03em; }
+      .loopTag { font: 700 12px/1 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #dbeafe; letter-spacing: 0.08em; }
+      .smallCaps { font: 700 11px/1 "Inter", "Aptos", "Segoe UI", sans-serif; fill: #d9e7ff; letter-spacing: 0.08em; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1200" fill="url(#bg)" />
+  <rect width="1800" height="1200" fill="url(#blueGlow)" />
+  <rect width="1800" height="1200" fill="url(#greenGlow)" />
+  <rect width="1800" height="1200" fill="url(#purpleGlow)" />
+  <rect width="1800" height="1200" fill="url(#amberGlow)" />
+
+  <g opacity="0.07">
+    <path d="M0 150H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M0 310H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M0 470H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M0 630H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M0 790H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M0 950H1800" stroke="#93c5fd" stroke-width="1" />
+    <path d="M180 0V1200" stroke="#93c5fd" stroke-width="1" />
+    <path d="M480 0V1200" stroke="#93c5fd" stroke-width="1" />
+    <path d="M780 0V1200" stroke="#93c5fd" stroke-width="1" />
+    <path d="M1080 0V1200" stroke="#93c5fd" stroke-width="1" />
+    <path d="M1380 0V1200" stroke="#93c5fd" stroke-width="1" />
+    <path d="M1680 0V1200" stroke="#93c5fd" stroke-width="1" />
+  </g>
+
+  <text x="70" y="92" class="title">memd memory OS</text>
+  <text x="70" y="124" class="sub">read once, compile once, reuse many, and keep evidence linked</text>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="170" width="1680" height="790" rx="36" fill="#0b1528" stroke="#223757" stroke-opacity="0.9" stroke-width="2" />
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="100" y="270" width="260" height="500" rx="28" fill="#0f1f3a" stroke="#60a5fa" stroke-opacity="0.55" />
+    <rect x="390" y="210" width="960" height="650" rx="36" fill="#10223f" stroke="#4fd1c5" stroke-opacity="0.62" stroke-width="2" />
+    <rect x="1380" y="270" width="320" height="500" rx="28" fill="#0f2d29" stroke="#34d399" stroke-opacity="0.58" />
+  </g>
+
+  <text x="126" y="308" class="smallCaps">FEATURE PILLARS</text>
+  <text x="1406" y="308" class="smallCaps">TRUST LAYERS</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="120" y="338" width="220" height="96" rx="20" fill="#13284a" stroke="#93c5fd" stroke-opacity="0.42" />
+    <text x="140" y="354" class="cardTitle">Live truth</text>
+    <text x="140" y="380" class="cardBody">fresh, compact, source-linked</text>
+
+    <rect x="120" y="456" width="220" height="96" rx="20" fill="#13284a" stroke="#93c5fd" stroke-opacity="0.42" />
+    <text x="140" y="478" class="cardTitle">Corrections</text>
+    <text x="140" y="504" class="cardBody">human review + overrides</text>
+
+    <rect x="120" y="574" width="220" height="156" rx="20" fill="#13284a" stroke="#93c5fd" stroke-opacity="0.42" />
+    <text x="140" y="602" class="cardTitle">Portable</text>
+    <text x="140" y="628" class="cardBody">Codex, Claude Code,</text>
+    <text x="140" y="648" class="cardBody">OpenClaw, Hermes,</text>
+    <text x="140" y="668" class="cardBody">Agent Zero, OpenCode</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="1400" y="338" width="280" height="96" rx="20" fill="#113631" stroke="#34d399" stroke-opacity="0.44" />
+    <text x="1420" y="354" class="cardTitle">Provenance</text>
+    <text x="1420" y="380" class="cardBody">inspect and trace every claim</text>
+
+    <rect x="1400" y="456" width="280" height="96" rx="20" fill="#113631" stroke="#34d399" stroke-opacity="0.44" />
+    <text x="1420" y="478" class="cardTitle">Shared scope</text>
+    <text x="1420" y="504" class="cardBody">private, project, org</text>
+
+    <rect x="1400" y="574" width="280" height="156" rx="20" fill="#113631" stroke="#34d399" stroke-opacity="0.44" />
+    <text x="1420" y="602" class="cardTitle">Semantic fallback</text>
+    <text x="1420" y="628" class="cardBody">LightRAG / RAGAnything</text>
+    <text x="1420" y="648" class="cardBody">behind the control plane</text>
+    <text x="1420" y="676" class="cardMini">not the source of truth</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="450" y="248" width="900" height="88" rx="24" fill="#112845" stroke="#7dd3fc" stroke-opacity="0.34" />
+    <text x="500" y="292" class="coreLabel">memd control plane</text>
+    <text x="500" y="318" class="coreSub">live memory loop, routed by scope and freshness</text>
+    <rect x="1188" y="272" width="132" height="36" rx="18" fill="#15244b" stroke="#7dd3fc" stroke-opacity="0.28" />
+    <text x="1254" y="296" text-anchor="middle" class="cardMini">agents + humans</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <circle cx="900" cy="500" r="185" fill="#0d1e38" stroke="#4fd1c5" stroke-opacity="0.2" stroke-width="2.5" stroke-dasharray="8 10" />
+    <circle cx="900" cy="500" r="155" fill="#102845" stroke="#7dd3fc" stroke-opacity="0.18" stroke-width="2.5" />
+
+    <rect x="823" y="350" width="154" height="66" rx="18" fill="#13284a" stroke="#7dd3fc" stroke-opacity="0.5" />
+    <text x="900" y="392" text-anchor="middle" class="cardTitle">Capture</text>
+
+    <rect x="692" y="532" width="148" height="62" rx="18" fill="#15244b" stroke="#a78bfa" stroke-opacity="0.52" />
+    <text x="766" y="571" text-anchor="middle" class="cardTitle">Compile</text>
+
+    <rect x="960" y="532" width="148" height="62" rx="18" fill="#113631" stroke="#34d399" stroke-opacity="0.56" />
+    <text x="1034" y="571" text-anchor="middle" class="cardTitle">Reuse</text>
+
+    <path d="M895 416 C884 452, 838 500, 790 532" stroke="#7dd3fc" stroke-width="3.5" fill="none" marker-end="url(#arrowBlue)" />
+    <path d="M840 562 C900 596, 928 596, 960 562" stroke="#a78bfa" stroke-width="3.5" fill="none" marker-end="url(#arrowPurple)" />
+    <path d="M1020 532 C1048 478, 1038 426, 962 384" stroke="#34d399" stroke-width="3.25" fill="none" marker-end="url(#arrowGreen)" />
+
+    <text x="900" y="670" text-anchor="middle" class="coreLabel">live memory loop</text>
+    <text x="900" y="700" text-anchor="middle" class="coreSub">fresh recall that changes behavior</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="500" y="742" width="700" height="74" rx="20" fill="#13284a" stroke="#7dd3fc" stroke-opacity="0.34" />
+    <text x="530" y="772" class="cardTitle">Compiled pages</text>
+    <text x="530" y="796" class="cardBody">Obsidian · evidence workspace · source links</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="100" y="834" width="1600" height="66" rx="18" fill="#2b184e" stroke="#c4b5fd" stroke-opacity="0.42" />
+    <text x="130" y="861" class="cardTitle">Capability contracts</text>
+    <text x="130" y="883" class="cardBody">policy · TTL · no silent leaks</text>
+  </g>
+
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M340 386 C390 386, 410 386, 450 386" stroke="#7dd3fc" stroke-width="3.5" marker-end="url(#arrowBlue)" />
+    <path d="M340 502 C390 502, 410 502, 450 502" stroke="#7dd3fc" stroke-width="3.5" marker-end="url(#arrowBlue)" />
+    <path d="M340 648 C390 648, 410 648, 520 648" stroke="#7dd3fc" stroke-width="3.5" marker-end="url(#arrowBlue)" />
+
+    <path d="M1320 386 C1360 386, 1380 386, 1400 386" stroke="#34d399" stroke-width="3.5" marker-end="url(#arrowGreen)" />
+    <path d="M1320 502 C1360 502, 1380 502, 1400 502" stroke="#34d399" stroke-width="3.5" marker-end="url(#arrowGreen)" />
+    <path d="M1320 648 C1360 648, 1380 648, 1400 648" stroke="#34d399" stroke-width="3.5" marker-end="url(#arrowGreen)" />
+
+    <path d="M900 816 C900 826, 900 830, 900 834" stroke="#c4b5fd" stroke-width="3.5" marker-end="url(#arrowPurple)" />
+    <path d="M1450 730 C1420 790, 1210 816, 1200 816" stroke="#34d399" stroke-width="3.5" marker-end="url(#arrowGreen)" />
+  </g>
+</svg>

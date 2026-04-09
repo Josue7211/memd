@@ -1,0 +1,165 @@
+---
+import Layout from "../components/Layout.astro";
+
+const title = "memd Cloud - Start paid beta";
+const description =
+  "Buy memd Cloud or join the waitlist. OSS stays free; Cloud is the hosted product for people who do not want to self-host.";
+
+const stripeCheckoutUrl = import.meta.env.PUBLIC_STRIPE_CHECKOUT_URL?.trim() || "";
+const waitlistEndpoint = import.meta.env.PUBLIC_WAITLIST_ENDPOINT?.trim() || "";
+const waitlistEmail = import.meta.env.PUBLIC_WAITLIST_EMAIL?.trim() || "hello@memd.dev";
+const checkoutHref = stripeCheckoutUrl || `mailto:${waitlistEmail}?subject=${encodeURIComponent("memd Cloud founding plan")}`;
+const checkoutLabel = stripeCheckoutUrl ? "Start Stripe checkout" : "Request founding access";
+const hasWaitlistEndpoint = Boolean(waitlistEndpoint);
+---
+
+<Layout {title} {description}>
+  <main class="beta-page">
+    <section class="section">
+      <div class="container">
+        <div class="beta-layout">
+          <article class="beta-panel panel" data-reveal>
+            <p class="eyebrow">Paid beta</p>
+            <h1>memd Cloud, hosted for you.</h1>
+            <p class="section-description">
+              No Docker. No setup. We run the paid version so you can keep moving and
+              keep memory synced.
+            </p>
+
+            <div class="beta-actions">
+              <a class="button button-solid" href={checkoutHref} id="checkout">{checkoutLabel}</a>
+              <a class="button button-ghost" href="#waitlist">Join waitlist</a>
+            </div>
+
+            <ul class="beta-bullets">
+              <li>Hosted sync across machines</li>
+              <li>Source-linked recall with provenance</li>
+              <li>Founding plan for early buyers</li>
+              <li>OSS core stays free</li>
+            </ul>
+
+            <p class="beta-note">
+              Stripe checkout is driven by <code>PUBLIC_STRIPE_CHECKOUT_URL</code>. If
+              that is not set yet, the button opens email instead.
+            </p>
+          </article>
+
+          <aside class="beta-stack">
+            <article class="beta-card panel" data-reveal>
+              <div class="beta-card__head">
+                <div>
+                  <p class="eyebrow">Cloud</p>
+                  <h2>$29/mo</h2>
+                </div>
+                <span class="pill">Hosted</span>
+              </div>
+              <p>
+                Hosted sync, source-linked recall, backup, and resume anywhere.
+              </p>
+              <p class="beta-card__meta">Best for solo builders who want the cloud only.</p>
+            </article>
+
+            <article class="beta-card beta-card--accent panel" data-reveal id="waitlist">
+              <div class="beta-card__head">
+                <div>
+                  <p class="eyebrow">Waitlist</p>
+                  <h2>Not ready to buy?</h2>
+                </div>
+              </div>
+              <p>
+                Join the waitlist and we will email you when the hosted beta opens or
+                when a founding spot becomes available.
+              </p>
+
+              <form
+                class="waitlist-form"
+                data-waitlist-form
+                data-waitlist-email={waitlistEmail}
+                action={hasWaitlistEndpoint ? waitlistEndpoint : undefined}
+                method={hasWaitlistEndpoint ? "post" : undefined}
+              >
+                <input type="hidden" name="_subject" value="memd Cloud waitlist" />
+                <input type="hidden" name="source" value="memd beta page" />
+
+                <label>
+                  <span>Name</span>
+                  <input name="name" type="text" autocomplete="name" placeholder="Your name" required />
+                </label>
+
+                <label>
+                  <span>Email</span>
+                  <input
+                    name="email"
+                    type="email"
+                    autocomplete="email"
+                    placeholder="you@company.com"
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Company or project</span>
+                  <input
+                    name="company"
+                    type="text"
+                    autocomplete="organization"
+                    placeholder="Optional"
+                  />
+                </label>
+
+                <label>
+                  <span>What are you trying to ship?</span>
+                  <textarea
+                    name="message"
+                    rows="4"
+                    placeholder="Optional: tell us what you want memd Cloud to solve."
+                  ></textarea>
+                </label>
+
+                <button class="button button-solid waitlist-submit" type="submit">
+                  Join waitlist
+                </button>
+
+                <p class="beta-note">
+                  If no endpoint is configured yet, we open a prefilled email to
+                  <a href={`mailto:${waitlistEmail}`}>{waitlistEmail}</a>.
+                </p>
+              </form>
+            </article>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.querySelector("[data-waitlist-form]");
+
+    if (form) {
+      form.addEventListener("submit", (event) => {
+        if (form.getAttribute("action")) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const data = new FormData(form);
+        const waitlistEmail = form.dataset.waitlistEmail || "hello@memd.dev";
+        const subject = encodeURIComponent("memd Cloud waitlist");
+        const body = encodeURIComponent(
+          [
+            `Name: ${String(data.get("name") || "")}`,
+            `Email: ${String(data.get("email") || "")}`,
+            `Company or project: ${String(data.get("company") || "")}`,
+            "",
+            String(data.get("message") || "")
+          ]
+            .join("\n")
+            .trim()
+        );
+
+        window.location.href = `mailto:${waitlistEmail}?subject=${subject}&body=${body}`;
+      });
+    }
+  </script>
+</Layout>

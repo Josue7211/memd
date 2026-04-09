@@ -1,8 +1,8 @@
 # Research Loop Manifest
 
-Autoresearch uses a loop-first workflow to keep `memd`’s memory substrate lean, reliable, and token efficient. Each loop represents a small, reversible experiment with a clear target, metric, stop condition, and expected risk profile. Loops run one after another, report the percent improvement and token savings they delivered, then hand accepted lessons to autodream for consolidation. When autoresearch detects a loop has exhausted its gains, it either refreshes the loop (with a higher token-efficiency threshold) or picks the next candidate from the gap queue.
+Autoresearch uses a loop-first workflow to keep `memd`’s memory substrate lean, reliable, and token efficient. Each loop represents a small, reversible experiment with a clear target, metric, stop condition, and expected risk profile. Single-loop runs execute one loop at a time; `--auto` sweeps can run the active loop set in parallel, then report the percent improvement and token savings they delivered before handing accepted lessons to autodream for consolidation. When autoresearch detects a loop has exhausted its gains, it either refreshes the loop (with a higher token-efficiency threshold) or picks the next candidate from the gap queue.
 
-The eight loops are arranged by expected savings and risk so that low-risk/token-high loops run first:
+The ten loops are arranged by expected savings and risk so that low-risk/token-high loops run first:
 
 1. **Prompt Surface Compression**
    - *Target*: Resume, handoff, and prompt surfaces that echo the previous turn verbatim.
@@ -47,26 +47,46 @@ The eight loops are arranged by expected savings and risk so that low-risk/token
    - *Risk*: Medium.
 
 8. **Controlled Self-Evolution**
-   - *Target*: Making sure the evolution engine quantifies gains before promoting new skills or automation.
-   - *Metric*: Accepted-change rate, rollback incidents, promotion evidence completeness.
-   - *Stop Condition*: Promotion confidence reaches the registry’s threshold and regressions stay below a defined guardrail.
+   - *Target*: Making sure the evolution engine quantifies gains before promoting new policy, docs, or code behavior.
+   - *Metric*: Accepted-change rate, rollback incidents, promotion evidence completeness, and durability re-check pass rate.
+   - *Stop Condition*: Promotion confidence reaches the registry’s threshold, accepted proposals stay durable, and regressions stay below a defined guardrail.
    - *Risk*: High (run once the baseline is stable).
+
+9. **Branch Review Quality**
+   - *Target*: Branch cleanliness and review readiness before changes are promoted.
+   - *Metric*: Dirty branch count, review-readiness failures, diff quality warnings.
+   - *Stop Condition*: The branch is review-ready and stays clean across the active loop window.
+   - *Risk*: Medium.
+
+10. **Docs Spec Drift**
+   - *Target*: Alignment between docs, manifests, and shipped runtime behavior.
+   - *Metric*: Spec drift score, stale-doc warnings, missing loop or command surfaces.
+   - *Stop Condition*: Docs and runtime behavior match for the active manifest surface.
+   - *Risk*: Medium.
 
 Loop Instrumentation:
 
 - Each loop includes a percent-improvement report that explicitly states the loop’s token savings and success/failure.
 - Autoresearch routines append loop results to `.memd/loops/` with status, telemetry, and links to revised artifacts.
 - Accepted loops go through the evolution engine; the portable artifacts are tagged with their portability class (portable, harness-native, adapter-required) and versioned with rollback history.
+- `self-evolution` is a gate and control-plane loop, not just a score. The current design target is documented in [2026-04-09 True Self-Evolution 10-Star Design](./superpowers/specs/2026-04-09-true-self-evolution-10-star-design.md).
 - Once a loop is accepted, autodream ingests the approved changes, compacts frequent patterns, and seeds the next loop with the highest-scoring gaps.
 - When tokens spike, the loop controller may pause the current loop, compact the hot lane, and resume from the last safe checkpoint to avoid wasted reads.
 
 Loop Execution & Telemetry:
 
-- `autoresearch` runs the loop queue sequentially by default. Use `autoresearch --loop <name|number>` to re-run a loop or `autoresearch --auto` to sweep until every loop either saturates or hits a guardrail.
+- `autoresearch` runs single-loop refreshes with `--loop-slug <slug>` and parallel multi-loop sweeps with `--auto`.
+- Use `--max-sweeps <n>` to cap repeated sweeps and `--plateau-sweeps <n>` to stop once consecutive sweeps stabilize.
 - Each pass creates a record under `.memd/loops/loop-<slug>.json` that stores the percent improvement, token savings, success status, and any promoted artifacts. Operators can inspect the loop journal with `memd loops` (default list), `memd loops --summary`, or `memd loops --loop <slug>`, or by reading `.memd/loops/`.
 - The percent-improvement report clearly states token cost savings and is included in the operator-facing loop summary; if a loop tries to repeat the same savings, the stop condition prevents it from burning tokens for minimal gain.
 - When `memd gap` surfaces new optimization ideas, autoresearch adds them to the queue as candidate loops (tagged with priority and expected risk). Loops remain reversible until their accepted changes are consolidated via autodream.
 - On completion, every loop appends its percent-improvement number to the running `loops.summary.json` and the evolution engine uses that value to decide whether the promoted artifact deserves a portability classification upgrade or a rollback.
 - If a loop fails any guardrail (e.g., wrong-interface detection spikes during capability-contract detection), the controller records the failure, signals the operator, and either retries with a narrower scope or moves on to the next loop after the issue is resolved.
 
-Autoresearch is still invoked via `memd autoresearch --loop <slug>` or `memd autoresearch --auto` when you want to refresh loops directly. Run `memd autoresearch --manifest` to print the current loop roster before selecting one. When each run completes, the resulting log file already makes itself available to `memd loops` so you can project the percent-improvement telemetry without re-reading large transcripts. For a quick telemetry snapshot, use `memd telemetry` (or `memd telemetry --json`) to read the `loops.summary.json` ledger, view status counts, and see average/best percent-improvement and token-saving metrics without having to enumerate each loop artifact.
+Autoresearch is still invoked via `memd autoresearch --loop-slug <slug>` or `memd autoresearch --auto` when you want to refresh loops directly. Run `memd autoresearch --manifest` to print the current loop roster before selecting one. When each run completes, the resulting log file already makes itself available to `memd loops` so you can project the percent-improvement telemetry without re-reading large transcripts. For a quick telemetry snapshot, use `memd telemetry` (or `memd telemetry --json`) to read the `loops.summary.json` ledger, view status counts, and see average/best percent-improvement and token-saving metrics without having to enumerate each loop artifact.
+
+For self-evolution specifically, the recommended operator surfaces are:
+
+- `memd status --summary`
+- `memd loops --loop self-evolution`
+- `memd autoresearch --loop-slug self-evolution`

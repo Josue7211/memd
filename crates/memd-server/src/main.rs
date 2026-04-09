@@ -44,12 +44,13 @@ use memd_schema::{
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemorySnapshotResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
-    WorkspaceMemoryResponse,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
+use serde::Deserialize;
 use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
 use uuid::Uuid;
 
@@ -285,6 +286,8 @@ async fn main() {
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
+        .route("/ui/artifact", get(get_visible_memory_artifact))
+        .route("/ui/action", post(post_visible_memory_action))
         .route("/healthz", get(healthz))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
@@ -379,14 +382,36 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
     })
 }
 
-async fn dashboard() -> Html<String> {
-    Html(dashboard_html())
+async fn dashboard(State(state): State<AppState>) -> Result<Html<String>, (StatusCode, String)> {
+    let snapshot = ui::build_visible_memory_snapshot(&state).map_err(internal_error)?;
+    Ok(Html(dashboard_html(&snapshot)))
 }
 
 async fn get_visible_memory_snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<VisibleMemorySnapshotResponse>, (StatusCode, String)> {
     let response = ui::build_visible_memory_snapshot(&state).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+#[derive(Deserialize)]
+struct VisibleMemoryArtifactQuery {
+    id: Uuid,
+}
+
+async fn get_visible_memory_artifact(
+    State(state): State<AppState>,
+    Query(req): Query<VisibleMemoryArtifactQuery>,
+) -> Result<Json<VisibleMemoryArtifactDetailResponse>, (StatusCode, String)> {
+    let response = ui::build_visible_memory_artifact_detail(&state, req.id)?;
+    Ok(Json(response))
+}
+
+async fn post_visible_memory_action(
+    State(state): State<AppState>,
+    Json(req): Json<VisibleMemoryUiActionRequest>,
+) -> Result<Json<VisibleMemoryUiActionResponse>, (StatusCode, String)> {
+    let response = ui::perform_visible_memory_action(&state, req)?;
     Ok(Json(response))
 }
 
@@ -2141,7 +2166,8 @@ fn associative_recall_reasons(
     reasons
 }
 
-fn dashboard_html() -> String {
+#[allow(dead_code)]
+fn legacy_dashboard_html() -> String {
     r#"<!doctype html>
 <html lang="en">
 <head>
@@ -2507,6 +2533,10 @@ fn dashboard_html() -> String {
 </body>
 </html>"#
         .to_string()
+}
+
+fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String {
+    ui::dashboard_html(snapshot)
 }
 
 fn sanitize_value(value: &str) -> String {
@@ -3398,5 +3428,55 @@ mod tests {
         assert!(revived.tags.iter().any(|tag| tag == "product-direction"));
         assert!(!revived.supersedes.contains(&revived.id));
         std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
+    }
+
+    #[tokio::test]
+    async fn ui_artifact_handler_returns_detail_response() {
+        let state = AppState {
+            store: SqliteStore::open(
+                std::env::temp_dir().join(format!("memd-ui-detail-{}.db", uuid::Uuid::new_v4())),
+            )
+            .expect("open temp db"),
+        };
+        let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
+
+        let response = super::get_visible_memory_artifact(
+            State(state),
+            Query(super::VisibleMemoryArtifactQuery { id: item.id }),
+        )
+        .await
+        .expect("build artifact detail")
+        .0;
+
+        assert_eq!(response.artifact.id, item.id);
+        assert!(response.explain.is_some());
+    }
+
+    #[tokio::test]
+    async fn ui_action_handler_returns_open_metadata() {
+        let state = AppState {
+            store: SqliteStore::open(
+                std::env::temp_dir().join(format!("memd-ui-action-{}.db", uuid::Uuid::new_v4())),
+            )
+            .expect("open temp db"),
+        };
+        let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
+
+        let response = super::post_visible_memory_action(
+            State(state),
+            Json(VisibleMemoryUiActionRequest {
+                id: item.id,
+                action: memd_schema::VisibleMemoryUiActionKind::OpenInObsidian,
+            }),
+        )
+        .await
+        .expect("build action response")
+        .0;
+
+        assert_eq!(response.artifact_id, item.id);
+        assert_eq!(
+            response.open_uri.as_deref(),
+            Some("obsidian://open?path=wiki/runtime-spine.md")
+        );
     }
 }

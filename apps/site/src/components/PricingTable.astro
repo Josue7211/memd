@@ -1,0 +1,36 @@
+---
+const { eyebrow, title, description, items } = Astro.props;
+---
+
+<section class="section section-alt" id="pricing">
+  <div class="container">
+    <div class="section-heading section-heading-tight">
+      <p class="eyebrow">{eyebrow}</p>
+      <h2>{title}</h2>
+      <p class="section-description">{description}</p>
+    </div>
+
+    <div class="pricing-grid">
+      {items.map((plan, index) => (
+        <article class:list={["panel pricing-card", plan.featured && "featured"]} data-reveal style={`--delay:${index * 90}ms`}>
+          <div class="pricing-card-head">
+            <div>
+              <p class="pricing-name">{plan.name}</p>
+              <h3>{plan.price}</h3>
+            </div>
+            {plan.featured ? <span class="pill">Most popular</span> : null}
+          </div>
+          <p class="pricing-summary">{plan.summary}</p>
+          <ul class="pricing-features">
+            {plan.features.map((feature) => (
+              <li>{feature}</li>
+            ))}
+          </ul>
+          <a class="button button-solid pricing-cta" href={plan.cta.href}>
+            {plan.cta.label}
+          </a>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

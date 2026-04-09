@@ -1,0 +1,20 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0b0813"/>
+  <circle cx="970" cy="140" r="260" fill="#9D7CD8" fill-opacity="0.15"/>
+  <circle cx="170" cy="500" r="220" fill="#68D391" fill-opacity="0.1"/>
+  <rect x="100" y="110" width="1000" height="410" rx="30" fill="#171327" stroke="#9D7CD8" stroke-opacity="0.2"/>
+  <text x="160" y="212" fill="#C4B0F0" font-family="Oxanium, Arial, sans-serif" font-size="26" font-weight="800" letter-spacing="4">MEMD</text>
+  <text x="160" y="304" fill="#F0ECFF" font-family="Oxanium, Arial, sans-serif" font-size="68" font-weight="800" letter-spacing="-2">Agent memory that survives real work</text>
+  <text x="160" y="376" fill="#A69ABB" font-family="Manrope, Arial, sans-serif" font-size="28" font-weight="500">Source-linked memory across sessions, machines, and teams.</text>
+  <rect x="160" y="420" width="180" height="54" rx="14" fill="url(#gradButton)"/>
+  <text x="202" y="454" fill="#0D0D19" font-family="Manrope, Arial, sans-serif" font-size="20" font-weight="800">Start free</text>
+  <rect x="356" y="420" width="170" height="54" rx="14" fill="none" stroke="#9D7CD8" stroke-opacity="0.3"/>
+  <text x="404" y="454" fill="#F0ECFF" font-family="Manrope, Arial, sans-serif" font-size="20" font-weight="800">Pricing</text>
+  <defs>
+    <linearGradient id="gradButton" x1="160" y1="420" x2="340" y2="474" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C8B6EE"/>
+      <stop offset="0.5" stop-color="#9D7CD8"/>
+      <stop offset="1" stop-color="#68D391"/>
+    </linearGradient>
+  </defs>
+</svg>

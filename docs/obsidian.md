@@ -4,6 +4,10 @@
 That makes it compatible with a CouchDB-synced vault without requiring any
 special Obsidian plugin or CLI workflow.
 
+The native `memd` UI should treat this as a real integration, not a rebuild:
+the web workbench and CLI/TUI can inspect visible memory, but the user keeps
+their actual Obsidian vault as a first-class workspace.
+
 It also fits a stronger workflow than simple note import:
 
 - keep raw source material in the vault
@@ -13,7 +17,8 @@ It also fits a stronger workflow than simple note import:
 
 That means Obsidian is not only an ingest source. It can also be the markdown
 frontend for a compiled knowledge base, while `memd` remains the memory control
-plane behind it.
+plane behind it. The visible-memory workbench should expose bridge affordances
+for opening the selected artifact in the real vault when a source path exists.
 
 ## Tier Position
 
@@ -29,6 +34,7 @@ For the working loop, the usual pattern is:
 
 - capture or sync source material into the vault
 - use `memd search`, `memd working`, and `memd explain` to inspect state
+- use `memd ui home` to inspect the same artifact layer in the native workbench
 - emit compact shared handoff bundles with `memd handoff` when another agent or human needs to pick work up
 - compile durable evidence pages with `obsidian compile`
 - keep writeback pages and compiled evidence pages indexed inside `.memd/`

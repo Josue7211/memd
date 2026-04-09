@@ -1,0 +1,87 @@
+---
+const { eyebrow, title, description, leftRail, center, rightRail, footer } = Astro.props;
+---
+
+<section class="section section--deep" id="memory-os">
+  <div class="container">
+    <div class="section-heading section-heading-tight" data-reveal>
+      <p class="eyebrow">{eyebrow}</p>
+      <h2>{title}</h2>
+      <p class="section-description">{description}</p>
+    </div>
+
+    <div class="loop-board panel" data-reactive data-reveal>
+      <aside class="diagram-rail diagram-rail--compact">
+        <p class="diagram-rail__label">feature pillars</p>
+        <p class="diagram-rail__sub">the surface stays small and explainable</p>
+
+        <div class="diagram-stack">
+          {leftRail.map((item) => (
+            <article class="diagram-card diagram-card--small">
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </aside>
+
+      <section class="loop-center">
+        <div class="loop-center__banner">{center.banner}</div>
+        <div class="loop-center__ring">
+          <div class="loop-core">
+            <span>{center.core.badge}</span>
+            <strong>{center.core.title}</strong>
+            <p>{center.core.body}</p>
+          </div>
+
+          <div class="loop-node loop-node--top">
+            <strong>{center.top.title}</strong>
+            <p>{center.top.body}</p>
+          </div>
+
+          <div class="loop-node loop-node--left">
+            <strong>{center.left.title}</strong>
+            <p>{center.left.body}</p>
+          </div>
+
+          <div class="loop-node loop-node--right">
+            <strong>{center.right.title}</strong>
+            <p>{center.right.body}</p>
+          </div>
+
+          <svg class="loop-arrows" viewBox="0 0 800 520" aria-hidden="true">
+            <path d="M400 90 C400 92 400 108 400 124" />
+            <path d="M280 260 C320 260 344 260 370 260" />
+            <path d="M430 260 C456 260 480 260 520 260" />
+            <path d="M370 292 C360 308 348 328 332 356" />
+            <path d="M430 292 C442 308 454 330 470 356" />
+          </svg>
+        </div>
+
+        <div class="loop-center__compiled">
+          <h3>{center.compiled.title}</h3>
+          <p>{center.compiled.body}</p>
+        </div>
+      </section>
+
+      <aside class="diagram-rail diagram-rail--compact diagram-rail--right">
+        <p class="diagram-rail__label">trust layers</p>
+        <p class="diagram-rail__sub">provenance first, semantic fallback second</p>
+
+        <div class="diagram-stack">
+          {rightRail.map((item) => (
+            <article class="diagram-card diagram-card--signal">
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </aside>
+
+      <div class="loop-footer">
+        <span>{footer.label}</span>
+        <p>{footer.body}</p>
+      </div>
+    </div>
+  </div>
+</section>

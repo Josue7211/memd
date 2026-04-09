@@ -1,0 +1,11 @@
+---
+import Layout from "../components/Layout.astro";
+import PricingTable from "../components/PricingTable.astro";
+import { siteCopy } from "../content/copy";
+---
+
+<Layout title="memd Pricing" description="Pricing for memd hosted sync, team workspaces, and enterprise support.">
+  <main>
+    <PricingTable {...siteCopy.pricing} />
+  </main>
+</Layout>

@@ -1,0 +1,27 @@
+---
+import Layout from "../components/Layout.astro";
+
+const title = "memd Docs";
+const description = "Quickstart and launch docs for memd.";
+---
+
+<Layout {title} {description}>
+  <main class="docs-page">
+    <section class="section">
+      <div class="container docs-card panel">
+        <p class="eyebrow">Docs</p>
+        <h1>Quickstart</h1>
+        <p class="section-description">
+          The first version of the site keeps docs lightweight. The core product
+          remains in the Rust workspace, and the landing page points builders to
+          the same public truth.
+        </p>
+
+        <div class="docs-actions">
+          <a class="button button-solid" href="/">Back home</a>
+          <a class="button button-ghost" href="https://github.com/Josue7211/memd">GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</Layout>
