@@ -17408,6 +17408,51 @@ fn render_hive_board_summary(response: &HiveBoardResponse) -> String {
     lines.join("\n")
 }
 
+async fn read_bundle_hive_memory_surface(output: &Path) -> Option<BundleHiveMemorySurface> {
+    let runtime = read_bundle_runtime_config(output).ok().flatten()?;
+    let resolved_base_url =
+        resolve_bundle_command_base_url(&default_base_url(), runtime.base_url.as_deref());
+    let client = MemdClient::new(&resolved_base_url).ok()?;
+    timeout_ok(client.healthz()).await?;
+
+    let board_request = HiveBoardRequest {
+        project: runtime.project.clone(),
+        namespace: runtime.namespace.clone(),
+        workspace: runtime.workspace.clone(),
+    };
+    let board = timeout_ok(client.hive_board(&board_request)).await?;
+    let roster = timeout_ok(client.hive_roster(&HiveRosterRequest {
+        project: runtime.project.clone(),
+        namespace: runtime.namespace.clone(),
+        workspace: runtime.workspace.clone(),
+    }))
+    .await?;
+    let follow_target = runtime.session.clone().or_else(|| {
+        board.active_bees
+            .first()
+            .map(|bee| bee.session.clone())
+            .filter(|value| !value.trim().is_empty())
+    });
+    let follow = if let Some(session) = follow_target {
+        timeout_ok(client.hive_follow(&HiveFollowRequest {
+            session,
+            current_session: runtime.session.clone(),
+            project: runtime.project.clone(),
+            namespace: runtime.namespace.clone(),
+            workspace: runtime.workspace.clone(),
+        }))
+        .await
+    } else {
+        None
+    };
+
+    Some(BundleHiveMemorySurface {
+        board,
+        roster,
+        follow,
+    })
+}
+
 fn render_hive_join_summary(response: &HiveJoinResponse) -> String {
     match response {
         HiveJoinResponse::Single(response) => format!(
@@ -18160,7 +18205,8 @@ async fn write_bundle_memory_files(
             set_bundle_tab_id(output, &tab_id)?;
         }
     }
-    let markdown = render_bundle_memory_markdown(output, snapshot, handoff);
+    let hive = read_bundle_hive_memory_surface(output).await;
+    let markdown = render_bundle_memory_markdown(output, snapshot, handoff, hive.as_ref());
     let wakeup = render_bundle_wakeup_markdown(output, snapshot, false);
     let project_root = infer_bundle_project_root(output);
     let capability_registry = build_bundle_capability_registry(project_root.as_deref());
@@ -18196,7 +18242,7 @@ async fn write_bundle_memory_files(
         &capability_bridges,
     )?;
     write_bundle_migration_manifest(output, &manifest)?;
-    write_bundle_memory_object_pages(output, snapshot, handoff)?;
+    write_bundle_memory_object_pages(output, snapshot, handoff, hive.as_ref())?;
     write_agent_profiles(output)?;
     write_memory_markdown_files(output, &markdown)?;
     write_wakeup_markdown_files(output, &wakeup)?;
@@ -22620,6 +22666,7 @@ fn write_bundle_memory_object_pages(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
+    hive: Option<&BundleHiveMemorySurface>,
 ) -> anyhow::Result<()> {
     let dir = bundle_compiled_memory_dir(output);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
@@ -22632,7 +22679,7 @@ fn write_bundle_memory_object_pages(
         MemoryObjectLane::Workspace,
     ] {
         let path = bundle_compiled_memory_path(output, lane);
-        let markdown = render_bundle_memory_object_markdown(output, snapshot, handoff, lane);
+        let markdown = render_bundle_memory_object_markdown(output, snapshot, handoff, hive, lane);
         fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
         let item_count = match lane {
             MemoryObjectLane::Context => snapshot.context.records.len(),
@@ -22654,7 +22701,7 @@ fn write_bundle_memory_object_pages(
                         .with_context(|| format!("create {}", parent.display()))?;
                 }
                 let item_markdown = render_bundle_memory_object_item_markdown(
-                    output, snapshot, handoff, lane, index,
+                    output, snapshot, handoff, hive, lane, index,
                 )
                 .unwrap_or_else(|| format!("# memd memory item: {}\n\n- none\n", lane.title()));
                 fs::write(&item_path, item_markdown)
@@ -32024,6 +32071,7 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
     ));
     if let Some(url) = rag.url.as_deref() {
         ps1.push_str(&format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(url)));
+    hive: Option<&BundleHiveMemorySurface>,
     }
     fs::write(&backend_env_ps1, ps1)
         .with_context(|| format!("write {}", backend_env_ps1.display()))?;
@@ -32354,6 +32402,67 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "history_totals": history_totals,
                 "history_count": history.len(),
                 "generated_at": report.generated_at,
+    if let Some(hive) = hive {
+        markdown.push_str("\n## Hive\n\n");
+        markdown.push_str(&format!(
+            "- queen={} roster={} active={} review={} overlap={} stale={}\n",
+            hive.board.queen_session.as_deref().unwrap_or("none"),
+            hive.roster.bees.len(),
+            hive.board.active_bees.len(),
+            hive.board.review_queue.len(),
+            hive.board.overlap_risks.len(),
+            hive.board.stale_bees.len(),
+        ));
+        if !hive.board.active_bees.is_empty() {
+            let active = hive
+                .board
+                .active_bees
+                .iter()
+                .take(3)
+                .map(|bee| {
+                    format!(
+                        "{}({})/{}",
+                        bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                        bee.session,
+                        bee.task_id.as_deref().unwrap_or("none")
+                    )
+                })
+                .collect::<Vec<_>>();
+            markdown.push_str(&format!("- active_bees={}\n", active.join(" | ")));
+        }
+        if let Some(follow) = hive.follow.as_ref() {
+            markdown.push_str(&format!(
+                "- focus={} work=\"{}\" touches={} next=\"{}\" action={}\n",
+                follow
+                    .target
+                    .worker_name
+                    .as_deref()
+                    .or(follow.target.agent.as_deref())
+                    .unwrap_or(follow.target.session.as_str()),
+                compact_inline(&follow.work_summary, 120),
+                if follow.touch_points.is_empty() {
+                    "none".to_string()
+                } else {
+                    compact_inline(&follow.touch_points.join(","), 120)
+                },
+                follow.next_action.as_deref().unwrap_or("none"),
+                follow.recommended_action,
+            ));
+        }
+        if !hive.board.recommended_actions.is_empty() {
+            markdown.push_str(&format!(
+                "- recommended={}\n",
+                hive.board
+                    .recommended_actions
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+    }
+
             }))
         }
         _ => None,
@@ -32541,6 +32650,7 @@ fn summarize_evolution_status(output: &Path) -> anyhow::Result<Option<serde_json
         && merge_queue.is_none()
         && durability_queue.is_none()
     {
+    hive: Option<&BundleHiveMemorySurface>,
         return Ok(None);
     }
 
@@ -32702,6 +32812,32 @@ fn detect_claude_family_memd_wiring() -> serde_json::Value {
     let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
     let harnesses = detect_claude_family_harness_roots(&home)
         .into_iter()
+    if matches!(lane, MemoryObjectLane::Workspace) {
+        if let Some(hive) = hive {
+            markdown.push_str("\n## Hive\n\n");
+            markdown.push_str(&format!(
+                "- queen={} active={} stale={} review={} overlap={}\n",
+                hive.board.queen_session.as_deref().unwrap_or("none"),
+                hive.board.active_bees.len(),
+                hive.board.stale_bees.len(),
+                hive.board.review_queue.len(),
+                hive.board.overlap_risks.len(),
+            ));
+            for bee in hive.board.active_bees.iter().take(6) {
+                markdown.push_str(&format!(
+                    "- bee {} ({}) lane={} task={}\n",
+                    bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                    bee.session,
+                    bee.lane_id
+                        .as_deref()
+                        .or(bee.branch.as_deref())
+                        .unwrap_or("none"),
+                    bee.task_id.as_deref().unwrap_or("none"),
+                ));
+            }
+        }
+    }
+
         .filter(|root| root.harness != "claude")
         .map(|root| {
             let settings = root.root.join("settings.json");
@@ -32726,6 +32862,7 @@ fn detect_claude_family_memd_wiring() -> serde_json::Value {
         })
         .collect::<Vec<_>>();
     serde_json::json!({
+    hive: Option<&BundleHiveMemorySurface>,
         "count": harnesses.len(),
         "harnesses": harnesses,
     })
@@ -32847,6 +32984,32 @@ fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfi
         let raw = fs::read_to_string(&config_path)
             .with_context(|| format!("read {}", config_path.display()))?;
         let config: BundleConfigFile = serde_json::from_str(&raw)
+    if matches!(lane, MemoryObjectLane::Workspace) {
+        if let Some(hive) = hive {
+            markdown.push_str("\n## Hive\n\n");
+            markdown.push_str(&format!(
+                "- queen={} active={} overlap={} stale={}\n",
+                hive.board.queen_session.as_deref().unwrap_or("none"),
+                hive.board.active_bees.len(),
+                hive.board.overlap_risks.len(),
+                hive.board.stale_bees.len(),
+            ));
+            if let Some(follow) = hive.follow.as_ref() {
+                markdown.push_str(&format!(
+                    "- focus={} work=\"{}\" next=\"{}\"\n",
+                    follow
+                        .target
+                        .worker_name
+                        .as_deref()
+                        .or(follow.target.agent.as_deref())
+                        .unwrap_or(follow.target.session.as_str()),
+                    compact_inline(&follow.work_summary, 160),
+                    follow.next_action.as_deref().unwrap_or("none"),
+                ));
+            }
+        }
+    }
+
             .with_context(|| format!("parse {}", config_path.display()))?;
         resolve_bundle_rag_config(config)
     } else {
@@ -35248,6 +35411,13 @@ fn simplify_awareness_work_text(value: &str) -> Option<String> {
         "tags=",
         "cf=",
         "upd=",
+#[derive(Debug, Clone)]
+struct BundleHiveMemorySurface {
+    board: HiveBoardResponse,
+    roster: HiveRosterResponse,
+    follow: Option<HiveFollowResponse>,
+}
+
         "workspace=",
         "branch=",
         "tab=",
@@ -39702,7 +39872,7 @@ mod tests {
         HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
         HiveTaskRecord, SkillPolicyActivationRecord, SkillPolicyApplyReceipt,
         SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-        SkillPolicyApplyResponse,
+        SkillPolicyApplyResponse, VerifierAssertionRecord, VerifierStepRecord,
     };
 
     static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -41639,6 +41809,226 @@ mod tests {
 
         let markdown = render_openclaw_harness_pack_markdown(&manifest);
         assert!(markdown.contains("OPENCLAW_WAKEUP.md"));
+    async fn mock_hive_board(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveBoardRequest>,
+    ) -> Json<memd_schema::HiveBoardResponse> {
+        let sessions = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .filter(|record| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| record.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .iter()
+            .filter(|task| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| task.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| task.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| task.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let receipts = state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .iter()
+            .filter(|receipt| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| receipt.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| receipt.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| receipt.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = sessions
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                )
+            })
+            .map(|session| session.session.clone());
+        let active_bees = sessions
+            .iter()
+            .filter(|session| session.status == "active")
+            .cloned()
+            .collect::<Vec<_>>();
+        let stale_bees = sessions
+            .iter()
+            .filter(|session| session.status != "active")
+            .map(|session| session.session.clone())
+            .collect::<Vec<_>>();
+        let review_queue = tasks
+            .iter()
+            .filter(|task| task.review_requested)
+            .map(|task| format!("{} -> {}", task.task_id, task.session.as_deref().unwrap_or("unassigned")))
+            .collect::<Vec<_>>();
+        let overlap_risks = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.contains("overlap") || receipt.summary.contains("scope"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let blocked_bees = receipts
+            .iter()
+            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let lane_faults = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let recommended_actions = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("queen_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveBoardResponse {
+            queen_session,
+            active_bees,
+            blocked_bees,
+            stale_bees,
+            review_queue,
+            overlap_risks,
+            lane_faults,
+            recommended_actions,
+        })
+    }
+
+    async fn mock_hive_roster(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveRosterRequest>,
+    ) -> Json<memd_schema::HiveRosterResponse> {
+        let bees = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .filter(|record| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| record.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = bees
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                )
+            })
+            .map(|session| session.session.clone());
+        Json(memd_schema::HiveRosterResponse {
+            project: req.project.unwrap_or_else(|| "unknown".to_string()),
+            namespace: req.namespace.unwrap_or_else(|| "default".to_string()),
+            queen_session,
+            bees,
+        })
+    }
+
+    async fn mock_hive_follow(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveFollowRequest>,
+    ) -> Json<memd_schema::HiveFollowResponse> {
+        let target = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .find(|record| record.session == req.session)
+            .cloned()
+            .expect("target hive session exists");
+        let messages = state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .iter()
+            .filter(|message| message.to_session == req.session)
+            .cloned()
+            .collect::<Vec<_>>();
+        let owned_tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .iter()
+            .filter(|task| task.session.as_deref() == Some(req.session.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let recent_receipts = state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .iter()
+            .filter(|receipt| {
+                receipt.actor_session == req.session
+                    || receipt.target_session.as_deref() == Some(req.session.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveFollowResponse {
+            current_session: req.current_session,
+            target: target.clone(),
+            work_summary: target
+                .topic_claim
+                .clone()
+                .or(target.focus.clone())
+                .unwrap_or_else(|| "none".to_string()),
+            touch_points: target.scope_claims.clone(),
+            next_action: target.next_action.clone(),
+            messages,
+            owned_tasks,
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts,
+            overlap_risk: None,
+            recommended_action: "safe_to_continue".to_string(),
+        })
+    }
+
         assert!(markdown.contains("OPENCLAW_MEMORY.md"));
         assert!(markdown.contains("turn-scoped cache"));
         assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
@@ -41815,6 +42205,9 @@ mod tests {
                 Some("demo"),
                 Some("main"),
                 Some(agent),
+            .route("/hive/board", get(mock_hive_board))
+            .route("/hive/roster", get(mock_hive_roster))
+            .route("/hive/follow", get(mock_hive_follow))
                 "full",
                 "  What    did    we decide?  ",
             );
@@ -41875,6 +42268,68 @@ mod tests {
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
+    fn push_mock_runtime_hive_session(
+        state: &MockRuntimeState,
+        session: &str,
+        worker_name: &str,
+        role: &str,
+        task_id: Option<&str>,
+        topic_claim: Option<&str>,
+        scope_claims: Vec<String>,
+    ) {
+        state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .push(memd_schema::HiveSessionRecord {
+                session: session.to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some(format!("codex@{session}")),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some(role.to_string()),
+                worker_name: Some(worker_name.to_string()),
+                display_name: None,
+                role: Some(role.to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some(format!("{session}-lane")),
+                hive_group_goal: None,
+                authority: Some(if role == "queen" {
+                    "coordinator".to_string()
+                } else {
+                    "participant".to_string()
+                }),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some(format!("feature/{session}")),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(100),
+                topic_claim: topic_claim.map(str::to_string),
+                scope_claims,
+                task_id: task_id.map(str::to_string),
+                focus: topic_claim.map(str::to_string),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("continue".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.91".to_string()),
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+    }
+
         assert!(api.contains(".memd/MEMD_MEMORY.md"));
         assert!(api.contains("Hermes is the adoption-focused harness pack"));
         assert!(api.contains("Agent Zero is the zero-friction harness pack"));
@@ -43094,7 +43549,7 @@ mod tests {
             refresh_recommended: false,
         };
 
-        let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None);
+        let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);
         assert!(markdown.contains("## Budget"));
         assert!(markdown.contains("drivers="));
         assert!(markdown.contains("action=\""));
@@ -49233,6 +49688,143 @@ mod tests {
                 .iter()
                 .any(|rec| rec.contains("surface")
                     || rec.contains("scope")
+    #[tokio::test]
+    async fn write_bundle_memory_files_surfaces_hive_state_in_compiled_memory_pages() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-memory-hive-pages-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let state = MockRuntimeState::default();
+        push_mock_runtime_hive_session(
+            &state,
+            "queen-1",
+            "Avicenna",
+            "queen",
+            Some("queen-routing"),
+            Some("Route hive work"),
+            vec!["docs/hive.md".to_string()],
+        );
+        push_mock_runtime_hive_session(
+            &state,
+            "bee-1",
+            "Lorentz",
+            "worker",
+            Some("parser-refactor"),
+            Some("Parser lane refactor"),
+            vec![
+                "task:parser-refactor".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+        );
+        state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .push(HiveTaskRecord {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: None,
+                status: "active".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("bee-1".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: false,
+                review_requested: true,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .push(HiveCoordinationReceiptRecord {
+                id: "receipt-queen-deny".to_string(),
+                kind: "queen_deny".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("dashboard".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Queen denied overlapping lane or scope work for session bee-1."
+                    .to_string(),
+                created_at: Utc::now(),
+            });
+        state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .push(HiveMessageRecord {
+                id: "msg-handoff".to_string(),
+                kind: "handoff".to_string(),
+                from_session: "queen-1".to_string(),
+                from_agent: Some("dashboard".to_string()),
+                to_session: "bee-1".to_string(),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "handoff_scope: crates/memd-client/src/main.rs".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            });
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "bee-1",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+
+        let snapshot = codex_test_snapshot("demo", "main", "codex");
+        write_bundle_memory_files(&dir, &snapshot, None, false)
+            .await
+            .expect("write bundle memory files");
+
+        let memory =
+            fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read generated bundle memory");
+        assert!(memory.contains("## Hive"));
+        assert!(memory.contains("queen=queen-1"));
+        assert!(memory.contains("active_bees=Avicenna(queen-1)/queen-routing"));
+        assert!(memory.contains("focus=Lorentz"));
+
+        let workspace_page = fs::read_to_string(dir.join("compiled/memory/workspace.md"))
+            .expect("read workspace page");
+        assert!(workspace_page.contains("## Hive"));
+        assert!(workspace_page.contains("bee Lorentz (bee-1)"));
+
+        let workspace_key = memory_object_lane_item_key(&snapshot, MemoryObjectLane::Workspace, 0)
+            .expect("workspace key");
+        let workspace_item_path =
+            bundle_compiled_memory_item_path(&dir, MemoryObjectLane::Workspace, 0, &workspace_key);
+        let workspace_item_page =
+            fs::read_to_string(workspace_item_path).expect("read workspace item page");
+        assert!(workspace_item_page.contains("## Hive"));
+        assert!(workspace_item_page.contains("focus=Lorentz") || workspace_item_page.contains("focus=bee-1"));
+
+        fs::remove_dir_all(dir).expect("cleanup memory hive page dir");
+    }
+
                     || rec.contains("rank"))
         );
 
