@@ -31066,7 +31066,31 @@ fn project_awareness_visible_entries<'a>(
                 .map(|current| is_superseded_stale_remote_session(entry, current))
                 .unwrap_or(false)
         })
+        .filter(|entry| {
+            !current_entry
+                .map(|current| is_shadowed_local_seen_session(entry, current))
+                .unwrap_or(false)
+        })
         .collect()
+}
+
+fn is_shadowed_local_seen_session(
+    entry: &ProjectAwarenessEntry,
+    current: &ProjectAwarenessEntry,
+) -> bool {
+    entry.bundle_root != current.bundle_root
+        && entry.project_dir != "remote"
+        && current.presence == "active"
+        && entry.project == current.project
+        && entry.namespace == current.namespace
+        && entry.workspace == current.workspace
+        && entry.agent == current.agent
+        && entry.base_url == current.base_url
+        && entry.active_claims == 0
+        && entry.hive_system.is_none()
+        && entry.hive_role.is_none()
+        && entry.hive_groups.is_empty()
+        && entry.branch.is_none()
 }
 
 fn awareness_entries_overlap(left: &ProjectAwarenessEntry, right: &ProjectAwarenessEntry) -> bool {
@@ -31744,6 +31768,7 @@ fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<Stri
     let mut diagnostics = shared_endpoint_diagnostics(entries);
     diagnostics.extend(session_collision_warnings(&owned));
     diagnostics.extend(branch_collision_warnings(&owned));
+    diagnostics.extend(work_overlap_warnings(entries));
     diagnostics
 }
 
@@ -31836,6 +31861,44 @@ fn branch_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> {
                 )
             }),
     );
+    warnings
+}
+
+fn work_overlap_warnings(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let active_entries = entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.presence == "active")
+        .collect::<Vec<_>>();
+
+    for (idx, left) in active_entries.iter().enumerate() {
+        let left_touches = awareness_touch_points(left);
+        if left_touches.is_empty() {
+            continue;
+        }
+        for right in active_entries.iter().skip(idx + 1) {
+            let right_touches = awareness_touch_points(right);
+            if right_touches.is_empty() {
+                continue;
+            }
+            let shared = left_touches
+                .iter()
+                .filter(|touch| right_touches.iter().any(|other| other == *touch))
+                .cloned()
+                .collect::<Vec<_>>();
+            if shared.is_empty() {
+                continue;
+            }
+            warnings.push(format!(
+                "possible_work_overlap touches={} sessions={},{}",
+                shared.join(","),
+                left.session.as_deref().unwrap_or("none"),
+                right.session.as_deref().unwrap_or("none"),
+            ));
+        }
+    }
+
     warnings
 }
 
@@ -32335,8 +32398,16 @@ fn render_awareness_entry_line(
         .last_updated
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| "unknown".to_string());
+    let work = awareness_work_quickview(entry);
+    let next = entry
+        .next_recovery
+        .as_deref()
+        .and_then(simplify_awareness_work_text)
+        .map(|value| compact_inline(&value, 56))
+        .unwrap_or_else(|| "none".to_string());
+    let touches = awareness_touch_quickview(entry);
     format!(
-        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} branch={} worktree={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} branch={} worktree={} base_url={} workspace={} visibility={} work=\"{}\" touches={} next=\"{}\" focus=\"{}\" pressure=\"{}\"",
         entry.project.as_deref().unwrap_or("unknown"),
         role,
         entry.presence,
@@ -32365,9 +32436,134 @@ fn render_awareness_entry_line(
         entry.base_url.as_deref().unwrap_or("none"),
         entry.workspace.as_deref().unwrap_or("none"),
         entry.visibility.as_deref().unwrap_or("all"),
+        work,
+        touches,
+        next,
         focus,
         pressure,
     )
+}
+
+fn awareness_work_quickview(entry: &ProjectAwarenessEntry) -> String {
+    for candidate in [entry.focus.as_deref(), entry.next_recovery.as_deref()] {
+        if let Some(value) = candidate.and_then(simplify_awareness_work_text) {
+            return compact_inline(&value, 56);
+        }
+    }
+    let touches = awareness_touch_points(entry);
+    if let Some(first) = touches.first() {
+        if touches.len() == 1 {
+            return compact_inline(&format!("editing {first}"), 56);
+        }
+        return compact_inline(&format!("editing {first} +{}", touches.len() - 1), 56);
+    }
+    if let Some(value) = entry
+        .pressure
+        .as_deref()
+        .and_then(simplify_awareness_work_text)
+    {
+        return compact_inline(&value, 56);
+    }
+    "none".to_string()
+}
+
+fn awareness_touch_quickview(entry: &ProjectAwarenessEntry) -> String {
+    let touches = awareness_touch_points(entry);
+    if touches.is_empty() {
+        "none".to_string()
+    } else {
+        compact_inline(&touches.join(","), 56)
+    }
+}
+
+fn awareness_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {
+    let mut touches = Vec::new();
+    for candidate in [
+        entry.pressure.as_deref(),
+        entry.focus.as_deref(),
+        entry.next_recovery.as_deref(),
+    ] {
+        let Some(value) = candidate else {
+            continue;
+        };
+        append_awareness_touch_points(value, &mut touches);
+    }
+    touches.truncate(4);
+    touches
+}
+
+fn append_awareness_touch_points(value: &str, touches: &mut Vec<String>) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    for part in trimmed
+        .split('\n')
+        .flat_map(|line| line.split(" | "))
+        .map(str::trim)
+    {
+        if let Some(path) = part.strip_prefix("file_edited:") {
+            push_unique_touch_point(touches, path.trim());
+            continue;
+        }
+        if let Some(scope) = part.strip_prefix("scope=") {
+            push_unique_touch_point(touches, scope.trim());
+            continue;
+        }
+        if let Some(location) = part.strip_prefix("location=") {
+            push_unique_touch_point(touches, location.trim());
+        }
+    }
+}
+
+fn push_unique_touch_point(touches: &mut Vec<String>, value: &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || touches.iter().any(|existing| existing == trimmed) {
+        return;
+    }
+    touches.push(trimmed.to_string());
+}
+
+fn simplify_awareness_work_text(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("status:") {
+        return None;
+    }
+    if !trimmed.contains(" | ") {
+        return Some(trimmed.to_string());
+    }
+
+    let ignored_prefixes = [
+        "id=",
+        "stage=",
+        "scope=",
+        "kind=",
+        "status=",
+        "project=",
+        "ns=",
+        "vis=",
+        "agent=",
+        "tags=",
+        "cf=",
+        "upd=",
+        "workspace=",
+        "branch=",
+        "tab=",
+    ];
+
+    trimmed
+        .split(" | ")
+        .map(str::trim)
+        .find(|part| {
+            !ignored_prefixes
+                .iter()
+                .any(|prefix| part.starts_with(prefix))
+        })
+        .map(str::to_string)
 }
 
 async fn resolve_target_session_bundle(
@@ -42183,6 +42379,211 @@ mod tests {
         assert!(summary.contains("stale_sessions:"));
         assert!(summary.contains("dead_sessions:"));
         assert!(summary.contains("seen_sessions:"));
+    }
+
+    #[test]
+    fn project_awareness_summary_hides_shadowed_seen_entry_for_current_lane() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: Some("/tmp/projects/current".to_string()),
+                    branch: Some("feature/live".to_string()),
+                    base_branch: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-live".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-live".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: Some("Finish the lane isolation fix".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/old".to_string(),
+                    bundle_root: "/tmp/projects/old/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("codex".to_string()),
+                    session: Some("session-old".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-old".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: Some("Old stale local bundle".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(5)),
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(!summary.contains("session=session-old"));
+        assert!(!summary.contains("Old stale local bundle"));
+    }
+
+    #[test]
+    fn project_awareness_summary_surfaces_compact_work_quickview() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "/tmp/projects".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/current".to_string(),
+                bundle_root: "/tmp/projects/current/.memd".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/projects/current".to_string()),
+                branch: Some("feature/live".to_string()),
+                base_branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-live".to_string()),
+                tab_id: None,
+                effective_agent: Some("codex@session-live".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: Some("Finish the queen-bee quickview summary".to_string()),
+                pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness | Avoid overlap in worker lane routing".to_string()),
+                next_recovery: Some("publish overlap-safe hive quickview".to_string()),
+                last_updated: Some(now),
+            }],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("work=\"Finish the queen-bee quickview summary\""));
+        assert!(
+            summary.contains("touches=crates/memd-client/src/main.rs,task:queen-bee-awareness")
+        );
+        assert!(summary.contains("next=\"publish overlap-safe hive quickview\""));
+    }
+
+    #[test]
+    fn project_awareness_summary_surfaces_possible_work_overlap_diagnostics() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: Some("/tmp/projects/current".to_string()),
+                    branch: Some("feature/queen".to_string()),
+                    base_branch: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-current".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    focus: Some("Refine hive overlap awareness".to_string()),
+                    pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness".to_string()),
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-peer".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: Some("/tmp/projects/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-peer".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-peer".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    focus: Some("Finish peer awareness lane".to_string()),
+                    pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:peer-quickview".to_string()),
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains(
+            "! possible_work_overlap touches=crates/memd-client/src/main.rs sessions=session-current,session-peer"
+        ));
     }
 
     #[test]
