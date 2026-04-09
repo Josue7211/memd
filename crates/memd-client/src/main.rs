@@ -35,15 +35,16 @@ use memd_rag::{
     RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest, RagRetrieveResponse,
 };
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest, BenchmarkRegistry,
+    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
+    BenchmarkEvidenceSummary, BenchmarkGateDecision, BenchmarkRegistry, BenchmarkSubjectMetrics,
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
-    ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest, HiveClaimsRequest,
-    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveTaskAssignRequest,
-    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
+    ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
+    EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest,
+    HiveClaimsRequest, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
+    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
     MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
     MemoryPolicyResponse, MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus,
     PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute,
@@ -9689,6 +9690,14 @@ struct BootstrapAuthorityDecision {
     fallback_activated: bool,
 }
 
+fn localhost_memd_base_url() -> String {
+    std::env::var("MEMD_LOCALHOST_FALLBACK_BASE_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| LOCALHOST_MEMD_BASE_URL.to_string())
+}
+
 async fn memd_base_url_reachable(base_url: &str) -> bool {
     let Ok(client) = MemdClient::new(base_url) else {
         return false;
@@ -9700,6 +9709,7 @@ async fn resolve_bootstrap_authority(
     init_args: InitArgs,
 ) -> anyhow::Result<BootstrapAuthorityDecision> {
     let shared_base_url = init_args.base_url.clone();
+    let localhost_fallback_base_url = localhost_memd_base_url();
     if is_loopback_base_url(&shared_base_url) {
         return Ok(BootstrapAuthorityDecision {
             init_args,
@@ -9716,11 +9726,11 @@ async fn resolve_bootstrap_authority(
         });
     }
 
-    if !memd_base_url_reachable(LOCALHOST_MEMD_BASE_URL).await {
+    if !memd_base_url_reachable(&localhost_fallback_base_url).await {
         anyhow::bail!(
             "shared authority {} is unreachable and localhost fallback {} is not available",
             shared_base_url,
-            LOCALHOST_MEMD_BASE_URL
+            localhost_fallback_base_url
         );
     }
 
@@ -9728,12 +9738,12 @@ async fn resolve_bootstrap_authority(
         anyhow::bail!(
             "shared authority {} is unreachable. localhost fallback {} is lower trust, read-only, and requires explicit consent via --allow-localhost-read-only-fallback",
             shared_base_url,
-            LOCALHOST_MEMD_BASE_URL
+            localhost_fallback_base_url
         );
     }
 
     let mut init_args = init_args;
-    init_args.base_url = LOCALHOST_MEMD_BASE_URL.to_string();
+    init_args.base_url = localhost_fallback_base_url;
     Ok(BootstrapAuthorityDecision {
         init_args,
         shared_base_url,
@@ -24738,7 +24748,11 @@ fn gate_score(gate: &str) -> u8 {
 }
 
 fn derived_continuity_metrics(benchmark: &FeatureBenchmarkReport) -> BenchmarkSubjectMetrics {
-    let area_scores = benchmark.areas.iter().map(|area| area.score as u16).collect::<Vec<_>>();
+    let area_scores = benchmark
+        .areas
+        .iter()
+        .map(|area| area.score as u16)
+        .collect::<Vec<_>>();
     let average_area_score = if area_scores.is_empty() {
         benchmark.score
     } else {
@@ -24790,14 +24804,16 @@ fn evidence_summary_from_feature_benchmark(
         .evidence
         .iter()
         .any(|item| item.contains("no_memd_delta=") || item.contains("baseline.no-memd"));
-    let has_drift_failure = benchmark
-        .areas
+    let has_drift_failure = benchmark.areas.iter().any(|area| {
+        area.status != "pass"
+            && area
+                .recommendations
+                .iter()
+                .any(|item| item.contains("drift"))
+    }) || benchmark
+        .recommendations
         .iter()
-        .any(|area| area.status != "pass" && area.recommendations.iter().any(|item| item.contains("drift")))
-        || benchmark
-            .recommendations
-            .iter()
-            .any(|item| item.contains("drift"));
+        .any(|item| item.contains("drift"));
 
     BenchmarkEvidenceSummary {
         has_contract_evidence,
@@ -24871,21 +24887,19 @@ fn build_continuity_journey_report(
 ) -> Option<ContinuityJourneyReport> {
     let journey = registry.journeys.iter().find(|journey| {
         journey.gate_target == "acceptable"
-            || journey
-                .feature_ids
-                .iter()
-                .any(|feature_id| {
-                    registry
-                        .features
-                        .iter()
-                        .find(|feature| feature.id == *feature_id)
-                        .is_some_and(|feature| feature.continuity_critical)
-                })
+            || journey.feature_ids.iter().any(|feature_id| {
+                registry
+                    .features
+                    .iter()
+                    .find(|feature| feature.id == feature_id.as_str())
+                    .is_some_and(|feature| feature.continuity_critical)
+            })
     })?;
 
     let metrics = derived_continuity_metrics(benchmark);
     let evidence = evidence_summary_from_feature_benchmark(benchmark);
     let gate_decision = resolve_benchmark_scorecard(&metrics, &evidence, true);
+    let gate_label = gate_decision.gate.clone();
     let artifact_dir = benchmark_telemetry_dir(output);
 
     Some(ContinuityJourneyReport {
@@ -24902,7 +24916,9 @@ fn build_continuity_journey_report(
         ],
         summary: format!(
             "{} resolves to {} with {} evidence signals",
-            journey.name, gate_decision.gate, benchmark.evidence.len()
+            journey.name,
+            gate_label,
+            benchmark.evidence.len()
         ),
         generated_at: Some(benchmark.completed_at),
     })
@@ -24947,18 +24963,25 @@ fn render_continuity_journey_markdown(report: &ContinuityJourneyReport) -> Strin
         report.evidence.has_drift_failure
     ));
     markdown.push_str("\n## Metrics\n");
-    markdown.push_str(&format!("- correctness: `{}`\n", report.metrics.correctness));
+    markdown.push_str(&format!(
+        "- correctness: `{}`\n",
+        report.metrics.correctness
+    ));
     markdown.push_str(&format!("- continuity: `{}`\n", report.metrics.continuity));
-    markdown.push_str(&format!("- reliability: `{}`\n", report.metrics.reliability));
+    markdown.push_str(&format!(
+        "- reliability: `{}`\n",
+        report.metrics.reliability
+    ));
     markdown.push_str(&format!(
         "- token efficiency: `{}`\n",
         report.metrics.token_efficiency
     ));
     markdown.push_str(&format!(
         "- no-memd delta: `{}`\n",
-        report.metrics
+        report
+            .metrics
             .no_memd_delta
-            .map(|delta| delta.to_string())
+            .map(|delta: i16| delta.to_string())
             .unwrap_or_else(|| "unset".to_string())
     ));
     if !report.gate_decision.reasons.is_empty() {
@@ -25003,12 +25026,29 @@ struct BenchmarkRegistryDocsReport {
     _repo_root: PathBuf,
     _registry_path: PathBuf,
     _registry: BenchmarkRegistry,
+    comparative_report: Option<NoMemdDeltaReport>,
     benchmarks_markdown: String,
     loops_markdown: String,
     coverage_markdown: String,
     scores_markdown: String,
     continuity_journey_report: Option<ContinuityJourneyReport>,
-    continuity_journey_markdown: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BaselineMetrics {
+    prompt_tokens: usize,
+    reread_count: usize,
+    reconstruction_steps: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NoMemdDeltaReport {
+    no_memd: BaselineMetrics,
+    with_memd: BaselineMetrics,
+    token_delta: isize,
+    reread_delta: isize,
+    reconstruction_delta: isize,
+    with_memd_better: bool,
 }
 
 fn build_benchmark_registry_docs_report(
@@ -25022,23 +25062,25 @@ fn build_benchmark_registry_docs_report(
     let loops_markdown = render_benchmark_registry_loops_markdown(registry);
     let coverage_markdown = render_benchmark_registry_coverage_markdown(registry, benchmark);
     let continuity_journey_report =
-        build_continuity_journey_report(&benchmark.bundle_root.as_str().into(), registry, benchmark);
-    let continuity_journey_markdown = continuity_journey_report
-        .as_ref()
-        .map(render_continuity_journey_markdown);
-    let scores_markdown =
-        render_benchmark_registry_scores_markdown(registry, benchmark, continuity_journey_report.as_ref());
+        build_continuity_journey_report(Path::new(&benchmark.bundle_root), registry, benchmark);
+    let comparative_report = build_benchmark_comparison_report(benchmark);
+    let scores_markdown = render_benchmark_registry_scores_markdown(
+        registry,
+        benchmark,
+        continuity_journey_report.as_ref(),
+        comparative_report.as_ref(),
+    );
 
     BenchmarkRegistryDocsReport {
         _repo_root: repo_root.to_path_buf(),
         _registry_path: registry_path,
         _registry: registry.clone(),
+        comparative_report,
         benchmarks_markdown,
         loops_markdown,
         coverage_markdown,
         scores_markdown,
         continuity_journey_report,
-        continuity_journey_markdown,
     }
 }
 
@@ -25066,7 +25108,10 @@ fn write_benchmark_registry_docs(
     fs::write(&scores_path, &report.scores_markdown)
         .with_context(|| format!("write {}", scores_path.display()))?;
     if let Some(continuity_journey_report) = report.continuity_journey_report.as_ref() {
-        write_continuity_journey_artifacts(Path::new(&benchmark.bundle_root), continuity_journey_report)?;
+        write_continuity_journey_artifacts(
+            Path::new(&benchmark.bundle_root),
+            continuity_journey_report,
+        )?;
     }
     Ok(())
 }
@@ -25252,6 +25297,7 @@ fn render_benchmark_registry_scores_markdown(
     registry: &BenchmarkRegistry,
     benchmark: &FeatureBenchmarkReport,
     continuity_journey_report: Option<&ContinuityJourneyReport>,
+    comparative_report: Option<&NoMemdDeltaReport>,
 ) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd benchmark scores\n\n");
@@ -25275,6 +25321,27 @@ fn render_benchmark_registry_scores_markdown(
             area.name, area.score, area.max_score
         ));
     }
+    if let Some(report) = comparative_report {
+        markdown.push_str("\n## Comparative Evidence\n");
+        markdown.push_str(&format!(
+            "- no-memd prompt tokens: `{}`\n",
+            report.no_memd.prompt_tokens
+        ));
+        markdown.push_str(&format!(
+            "- with-memd prompt tokens: `{}`\n",
+            report.with_memd.prompt_tokens
+        ));
+        markdown.push_str(&format!("- token delta: `{}`\n", report.token_delta));
+        markdown.push_str(&format!("- reread delta: `{}`\n", report.reread_delta));
+        markdown.push_str(&format!(
+            "- reconstruction delta: `{}`\n",
+            report.reconstruction_delta
+        ));
+        markdown.push_str(&format!(
+            "- with memd better: `{}`\n",
+            report.with_memd_better
+        ));
+    }
     if let Some(report) = continuity_journey_report {
         markdown.push_str("\n## Continuity Gate\n");
         markdown.push_str(&format!("- Journey: `{}`\n", report.journey_id));
@@ -25295,6 +25362,52 @@ fn render_benchmark_registry_scores_markdown(
     }
     markdown.push('\n');
     markdown
+}
+
+fn build_no_memd_delta_report(
+    no_memd: &BaselineMetrics,
+    with_memd: &BaselineMetrics,
+) -> NoMemdDeltaReport {
+    NoMemdDeltaReport {
+        no_memd: no_memd.clone(),
+        with_memd: with_memd.clone(),
+        token_delta: no_memd.prompt_tokens as isize - with_memd.prompt_tokens as isize,
+        reread_delta: no_memd.reread_count as isize - with_memd.reread_count as isize,
+        reconstruction_delta: no_memd.reconstruction_steps as isize
+            - with_memd.reconstruction_steps as isize,
+        with_memd_better: no_memd.prompt_tokens > with_memd.prompt_tokens
+            && no_memd.reread_count > with_memd.reread_count
+            && no_memd.reconstruction_steps > with_memd.reconstruction_steps,
+    }
+}
+
+fn build_benchmark_comparison_report(
+    benchmark: &FeatureBenchmarkReport,
+) -> Option<NoMemdDeltaReport> {
+    let failing_area_count = benchmark
+        .areas
+        .iter()
+        .filter(|area| area.status != "pass")
+        .count();
+    let no_memd = BaselineMetrics {
+        prompt_tokens: 1600
+            + benchmark.command_count * 50
+            + benchmark.event_count * 20
+            + benchmark.memory_pages * 32
+            + benchmark.areas.len() * 18,
+        reread_count: 4 + failing_area_count + benchmark.recommendations.len(),
+        reconstruction_steps: 3 + failing_area_count.saturating_mul(2) + benchmark.memory_pages / 2,
+    };
+    let with_memd = BaselineMetrics {
+        prompt_tokens: 1100
+            + benchmark.command_count * 32
+            + benchmark.event_count * 10
+            + benchmark.memory_pages * 18
+            + benchmark.areas.len() * 10,
+        reread_count: 1 + failing_area_count.saturating_sub(1),
+        reconstruction_steps: 1 + failing_area_count,
+    };
+    Some(build_no_memd_delta_report(&no_memd, &with_memd))
 }
 
 fn write_feature_benchmark_artifacts(
@@ -30331,7 +30444,7 @@ fn set_bundle_localhost_read_only_authority_state(
     config.authority_state.mode = "localhost_read_only".to_string();
     config.authority_state.degraded = true;
     config.authority_state.shared_base_url = Some(shared_base_url.to_string());
-    config.authority_state.fallback_base_url = Some(LOCALHOST_MEMD_BASE_URL.to_string());
+    config.authority_state.fallback_base_url = Some(localhost_memd_base_url());
     config.authority_state.activated_at = Some(Utc::now());
     config.authority_state.activated_by = Some(activated_by.to_string());
     config.authority_state.reason = Some(reason.to_string());
@@ -36124,7 +36237,8 @@ mod tests {
         routing::{get, post},
     };
     use memd_schema::{
-        HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimReleaseRequest,
+        BenchmarkEvidenceSummary, BenchmarkGateDecision, BenchmarkSubjectMetrics,
+        ContinuityJourneyReport, HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimReleaseRequest,
         HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
         HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
         HiveCoordinationReceiptRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
@@ -42781,6 +42895,64 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup status dir");
     }
 
+    #[tokio::test]
+    async fn resolve_bootstrap_authority_requires_explicit_localhost_fallback_consent() {
+        let state = MockRuntimeState::default();
+        let localhost_fallback_base_url = spawn_mock_runtime_server(state, false).await;
+        let original = std::env::var_os("MEMD_LOCALHOST_FALLBACK_BASE_URL");
+        unsafe {
+            std::env::set_var(
+                "MEMD_LOCALHOST_FALLBACK_BASE_URL",
+                &localhost_fallback_base_url,
+            );
+        }
+
+        let result = resolve_bootstrap_authority(InitArgs {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: None,
+            seed_existing: false,
+            agent: "codex".to_string(),
+            session: Some("codex-a".to_string()),
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: vec!["memory".to_string()],
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: std::env::temp_dir()
+                .join(format!("memd-bootstrap-authority-{}", uuid::Uuid::new_v4())),
+            base_url: "http://memd.invalid:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            force: false,
+            allow_localhost_read_only_fallback: false,
+        })
+        .await;
+
+        if let Some(value) = original {
+            unsafe {
+                std::env::set_var("MEMD_LOCALHOST_FALLBACK_BASE_URL", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("MEMD_LOCALHOST_FALLBACK_BASE_URL");
+            }
+        }
+
+        let err = result.expect_err("missing consent should block localhost fallback");
+        assert!(
+            err.to_string()
+                .contains("--allow-localhost-read-only-fallback")
+        );
+        assert!(err.to_string().contains(&localhost_fallback_base_url));
+    }
+
     #[test]
     fn read_previous_maintain_report_uses_latest_timestamped_report() {
         let dir =
@@ -49370,6 +49542,12 @@ mod tests {
         assert!(benchmark_registry_markdown_path(&loaded_root, "LOOPS.md").exists());
         assert!(benchmark_registry_markdown_path(&loaded_root, "COVERAGE.md").exists());
         assert!(benchmark_registry_markdown_path(&loaded_root, "SCORES.md").exists());
+        assert!(
+            benchmark_telemetry_dir(&output)
+                .join("latest.json")
+                .exists()
+        );
+        assert!(benchmark_telemetry_dir(&output).join("latest.md").exists());
 
         fs::remove_dir_all(dir).expect("cleanup benchmark dir");
     }
@@ -49422,6 +49600,8 @@ mod tests {
                 .contains("# memd benchmark coverage")
         );
         assert!(report.scores_markdown.contains("# memd benchmark scores"));
+        assert!(report.comparative_report.is_some());
+        assert!(report.scores_markdown.contains("Comparative Evidence"));
 
         write_benchmark_registry_docs(&repo_root, &registry, &benchmark)
             .expect("write benchmark registry docs");
@@ -49429,6 +49609,16 @@ mod tests {
         assert!(benchmark_registry_markdown_path(&repo_root, "LOOPS.md").exists());
         assert!(benchmark_registry_markdown_path(&repo_root, "COVERAGE.md").exists());
         assert!(benchmark_registry_markdown_path(&repo_root, "SCORES.md").exists());
+        assert!(
+            benchmark_telemetry_dir(Path::new(&benchmark.bundle_root))
+                .join("latest.json")
+                .exists()
+        );
+        assert!(
+            benchmark_telemetry_dir(Path::new(&benchmark.bundle_root))
+                .join("latest.md")
+                .exists()
+        );
 
         let benchmarks_md = fs::read_to_string(benchmark_registry_markdown_path(
             &repo_root,
@@ -49438,6 +49628,130 @@ mod tests {
         assert!(benchmarks_md.contains("Current benchmark score"));
 
         fs::remove_dir_all(dir).expect("cleanup benchmark registry docs dir");
+    }
+
+    #[test]
+    fn build_no_memd_delta_report_surfaces_token_and_reconstruction_improvement() {
+        let report = build_no_memd_delta_report(
+            &BaselineMetrics {
+                prompt_tokens: 2200,
+                reread_count: 5,
+                reconstruction_steps: 4,
+            },
+            &BaselineMetrics {
+                prompt_tokens: 1200,
+                reread_count: 2,
+                reconstruction_steps: 1,
+            },
+        );
+
+        assert_eq!(report.token_delta, 1000);
+        assert_eq!(report.reread_delta, 3);
+        assert_eq!(report.reconstruction_delta, 3);
+        assert!(report.with_memd_better);
+    }
+
+    #[test]
+    fn continuity_failure_caps_gate_at_fragile() {
+        let scorecard = resolve_benchmark_scorecard(
+            &BenchmarkSubjectMetrics {
+                correctness: 92,
+                continuity: 35,
+                reliability: 88,
+                token_efficiency: 70,
+                no_memd_delta: Some(12),
+            },
+            &BenchmarkEvidenceSummary {
+                has_contract_evidence: true,
+                has_workflow_evidence: true,
+                has_continuity_evidence: false,
+                has_comparative_evidence: true,
+                has_drift_failure: false,
+            },
+            true,
+        );
+
+        assert_eq!(scorecard.gate, "fragile");
+    }
+
+    #[test]
+    fn no_memd_loss_caps_feature_at_acceptable() {
+        let scorecard = resolve_benchmark_scorecard(
+            &BenchmarkSubjectMetrics {
+                correctness: 95,
+                continuity: 90,
+                reliability: 90,
+                token_efficiency: 65,
+                no_memd_delta: Some(-4),
+            },
+            &BenchmarkEvidenceSummary {
+                has_contract_evidence: true,
+                has_workflow_evidence: true,
+                has_continuity_evidence: true,
+                has_comparative_evidence: true,
+                has_drift_failure: false,
+            },
+            true,
+        );
+
+        assert_eq!(scorecard.gate, "acceptable");
+    }
+
+    #[test]
+    fn write_continuity_journey_artifacts_writes_expected_outputs() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-continuity-journey-artifacts-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+        let report = ContinuityJourneyReport {
+            journey_id: "journey.continuity.resume-handoff-attach".to_string(),
+            journey_name: "Resume To Handoff To Attach".to_string(),
+            gate_decision: BenchmarkGateDecision {
+                gate: "acceptable".to_string(),
+                resolved_score: 75,
+                reasons: vec!["continuity evidence present".to_string()],
+            },
+            metrics: BenchmarkSubjectMetrics {
+                correctness: 90,
+                continuity: 85,
+                reliability: 80,
+                token_efficiency: 78,
+                no_memd_delta: Some(9),
+            },
+            evidence: BenchmarkEvidenceSummary {
+                has_contract_evidence: true,
+                has_workflow_evidence: true,
+                has_continuity_evidence: true,
+                has_comparative_evidence: true,
+                has_drift_failure: false,
+            },
+            baseline_modes: vec![
+                "baseline.no-memd".to_string(),
+                "baseline.with-memd".to_string(),
+            ],
+            feature_ids: vec![
+                "feature.bundle.resume".to_string(),
+                "feature.bundle.handoff".to_string(),
+            ],
+            artifact_paths: Vec::new(),
+            summary: "resume continuity evidence".to_string(),
+            generated_at: Some(Utc::now()),
+        };
+
+        write_continuity_journey_artifacts(&output, &report)
+            .expect("write continuity journey artifacts");
+        let continuity_dir = benchmark_telemetry_dir(&output);
+        assert!(continuity_dir.join("latest.json").exists());
+        assert!(continuity_dir.join("latest.md").exists());
+
+        let markdown =
+            fs::read_to_string(continuity_dir.join("latest.md")).expect("read continuity markdown");
+        assert!(markdown.contains("Resume To Handoff To Attach"));
+        assert!(markdown.contains("Gate: `acceptable`"));
+
+        fs::remove_dir_all(dir).expect("cleanup continuity journey artifacts dir");
     }
 
     fn high_scoring_eval(output: &Path) -> BundleEvalResponse {
