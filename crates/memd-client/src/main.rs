@@ -1863,12 +1863,31 @@ struct HiveArgs {
 #[derive(Debug, Clone, Subcommand)]
 enum HiveSubcommand {
     Roster(HiveRosterArgs),
+    Follow(HiveFollowArgs),
 }
 
 #[derive(Debug, Clone, Args)]
 struct HiveRosterArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HiveFollowArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    session: Option<String>,
+
+    #[arg(long)]
+    worker: Option<String>,
 
     #[arg(long)]
     json: bool,
@@ -2821,15 +2840,24 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&status)?;
             }
         }
-        Commands::Hive(args) => {
-            if let Some(HiveSubcommand::Roster(roster_args)) = &args.command {
+        Commands::Hive(args) => match &args.command {
+            Some(HiveSubcommand::Roster(roster_args)) => {
                 let response = run_hive_roster_command(roster_args).await?;
                 if roster_args.json {
                     print_json(&response)?;
                 } else {
                     println!("{}", render_hive_roster_summary(&response));
                 }
-            } else {
+            }
+            Some(HiveSubcommand::Follow(follow_args)) => {
+                let response = run_hive_follow_command(follow_args).await?;
+                if follow_args.json {
+                    print_json(&response)?;
+                } else {
+                    println!("{}", render_hive_follow_summary(&response));
+                }
+            }
+            None => {
                 let response = run_hive_command(&args).await?;
                 if args.summary {
                     println!("{}", render_hive_wire_summary(&response));
@@ -2837,7 +2865,7 @@ async fn main() -> anyhow::Result<()> {
                     print_json(&response)?;
                 }
             }
-        }
+        },
         Commands::HiveProject(args) => {
             let response = run_hive_project_command(&args).await?;
             if args.summary {
@@ -15222,6 +15250,23 @@ struct HiveProjectResponse {
     heartbeat: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct HiveFollowResponse {
+    bundle_root: String,
+    current_session: Option<String>,
+    target: memd_schema::HiveSessionRecord,
+    work_summary: String,
+    touch_points: Vec<String>,
+    next_action: Option<String>,
+    messages: Vec<HiveMessageRecord>,
+    owned_tasks: Vec<HiveTaskRecord>,
+    help_tasks: Vec<HiveTaskRecord>,
+    review_tasks: Vec<HiveTaskRecord>,
+    recent_receipts: Vec<HiveCoordinationReceiptRecord>,
+    overlap_risk: Option<String>,
+    recommended_action: String,
+}
+
 fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
     entry
         .effective_agent
@@ -15348,6 +15393,245 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
             .map(project_awareness_entry_to_hive_session)
             .collect(),
     })
+}
+
+async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFollowResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty());
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = project_awareness_visible_entries(&awareness);
+    let target_entry = resolve_hive_follow_target(&visible_entries, args)?;
+    let target_session = target_entry
+        .session
+        .clone()
+        .context("hive follow target is missing a session id")?;
+
+    let base_url = resolve_bundle_command_base_url(
+        &default_base_url(),
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref())
+            .or(target_entry.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&base_url)?;
+    let server_reachable = timeout_ok(client.healthz()).await.is_some();
+    let project = target_entry
+        .project
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+    let namespace = target_entry
+        .namespace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
+    let workspace = target_entry
+        .workspace
+        .clone()
+        .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone()));
+
+    let inbox = if server_reachable {
+        timeout_ok(
+            client.hive_coordination_inbox(&HiveCoordinationInboxRequest {
+                session: target_session.clone(),
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                limit: Some(32),
+            }),
+        )
+        .await
+        .unwrap_or(HiveCoordinationInboxResponse {
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+        })
+    } else {
+        HiveCoordinationInboxResponse {
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+        }
+    };
+    let recent_receipts = if server_reachable {
+        timeout_ok(
+            client.hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                limit: Some(64),
+            }),
+        )
+        .await
+        .map(|response| {
+            response
+                .receipts
+                .into_iter()
+                .filter(|receipt| {
+                    receipt.actor_session == target_session
+                        || receipt.target_session.as_deref() == Some(target_session.as_str())
+                        || receipt.task_id.as_deref().is_some_and(|task_id| {
+                            inbox.owned_tasks.iter().any(|task| task.task_id == task_id)
+                        })
+                })
+                .take(8)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let overlap_risk = hive_follow_overlap_risk(
+        &args.output,
+        current_session.as_deref(),
+        &visible_entries,
+        target_entry,
+    );
+    let target = project_awareness_entry_to_hive_session(target_entry);
+    let work_summary = target
+        .topic_claim
+        .clone()
+        .unwrap_or_else(|| awareness_work_quickview(target_entry));
+    let touch_points = if target.scope_claims.is_empty() {
+        awareness_touch_points(target_entry)
+    } else {
+        target.scope_claims.clone()
+    };
+    let next_action = target.next_action.clone().or_else(|| {
+        target_entry
+            .next_recovery
+            .as_deref()
+            .and_then(simplify_awareness_work_text)
+    });
+    let recommended_action = if let Some(risk) = overlap_risk.as_deref() {
+        if risk.starts_with("unsafe hive cowork target collision") {
+            "stop_and_reroute".to_string()
+        } else {
+            "coordinate_now".to_string()
+        }
+    } else if !inbox.review_tasks.is_empty()
+        || !inbox.help_tasks.is_empty()
+        || !inbox.messages.is_empty()
+    {
+        "watch_and_coordinate".to_string()
+    } else {
+        "safe_to_continue".to_string()
+    };
+
+    Ok(HiveFollowResponse {
+        bundle_root: args.output.display().to_string(),
+        current_session,
+        target,
+        work_summary,
+        touch_points,
+        next_action,
+        messages: inbox.messages.clone(),
+        owned_tasks: inbox.owned_tasks.clone(),
+        help_tasks: inbox.help_tasks.clone(),
+        review_tasks: inbox.review_tasks.clone(),
+        recent_receipts,
+        overlap_risk,
+        recommended_action,
+    })
+}
+
+fn resolve_hive_follow_target<'a>(
+    visible_entries: &[&'a ProjectAwarenessEntry],
+    args: &HiveFollowArgs,
+) -> anyhow::Result<&'a ProjectAwarenessEntry> {
+    if let Some(session) = args
+        .session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return visible_entries
+            .iter()
+            .copied()
+            .find(|entry| entry.session.as_deref() == Some(session))
+            .context("hive follow session not found in awareness");
+    }
+
+    if let Some(worker) = args
+        .worker
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let worker_lower = worker.to_ascii_lowercase();
+        return visible_entries
+            .iter()
+            .copied()
+            .find(|entry| {
+                derive_awareness_worker_name(entry).is_some_and(|name| {
+                    name.eq_ignore_ascii_case(&worker_lower) || name.eq_ignore_ascii_case(worker)
+                })
+            })
+            .context("hive follow worker not found in awareness");
+    }
+
+    anyhow::bail!("hive follow requires --session or --worker");
+}
+
+fn hive_follow_overlap_risk(
+    output: &Path,
+    current_session: Option<&str>,
+    visible_entries: &[&ProjectAwarenessEntry],
+    target: &ProjectAwarenessEntry,
+) -> Option<String> {
+    if current_session.is_some() && target.session.as_deref() == current_session {
+        return None;
+    }
+
+    let lane = detect_bundle_lane_identity(output)?;
+    let current_bundle = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    if awareness_entry_has_same_lane(target, &lane, &current_bundle, current_session) {
+        return Some(format!(
+            "unsafe hive cowork target collision: {}",
+            render_hive_lane_collision(target)
+        ));
+    }
+
+    let current_entry = current_session.and_then(|session| {
+        visible_entries
+            .iter()
+            .copied()
+            .find(|entry| entry.session.as_deref() == Some(session))
+    })?;
+    if let Some(reason) = confirmed_hive_overlap_reason(
+        target,
+        current_entry.task_id.as_deref(),
+        current_entry.topic_claim.as_deref(),
+        &current_entry.scope_claims,
+    ) {
+        return Some(reason);
+    }
+
+    let current_touches = awareness_overlap_touch_points(current_entry);
+    let target_touches = awareness_overlap_touch_points(target);
+    let shared = current_touches
+        .iter()
+        .filter(|touch| target_touches.iter().any(|other| other == *touch))
+        .cloned()
+        .collect::<Vec<_>>();
+    if shared.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "possible_work_overlap touches={}",
+            shared.join(",")
+        ))
+    }
 }
 
 fn infer_service_agent_from_path(path: &Path) -> Option<String> {
@@ -16125,6 +16409,115 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
             bee.status,
         ));
     }
+    lines.join("\n")
+}
+
+fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
+    let worker = response
+        .target
+        .worker_name
+        .as_deref()
+        .or(response.target.agent.as_deref())
+        .unwrap_or("unnamed");
+    let lane = response
+        .target
+        .lane_id
+        .as_deref()
+        .or(response.target.branch.as_deref())
+        .unwrap_or("none");
+    let mut lines = vec![
+        format!(
+            "hive_follow worker={} session={} role={} lane={} task={} status={}",
+            worker,
+            response.target.session,
+            response
+                .target
+                .role
+                .as_deref()
+                .or(response.target.hive_role.as_deref())
+                .unwrap_or("worker"),
+            lane,
+            response.target.task_id.as_deref().unwrap_or("none"),
+            response.target.status,
+        ),
+        format!(
+            "work=\"{}\" touches={} next=\"{}\" overlap_risk={} recommended_action={}",
+            response.work_summary,
+            if response.touch_points.is_empty() {
+                "none".to_string()
+            } else {
+                response.touch_points.join(",")
+            },
+            response.next_action.as_deref().unwrap_or("none"),
+            response.overlap_risk.as_deref().unwrap_or("none"),
+            response.recommended_action,
+        ),
+    ];
+
+    if !response.messages.is_empty() {
+        lines.push(String::new());
+        lines.push("## Messages".to_string());
+        for message in &response.messages {
+            lines.push(format!(
+                "- {} from={} ack={} content=\"{}\"",
+                message.kind,
+                message
+                    .from_agent
+                    .as_deref()
+                    .unwrap_or(message.from_session.as_str()),
+                if message.acknowledged_at.is_some() {
+                    "yes"
+                } else {
+                    "no"
+                },
+                compact_inline(&message.content, 96),
+            ));
+        }
+    }
+
+    if !response.owned_tasks.is_empty()
+        || !response.help_tasks.is_empty()
+        || !response.review_tasks.is_empty()
+    {
+        lines.push(String::new());
+        lines.push("## Tasks".to_string());
+        for task in &response.owned_tasks {
+            lines.push(format!(
+                "- owned {} status={} scopes={}",
+                task.task_id,
+                task.status,
+                if task.claim_scopes.is_empty() {
+                    "none".to_string()
+                } else {
+                    compact_inline(&task.claim_scopes.join(","), 96)
+                }
+            ));
+        }
+        for task in &response.help_tasks {
+            lines.push(format!("- help {} status={}", task.task_id, task.status));
+        }
+        for task in &response.review_tasks {
+            lines.push(format!("- review {} status={}", task.task_id, task.status));
+        }
+    }
+
+    if !response.recent_receipts.is_empty() {
+        lines.push(String::new());
+        lines.push("## Receipts".to_string());
+        for receipt in &response.recent_receipts {
+            lines.push(format!(
+                "- {} actor={} target={} summary=\"{}\"",
+                receipt.kind,
+                receipt
+                    .actor_agent
+                    .as_deref()
+                    .unwrap_or(&receipt.actor_session),
+                receipt.target_session.as_deref().unwrap_or("none"),
+                compact_inline(&receipt.summary, 96),
+            ));
+        }
+    }
+
     lines.join("\n")
 }
 
@@ -43589,6 +43982,155 @@ mod tests {
         assert!(summary.contains("lane=lane-review"));
         assert!(summary.contains("task=review-parser"));
         assert!(summary.contains("caps=review,coordination"));
+    }
+
+    #[test]
+    fn cli_parses_hive_follow_subcommand() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "hive",
+            "follow",
+            "--output",
+            ".memd",
+            "--worker",
+            "Lorentz",
+            "--summary",
+        ])
+        .expect("hive follow command should parse");
+
+        match cli.command {
+            Commands::Hive(args) => match args.command {
+                Some(HiveSubcommand::Follow(follow)) => {
+                    assert_eq!(follow.output, PathBuf::from(".memd"));
+                    assert_eq!(follow.worker.as_deref(), Some("Lorentz"));
+                    assert!(follow.summary);
+                }
+                other => panic!("expected hive follow subcommand, got {other:?}"),
+            },
+            other => panic!("expected hive command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_hive_follow_summary_surfaces_messages_receipts_and_overlap_risk() {
+        let response = HiveFollowResponse {
+            bundle_root: "/tmp/projects/current/.memd".to_string(),
+            current_session: Some("session-current".to_string()),
+            target: memd_schema::HiveSessionRecord {
+                session: "session-lorentz".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo-review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec![
+                    "task:review-parser".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                task_id: Some("review-parser".to_string()),
+                focus: Some("Review overlap guard output".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Reply with review notes".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: Some("medium".to_string()),
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            },
+            work_summary: "Review parser handoff".to_string(),
+            touch_points: vec![
+                "task:review-parser".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+            next_action: Some("Reply with review notes".to_string()),
+            messages: vec![HiveMessageRecord {
+                id: "msg-1".to_string(),
+                kind: "note".to_string(),
+                from_session: "session-queen".to_string(),
+                from_agent: Some("Anscombe".to_string()),
+                to_session: "session-lorentz".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "Stay on parser review and avoid render.rs.".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            }],
+            owned_tasks: vec![HiveTaskRecord {
+                task_id: "review-parser".to_string(),
+                title: "Review parser handoff".to_string(),
+                description: None,
+                status: "active".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("session-lorentz".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: false,
+                review_requested: true,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }],
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts: vec![HiveCoordinationReceiptRecord {
+                id: "receipt-1".to_string(),
+                kind: "queen_handoff".to_string(),
+                actor_session: "session-queen".to_string(),
+                actor_agent: Some("Anscombe".to_string()),
+                target_session: Some("session-lorentz".to_string()),
+                task_id: Some("review-parser".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Queen handed off parser review scope to Lorentz.".to_string(),
+                created_at: Utc::now(),
+            }],
+            overlap_risk: Some(
+                "confirmed hive overlap: target session session-lorentz already claims crates/memd-client/src/main.rs".to_string(),
+            ),
+            recommended_action: "coordinate_now".to_string(),
+        };
+
+        let summary = render_hive_follow_summary(&response);
+        assert!(summary.contains("hive_follow worker=Lorentz session=session-lorentz"));
+        assert!(summary.contains("recommended_action=coordinate_now"));
+        assert!(summary.contains("overlap_risk=confirmed hive overlap"));
+        assert!(summary.contains("## Messages"));
+        assert!(summary.contains("Stay on parser review and avoid render.rs."));
+        assert!(summary.contains("## Tasks"));
+        assert!(summary.contains("owned review-parser status=active"));
+        assert!(summary.contains("## Receipts"));
+        assert!(summary.contains("queen_handoff actor=Anscombe"));
     }
 
     #[test]
