@@ -2602,12 +2602,12 @@ impl SqliteStore {
 
         let active_bees = sessions
             .iter()
-            .filter(|session| session.status == "active")
+            .filter(|session| matches!(session.status.as_str(), "active" | "live"))
             .cloned()
             .collect::<Vec<_>>();
         let stale_bees = sessions
             .iter()
-            .filter(|session| session.status != "active")
+            .filter(|session| !matches!(session.status.as_str(), "active" | "live"))
             .map(|session| session.session.clone())
             .collect::<Vec<_>>();
         let review_queue = tasks
