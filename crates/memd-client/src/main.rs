@@ -24191,6 +24191,7 @@ async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectA
     .await?
     {
         let mut entries = merge_project_awareness_entries(local.entries, shared.entries);
+        entries = suppress_superseded_awareness_entries(entries, &local.current_bundle);
         entries.sort_by(|left, right| left.bundle_root.cmp(&right.bundle_root));
 
         let mut collisions = local.collisions;
@@ -24227,6 +24228,39 @@ fn merge_project_awareness_entries(
         }
     }
     entries
+}
+
+fn suppress_superseded_awareness_entries(
+    entries: Vec<ProjectAwarenessEntry>,
+    current_bundle: &str,
+) -> Vec<ProjectAwarenessEntry> {
+    let Some(current) = entries
+        .iter()
+        .find(|entry| entry.bundle_root == current_bundle && entry.presence == "active")
+        .cloned()
+    else {
+        return entries;
+    };
+
+    entries
+        .into_iter()
+        .filter(|entry| !is_superseded_stale_remote_session(entry, &current))
+        .collect()
+}
+
+fn is_superseded_stale_remote_session(
+    entry: &ProjectAwarenessEntry,
+    current: &ProjectAwarenessEntry,
+) -> bool {
+    entry.project_dir == "remote"
+        && entry.presence == "stale"
+        && current.presence == "active"
+        && entry.session != current.session
+        && entry.project == current.project
+        && entry.namespace == current.namespace
+        && entry.workspace == current.workspace
+        && entry.agent == current.agent
+        && entry.base_url == current.base_url
 }
 
 fn awareness_entries_overlap(left: &ProjectAwarenessEntry, right: &ProjectAwarenessEntry) -> bool {
@@ -24657,12 +24691,34 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
 }
 
 fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> String {
+    let current_entry = response
+        .entries
+        .iter()
+        .find(|candidate| candidate.bundle_root == response.current_bundle);
+    let superseded_stale_sessions = response
+        .entries
+        .iter()
+        .filter(|entry| {
+            current_entry
+                .map(|current| is_superseded_stale_remote_session(entry, current))
+                .unwrap_or(false)
+        })
+        .count();
+    let hidden_remote_dead = response
+        .entries
+        .iter()
+        .filter(|entry| entry.project_dir == "remote" && entry.presence == "dead")
+        .count();
     let visible_entries = response
         .entries
         .iter()
         .filter(|entry| !(entry.project_dir == "remote" && entry.presence == "dead"))
+        .filter(|entry| {
+            !current_entry
+                .map(|current| is_superseded_stale_remote_session(entry, current))
+                .unwrap_or(false)
+        })
         .collect::<Vec<_>>();
-    let hidden_remote_dead = response.entries.len().saturating_sub(visible_entries.len());
     let current_session = visible_entries
         .iter()
         .find(|entry| entry.bundle_root == response.current_bundle)
@@ -24682,12 +24738,14 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let rendered_diagnostics = awareness_summary_diagnostics(&visible_entries);
     let mut lines = vec![format!(
-        "awareness root={} bundles={} collisions={} hidden_remote_dead={}",
+        "awareness root={} bundles={} diagnostics={} hidden_remote_dead={} hidden_superseded_stale={}",
         response.root,
         visible_entries.len(),
-        response.collisions.len(),
+        rendered_diagnostics.len(),
         hidden_remote_dead,
+        superseded_stale_sessions,
     )];
     if !active_hive_sessions.is_empty() {
         lines.push(format!(
@@ -24718,61 +24776,133 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             suffix,
         ));
     }
-    for collision in &response.collisions {
-        lines.push(format!("! {}", collision));
+    for diagnostic in &rendered_diagnostics {
+        lines.push(format!("! {}", diagnostic));
     }
-    for entry in visible_entries {
-        let role = if entry.bundle_root == response.current_bundle {
-            "current"
-        } else if current_session.is_some()
-            && entry.presence == "active"
-            && !entry.hive_groups.is_empty()
-            && entry.session.as_deref() != current_session
-        {
-            "hive-session"
-        } else {
-            "seen"
-        };
-        let focus = entry
-            .focus
-            .as_deref()
-            .map(|value| compact_inline(value, 56))
-            .unwrap_or_else(|| "none".to_string());
-        let pressure = entry
-            .pressure
-            .as_deref()
-            .map(|value| compact_inline(value, 56))
-            .unwrap_or_else(|| "none".to_string());
-        lines.push(format!(
-            "- {} [{}] | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
-            entry.project.as_deref().unwrap_or("unknown"),
-            role,
-            entry.presence,
-            entry.active_claims,
-            entry.namespace.as_deref().unwrap_or("none"),
-            entry.hive_system.as_deref().unwrap_or("none"),
-            entry.hive_role.as_deref().unwrap_or("none"),
-            if entry.hive_groups.is_empty() {
-                "none".to_string()
-            } else {
-                entry.hive_groups.join(",")
-            },
-            entry.hive_group_goal.as_deref().unwrap_or("none"),
-            entry.authority.as_deref().unwrap_or("none"),
-            entry.effective_agent
-                .as_deref()
-                .or(entry.agent.as_deref())
-                .unwrap_or("none"),
-            entry.session.as_deref().unwrap_or("none"),
-            entry.tab_id.as_deref().unwrap_or("none"),
-            entry.base_url.as_deref().unwrap_or("none"),
-            entry.workspace.as_deref().unwrap_or("none"),
-            entry.visibility.as_deref().unwrap_or("all"),
-            focus,
-            pressure,
-        ));
-    }
+    let current_entries = visible_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.bundle_root == response.current_bundle)
+        .collect::<Vec<_>>();
+    let active_hive_entries = visible_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.bundle_root != response.current_bundle)
+        .filter(|entry| entry.presence == "active" && !entry.hive_groups.is_empty())
+        .collect::<Vec<_>>();
+    let stale_entries = visible_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.presence == "stale")
+        .collect::<Vec<_>>();
+    let seen_entries = visible_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.bundle_root != response.current_bundle)
+        .filter(|entry| !(entry.presence == "active" && !entry.hive_groups.is_empty()))
+        .filter(|entry| entry.presence != "stale")
+        .filter(|entry| entry.presence != "dead")
+        .collect::<Vec<_>>();
+    let dead_entries = visible_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.presence == "dead")
+        .collect::<Vec<_>>();
+
+    push_awareness_section(&mut lines, "current_session", &current_entries, "current");
+    push_awareness_section(
+        &mut lines,
+        "active_hive_sessions",
+        &active_hive_entries,
+        "hive-session",
+    );
+    push_awareness_section(&mut lines, "stale_sessions", &stale_entries, "stale-session");
+    push_awareness_section(&mut lines, "dead_sessions", &dead_entries, "dead-session");
+    push_awareness_section(&mut lines, "seen_sessions", &seen_entries, "seen");
     lines.join("\n")
+}
+
+fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
+    let owned = entries.iter().map(|entry| (*entry).clone()).collect::<Vec<_>>();
+    let mut diagnostics = shared_endpoint_diagnostics(entries);
+    diagnostics.extend(session_collision_warnings(&owned));
+    diagnostics
+}
+
+fn shared_endpoint_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for entry in entries {
+        if let Some(url) = entry
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            *counts.entry(url.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(url, count)| format!("shared_hive_endpoint {} sessions={}", url, count))
+        .collect()
+}
+
+fn push_awareness_section(
+    lines: &mut Vec<String>,
+    label: &str,
+    entries: &[&ProjectAwarenessEntry],
+    role: &str,
+) {
+    if entries.is_empty() {
+        return;
+    }
+    lines.push(format!("{label}:"));
+    for entry in entries {
+        lines.push(render_awareness_entry_line(entry, role));
+    }
+}
+
+fn render_awareness_entry_line(entry: &ProjectAwarenessEntry, role: &str) -> String {
+    let focus = entry
+        .focus
+        .as_deref()
+        .map(|value| compact_inline(value, 56))
+        .unwrap_or_else(|| "none".to_string());
+    let pressure = entry
+        .pressure
+        .as_deref()
+        .map(|value| compact_inline(value, 56))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "- {} [{}] | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+        entry.project.as_deref().unwrap_or("unknown"),
+        role,
+        entry.presence,
+        entry.active_claims,
+        entry.namespace.as_deref().unwrap_or("none"),
+        entry.hive_system.as_deref().unwrap_or("none"),
+        entry.hive_role.as_deref().unwrap_or("none"),
+        if entry.hive_groups.is_empty() {
+            "none".to_string()
+        } else {
+            entry.hive_groups.join(",")
+        },
+        entry.hive_group_goal.as_deref().unwrap_or("none"),
+        entry.authority.as_deref().unwrap_or("none"),
+        entry.effective_agent
+            .as_deref()
+            .or(entry.agent.as_deref())
+            .unwrap_or("none"),
+        entry.session.as_deref().unwrap_or("none"),
+        entry.tab_id.as_deref().unwrap_or("none"),
+        entry.base_url.as_deref().unwrap_or("none"),
+        entry.workspace.as_deref().unwrap_or("none"),
+        entry.visibility.as_deref().unwrap_or("all"),
+        focus,
+        pressure,
+    )
 }
 
 async fn resolve_target_session_bundle(
@@ -32883,11 +33013,12 @@ mod tests {
         let summary = render_project_awareness_summary(&response);
         assert!(
             summary.contains(
-                "awareness root=/tmp/projects bundles=1 collisions=0 hidden_remote_dead=0"
+                "awareness root=/tmp/projects bundles=1 diagnostics=0 hidden_remote_dead=0 hidden_superseded_stale=0"
             )
         );
+        assert!(summary.contains("active_hive_sessions:"));
         assert!(summary.contains(
-            "sibling [seen] | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
+            "sibling [hive-session] | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -32959,7 +33090,7 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("! base_url http://127.0.0.1:8787 used by 2 bundles"));
+        assert!(summary.contains("! shared_hive_endpoint http://127.0.0.1:8787 sessions=2"));
     }
 
     #[test]
@@ -33028,8 +33159,9 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains(
-            "awareness root=server:http://127.0.0.1:8787 bundles=1 collisions=0 hidden_remote_dead=1"
+            "awareness root=server:http://127.0.0.1:8787 bundles=1 diagnostics=0 hidden_remote_dead=1 hidden_superseded_stale=0"
         ));
+        assert!(summary.contains("current_session:"));
         assert!(summary.contains("session=session-live"));
         assert!(!summary.contains("session=session-dead"));
     }
@@ -33073,10 +33205,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
-                    agent: Some("codex".to_string()),
+                    agent: Some("claude-code".to_string()),
                     session: Some("session-stale".to_string()),
                     tab_id: None,
-                    effective_agent: Some("codex@session-stale".to_string()),
+                    effective_agent: Some("claude-code@session-stale".to_string()),
                     hive_system: None,
                     hive_role: None,
                     capabilities: vec!["memory".to_string()],
@@ -33100,6 +33232,7 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("! stale_remote_sessions=1 sessions=session-stale"));
+        assert!(summary.contains("stale_sessions:"));
     }
 
     #[test]
@@ -33168,8 +33301,80 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("! active_hive_sessions=1 sessions=session-other"));
+        assert!(summary.contains("current_session:"));
+        assert!(summary.contains("active_hive_sessions:"));
         assert!(summary.contains("memd [current] | presence=active"));
         assert!(summary.contains("memd [hive-session] | presence=active"));
+    }
+
+    #[test]
+    fn project_awareness_summary_hides_superseded_stale_session_rows() {
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-fresh".to_string()),
+                    tab_id: Some("tab-alpha".to_string()),
+                    effective_agent: Some("codex@session-fresh".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-stale".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-stale".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "stale".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("hidden_superseded_stale=1"));
+        assert!(!summary.contains("session=session-stale"));
+        assert!(!summary.contains("stale_sessions:"));
     }
 
     #[test]
