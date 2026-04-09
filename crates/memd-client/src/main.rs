@@ -20317,6 +20317,9 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         }
     }
     script.push_str(
+        "memd hive --output \"$MEMD_BUNDLE_ROOT\" --publish-heartbeat --summary >/dev/null 2>&1 || true\n",
+    );
+    script.push_str(
         "exec memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write \"$@\"\n",
     );
     script
@@ -20341,6 +20344,9 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
             );
         }
     }
+    script.push_str(
+        "try { memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary | Out-Null } catch { }\n",
+    );
     script.push_str("memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write\n");
     script
 }
@@ -29245,6 +29251,13 @@ mod tests {
         assert!(shell.contains("nohup \"$MEMD_BUNDLE_ROOT/agents/watch.sh\""));
         assert!(ps1.contains("Start-Process -WindowStyle Hidden"));
         assert!(attach.contains("--intent current_task"));
+        assert!(
+            shell
+                .contains("memd hive --output \"$MEMD_BUNDLE_ROOT\" --publish-heartbeat --summary")
+        );
+        assert!(
+            ps1.contains("memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary")
+        );
         assert!(shell.contains("exec memd wake"));
         assert!(ps1.contains("memd wake"));
         assert!(attach.contains("memd wake"));
