@@ -1661,6 +1661,217 @@ pub struct HealthResponse {
     pub items: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkRegistry {
+    pub version: String,
+    pub app_goal: String,
+    pub quality_dimensions: Vec<QualityDimensionRecord>,
+    pub tiers: Vec<TierRecord>,
+    pub pillars: Vec<PillarRecord>,
+    pub families: Vec<FamilyRecord>,
+    pub features: Vec<BenchmarkFeatureRecord>,
+    pub journeys: Vec<BenchmarkJourneyRecord>,
+    pub loops: Vec<BenchmarkLoopRecord>,
+    pub scorecards: Vec<BenchmarkScorecardRecord>,
+    pub evidence: Vec<BenchmarkEvidenceRecord>,
+    pub gates: Vec<BenchmarkGateRecord>,
+    pub baseline_modes: Vec<BaselineModeRecord>,
+    pub runtime_policies: Vec<RuntimePolicyRecord>,
+    pub generated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QualityDimensionRecord {
+    pub id: String,
+    pub weight: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TierRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PillarRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FamilyRecord {
+    pub id: String,
+    pub pillar: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkFeatureRecord {
+    pub id: String,
+    pub name: String,
+    pub pillar: String,
+    pub family: String,
+    pub tier: String,
+    pub continuity_critical: bool,
+    pub user_contract: String,
+    pub source_contract_refs: Vec<String>,
+    pub commands: Vec<String>,
+    pub routes: Vec<String>,
+    pub files: Vec<String>,
+    pub journey_ids: Vec<String>,
+    pub loop_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub drift_risks: Vec<String>,
+    pub failure_modes: Vec<String>,
+    pub coverage_status: String,
+    pub last_verified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkJourneyRecord {
+    pub id: String,
+    pub name: String,
+    pub goal: String,
+    pub feature_ids: Vec<String>,
+    pub loop_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub baseline_mode_ids: Vec<String>,
+    pub drift_risks: Vec<String>,
+    pub gate_target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkLoopRecord {
+    pub id: String,
+    pub name: String,
+    pub pillar: String,
+    pub family: String,
+    pub loop_type: String,
+    pub covers_features: Vec<String>,
+    pub journey_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub baseline_mode: String,
+    pub workflow_probe: String,
+    pub adversarial_probe: String,
+    pub cross_harness_probe: Option<String>,
+    pub metrics: Vec<String>,
+    pub guardrails: Vec<String>,
+    pub stop_condition: String,
+    pub artifacts_written: Vec<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkScorecardRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub scores: Vec<ScoreDimensionRecord>,
+    pub overall: u8,
+    pub coverage: BenchmarkCoverageRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScoreDimensionRecord {
+    pub id: String,
+    pub score: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkCoverageRecord {
+    pub required_loops: usize,
+    pub passing_loops: usize,
+    pub missing_loops: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkEvidenceRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub kind: String,
+    pub path_or_ref: String,
+    pub captured_at: DateTime<Utc>,
+    pub baseline_mode: String,
+    pub supports_dimensions: Vec<String>,
+    pub supports_loops: Vec<String>,
+    pub summary: String,
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkGateRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub gate: String,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BaselineModeRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RuntimePolicyRecord {
+    pub id: String,
+    pub name: String,
+    pub cli_surface: String,
+    pub default_value: String,
+    pub allowed_range: String,
+    pub quality_dimensions_affected: Vec<String>,
+    pub risk_level: String,
+    pub loop_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScoreResolutionRules {
+    pub cap_on_continuity_failure: String,
+    pub cap_on_missing_required_evidence: String,
+    pub cap_on_no_memd_loss: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkSubjectMetrics {
+    pub correctness: u8,
+    pub continuity: u8,
+    pub reliability: u8,
+    pub token_efficiency: u8,
+    pub no_memd_delta: Option<i16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkEvidenceSummary {
+    pub has_contract_evidence: bool,
+    pub has_workflow_evidence: bool,
+    pub has_continuity_evidence: bool,
+    pub has_comparative_evidence: bool,
+    pub has_drift_failure: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkGateDecision {
+    pub gate: String,
+    pub resolved_score: u8,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContinuityJourneyReport {
+    pub journey_id: String,
+    pub journey_name: String,
+    pub gate_decision: BenchmarkGateDecision,
+    pub metrics: BenchmarkSubjectMetrics,
+    pub evidence: BenchmarkEvidenceSummary,
+    pub baseline_modes: Vec<String>,
+    pub feature_ids: Vec<String>,
+    pub artifact_paths: Vec<String>,
+    pub summary: String,
+    pub generated_at: Option<DateTime<Utc>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2689,5 +2900,128 @@ mod tests {
         assert_eq!(decoded_response.mode, MemoryRepairMode::CorrectMetadata);
         assert_eq!(decoded_response.item.status, MemoryStatus::Active);
         assert_eq!(decoded_response.reasons.len(), 3);
+    }
+
+    #[test]
+    fn benchmark_registry_roundtrips_minimal_continuity_slice() {
+        let registry = BenchmarkRegistry {
+            version: "v1".to_string(),
+            app_goal: "seamless memory and continuity".to_string(),
+            quality_dimensions: vec![
+                QualityDimensionRecord {
+                    id: "continuity".to_string(),
+                    weight: 25,
+                },
+                QualityDimensionRecord {
+                    id: "correctness".to_string(),
+                    weight: 20,
+                },
+            ],
+            tiers: vec![TierRecord {
+                id: "tier-0-continuity-critical".to_string(),
+                description: "continuity-critical surfaces".to_string(),
+            }],
+            pillars: vec![PillarRecord {
+                id: "memory-continuity".to_string(),
+                description: "core continuity promise".to_string(),
+            }],
+            families: vec![FamilyRecord {
+                id: "bundle-runtime".to_string(),
+                pillar: "memory-continuity".to_string(),
+                description: "bundle continuity surfaces".to_string(),
+            }],
+            features: vec![BenchmarkFeatureRecord {
+                id: "feature.bundle.resume".to_string(),
+                name: "Resume".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                tier: "tier-0-continuity-critical".to_string(),
+                continuity_critical: true,
+                user_contract: "resume restores usable continuity".to_string(),
+                source_contract_refs: vec!["FEATURE-V1-WORKING-CONTEXT".to_string()],
+                commands: vec!["memd resume".to_string()],
+                routes: vec![],
+                files: vec!["crates/memd-client/src/main.rs".to_string()],
+                journey_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                loop_ids: vec!["loop.resume.correctness".to_string()],
+                quality_dimensions: vec!["continuity".to_string(), "correctness".to_string()],
+                drift_risks: vec!["continuity-drift".to_string()],
+                failure_modes: vec!["resume misses current task state".to_string()],
+                coverage_status: "auditing".to_string(),
+                last_verified_at: None,
+            }],
+            journeys: vec![],
+            loops: vec![],
+            scorecards: vec![],
+            evidence: vec![],
+            gates: vec![],
+            baseline_modes: vec![],
+            runtime_policies: vec![],
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&registry).unwrap();
+        let decoded: BenchmarkRegistry = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.version, "v1");
+        assert_eq!(decoded.features[0].id, "feature.bundle.resume");
+        assert!(decoded.features[0].continuity_critical);
+    }
+
+    #[test]
+    fn benchmark_score_resolution_rules_roundtrip() {
+        let rules = ScoreResolutionRules {
+            cap_on_continuity_failure: "fragile".to_string(),
+            cap_on_missing_required_evidence: "fragile".to_string(),
+            cap_on_no_memd_loss: "acceptable".to_string(),
+        };
+
+        let json = serde_json::to_string(&rules).unwrap();
+        let decoded: ScoreResolutionRules = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.cap_on_continuity_failure, "fragile");
+        assert_eq!(decoded.cap_on_no_memd_loss, "acceptable");
+    }
+
+    #[test]
+    fn continuity_journey_report_roundtrips() {
+        let report = ContinuityJourneyReport {
+            journey_id: "journey.continuity.resume-handoff-attach".to_string(),
+            journey_name: "Resume To Handoff To Attach".to_string(),
+            gate_decision: BenchmarkGateDecision {
+                gate: "acceptable".to_string(),
+                resolved_score: 75,
+                reasons: vec!["continuity evidence present".to_string()],
+            },
+            metrics: BenchmarkSubjectMetrics {
+                correctness: 90,
+                continuity: 85,
+                reliability: 80,
+                token_efficiency: 78,
+                no_memd_delta: Some(9),
+            },
+            evidence: BenchmarkEvidenceSummary {
+                has_contract_evidence: true,
+                has_workflow_evidence: true,
+                has_continuity_evidence: true,
+                has_comparative_evidence: true,
+                has_drift_failure: false,
+            },
+            baseline_modes: vec![
+                "baseline.no-memd".to_string(),
+                "baseline.with-memd".to_string(),
+            ],
+            feature_ids: vec![
+                "feature.bundle.resume".to_string(),
+                "feature.bundle.handoff".to_string(),
+            ],
+            artifact_paths: vec![".memd/telemetry/continuity/latest.json".to_string()],
+            summary: "resume continuity evidence".to_string(),
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&report).unwrap();
+        let decoded: ContinuityJourneyReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.gate_decision.gate, "acceptable");
+        assert!(decoded.evidence.has_continuity_evidence);
+        assert_eq!(decoded.feature_ids.len(), 2);
     }
 }
