@@ -815,6 +815,17 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
                 .unwrap_or(0),
             cowork.get("owned_tasks").and_then(Value::as_u64).unwrap_or(0),
         ));
+        if let Some(views) = cowork.get("views") {
+            output.push_str(&format!(
+                " cowork_views=owned:{}|open:{}|help:{}|review:{}|exclusive:{}|shared:{}",
+                views.get("owned").and_then(Value::as_u64).unwrap_or(0),
+                views.get("open").and_then(Value::as_u64).unwrap_or(0),
+                views.get("help").and_then(Value::as_u64).unwrap_or(0),
+                views.get("review").and_then(Value::as_u64).unwrap_or(0),
+                views.get("exclusive").and_then(Value::as_u64).unwrap_or(0),
+                views.get("shared").and_then(Value::as_u64).unwrap_or(0),
+            ));
+        }
     }
 
     if let Some(maintenance) = status
@@ -3194,7 +3205,15 @@ mod tests {
                 "exclusive_tasks": 2,
                 "shared_tasks": 2,
                 "inbox_messages": 3,
-                "owned_tasks": 1
+                "owned_tasks": 1,
+                "views": {
+                    "owned": 1,
+                    "open": 3,
+                    "help": 1,
+                    "review": 2,
+                    "exclusive": 2,
+                    "shared": 2
+                }
             }
         });
 
@@ -3207,6 +3226,9 @@ mod tests {
         assert!(summary.contains("shared=2"));
         assert!(summary.contains("inbox_messages=3"));
         assert!(summary.contains("owned=1"));
+        assert!(
+            summary.contains("cowork_views=owned:1|open:3|help:1|review:2|exclusive:2|shared:2")
+        );
     }
 
     #[test]

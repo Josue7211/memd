@@ -17044,8 +17044,17 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
 }
 
 async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result<ClaimsResponse> {
+    let runtime_before_overlay = read_bundle_runtime_config_raw(&args.output)?;
     let runtime = read_bundle_runtime_config(&args.output)?;
     let heartbeat = read_bundle_heartbeat(&args.output)?;
+    let bundle_session = runtime_before_overlay
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let live_session = runtime.as_ref().and_then(|config| config.session.clone());
+    let rebased_from = match (bundle_session.as_deref(), live_session.as_deref()) {
+        (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
+        _ => None,
+    };
     let current_session = runtime
         .as_ref()
         .and_then(|config| config.session.clone())
@@ -17124,6 +17133,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         write_bundle_claims(&args.output, &cache)?;
         return Ok(ClaimsResponse {
             bundle_root: args.output.display().to_string(),
+            bundle_session,
+            live_session,
+            rebased_from,
             current_session,
             current_tab_id,
             claims: response
@@ -17195,6 +17207,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         write_bundle_claims(&args.output, &cache)?;
         return Ok(ClaimsResponse {
             bundle_root: args.output.display().to_string(),
+            bundle_session,
+            live_session,
+            rebased_from,
             current_session,
             current_tab_id,
             claims: response
@@ -17247,6 +17262,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         write_bundle_claims(&args.output, &cache)?;
         return Ok(ClaimsResponse {
             bundle_root: args.output.display().to_string(),
+            bundle_session,
+            live_session,
+            rebased_from,
             current_session,
             current_tab_id,
             claims: response
@@ -17281,6 +17299,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
 
     Ok(ClaimsResponse {
         bundle_root: args.output.display().to_string(),
+        bundle_session,
+        live_session,
+        rebased_from,
         current_session,
         current_tab_id,
         claims,
@@ -17289,8 +17310,11 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
 
 fn render_claims_summary(response: &ClaimsResponse) -> String {
     let mut lines = vec![format!(
-        "claims bundle={} current_session={} current_tab={} active={}",
+        "claims bundle={} bundle_session={} live_session={} rebased_from={} current_session={} current_tab={} active={}",
         response.bundle_root,
+        response.bundle_session.as_deref().unwrap_or("none"),
+        response.live_session.as_deref().unwrap_or("none"),
+        response.rebased_from.as_deref().unwrap_or("none"),
         response.current_session.as_deref().unwrap_or("none"),
         response.current_tab_id.as_deref().unwrap_or("none"),
         response.claims.len()
@@ -17316,7 +17340,16 @@ async fn run_messages_command(
     args: &MessagesArgs,
     base_url: &str,
 ) -> anyhow::Result<MessagesResponse> {
+    let runtime_before_overlay = read_bundle_runtime_config_raw(&args.output)?;
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let bundle_session = runtime_before_overlay
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let live_session = runtime.as_ref().and_then(|config| config.session.clone());
+    let rebased_from = match (bundle_session.as_deref(), live_session.as_deref()) {
+        (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
+        _ => None,
+    };
     let current_session = runtime
         .as_ref()
         .and_then(|config| config.session.clone())
@@ -17453,6 +17486,9 @@ async fn run_messages_command(
         .await?;
         return Ok(MessagesResponse {
             bundle_root: args.output.display().to_string(),
+            bundle_session,
+            live_session,
+            rebased_from,
             current_session,
             messages: response.messages,
         });
@@ -17489,6 +17525,9 @@ async fn run_messages_command(
 
     Ok(MessagesResponse {
         bundle_root: args.output.display().to_string(),
+        bundle_session,
+        live_session,
+        rebased_from,
         current_session,
         messages,
     })
@@ -17547,8 +17586,11 @@ fn derive_outbound_message(args: &MessagesArgs) -> Option<(String, String)> {
 
 fn render_messages_summary(response: &MessagesResponse) -> String {
     let mut lines = vec![format!(
-        "messages bundle={} current_session={} count={}",
+        "messages bundle={} bundle_session={} live_session={} rebased_from={} current_session={} count={}",
         response.bundle_root,
+        response.bundle_session.as_deref().unwrap_or("none"),
+        response.live_session.as_deref().unwrap_or("none"),
+        response.rebased_from.as_deref().unwrap_or("none"),
         response.current_session.as_deref().unwrap_or("none"),
         response.messages.len()
     )];
@@ -18336,6 +18378,36 @@ fn read_recent_maintain_reports(
     Ok(reports)
 }
 
+fn build_task_view_counts(
+    tasks: &[HiveTaskRecord],
+    current_session: Option<&str>,
+) -> serde_json::Value {
+    let open = tasks
+        .iter()
+        .filter(|task| task.status != "done" && task.status != "closed")
+        .count();
+    let help = tasks.iter().filter(|task| task.help_requested).count();
+    let review = tasks.iter().filter(|task| task.review_requested).count();
+    let exclusive = tasks
+        .iter()
+        .filter(|task| task.coordination_mode == "exclusive_write")
+        .count();
+    let shared = tasks.len().saturating_sub(exclusive);
+    let owned = tasks
+        .iter()
+        .filter(|task| task.session.as_deref() == current_session)
+        .count();
+    serde_json::json!({
+        "all": tasks.len(),
+        "open": open,
+        "help": help,
+        "review": review,
+        "exclusive": exclusive,
+        "shared": shared,
+        "owned": owned,
+    })
+}
+
 async fn read_memory_surface(
     output: &Path,
     base_url: &str,
@@ -18373,6 +18445,37 @@ async fn read_memory_surface(
             lowered.contains("supersed") || lowered.contains("stale")
         })
         .count();
+    let contradiction_reasons = snapshot
+        .workspaces
+        .workspaces
+        .iter()
+        .filter(|lane| lane.contested_count > 0)
+        .take(4)
+        .map(|lane| {
+            format!(
+                "{} / {} / {} contested={} trust={:.2} cf={:.2}",
+                lane.project.as_deref().unwrap_or("none"),
+                lane.namespace.as_deref().unwrap_or("none"),
+                lane.workspace.as_deref().unwrap_or("none"),
+                lane.contested_count,
+                lane.trust_score,
+                lane.avg_confidence
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut superseded_reasons = Vec::new();
+    if snapshot.redundant_context_items() > 0 {
+        superseded_reasons.push(format!(
+            "redundant_context_items={}",
+            snapshot.redundant_context_items()
+        ));
+    }
+    if snapshot.refresh_recommended {
+        superseded_reasons.push("refresh_recommended".to_string());
+    }
+    for driver in snapshot.memory_pressure_drivers().into_iter().take(3) {
+        superseded_reasons.push(format!("pressure_driver={driver}"));
+    }
     Ok(MemorySurfaceResponse {
         bundle_root: output.display().to_string(),
         truth_summary,
@@ -18391,6 +18494,8 @@ async fn read_memory_surface(
         refresh_recommended: snapshot.refresh_recommended,
         contradiction_pressure,
         superseded_pressure,
+        contradiction_reasons,
+        superseded_reasons,
         records,
     })
 }
@@ -23210,14 +23315,14 @@ fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
             entry.status = "blocked_no_project_root".to_string();
             continue;
         };
-        if git_worktree_dirty(root) {
-            entry.status = "blocked_dirty_worktree".to_string();
-            continue;
-        }
         let Some(base_branch) = git_stdout(root, &["branch", "--show-current"]) else {
             entry.status = "blocked_no_base".to_string();
             continue;
         };
+        if git_worktree_conflicts_with_branch(root, &base_branch, &entry.branch) {
+            entry.status = "blocked_dirty_worktree".to_string();
+            continue;
+        }
         if !git_branch_exists(root, &entry.branch) {
             entry.status = "blocked_missing_branch".to_string();
             continue;
@@ -23262,11 +23367,10 @@ fn process_evolution_durability_queue(output: &Path) -> anyhow::Result<()> {
             .map(|candidate| candidate.status.as_str())
             .unwrap_or("unknown");
         entry.status = match merge_status {
-            "merge_ready" => "scheduled".to_string(),
+            "merge_ready" => "waiting_for_merge".to_string(),
             "merged" => "scheduled".to_string(),
             "human_review" => "human_review".to_string(),
             "no_diff" => "no_diff".to_string(),
-            "blocked_dirty_worktree" => "blocked_dirty_worktree".to_string(),
             "blocked_no_base" => "blocked_no_base".to_string(),
             "blocked_missing_branch" => "blocked_missing_branch".to_string(),
             _ => entry.status.clone(),
@@ -23647,20 +23751,69 @@ fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_worktree_dirty(root: &Path) -> bool {
-    Command::new("git")
+    git_dirty_paths(root).is_some_and(|paths| !paths.is_empty())
+}
+
+fn git_dirty_paths(root: &Path) -> Option<BTreeSet<String>> {
+    let output = Command::new("git")
         .arg("-C")
         .arg(root)
         .arg("status")
         .arg("--porcelain")
         .output()
-        .ok()
-        .is_some_and(|output| {
-            output.status.success()
-                && String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .filter_map(parse_git_status_path)
-                    .any(|path| !is_bundle_generated_path(&path))
-        })
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(parse_git_status_path)
+            .filter(|path| !is_bundle_generated_path(path))
+            .collect(),
+    )
+}
+
+fn git_branch_changed_paths(
+    root: &Path,
+    base_branch: &str,
+    branch: &str,
+) -> Option<BTreeSet<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("diff")
+        .arg("--name-only")
+        .arg(format!("{base_branch}..{branch}"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn git_worktree_conflicts_with_branch(root: &Path, base_branch: &str, branch: &str) -> bool {
+    let Some(dirty_paths) = git_dirty_paths(root) else {
+        return git_worktree_dirty(root);
+    };
+    if dirty_paths.is_empty() {
+        return false;
+    }
+    let Some(branch_paths) = git_branch_changed_paths(root, base_branch, branch) else {
+        return true;
+    };
+    if branch_paths.is_empty() {
+        return false;
+    }
+    dirty_paths.iter().any(|path| branch_paths.contains(path))
 }
 
 fn parse_git_status_path(line: &str) -> Option<String> {
@@ -26696,6 +26849,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                         .count(),
                     "help_inbox": inbox.help_tasks.len(),
                     "review_inbox": inbox.review_tasks.len(),
+                    "views": build_task_view_counts(&tasks.tasks, current_session.as_deref()),
                 }))
             }
             _ => None,
@@ -32276,6 +32430,9 @@ fn session_claim_from_record(record: memd_schema::HiveClaimRecord) -> SessionCla
 #[derive(Debug, Clone, Serialize)]
 struct ClaimsResponse {
     bundle_root: String,
+    bundle_session: Option<String>,
+    live_session: Option<String>,
+    rebased_from: Option<String>,
     current_session: Option<String>,
     current_tab_id: Option<String>,
     claims: Vec<SessionClaim>,
@@ -32284,6 +32441,9 @@ struct ClaimsResponse {
 #[derive(Debug, Clone, Serialize)]
 struct MessagesResponse {
     bundle_root: String,
+    bundle_session: Option<String>,
+    live_session: Option<String>,
+    rebased_from: Option<String>,
     current_session: Option<String>,
     messages: Vec<HiveMessageRecord>,
 }
@@ -32348,6 +32508,8 @@ struct MemorySurfaceResponse {
     refresh_recommended: bool,
     contradiction_pressure: usize,
     superseded_pressure: usize,
+    contradiction_reasons: Vec<String>,
+    superseded_reasons: Vec<String>,
     records: Vec<TruthRecordSummary>,
 }
 
@@ -43571,6 +43733,8 @@ mod tests {
             refresh_recommended: false,
             contradiction_pressure: 2,
             superseded_pressure: 1,
+            contradiction_reasons: vec!["live_truth:current:fresh".to_string()],
+            superseded_reasons: vec!["refresh_recommended".to_string()],
             records: vec![TruthRecordSummary {
                 lane: "live_truth".to_string(),
                 truth: "current".to_string(),
@@ -43591,6 +43755,39 @@ mod tests {
         assert!(summary.contains("contradictions=2"));
         assert!(summary.contains("superseded=1"));
         assert!(summary.contains("head=live_truth"));
+    }
+
+    #[test]
+    fn render_claims_summary_surfaces_continuity_overlay() {
+        let summary = render_claims_summary(&ClaimsResponse {
+            bundle_root: ".memd".to_string(),
+            bundle_session: Some("codex-stale".to_string()),
+            live_session: Some("codex-fresh".to_string()),
+            rebased_from: Some("codex-stale".to_string()),
+            current_session: Some("codex-fresh".to_string()),
+            current_tab_id: Some("tab-a".to_string()),
+            claims: Vec::new(),
+        });
+
+        assert!(summary.contains("bundle_session=codex-stale"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
+    }
+
+    #[test]
+    fn render_messages_summary_surfaces_continuity_overlay() {
+        let summary = render_messages_summary(&MessagesResponse {
+            bundle_root: ".memd".to_string(),
+            bundle_session: Some("codex-stale".to_string()),
+            live_session: Some("codex-fresh".to_string()),
+            rebased_from: Some("codex-stale".to_string()),
+            current_session: Some("codex-fresh".to_string()),
+            messages: Vec::new(),
+        });
+
+        assert!(summary.contains("bundle_session=codex-stale"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
     }
 
     #[test]
@@ -45652,7 +45849,7 @@ mod tests {
     }
 
     #[test]
-    fn write_experiment_artifacts_blocks_merge_queue_on_dirty_worktree() {
+    fn git_worktree_conflicts_with_branch_detects_overlap() {
         let root =
             std::env::temp_dir().join(format!("memd-evolution-dirty-{}", uuid::Uuid::new_v4()));
         let output = root.join(".memd");
@@ -45697,25 +45894,60 @@ mod tests {
             .arg("init")
             .status()
             .expect("git commit");
-        fs::write(root.join("DIRTY.txt"), "dirty\n").expect("write dirty file");
 
         let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
         report.improvement.final_changes = vec!["adjust loop threshold floor".to_string()];
         write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
 
-        let merge_queue: EvolutionMergeQueue = serde_json::from_str(
-            &fs::read_to_string(output.join("evolution").join("merge-queue.json"))
-                .expect("read merge queue"),
+        let proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-proposal.json"))
+                .expect("read proposal"),
         )
-        .expect("parse merge queue");
-        assert_eq!(merge_queue.entries[0].status, "blocked_dirty_worktree");
+        .expect("parse proposal");
+        let branch_manifest: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read branch manifest"),
+        )
+        .expect("parse branch manifest");
 
-        let durability_queue: EvolutionDurabilityQueue = serde_json::from_str(
-            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
-                .expect("read durability queue"),
-        )
-        .expect("parse durability queue");
-        assert_eq!(durability_queue.entries[0].status, "blocked_dirty_worktree");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(&proposal.branch)
+            .status()
+            .expect("checkout proposal branch");
+        fs::write(root.join("README.md"), "# demo\n\noverlap change\n")
+            .expect("write branch change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("README.md")
+            .status()
+            .expect("git add readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("proposal change")
+            .status()
+            .expect("commit proposal change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(branch_manifest.base_branch.as_deref().unwrap_or("master"))
+            .status()
+            .expect("checkout base branch");
+        fs::write(root.join("README.md"), "# demo\n\ndirty overlap\n").expect("write dirty readme");
+
+        assert!(git_worktree_conflicts_with_branch(
+            &root,
+            branch_manifest.base_branch.as_deref().unwrap_or("master"),
+            &proposal.branch
+        ));
 
         fs::remove_dir_all(root).expect("cleanup temp root");
     }
@@ -45817,6 +46049,8 @@ mod tests {
             .arg(branch_manifest.base_branch.as_deref().unwrap_or("master"))
             .status()
             .expect("checkout base branch");
+        fs::write(root.join("NOTES.txt"), "unrelated dirty file\n")
+            .expect("write unrelated dirty file");
 
         process_evolution_queues(&output).expect("process evolution queues");
 
