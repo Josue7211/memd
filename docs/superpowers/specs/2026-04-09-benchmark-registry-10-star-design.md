@@ -155,6 +155,31 @@ The benchmark registry defines expected truth.
 
 But discovery must propose truth changes, not silently rewrite them.
 
+### 7. The System Must Stay Operable For One Maintainer
+
+The benchmark system is only good if one person can run it, trust it, and act
+on it quickly.
+
+That means the design must optimize for:
+
+- a small always-on slice
+- bounded nightly cost
+- clear morning triage
+- obvious next actions
+- no requirement to reread benchmark internals to understand what broke
+
+### 8. Benchmarking Must Not Become A Second Unbounded Product
+
+The benchmark system exists to improve `memd`, not to grow into a second
+unbounded complexity sink.
+
+Important rule:
+
+- every benchmark surface must justify its ongoing cost
+- low-value or duplicate loops should be removable without weakening trust
+- the minimal continuity-critical slice must remain useful even if the full
+  benchmark graph is not yet complete
+
 ## Canonical Artifact Model
 
 The machine-truth layer should live in:
@@ -651,6 +676,35 @@ Important rule:
 
 The app-level score should never hide weak continuity or weak drift resistance.
 
+## Score Resolution Rules
+
+The benchmark system should define hard score-resolution rules so scores cannot
+look healthy while product truth is weak.
+
+Required rules:
+
+- if a continuity-critical feature fails continuity evidence, its gate may not
+  exceed `fragile`
+- if a feature passes correctness but fails workflow continuity, its gate may
+  not exceed `fragile`
+- if a feature lacks required evidence, it may not exceed `partial` coverage
+  and may not exceed `fragile`
+- if `with memd` performs worse than `no memd` on the core journey the feature
+  is supposed to improve, that feature may not exceed `acceptable`
+- if a pillar contains continuity-critical children below `acceptable`, the
+  pillar may not exceed `fragile`
+- drift failures cap the affected subject's gate until the drift source is
+  resolved
+- contradictory evidence must lower confidence and should bias toward the
+  weaker gate until the contradiction is explained
+
+This matters because `memd` is highly vulnerable to false positives where:
+
+- storage works but recall fails
+- visible pages look good but hot-path retrieval is weak
+- loop scores improve while continuity stays broken
+- policy weights hide real product weakness
+
 ## Gate Ladder
 
 The benchmark system should not rely only on percentages.
@@ -779,6 +833,13 @@ Comparative loops should include:
 - semantic fallback value vs token cost
 - dream cadence value vs token overhead
 
+Important rule:
+
+- comparative loops should prefer the most continuity-relevant baseline, not
+  the easiest baseline to beat
+- the system should preserve a history of these comparisons so improvements or
+  regressions over time remain visible
+
 ## Standard Loop Bundle Per Family
 
 Each major family should eventually have:
@@ -868,6 +929,14 @@ This should be split into separate families under one product pillar:
 - `self-evolution`
 - `cross-harness-adaptation`
 
+These are product surfaces because they should improve the app itself:
+
+- better continuity
+- less drift
+- lower token cost
+- better harness adaptation
+- better default memory behavior over time
+
 ## Gap Discovery During Autoresearch And Dream
 
 The benchmark registry defines expected truth.
@@ -899,6 +968,39 @@ Important rule:
 - new features may be proposed automatically, but they must not be promoted into
   canonical truth without explicit gated acceptance
 
+Authority boundaries should be explicit.
+
+### What Overnight Systems May Do Automatically
+
+- emit benchmark evidence
+- emit loop results
+- emit gap candidates
+- emit proposed new loop records
+- emit proposed new journey links
+- emit proposed policy experiments
+- emit ranked next-action recommendations
+
+### What Overnight Systems May Not Auto-Promote
+
+- new canonical feature records
+- tier changes
+- pillar/family remaps
+- gate ladder changes
+- score weight changes
+- runtime policy changes that weaken continuity, correctness, or drift
+  guardrails
+- truth claims that reinterpret a failed `with memd` comparison as success
+
+### What Requires Explicit Acceptance
+
+- new feature promotion into the canonical registry
+- benchmark schema changes
+- tier changes
+- score-weight changes
+- policy-default changes
+- guardrail changes
+- any self-evolution change that widens authority
+
 ## Operating Model
 
 The strongest operating model is a multi-speed system.
@@ -915,6 +1017,8 @@ Cheap trust-preserving checks:
 Purpose:
 
 - catch continuity damage immediately
+
+Always-on loops must be cheap enough to remain enabled during normal work.
 
 ### Compaction-Triggered Dream
 
@@ -953,6 +1057,15 @@ Then `autodream` should:
 - consolidate accepted findings
 - compress stable recurring patterns
 - seed the next cycle with the highest-value gaps
+
+Nightly runs should answer, in operator-facing form:
+
+- what improved
+- what regressed
+- what still breaks continuity
+- where drift is growing
+- where `with memd` still loses to `no memd`
+- what the maintainer should fix next
 
 ### Milestone Audits
 
@@ -993,6 +1106,31 @@ Important guardrails:
 - self-evolution may propose changing weights or policies, but must not weaken
   continuity or correctness guardrails silently
 
+## Benchmark Cost Budgets
+
+Benchmarking itself should be cost-bounded.
+
+The system should model:
+
+- always-on latency budget
+- always-on token budget
+- nightly total token budget
+- nightly wall-clock budget
+- heavy audit budget
+
+Important rules:
+
+- tier-0 continuity checks should stay cheap enough for normal development
+- a loop that costs too much relative to its trust value should be downgraded,
+  sampled, or moved to a slower cadence
+- benchmark cost regressions should be tracked the same way app token
+  regressions are tracked
+- the benchmark system should not quietly spend more tokens than the continuity
+  benefit it provides
+
+This is especially important because the app promise includes reducing token
+waste over time.
+
 ## Scoring Weights
 
 Default weights should exist, but they should be treated as runtime policy
@@ -1013,6 +1151,58 @@ Important rule:
 - weight changes must be explicit, benchmarked, auditable, and reversible
 - score changes must never be allowed to hide real continuity weakness
 
+## Minimal Executable Slice
+
+The full benchmark graph is large. The first shippable slice should be much
+smaller and should still deliver trust value quickly.
+
+The minimal executable slice should:
+
+- ingest the existing `FEATURES.md` contracts
+- create the canonical benchmark registry and schema
+- model only tier-0 continuity-critical features first
+- model the most important continuity journeys first
+- generate basic coverage and score reports
+- run a minimal always-on loop bundle
+- emit evidence records for those loops
+- compare `no memd` vs `with memd` for at least the top continuity journeys
+
+The first continuity-critical slice should cover at least:
+
+- wake
+- resume
+- compact context
+- working memory
+- handoff
+- attach
+- checkpoint
+- hook capture
+- continuity drift loops for those surfaces
+
+This slice is the minimum system that lets the maintainer trust whether the app
+is holding together at its core.
+
+Only after this slice is healthy should the implementation expand into broader
+families.
+
+## Solo-Maintainer Morning View
+
+The benchmark system should generate one operator-facing morning summary that
+answers the most important questions without requiring raw JSON inspection.
+
+It should show:
+
+- top continuity failures
+- top drift risks
+- top token regressions
+- top `with memd < no memd` losses
+- newly discovered coverage gaps
+- proposed next actions
+- whether the app-level continuity gate moved up or down
+
+This morning view should be treated as a required product output of the
+benchmark system, not a nice-to-have report.
+
 ## Generated Views
 
 The benchmark system should generate human-readable views from the registry and
@@ -1027,6 +1217,7 @@ Recommended generated outputs:
 - pillar scorecards
 - gate ladder summaries
 - `no memd` vs `with memd` deltas
+- morning operator summary
 
 This is important for solo-dev operation. The maintainer should not have to
 query raw JSON to know what is broken.
@@ -1070,6 +1261,7 @@ Create the registry backbone:
 - pillar/family/tier taxonomy
 - core feature ingestion from `FEATURES.md`
 - basic generated reports
+- morning operator summary skeleton
 
 ### Phase 2
 
@@ -1081,6 +1273,7 @@ Add continuity-critical journeys and loop mappings:
 - wake
 - working memory
 - drift prevention
+- hard score-resolution rules
 
 ### Phase 3
 
@@ -1089,6 +1282,7 @@ Add `no memd` vs `with memd` comparative benchmarking:
 - token and reconstruction metrics
 - continuity score deltas
 - generated comparison reports
+- cost budgets for benchmark runs
 
 ### Phase 4
 
@@ -1097,6 +1291,7 @@ Add autonomous gap discovery:
 - autoresearch proposals for missing loops and missing links
 - dream consolidation of accepted benchmark findings
 - self-evolution proposals for weight/policy changes
+- explicit authority boundaries for what may and may not auto-promote
 
 ### Phase 5
 
