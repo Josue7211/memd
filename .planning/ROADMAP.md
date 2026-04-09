@@ -1140,5 +1140,52 @@ Success:
 
 - memd behaves like a superhuman external brain: current, compact, durable, self-improving, and safe
 
+### Milestone 6: Claude Code-Inspired Runtime Stack
+
+This milestone turns the Claude Code source extraction into an execution path for `memd`:
+
+- coordination first
+- truth second
+- continuity as the enabler
+
+#### Phase 59: `v6` Live Coordination Surface
+
+- expose the live session map as the primary coordination surface
+- show current, active, stale, dead, and shared state explicitly
+- make hidden stale rows and dead rows impossible to confuse with current work
+- collapse duplicate state into inspectable diagnostics instead of noisy row spam
+
+Status: Planned
+
+Success:
+
+- operators can tell at a glance which live sessions are current, which are active, which are stale, and which are dead
+
+#### Phase 60: `v6` Truth-First Memory Model
+
+- make provenance, freshness, and contradiction state explicit in the main memory path
+- keep source-backed facts inspectable instead of flattening them into one blob
+- add evidence-aware recall and clear stale/superseded markers to the visible memory model
+- make the coordination surface rely on truth metadata instead of guessing
+
+Status: Planned
+
+Success:
+
+- operators can see what is verified, what is stale, and what was superseded without reopening raw transcripts
+
+#### Phase 61: `v6` Session Continuity Overlay
+
+- make the current session survive restarts and rebind cleanly to the live session identity
+- keep repo-local bundles following the live session instead of freezing an old one
+- preserve current work across worktrees, IDE state, and bridge handoffs
+- make continuity support both live coordination and truth-first memory instead of competing with them
+
+Status: Planned
+
+Success:
+
+- restarting or rebinding a session does not lose the brain or split the active project identity
+
 ---
-*Last updated: 2026-04-06 after rewriting the roadmap toward live truth, seamless compaction, runtime safety, and self-evolving token-efficient memory*
+*Last updated: 2026-04-09 after adding the Claude Code-inspired runtime stack milestone*
