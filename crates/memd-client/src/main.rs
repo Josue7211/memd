@@ -24804,7 +24804,18 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
                 .map(|current| is_superseded_stale_remote_session(entry, current))
                 .unwrap_or(false)
         })
-        .count();
+        .collect::<Vec<_>>();
+    let superseded_stale_count = superseded_stale_sessions.len();
+    let superseded_stale_session_ids = superseded_stale_sessions
+        .iter()
+        .filter_map(|entry| entry.session.as_deref())
+        .take(3)
+        .collect::<Vec<_>>();
+    let superseded_stale_suffix = if superseded_stale_count > superseded_stale_session_ids.len() {
+        format!(" +{}", superseded_stale_count - superseded_stale_session_ids.len())
+    } else {
+        String::new()
+    };
     let current_session = visible_entries
         .iter()
         .find(|entry| entry.bundle_root == response.current_bundle)
@@ -24831,7 +24842,7 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         visible_entries.len(),
         rendered_diagnostics.len(),
         hidden_remote_dead,
-        superseded_stale_sessions,
+        superseded_stale_count,
     )];
     if !active_hive_sessions.is_empty() {
         lines.push(format!(
@@ -24860,6 +24871,18 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
                 sessions.join(",")
             },
             suffix,
+        ));
+    }
+    if superseded_stale_count > 0 {
+        lines.push(format!(
+            "! superseded_stale_sessions={} sessions={}{}",
+            superseded_stale_count,
+            if superseded_stale_session_ids.is_empty() {
+                "unknown".to_string()
+            } else {
+                superseded_stale_session_ids.join(",")
+            },
+            superseded_stale_suffix,
         ));
     }
     for diagnostic in &rendered_diagnostics {
@@ -24895,21 +24918,41 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .filter(|entry| entry.presence == "dead")
         .collect::<Vec<_>>();
 
-    push_awareness_section(&mut lines, "current_session", &current_entries, "current");
+    push_awareness_section(
+        &mut lines,
+        "current_session",
+        &current_entries,
+        "current",
+        &response.current_bundle,
+    );
     push_awareness_section(
         &mut lines,
         "active_hive_sessions",
         &active_hive_entries,
         "hive-session",
+        &response.current_bundle,
     );
     push_awareness_section(
         &mut lines,
         "stale_sessions",
         &stale_entries,
         "stale-session",
+        &response.current_bundle,
     );
-    push_awareness_section(&mut lines, "dead_sessions", &dead_entries, "dead-session");
-    push_awareness_section(&mut lines, "seen_sessions", &seen_entries, "seen");
+    push_awareness_section(
+        &mut lines,
+        "dead_sessions",
+        &dead_entries,
+        "dead-session",
+        &response.current_bundle,
+    );
+    push_awareness_section(
+        &mut lines,
+        "seen_sessions",
+        &seen_entries,
+        "seen",
+        &response.current_bundle,
+    );
     lines.join("\n")
 }
 
@@ -24948,17 +24991,46 @@ fn push_awareness_section(
     label: &str,
     entries: &[&ProjectAwarenessEntry],
     role: &str,
+    current_bundle: &str,
 ) {
     if entries.is_empty() {
         return;
     }
     lines.push(format!("{label}:"));
     for entry in entries {
-        lines.push(render_awareness_entry_line(entry, role));
+        lines.push(render_awareness_entry_line(entry, role, current_bundle));
     }
 }
 
-fn render_awareness_entry_line(entry: &ProjectAwarenessEntry, role: &str) -> String {
+fn awareness_truth_label(entry: &ProjectAwarenessEntry, current_bundle: &str) -> &'static str {
+    if entry.bundle_root == current_bundle && entry.presence == "active" {
+        return "current";
+    }
+    match entry.presence.as_str() {
+        "active" => match entry.last_updated {
+            Some(last_updated) => {
+                let age = Utc::now() - last_updated;
+                if age.num_seconds() <= 120 {
+                    "fresh"
+                } else if age.num_minutes() <= 15 {
+                    "aging"
+                } else {
+                    "stale-truth"
+                }
+            }
+            None => "active",
+        },
+        "stale" => "stale",
+        "dead" => "dead",
+        _ => "seen",
+    }
+}
+
+fn render_awareness_entry_line(
+    entry: &ProjectAwarenessEntry,
+    role: &str,
+    current_bundle: &str,
+) -> String {
     let focus = entry
         .focus
         .as_deref()
@@ -24969,11 +25041,18 @@ fn render_awareness_entry_line(entry: &ProjectAwarenessEntry, role: &str) -> Str
         .as_deref()
         .map(|value| compact_inline(value, 56))
         .unwrap_or_else(|| "none".to_string());
+    let truth = awareness_truth_label(entry, current_bundle);
+    let updated = entry
+        .last_updated
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| "unknown".to_string());
     format!(
-        "- {} [{}] | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
         entry.project.as_deref().unwrap_or("unknown"),
         role,
         entry.presence,
+        truth,
+        updated,
         entry.active_claims,
         entry.namespace.as_deref().unwrap_or("none"),
         entry.hive_system.as_deref().unwrap_or("none"),
@@ -33070,6 +33149,7 @@ mod tests {
 
     #[test]
     fn project_awareness_summary_compacts_focus_and_pressure() {
+        let now = Utc::now();
         let response = ProjectAwarenessResponse {
             root: "/tmp/projects".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
@@ -33099,7 +33179,7 @@ mod tests {
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
                 pressure: Some("Repair the shared lane before the next resume".to_string()),
                 next_recovery: None,
-                last_updated: None,
+                last_updated: Some(now),
             }],
         };
 
@@ -33111,7 +33191,7 @@ mod tests {
         );
         assert!(summary.contains("active_hive_sessions:"));
         assert!(summary.contains(
-            "sibling [hive-session] | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
+            "sibling [hive-session] | presence=active truth=fresh"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -33330,6 +33410,7 @@ mod tests {
 
     #[test]
     fn project_awareness_summary_marks_current_and_active_hive_sessions() {
+        let now = Utc::now();
         let response = ProjectAwarenessResponse {
             root: "server:http://127.0.0.1:8787".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
@@ -33360,7 +33441,7 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
-                    last_updated: None,
+                    last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
                     project_dir: "remote".to_string(),
@@ -33387,7 +33468,7 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
-                    last_updated: None,
+                    last_updated: Some(now),
                 },
             ],
         };
@@ -33396,8 +33477,8 @@ mod tests {
         assert!(summary.contains("! active_hive_sessions=1 sessions=session-other"));
         assert!(summary.contains("current_session:"));
         assert!(summary.contains("active_hive_sessions:"));
-        assert!(summary.contains("memd [current] | presence=active"));
-        assert!(summary.contains("memd [hive-session] | presence=active"));
+        assert!(summary.contains("memd [current] | presence=active truth=current"));
+        assert!(summary.contains("memd [hive-session] | presence=active truth=fresh"));
     }
 
     #[test]
@@ -33466,8 +33547,290 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("hidden_superseded_stale=1"));
+        assert!(summary.contains("! superseded_stale_sessions=1 sessions=session-stale"));
         assert!(!summary.contains("session=session-stale"));
         assert!(!summary.contains("stale_sessions:"));
+    }
+
+    #[test]
+    fn project_awareness_summary_groups_sessions_into_current_active_stale_dead_sections() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-current".to_string()),
+                    tab_id: Some("tab-current".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-active".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-active".to_string()),
+                    tab_id: Some("tab-active".to_string()),
+                    effective_agent: Some("codex@session-active".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-stale".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-stale".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "stale".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(7)),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-stale-visible".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("claude-code".to_string()),
+                    session: Some("session-stale-visible".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("claude-code@session-stale-visible".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "stale".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(6)),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/seen".to_string(),
+                    bundle_root: "/tmp/projects/seen/.memd".to_string(),
+                    project: Some("seen".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-seen".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-seen".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: None,
+                    base_url: None,
+                    presence: "unknown".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(2)),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/dead".to_string(),
+                    bundle_root: "/tmp/projects/dead/.memd".to_string(),
+                    project: Some("dead".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-dead".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-dead".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: None,
+                    base_url: None,
+                    presence: "dead".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(30)),
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.starts_with("awareness root=server:http://127.0.0.1:8787"));
+        assert!(summary.contains("current_session:"));
+        assert!(summary.contains("active_hive_sessions:"));
+        assert!(summary.contains("stale_sessions:"));
+        assert!(summary.contains("dead_sessions:"));
+        assert!(summary.contains("seen_sessions:"));
+    }
+
+    #[test]
+    fn project_awareness_summary_marks_freshness_and_supersession_from_last_updated() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-fresh".to_string()),
+                    tab_id: Some("tab-alpha".to_string()),
+                    effective_agent: Some("codex@session-fresh".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-aging".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-aging".to_string()),
+                    tab_id: Some("tab-beta".to_string()),
+                    effective_agent: Some("codex@session-aging".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(10)),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-superseded".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-superseded".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-superseded".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: None,
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "stale".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now - chrono::TimeDelta::minutes(9)),
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("memd [current] | presence=active truth=current"));
+        assert!(summary.contains("memd [hive-session] | presence=active truth=aging"));
+        assert!(summary.contains("! superseded_stale_sessions=1 sessions=session-superseded"));
+        assert!(summary.contains("hidden_superseded_stale=1"));
     }
 
     #[test]
@@ -37054,6 +37417,256 @@ mod tests {
             }
         }
         fs::remove_dir_all(temp_root).expect("cleanup status rebind temp");
+    }
+
+    #[tokio::test]
+    async fn claude_runtime_stack_emits_coordinated_truthful_continuous_summary() {
+        let _home_lock = lock_home_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-runtime-stack-{}", uuid::Uuid::new_v4()));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let sibling_root = temp_root.join("sibling");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        let sibling_bundle = sibling_root.join(".memd");
+        fs::create_dir_all(global_root.join("state")).expect("create global state");
+        fs::create_dir_all(local_bundle.join("state")).expect("create local state");
+        fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling state");
+        fs::write(
+            global_root.join("config.json"),
+            format!(
+                r#"{{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "{SHARED_MEMD_BASE_URL}"
+}}
+"#
+            ),
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "base_url": "{SHARED_MEMD_BASE_URL}",
+  "route": "auto",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}}
+"#
+            ),
+        )
+        .expect("write local config");
+        fs::write(
+            sibling_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "memd-helper",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-live",
+  "tab_id": "tab-beta",
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "hive_groups": ["project:memd"],
+  "authority": "participant",
+  "base_url": "{SHARED_MEMD_BASE_URL}",
+  "workspace": "shared",
+  "visibility": "workspace"
+}}
+"#
+            ),
+        )
+        .expect("write sibling config");
+        fs::write(
+            bundle_heartbeat_state_path(&sibling_bundle),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("claude-live".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-live".to_string()),
+                tab_id: Some("tab-beta".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("memd-helper".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                focus: Some("Handle coordination backlog".to_string()),
+                pressure: Some("Keep the hive lane clean".to_string()),
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            })
+            .expect("serialize sibling heartbeat")
+                + "\n",
+        )
+        .expect("write sibling heartbeat");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let wire = run_hive_command(&HiveArgs {
+            agent: None,
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(repo_root.clone()),
+            seed_existing: false,
+            session: None,
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: Vec::new(),
+            hive_group: vec!["project:memd".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: local_bundle.clone(),
+            base_url: SHARED_MEMD_BASE_URL.to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            publish_heartbeat: false,
+            force: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive command");
+        assert_eq!(wire.session.as_deref(), Some("codex-fresh"));
+
+        let mut awareness = read_project_awareness(&AwarenessArgs {
+            output: local_bundle.clone(),
+            root: Some(temp_root.clone()),
+            include_current: true,
+            summary: false,
+        })
+        .await
+        .expect("read awareness");
+        awareness.entries.push(ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-stale"),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("claude-code".to_string()),
+            session: Some("session-stale".to_string()),
+            tab_id: None,
+            effective_agent: Some("claude-code@session-stale".to_string()),
+            hive_system: None,
+            hive_role: None,
+            capabilities: vec!["memory".to_string()],
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
+            authority: None,
+            base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+            presence: "stale".to_string(),
+            host: None,
+            pid: None,
+            active_claims: 0,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(9)),
+        });
+        awareness.entries.push(ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-dead"),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-dead".to_string()),
+            tab_id: None,
+            effective_agent: Some("codex@session-dead".to_string()),
+            hive_system: None,
+            hive_role: None,
+            capabilities: vec!["memory".to_string()],
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
+            authority: None,
+            base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+            presence: "dead".to_string(),
+            host: None,
+            pid: None,
+            active_claims: 0,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(30)),
+        });
+        awareness.entries.push(ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-superseded"),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-superseded".to_string()),
+            tab_id: None,
+            effective_agent: Some("codex@session-superseded".to_string()),
+            hive_system: None,
+            hive_role: None,
+            capabilities: vec!["memory".to_string()],
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
+            authority: None,
+            base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+            presence: "stale".to_string(),
+            host: None,
+            pid: None,
+            active_claims: 0,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(12)),
+        });
+        let summary = render_project_awareness_summary(&awareness);
+        assert!(summary.contains("current_session:"));
+        assert!(summary.contains("active_hive_sessions:"));
+        assert!(summary.contains("! stale_remote_sessions="));
+        assert!(summary.contains("stale_sessions:"));
+        assert!(summary.contains("hidden_remote_dead=1"));
+        assert!(summary.contains("hidden_superseded_stale=1"));
+        assert!(summary.contains("session=codex-fresh"));
+        assert!(summary.contains("truth=current"));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup runtime stack temp");
     }
 
     #[test]
