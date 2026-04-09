@@ -24562,16 +24562,23 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
 }
 
 fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> String {
+    let visible_entries = response
+        .entries
+        .iter()
+        .filter(|entry| !(entry.project_dir == "remote" && entry.presence == "dead"))
+        .collect::<Vec<_>>();
+    let hidden_remote_dead = response.entries.len().saturating_sub(visible_entries.len());
     let mut lines = vec![format!(
-        "awareness root={} bundles={} collisions={}",
+        "awareness root={} bundles={} collisions={} hidden_remote_dead={}",
         response.root,
-        response.entries.len(),
-        response.collisions.len()
+        visible_entries.len(),
+        response.collisions.len(),
+        hidden_remote_dead,
     )];
     for collision in &response.collisions {
         lines.push(format!("! {}", collision));
     }
-    for entry in &response.entries {
+    for entry in visible_entries {
         let focus = entry
             .focus
             .as_deref()
@@ -32719,7 +32726,9 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("awareness root=/tmp/projects bundles=1 collisions=0"));
+        assert!(summary.contains(
+            "awareness root=/tmp/projects bundles=1 collisions=0 hidden_remote_dead=0"
+        ));
         assert!(summary.contains(
             "sibling | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
         ));
@@ -32794,6 +32803,78 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("! base_url http://127.0.0.1:8787 used by 2 bundles"));
+    }
+
+    #[test]
+    fn project_awareness_summary_hides_dead_remote_rows_by_default() {
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-live".to_string()),
+                    tab_id: Some("tab-alpha".to_string()),
+                    effective_agent: Some("codex@session-live".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-dead".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-dead".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-dead".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "dead".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains(
+            "awareness root=server:http://127.0.0.1:8787 bundles=1 collisions=0 hidden_remote_dead=1"
+        ));
+        assert!(summary.contains("session=session-live"));
+        assert!(!summary.contains("session=session-dead"));
     }
 
     #[test]
