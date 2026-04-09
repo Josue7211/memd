@@ -18,7 +18,7 @@ use memd_schema::{
     SkillPolicyActivationEntry, SkillPolicyApplyReceipt, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse, effective_peer_groups,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -258,8 +258,8 @@ impl SqliteStore {
               project TEXT,
               namespace TEXT,
               workspace TEXT,
-              peer_system TEXT,
-              peer_role TEXT,
+              hive_system TEXT,
+              hive_role TEXT,
               host TEXT,
               status TEXT NOT NULL,
               last_seen TEXT NOT NULL,
@@ -275,21 +275,21 @@ impl SqliteStore {
               ON peer_sessions(last_seen DESC);
             CREATE TABLE IF NOT EXISTS peer_session_groups (
               session_key TEXT NOT NULL,
-              peer_group TEXT NOT NULL,
-              PRIMARY KEY (session_key, peer_group),
+              hive_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, hive_group),
               FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
               ON peer_session_groups(session_key);
             CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
-              ON peer_session_groups(peer_group, session_key);
+              ON peer_session_groups(hive_group, session_key);
             "#,
         )
         .context("initialize sqlite schema")?;
 
         migrate_redundancy_key(&conn)?;
-        migrate_peer_sessions_identity_columns(&mut conn)?;
-        create_peer_session_identity_indexes(&conn)?;
+        migrate_hive_sessions_identity_columns(&mut conn)?;
+        create_hive_session_identity_indexes(&conn)?;
 
         Ok(Self {
             db_path: Arc::new(db_path),
@@ -1964,11 +1964,11 @@ impl SqliteStore {
         Ok(PeerClaimsResponse { claims })
     }
 
-    pub fn upsert_peer_session(
+    pub fn upsert_hive_session(
         &self,
         request: &PeerSessionUpsertRequest,
     ) -> anyhow::Result<PeerSessionsResponse> {
-        self.prune_stale_peer_sessions()?;
+        self.prune_stale_hive_sessions()?;
 
         let now = chrono::Utc::now();
         let session = request.session.trim().to_string();
@@ -1990,6 +1990,7 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let hive_groups = effective_peer_groups(project.as_deref(), &request.hive_groups);
         let record = PeerSessionRecord {
             session: session.clone(),
             tab_id: request
@@ -2010,14 +2011,14 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
-            peer_system: request
-                .peer_system
+            hive_system: request
+                .hive_system
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
-            peer_role: request
-                .peer_role
+            hive_role: request
+                .hive_role
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2029,15 +2030,9 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
-            peer_groups: request
-                .peer_groups
-                .iter()
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .collect(),
-            peer_group_goal: request
-                .peer_group_goal
+            hive_groups,
+            hive_group_goal: request
+                .hive_group_goal
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2105,16 +2100,16 @@ impl SqliteStore {
             last_seen: now,
         };
         let payload_json = serde_json::to_string(&record).context("serialize peer session")?;
-        let session_key = peer_session_key(
+        let session_key = hive_session_key(
             &session,
-            PeerSessionKeyArgs {
+            HiveSessionKeyArgs {
                 project: project.as_deref(),
                 namespace: namespace.as_deref(),
                 workspace: workspace.as_deref(),
                 agent: record.agent.as_deref(),
                 effective_agent: record.effective_agent.as_deref(),
-                peer_system: record.peer_system.as_deref(),
-                peer_role: record.peer_role.as_deref(),
+                hive_system: record.hive_system.as_deref(),
+                hive_role: record.hive_role.as_deref(),
                 host: record.host.as_deref(),
             },
         );
@@ -2126,15 +2121,15 @@ impl SqliteStore {
         tx.execute(
             r#"
             INSERT INTO peer_sessions (
-              session_key, session, project, namespace, workspace, peer_system, peer_role, host, status, last_seen, payload_json
+              session_key, session, project, namespace, workspace, hive_system, hive_role, host, status, last_seen, payload_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
               namespace = excluded.namespace,
               workspace = excluded.workspace,
-              peer_system = excluded.peer_system,
-              peer_role = excluded.peer_role,
+              hive_system = excluded.hive_system,
+              hive_role = excluded.hive_role,
               host = excluded.host,
               status = excluded.status,
               last_seen = excluded.last_seen,
@@ -2146,8 +2141,8 @@ impl SqliteStore {
                 &record.project,
                 &record.namespace,
                 &record.workspace,
-                &record.peer_system,
-                &record.peer_role,
+                &record.hive_system,
+                &record.hive_role,
                 &record.host,
                 record.status,
                 record.last_seen.to_rfc3339(),
@@ -2163,10 +2158,10 @@ impl SqliteStore {
 
         {
             let mut insert_group_stmt = tx.prepare(
-                "INSERT OR REPLACE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+                "INSERT OR REPLACE INTO peer_session_groups (session_key, hive_group) VALUES (?1, ?2)",
             )?;
-            for peer_group in record.peer_groups.iter() {
-                insert_group_stmt.execute(params![session_key, peer_group])?;
+            for hive_group in record.hive_groups.iter() {
+                insert_group_stmt.execute(params![session_key, hive_group])?;
             }
         }
         tx.commit()
@@ -2177,23 +2172,23 @@ impl SqliteStore {
         })
     }
 
-    pub fn peer_sessions(
+    pub fn hive_sessions(
         &self,
         request: &PeerSessionsRequest,
     ) -> anyhow::Result<PeerSessionsResponse> {
-        self.prune_stale_peer_sessions()?;
+        self.prune_stale_hive_sessions()?;
 
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
-        let peer_system = request
-            .peer_system
+        let hive_system = request
+            .hive_system
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let peer_role = request
-            .peer_role
+        let hive_role = request
+            .hive_role
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2204,11 +2199,15 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let peer_group = request
-            .peer_group
+        let hive_group = request
+            .hive_group
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let peer_group_project = hive_group
+            .as_deref()
+            .and_then(|value| value.strip_prefix("project:"))
             .map(str::to_string);
 
         let conn = self.connect()?;
@@ -2243,19 +2242,19 @@ impl SqliteStore {
                   AND (?3 IS NULL OR namespace = ?3)
                   AND (?4 IS NULL OR workspace = ?4)
                   AND (?5 = 0 OR last_seen >= ?6)
-                  AND (?7 IS NULL OR peer_system = ?7)
-                  AND (?8 IS NULL OR peer_role = ?8)
+                  AND (?7 IS NULL OR hive_system = ?7)
+                  AND (?8 IS NULL OR hive_role = ?8)
                   AND (?9 IS NULL OR host = ?9)
                   AND (
                     ?10 IS NULL OR EXISTS (
                       SELECT 1
                       FROM peer_session_groups
                       WHERE peer_session_groups.session_key = peer_sessions.session_key
-                        AND peer_session_groups.peer_group = ?10
-                    )
+                        AND peer_session_groups.hive_group = ?10
+                    ) OR (?11 IS NOT NULL AND peer_sessions.project = ?11)
                   )
                 ORDER BY last_seen DESC
-                LIMIT ?11
+                LIMIT ?12
                 "#,
             )
             .context("prepare peer sessions query")?;
@@ -2268,10 +2267,11 @@ impl SqliteStore {
                     workspace_filter,
                     if active_only { 1 } else { 0 },
                     active_cutoff,
-                    peer_system,
-                    peer_role,
+                    hive_system,
+                    hive_role,
                     host,
-                    peer_group,
+                    hive_group,
+                    peer_group_project,
                     limit,
                 ],
                 |row| row.get::<_, String>(0),
@@ -2831,7 +2831,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    fn prune_stale_peer_sessions(&self) -> anyhow::Result<()> {
+    fn prune_stale_hive_sessions(&self) -> anyhow::Result<()> {
         let conn = self.connect()?;
         conn.execute(
             "DELETE FROM peer_sessions WHERE last_seen < ?1",
@@ -2985,18 +2985,18 @@ fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {
     )
 }
 
-struct PeerSessionKeyArgs<'a> {
+struct HiveSessionKeyArgs<'a> {
     project: Option<&'a str>,
     namespace: Option<&'a str>,
     workspace: Option<&'a str>,
     agent: Option<&'a str>,
     effective_agent: Option<&'a str>,
-    peer_system: Option<&'a str>,
-    peer_role: Option<&'a str>,
+    hive_system: Option<&'a str>,
+    hive_role: Option<&'a str>,
     host: Option<&'a str>,
 }
 
-fn peer_session_key(session: &str, args: PeerSessionKeyArgs<'_>) -> String {
+fn hive_session_key(session: &str, args: HiveSessionKeyArgs<'_>) -> String {
     format!(
         "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         session.trim(),
@@ -3005,8 +3005,8 @@ fn peer_session_key(session: &str, args: PeerSessionKeyArgs<'_>) -> String {
         args.workspace.unwrap_or("").trim(),
         args.agent.unwrap_or("").trim(),
         args.effective_agent.unwrap_or("").trim(),
-        args.peer_system.unwrap_or("").trim(),
-        args.peer_role.unwrap_or("").trim(),
+        args.hive_system.unwrap_or("").trim(),
+        args.hive_role.unwrap_or("").trim(),
         args.host.unwrap_or("").trim()
     )
 }
@@ -3511,22 +3511,28 @@ fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
+fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
     let columns = {
         let mut stmt = conn.prepare("PRAGMA table_info(peer_sessions)")?;
         stmt.query_map([], |row| row.get::<_, String>(1))?
             .collect::<Result<Vec<_>, _>>()?
     };
 
+    let has_hive_system = columns.iter().any(|value| value == "hive_system");
     let has_peer_system = columns.iter().any(|value| value == "peer_system");
+    let has_hive_role = columns.iter().any(|value| value == "hive_role");
     let has_peer_role = columns.iter().any(|value| value == "peer_role");
     let has_host = columns.iter().any(|value| value == "host");
 
-    if !has_peer_system {
-        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_system TEXT;")?;
+    if has_peer_system && !has_hive_system {
+        conn.execute_batch("ALTER TABLE peer_sessions RENAME COLUMN peer_system TO hive_system;")?;
+    } else if !has_hive_system {
+        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN hive_system TEXT;")?;
     }
-    if !has_peer_role {
-        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_role TEXT;")?;
+    if has_peer_role && !has_hive_role {
+        conn.execute_batch("ALTER TABLE peer_sessions RENAME COLUMN peer_role TO hive_role;")?;
+    } else if !has_hive_role {
+        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN hive_role TEXT;")?;
     }
     if !has_host {
         conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN host TEXT;")?;
@@ -3545,16 +3551,33 @@ fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
             r#"
             CREATE TABLE IF NOT EXISTS peer_session_groups (
               session_key TEXT NOT NULL,
-              peer_group TEXT NOT NULL,
-              PRIMARY KEY (session_key, peer_group),
+              hive_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, hive_group),
               FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
               ON peer_session_groups(session_key);
-            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
-              ON peer_session_groups(peer_group, session_key);
+            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_hive_group
+              ON peer_session_groups(hive_group, session_key);
             "#,
         )?;
+    } else {
+        let group_columns = {
+            let mut stmt = conn.prepare("PRAGMA table_info(peer_session_groups)")?;
+            stmt.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let has_hive_group = group_columns.iter().any(|value| value == "hive_group");
+        let has_peer_group = group_columns.iter().any(|value| value == "peer_group");
+        if has_peer_group && !has_hive_group {
+            conn.execute_batch(
+                "ALTER TABLE peer_session_groups RENAME COLUMN peer_group TO hive_group;",
+            )?;
+        } else if !has_hive_group {
+            conn.execute_batch(
+                "ALTER TABLE peer_session_groups ADD COLUMN hive_group TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
     }
 
     let peer_session_groups_empty = conn
@@ -3562,7 +3585,7 @@ fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
         .optional()?
         .is_none();
 
-    if !has_peer_system || !has_peer_role || !has_host || peer_session_groups_empty {
+    if !has_hive_system || !has_hive_role || !has_host || peer_session_groups_empty {
         let tx = conn
             .transaction()
             .context("begin peer session migration backfill")?;
@@ -3574,16 +3597,16 @@ fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
 
-            let mut update = if !has_peer_system || !has_peer_role || !has_host {
+            let mut update = if !has_hive_system || !has_hive_role || !has_host {
                 Some(tx.prepare(
-                    "UPDATE peer_sessions SET peer_system = ?1, peer_role = ?2, host = ?3 WHERE session_key = ?4",
+                    "UPDATE peer_sessions SET hive_system = ?1, hive_role = ?2, host = ?3 WHERE session_key = ?4",
                 )?)
             } else {
                 None
             };
             let mut insert_group = if peer_session_groups_empty {
                 Some(tx.prepare(
-                    "INSERT OR IGNORE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+                    "INSERT OR IGNORE INTO peer_session_groups (session_key, hive_group) VALUES (?1, ?2)",
                 )?)
             } else {
                 None
@@ -3599,15 +3622,15 @@ fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
                     serde_json::from_str(&payload).context("deserialize peer session record")?;
                 if let Some(update) = update.as_mut() {
                     update.execute(params![
-                        record.peer_system,
-                        record.peer_role,
+                        record.hive_system,
+                        record.hive_role,
                         record.host,
                         session_key
                     ])?;
                 }
                 if let Some(insert_group) = insert_group.as_mut() {
-                    for peer_group in record.peer_groups.iter() {
-                        insert_group.execute(params![session_key, peer_group])?;
+                    for hive_group in record.hive_groups.iter() {
+                        insert_group.execute(params![session_key, hive_group])?;
                     }
                 }
             }
@@ -3619,13 +3642,13 @@ fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
     Ok(())
 }
 
-fn create_peer_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
+fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"
-        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_system
-          ON peer_sessions(peer_system);
-        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_role
-          ON peer_sessions(peer_role);
+        CREATE INDEX IF NOT EXISTS idx_peer_sessions_hive_system
+          ON peer_sessions(hive_system);
+        CREATE INDEX IF NOT EXISTS idx_peer_sessions_hive_role
+          ON peer_sessions(hive_role);
         CREATE INDEX IF NOT EXISTS idx_peer_sessions_host
           ON peer_sessions(host);
         "#,
@@ -3919,21 +3942,21 @@ mod tests {
     }
 
     #[test]
-    fn peer_sessions_keep_same_named_sessions_separate_across_agents() {
+    fn hive_sessions_keep_same_named_sessions_separate_across_agents() {
         let dir = std::env::temp_dir().join(format!("memd-peer-sessions-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -3952,15 +3975,15 @@ mod tests {
             })
             .expect("insert codex session");
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@shared-session".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("claude-sonnet-4".to_string()),
                 tab_id: None,
@@ -3980,15 +4003,15 @@ mod tests {
             .expect("insert claude session");
 
         let sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: None,
                 namespace: None,
                 workspace: Some("initiative-alpha".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -4015,25 +4038,90 @@ mod tests {
     }
 
     #[test]
-    fn peer_sessions_preserve_service_peer_metadata() {
+    fn hive_sessions_auto_include_project_groups() {
+        let dir = std::env::temp_dir().join(format!("memd-peer-project-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        let response = store
+            .upsert_hive_session(&PeerSessionUpsertRequest {
+                session: "project-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@project-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: Vec::new(),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: None,
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("initiative-alpha".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("laptop-a".to_string()),
+                pid: Some(101),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert project session");
+
+        assert!(
+            response.sessions[0]
+                .hive_groups
+                .iter()
+                .any(|value| value == "project:repo-a")
+        );
+
+        let project_sessions = store
+            .hive_sessions(&PeerSessionsRequest {
+                session: Some("project-session".to_string()),
+                project: Some("repo-a".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("initiative-alpha".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: Some("project:repo-a".to_string()),
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query project sessions");
+
+        assert_eq!(project_sessions.sessions.len(), 1);
+        assert!(project_sessions.sessions[0]
+            .hive_groups
+            .iter()
+            .any(|value| value == "project:repo-a"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_preserve_service_peer_metadata() {
         let dir = std::env::temp_dir().join(format!("memd-peer-service-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shell-a".to_string(),
                 agent: Some("agent-shell".to_string()),
                 effective_agent: Some("agent-shell@shell-a".to_string()),
-                peer_system: Some("agent-shell".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("agent-shell".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec![
                     "shell".to_string(),
                     "exec".to_string(),
                     "workspace".to_string(),
                 ],
-                peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4053,15 +4141,15 @@ mod tests {
             .expect("insert service peer");
 
         let sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shell-a".to_string()),
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("stack-alpha".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(8),
             })
@@ -4069,8 +4157,8 @@ mod tests {
 
         assert_eq!(sessions.sessions.len(), 1);
         let peer = &sessions.sessions[0];
-        assert_eq!(peer.peer_system.as_deref(), Some("agent-shell"));
-        assert_eq!(peer.peer_role.as_deref(), Some("runtime-shell"));
+        assert_eq!(peer.hive_system.as_deref(), Some("agent-shell"));
+        assert_eq!(peer.hive_role.as_deref(), Some("runtime-shell"));
         assert_eq!(peer.authority.as_deref(), Some("worker"));
         assert!(peer.capabilities.iter().any(|value| value == "shell"));
         assert!(peer.capabilities.iter().any(|value| value == "exec"));
@@ -4079,21 +4167,21 @@ mod tests {
     }
 
     #[test]
-    fn peer_sessions_filter_by_peer_identity() {
+    fn hive_sessions_filter_by_peer_identity() {
         let dir = std::env::temp_dir().join(format!("memd-peer-filter-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-a".to_string()),
                 effective_agent: Some("agent-a@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
-                peer_groups: vec!["runtime-core".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4113,15 +4201,15 @@ mod tests {
             .expect("insert codex runtime shell session");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-b".to_string()),
                 effective_agent: Some("agent-b@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("orchestrator".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
                 capabilities: vec!["coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("coordinator".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4141,15 +4229,15 @@ mod tests {
             .expect("insert codex orchestrator session");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&PeerSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-c".to_string()),
                 effective_agent: Some("agent-c@shared-session".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
-                peer_groups: vec!["runtime-core".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("claude-opus".to_string()),
                 tab_id: None,
@@ -4169,56 +4257,56 @@ mod tests {
             .expect("insert claude runtime shell session");
 
         let codex_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: None,
+                hive_system: Some("codex".to_string()),
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
-            .expect("query sessions by peer system");
+            .expect("query sessions by worker system");
         assert_eq!(codex_sessions.sessions.len(), 2);
 
         let runtime_session = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 host: Some("vm-a".to_string()),
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
-            .expect("query sessions by peer role and host");
+            .expect("query sessions by worker role and host");
         assert_eq!(runtime_session.sessions.len(), 1);
         assert_eq!(
-            runtime_session.sessions[0].peer_system.as_deref(),
+            runtime_session.sessions[0].hive_system.as_deref(),
             Some("codex")
         );
         assert_eq!(
-            runtime_session.sessions[0].peer_role.as_deref(),
+            runtime_session.sessions[0].hive_role.as_deref(),
             Some("runtime-shell")
         );
         assert_eq!(runtime_session.sessions[0].host.as_deref(), Some("vm-a"));
 
         let host_a_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: Some("vm-a".to_string()),
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -4232,15 +4320,15 @@ mod tests {
         );
 
         let runtime_group_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&PeerSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: Some("runtime-core".to_string()),
+                hive_group: Some("runtime-core".to_string()),
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -4248,7 +4336,7 @@ mod tests {
         assert_eq!(runtime_group_sessions.sessions.len(), 2);
         assert!(runtime_group_sessions.sessions.iter().all(|session| {
             session
-                .peer_groups
+                .hive_groups
                 .iter()
                 .any(|value| value == "runtime-core")
         }));
@@ -4257,7 +4345,7 @@ mod tests {
     }
 
     #[test]
-    fn open_migrates_legacy_peer_sessions_before_identity_indexes() {
+    fn open_migrates_legacy_hive_sessions_before_identity_indexes() {
         let dir = std::env::temp_dir().join(format!("legacy-peer-sessions-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let path = dir.join("state.sqlite");
@@ -4293,8 +4381,8 @@ mod tests {
                 .collect::<Result<Vec<_>, _>>()
                 .expect("collect peer session columns")
         };
-        assert!(columns.iter().any(|value| value == "peer_system"));
-        assert!(columns.iter().any(|value| value == "peer_role"));
+        assert!(columns.iter().any(|value| value == "hive_system"));
+        assert!(columns.iter().any(|value| value == "hive_role"));
         assert!(columns.iter().any(|value| value == "host"));
 
         let indexes = {
@@ -4309,12 +4397,12 @@ mod tests {
         assert!(
             indexes
                 .iter()
-                .any(|value| value == "idx_peer_sessions_peer_system")
+                .any(|value| value == "idx_peer_sessions_hive_system")
         );
         assert!(
             indexes
                 .iter()
-                .any(|value| value == "idx_peer_sessions_peer_role")
+                .any(|value| value == "idx_peer_sessions_hive_role")
         );
         assert!(
             indexes

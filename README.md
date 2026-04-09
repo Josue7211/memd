@@ -13,7 +13,9 @@ reuse forever, and always keep a path back to the evidence.
 - compiled memory pages that stay visible on disk
 - Obsidian wikilinks for human navigation
 - LightRAG as the semantic recall backend
-- session, tab, and project scope so live work stays separated
+- session, tab, and project scope so hive work stays separated
+- same-project sessions auto-join the same hive mesh
+- cross-project links stay explicit and safety-gated
 - quality scoring so gaps, stale facts, and contradictions are obvious
 
 ## What it does
@@ -23,7 +25,8 @@ reuse forever, and always keep a path back to the evidence.
 - keeps compiled memory pages visible on disk
 - uses Obsidian wikilinks for the graph
 - uses LightRAG as the semantic recall backend
-- tracks session and tab scope for live coordination
+- tracks session and tab scope for live hive coordination
+- auto-links same-project sessions so they can find each other immediately
 - scores memory quality so gaps are explicit
 
 ## Quickstart

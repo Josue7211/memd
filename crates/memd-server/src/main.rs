@@ -306,17 +306,17 @@ async fn main() {
         .route("/memory/source", get(get_source_memory))
         .route("/memory/workspaces", get(get_workspace_memory))
         .route("/memory/explain", get(get_explain))
-        .route("/coordination/messages/send", post(post_peer_message))
-        .route("/coordination/messages/inbox", get(get_peer_inbox))
-        .route("/coordination/messages/ack", post(post_peer_ack))
-        .route("/coordination/inbox", get(get_peer_coordination_inbox))
+        .route("/coordination/messages/send", post(post_hive_message))
+        .route("/coordination/messages/inbox", get(get_hive_inbox))
+        .route("/coordination/messages/ack", post(post_hive_ack))
+        .route("/coordination/inbox", get(get_hive_coordination_inbox))
         .route(
             "/coordination/receipts/record",
-            post(post_peer_coordination_receipt),
+            post(post_hive_coordination_receipt),
         )
         .route(
             "/coordination/receipts",
-            get(get_peer_coordination_receipts),
+            get(get_hive_coordination_receipts),
         )
         .route(
             "/coordination/skill-policy/apply",
@@ -328,29 +328,29 @@ async fn main() {
         )
         .route(
             "/coordination/claims/acquire",
-            post(post_peer_claim_acquire),
+            post(post_hive_claim_acquire),
         )
         .route(
             "/coordination/claims/release",
-            post(post_peer_claim_release),
+            post(post_hive_claim_release),
         )
         .route(
             "/coordination/claims/transfer",
-            post(post_peer_claim_transfer),
+            post(post_hive_claim_transfer),
         )
         .route(
             "/coordination/claims/recover",
-            post(post_peer_claim_recover),
+            post(post_hive_claim_recover),
         )
-        .route("/coordination/claims", get(get_peer_claims))
+        .route("/coordination/claims", get(get_hive_claims))
         .route(
             "/coordination/sessions/upsert",
-            post(post_peer_session_upsert),
+            post(post_hive_session_upsert),
         )
-        .route("/coordination/sessions", get(get_peer_sessions))
-        .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
-        .route("/coordination/tasks/assign", post(post_peer_task_assign))
-        .route("/coordination/tasks", get(get_peer_tasks))
+        .route("/coordination/sessions", get(get_hive_sessions))
+        .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
+        .route("/coordination/tasks/assign", post(post_hive_task_assign))
+        .route("/coordination/tasks", get(get_hive_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
@@ -789,7 +789,7 @@ async fn get_workspace_memory(
     Ok(Json(response))
 }
 
-async fn post_peer_message(
+async fn post_hive_message(
     State(state): State<AppState>,
     Json(req): Json<PeerMessageSendRequest>,
 ) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
@@ -819,7 +819,7 @@ async fn post_peer_message(
     Ok(Json(response))
 }
 
-async fn get_peer_inbox(
+async fn get_hive_inbox(
     State(state): State<AppState>,
     Query(req): Query<PeerMessageInboxRequest>,
 ) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
@@ -833,7 +833,7 @@ async fn get_peer_inbox(
     Ok(Json(response))
 }
 
-async fn post_peer_ack(
+async fn post_hive_ack(
     State(state): State<AppState>,
     Json(req): Json<PeerMessageAckRequest>,
 ) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
@@ -850,7 +850,7 @@ async fn post_peer_ack(
     Ok(Json(response))
 }
 
-async fn get_peer_coordination_inbox(
+async fn get_hive_coordination_inbox(
     State(state): State<AppState>,
     Query(req): Query<PeerCoordinationInboxRequest>,
 ) -> Result<Json<PeerCoordinationInboxResponse>, (StatusCode, String)> {
@@ -867,7 +867,7 @@ async fn get_peer_coordination_inbox(
     Ok(Json(response))
 }
 
-async fn post_peer_coordination_receipt(
+async fn post_hive_coordination_receipt(
     State(state): State<AppState>,
     Json(req): Json<PeerCoordinationReceiptRequest>,
 ) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
@@ -896,7 +896,7 @@ async fn post_peer_coordination_receipt(
     Ok(Json(response))
 }
 
-async fn get_peer_coordination_receipts(
+async fn get_hive_coordination_receipts(
     State(state): State<AppState>,
     Query(req): Query<PeerCoordinationReceiptsRequest>,
 ) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
@@ -952,7 +952,7 @@ async fn get_skill_policy_activations(
     Ok(Json(response))
 }
 
-async fn post_peer_claim_acquire(
+async fn post_hive_claim_acquire(
     State(state): State<AppState>,
     Json(req): Json<PeerClaimAcquireRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
@@ -975,7 +975,7 @@ async fn post_peer_claim_acquire(
     Ok(Json(response))
 }
 
-async fn post_peer_claim_release(
+async fn post_hive_claim_release(
     State(state): State<AppState>,
     Json(req): Json<PeerClaimReleaseRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
@@ -998,7 +998,7 @@ async fn post_peer_claim_release(
     Ok(Json(response))
 }
 
-async fn post_peer_claim_transfer(
+async fn post_hive_claim_transfer(
     State(state): State<AppState>,
     Json(req): Json<PeerClaimTransferRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
@@ -1021,7 +1021,7 @@ async fn post_peer_claim_transfer(
     Ok(Json(response))
 }
 
-async fn post_peer_claim_recover(
+async fn post_hive_claim_recover(
     State(state): State<AppState>,
     Json(req): Json<PeerClaimRecoverRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
@@ -1052,7 +1052,7 @@ async fn post_peer_claim_recover(
     Ok(Json(response))
 }
 
-async fn get_peer_claims(
+async fn get_hive_claims(
     State(state): State<AppState>,
     Query(req): Query<PeerClaimsRequest>,
 ) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
@@ -1060,7 +1060,7 @@ async fn get_peer_claims(
     Ok(Json(response))
 }
 
-async fn post_peer_session_upsert(
+async fn post_hive_session_upsert(
     State(state): State<AppState>,
     Json(req): Json<PeerSessionUpsertRequest>,
 ) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
@@ -1072,20 +1072,20 @@ async fn post_peer_session_upsert(
     }
     let response = state
         .store
-        .upsert_peer_session(&req)
+        .upsert_hive_session(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_sessions(
+async fn get_hive_sessions(
     State(state): State<AppState>,
     Query(req): Query<PeerSessionsRequest>,
 ) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
-    let response = state.store.peer_sessions(&req).map_err(internal_error)?;
+    let response = state.store.hive_sessions(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_task_upsert(
+async fn post_hive_task_upsert(
     State(state): State<AppState>,
     Json(req): Json<PeerTaskUpsertRequest>,
 ) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
@@ -1105,7 +1105,7 @@ async fn post_peer_task_upsert(
     Ok(Json(response))
 }
 
-async fn post_peer_task_assign(
+async fn post_hive_task_assign(
     State(state): State<AppState>,
     Json(req): Json<PeerTaskAssignRequest>,
 ) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
@@ -1125,7 +1125,7 @@ async fn post_peer_task_assign(
     Ok(Json(response))
 }
 
-async fn get_peer_tasks(
+async fn get_hive_tasks(
     State(state): State<AppState>,
     Query(req): Query<PeerTasksRequest>,
 ) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
@@ -2254,7 +2254,7 @@ fn dashboard_html() -> String {
   <header>
     <div class="shell">
       <h1>memd</h1>
-      <p class="sub">Memory manager, retrieval router, inbox, and explain surface.</p>
+      <p class="sub">Hivemind manager, retrieval router, inbox, and explain surface.</p>
     </div>
   </header>
   <main>
@@ -2828,6 +2828,13 @@ mod tests {
             store: SqliteStore::open(&db_path).expect("open temp store"),
         };
         (dir, state)
+    }
+
+    #[test]
+    fn dashboard_copy_uses_hivemind_language() {
+        let html = dashboard_html();
+        assert!(html.contains("Hivemind manager, retrieval router, inbox, and explain surface."));
+        assert!(html.contains("<title>memd</title>"));
     }
 
     #[test]

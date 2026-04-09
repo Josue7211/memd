@@ -616,13 +616,17 @@ pub struct PeerSessionRecord {
     pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    #[serde(alias = "peer_system")]
+    pub hive_system: Option<String>,
+    #[serde(alias = "peer_role")]
+    pub hive_role: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
-    pub peer_groups: Vec<String>,
-    pub peer_group_goal: Option<String>,
+    #[serde(alias = "peer_groups")]
+    pub hive_groups: Vec<String>,
+    #[serde(alias = "peer_group_goal")]
+    pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
@@ -646,13 +650,17 @@ pub struct PeerSessionUpsertRequest {
     pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    #[serde(alias = "peer_system")]
+    pub hive_system: Option<String>,
+    #[serde(alias = "peer_role")]
+    pub hive_role: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
-    pub peer_groups: Vec<String>,
-    pub peer_group_goal: Option<String>,
+    #[serde(alias = "peer_groups")]
+    pub hive_groups: Vec<String>,
+    #[serde(alias = "peer_group_goal")]
+    pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
@@ -669,16 +677,47 @@ pub struct PeerSessionUpsertRequest {
     pub status: Option<String>,
 }
 
+pub fn project_peer_group(project: Option<&str>) -> Option<String> {
+    let project = project?.trim();
+    if project.is_empty() || project.eq_ignore_ascii_case("global") {
+        return None;
+    }
+
+    Some(format!("project:{project}"))
+}
+
+pub fn effective_peer_groups(project: Option<&str>, hive_groups: &[String]) -> Vec<String> {
+    let mut groups = hive_groups
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    if let Some(project_group) = project_peer_group(project)
+        && !groups.iter().any(|value| value == &project_group)
+    {
+        groups.push(project_group);
+    }
+
+    groups.sort();
+    groups.dedup();
+    groups
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PeerSessionsRequest {
     pub session: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    #[serde(alias = "peer_system")]
+    pub hive_system: Option<String>,
+    #[serde(alias = "peer_role")]
+    pub hive_role: Option<String>,
     pub host: Option<String>,
-    pub peer_group: Option<String>,
+    #[serde(alias = "peer_group")]
+    pub hive_group: Option<String>,
     pub active_only: Option<bool>,
     pub limit: Option<usize>,
 }
@@ -1470,6 +1509,42 @@ pub struct HealthResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_peer_groups_are_derived_from_project_names() {
+        assert_eq!(
+            project_peer_group(Some("demo")).as_deref(),
+            Some("project:demo")
+        );
+        assert_eq!(project_peer_group(Some("global")), None);
+        assert_eq!(project_peer_group(Some("   ")), None);
+    }
+
+    #[test]
+    fn effective_peer_groups_include_the_project_group_once() {
+        let groups = effective_peer_groups(
+            Some("demo"),
+            &vec!["runtime-core".to_string(), "demo".to_string(), "".to_string()],
+        );
+
+        assert_eq!(
+            groups,
+            vec!["demo".to_string(), "project:demo".to_string(), "runtime-core".to_string()]
+        );
+    }
+
+    #[test]
+    fn project_hive_group_is_added_once() {
+        let groups = effective_peer_groups(
+            Some("demo"),
+            &["project:demo".to_string(), "runtime-core".to_string()],
+        );
+
+        assert_eq!(
+            groups,
+            vec!["project:demo".to_string(), "runtime-core".to_string()]
+        );
+    }
 
     #[test]
     fn entity_record_roundtrips() {

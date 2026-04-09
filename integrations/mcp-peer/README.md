@@ -1,12 +1,12 @@
-# memd Peer MCP
+# memd Hivemind MCP
 
-This MCP server exposes the brokered `memd` peer coordination substrate as
+This MCP server exposes the brokered `memd` hivemind substrate as
 agent-facing tools.
 
 It reuses the existing `memd-server` coordination backend:
 
-- peer messages
-- peer inbox and acknowledgement
+- worker messages
+- worker inbox and acknowledgement
 - brokered claims
 - claim transfer
 - assignment-friendly work handoff
@@ -75,10 +75,16 @@ npm install
 
 ## Notes
 
-- peer discovery is bundle-aware: it scans sibling project bundles and reads
+- worker discovery is bundle-aware: it scans sibling project bundles and reads
   their session identity and heartbeat state
 - message and claim operations use the shared `memd-server` backend routes
 - claims, tasks, and assignments preserve session-qualified ownership instead
   of collapsing everyone into one lane
+- sessions in the same project share an automatic `project:<project>` hive,
+  so same-project discovery stays immediate without extra wiring
+- explicit hive links are for cross-project safety links, not for the
+  default same-project handshake
+- same-project sessions behave like one live cowork mesh, not separate
+  isolated workers
 - dashboard drilldowns reuse the same bounded coordination categories as the
   CLI summary surface
