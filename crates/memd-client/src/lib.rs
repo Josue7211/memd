@@ -10,13 +10,14 @@ use memd_schema::{
     HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
     HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionUpsertRequest, HiveSessionsRequest,
-    HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest,
-    HiveTasksResponse, MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
-    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
-    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
+    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
+    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
+    MaintainReport, MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
+    SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
@@ -171,6 +172,13 @@ impl MemdClient {
     ) -> anyhow::Result<MemoryMaintenanceReportResponse> {
         self.get_json_with_query("/memory/maintenance/report", req)
             .await
+    }
+
+    pub async fn maintain_runtime(
+        &self,
+        req: &MaintainReportRequest,
+    ) -> anyhow::Result<MaintainReport> {
+        self.post_json("/runtime/maintain", req).await
     }
 
     pub async fn policy(&self) -> anyhow::Result<MemoryPolicyResponse> {
@@ -336,6 +344,13 @@ impl MemdClient {
     ) -> anyhow::Result<HiveSessionsResponse> {
         self.get_json_with_query("/coordination/sessions", req)
             .await
+    }
+
+    pub async fn retire_hive_session(
+        &self,
+        req: &HiveSessionRetireRequest,
+    ) -> anyhow::Result<HiveSessionRetireResponse> {
+        self.post_json("/coordination/sessions/retire", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

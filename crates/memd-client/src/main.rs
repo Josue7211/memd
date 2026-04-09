@@ -42,11 +42,11 @@ use memd_schema::{
     HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
     HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveMessageAckRequest,
     HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveTaskAssignRequest,
-    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
-    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
+    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryPolicyResponse, MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus,
+    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
     SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
     WorkingMemoryRequest,
@@ -74,6 +74,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tokio::task::JoinSet;
 
 #[derive(Debug, Parser)]
 #[command(name = "memd")]
@@ -90,6 +91,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Session(SessionArgs),
     Wake(WakeArgs),
     Awareness(AwarenessArgs),
     Heartbeat(HeartbeatArgs),
@@ -151,6 +153,7 @@ enum Commands {
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
+    Maintain(MaintainArgs),
     Policy(PolicyArgs),
     SkillPolicy(PolicyArgs),
     Compact(CompactArgs),
@@ -646,6 +649,21 @@ struct MaintenanceReportArgs {
 
     #[arg(long)]
     follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct MaintainArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value = "scan")]
+    mode: String,
+
+    #[arg(long)]
+    apply: bool,
+
+    #[arg(long)]
+    summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1401,7 +1419,7 @@ struct AutoresearchArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
 
-    #[arg(long, help = "Run all manifest loops sequentially")]
+    #[arg(long, help = "Run all manifest loops")]
     auto: bool,
 
     #[arg(long, help = "Run a single loop by slug")]
@@ -1409,6 +1427,20 @@ struct AutoresearchArgs {
 
     #[arg(long, help = "Print the manifest of available autoresearch loops")]
     manifest: bool,
+
+    #[arg(
+        long,
+        default_value_t = 1,
+        help = "Maximum number of autoresearch sweeps to run"
+    )]
+    max_sweeps: usize,
+
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Stop after this many consecutive identical sweep signatures (0 disables plateau stopping)"
+    )]
+    plateau_sweeps: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1448,6 +1480,24 @@ struct HeartbeatArgs {
 
     #[arg(long)]
     probe_base_url: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SessionArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    rebind: bool,
+
+    #[arg(long)]
+    reconcile: bool,
+
+    #[arg(long)]
+    retire_session: Option<String>,
 
     #[arg(long)]
     summary: bool,
@@ -1580,6 +1630,9 @@ struct CoordinationArgs {
 
     #[arg(long)]
     recover_session: Option<String>,
+
+    #[arg(long)]
+    retire_session: Option<String>,
 
     #[arg(long)]
     to_session: Option<String>,
@@ -2305,6 +2358,14 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", render_bundle_status_summary(&status));
             } else {
                 print_json(&status)?;
+            }
+        }
+        Commands::Session(args) => {
+            let response = run_session_command(&args, &base_url).await?;
+            if args.summary {
+                println!("{}", render_session_summary(&response));
+            } else {
+                print_json(&response)?;
             }
         }
         Commands::Wake(args) => {
@@ -3760,6 +3821,8 @@ async fn main() -> anyhow::Result<()> {
                     lookback_days: args.lookback_days,
                     min_events: args.min_events,
                     max_decay: args.max_decay,
+                    mode: Some("scan".to_string()),
+                    apply: Some(false),
                 })
                 .await?;
             if args.summary {
@@ -3767,6 +3830,14 @@ async fn main() -> anyhow::Result<()> {
                     "{}",
                     render_maintenance_report_summary(&response, args.follow)
                 );
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::Maintain(args) => {
+            let response = run_maintain_command(&args, &cli.base_url).await?;
+            if args.summary {
+                println!("{}", render_maintain_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -6147,6 +6218,58 @@ fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value)
                 markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
             }
         }
+    }
+    if let Some(evolution) = status.get("evolution").and_then(|value| {
+        if value.is_null() {
+            None
+        } else {
+            Some(value)
+        }
+    }) {
+        markdown.push_str("\n## Evolution\n");
+        markdown.push_str(&format!(
+            "- proposal state: `{}`\n",
+            evolution
+                .get("proposal_state")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none")
+        ));
+        markdown.push_str(&format!(
+            "- scope: `{}` / `{}`\n",
+            evolution
+                .get("scope_class")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none"),
+            evolution
+                .get("scope_gate")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none")
+        ));
+        markdown.push_str(&format!(
+            "- authority: `{}`\n",
+            evolution
+                .get("authority_tier")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none")
+        ));
+        markdown.push_str(&format!(
+            "- queues: merge=`{}` durability=`{}`\n",
+            evolution
+                .get("merge_status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none"),
+            evolution
+                .get("durability_status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none")
+        ));
+        markdown.push_str(&format!(
+            "- branch: `{}`\n",
+            evolution
+                .get("branch")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none")
+        ));
     }
     markdown
 }
@@ -9827,11 +9950,120 @@ async fn run_autoresearch(args: &AutoresearchArgs, base_url: &str) -> anyhow::Re
         anyhow::bail!("no loops matched; run with --manifest to see available loops");
     }
 
-    for descriptor in loops {
-        execute_autoresearch_loop(&args.output, base_url, descriptor).await?;
+    if !args.auto && loops.len() == 1 {
+        execute_autoresearch_loop(&args.output, base_url, loops[0]).await?;
+        return Ok(());
+    }
+
+    let max_sweeps = if args.auto { args.max_sweeps.max(1) } else { 1 };
+    let mut stable_sweeps = 0usize;
+    let mut previous_signature: Option<Vec<AutoresearchSweepSignatureEntry>> = None;
+
+    for sweep in 1..=max_sweeps {
+        let records = execute_autoresearch_sweep(&args.output, base_url, &loops).await?;
+        let signature = build_autoresearch_sweep_signature(&records);
+        if previous_signature.as_ref() == Some(&signature) {
+            stable_sweeps += 1;
+        } else {
+            stable_sweeps = 0;
+        }
+        previous_signature = Some(signature);
+
+        if args.auto && max_sweeps > 1 {
+            println!("Completed autoresearch sweep {sweep}/{max_sweeps}");
+        }
+        if args.auto && args.plateau_sweeps > 0 && stable_sweeps >= args.plateau_sweeps {
+            println!(
+                "Autoresearch plateau detected after {} stable sweep(s); stopping early.",
+                stable_sweeps
+            );
+            break;
+        }
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AutoresearchSweepSignatureEntry {
+    slug: String,
+    status: String,
+    percent_bp: i64,
+    tokens_bp: i64,
+}
+
+fn build_autoresearch_sweep_signature(
+    records: &[(&'static AutoresearchLoop, LoopRecord)],
+) -> Vec<AutoresearchSweepSignatureEntry> {
+    records
+        .iter()
+        .map(|(descriptor, record)| AutoresearchSweepSignatureEntry {
+            slug: descriptor.slug.to_string(),
+            status: record
+                .status
+                .clone()
+                .unwrap_or_else(|| "pending".to_string()),
+            percent_bp: (record.percent_improvement.unwrap_or(0.0) * 100.0).round() as i64,
+            tokens_bp: (record.token_savings.unwrap_or(0.0) * 100.0).round() as i64,
+        })
+        .collect()
+}
+
+async fn execute_autoresearch_sweep(
+    output: &Path,
+    base_url: &str,
+    loops: &[&'static AutoresearchLoop],
+) -> anyhow::Result<Vec<(&'static AutoresearchLoop, LoopRecord)>> {
+    let summary = read_loop_summary(&loops_summary_path(output))?;
+    let mut join_set = JoinSet::new();
+
+    for (index, descriptor) in loops.iter().copied().enumerate() {
+        let previous_runs = summary
+            .entries
+            .iter()
+            .filter(|entry| entry.slug == descriptor.slug)
+            .count();
+        let previous_entry = summary
+            .entries
+            .iter()
+            .rev()
+            .find(|entry| entry.slug == descriptor.slug)
+            .cloned();
+        let output = output.to_path_buf();
+        let base_url = base_url.to_string();
+        join_set.spawn(async move {
+            let record = build_autoresearch_record_for_descriptor(
+                &output,
+                &base_url,
+                descriptor,
+                previous_runs,
+                previous_entry.as_ref(),
+            )
+            .await?;
+            Ok::<_, anyhow::Error>((index, descriptor, record))
+        });
+    }
+
+    let mut completed = Vec::with_capacity(loops.len());
+    while let Some(result) = join_set.join_next().await {
+        let (index, descriptor, record) = result??;
+        completed.push((index, descriptor, record));
+    }
+    completed.sort_by_key(|(index, _, _)| *index);
+
+    let mut persisted = Vec::with_capacity(completed.len());
+    for (_, descriptor, record) in completed {
+        persist_loop_record(output, &record)?;
+        println!(
+            "Recorded loop {}: {} improvement, {} token savings",
+            descriptor.slug,
+            format_percent(record.percent_improvement),
+            format_tokens(record.token_savings)
+        );
+        persisted.push((descriptor, record));
+    }
+
+    Ok(persisted)
 }
 
 async fn execute_autoresearch_loop(
@@ -9851,6 +10083,32 @@ async fn execute_autoresearch_loop(
         .rev()
         .find(|entry| entry.slug == descriptor.slug);
 
+    let record = build_autoresearch_record_for_descriptor(
+        output,
+        base_url,
+        descriptor,
+        previous_runs,
+        previous_entry,
+    )
+    .await?;
+
+    persist_loop_record(output, &record)?;
+    println!(
+        "Recorded loop {}: {} improvement, {} token savings",
+        descriptor.slug,
+        format_percent(record.percent_improvement),
+        format_tokens(record.token_savings)
+    );
+    Ok(())
+}
+
+async fn build_autoresearch_record_for_descriptor(
+    output: &Path,
+    base_url: &str,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> anyhow::Result<LoopRecord> {
     let record = match descriptor.slug {
         "branch-review-quality" => {
             run_branch_review_quality_loop(output, descriptor, previous_runs, previous_entry)
@@ -9889,15 +10147,7 @@ async fn execute_autoresearch_loop(
         }
         _ => anyhow::bail!("unsupported autoresearch loop '{}'", descriptor.slug),
     };
-
-    persist_loop_record(output, &record)?;
-    println!(
-        "Recorded loop {}: {} improvement, {} token savings",
-        descriptor.slug,
-        format_percent(record.percent_improvement),
-        format_tokens(record.token_savings)
-    );
-    Ok(())
+    Ok(record)
 }
 
 fn print_autoresearch_manifest() {
@@ -10906,30 +11156,70 @@ async fn run_self_evolution_loop(
 ) -> anyhow::Result<LoopRecord> {
     let report = read_latest_experiment_report(output)?;
     if let Some(report) = report {
+        ensure_evolution_artifacts(output, &report)?;
+        let proposal = read_latest_evolution_proposal(output)?;
+        let durability = read_evolution_durability_ledger(output)?;
+        let authority = read_evolution_authority_ledger(output)?;
+        let branch_manifest = read_latest_evolution_branch_manifest(output)?;
+        let merge_queue = read_evolution_merge_queue(output)?;
+        let durability_queue = read_evolution_durability_queue(output)?;
         let fresh = experiment_report_is_fresh(&report);
-        let usable = fresh && report.accepted && !report.restored && report.composite.max_score > 0;
-        let ratio = if report.composite.max_score == 0 {
+        let proposal_state = proposal
+            .as_ref()
+            .map(|value| value.state.as_str())
+            .unwrap_or("none");
+        let scope_gate = proposal
+            .as_ref()
+            .map(|value| value.scope_gate.as_str())
+            .unwrap_or("none");
+        let durable_truth = proposal.as_ref().is_some_and(|value| value.durable_truth)
+            || durability
+                .as_ref()
+                .and_then(|ledger| ledger.entries.last())
+                .is_some_and(|entry| entry.state == "durable_truth");
+        let stage_multiplier = if durable_truth {
+            1.0
+        } else if proposal_state == "merged" {
+            0.92
+        } else if proposal_state == "accepted_proposal" {
+            0.84
+        } else {
+            0.0
+        };
+        let usable = fresh
+            && report.accepted
+            && !report.restored
+            && report.composite.max_score > 0
+            && proposal_state != "rejected";
+        let raw_ratio = if report.composite.max_score == 0 {
             0.0
         } else {
             report.composite.score as f64 / report.composite.max_score as f64
         };
+        let ratio = raw_ratio * stage_multiplier;
         let percent = if usable { ratio * 100.0 } else { 0.0 };
-        let token_savings = if usable {
-            ratio * descriptor.base_tokens
+        let token_savings = if usable && stage_multiplier > 0.0 {
+            raw_ratio * descriptor.base_tokens
         } else {
             0.0
         };
         let summary = if usable {
             format!(
-                "accepted experiment composite score {}/{} with {} learnings",
+                "{} experiment composite score {}/{} with {} learnings",
+                proposal_state,
                 report.composite.score,
                 report.composite.max_score,
                 report.learnings.len()
             )
         } else {
             format!(
-                "experiment report not usable (accepted={}, restored={}, fresh={}, max_score={})",
-                report.accepted, report.restored, fresh, report.composite.max_score
+                "experiment report not usable (accepted={}, restored={}, fresh={}, max_score={}, proposal_state={}, scope_gate={})",
+                report.accepted,
+                report.restored,
+                fresh,
+                report.composite.max_score,
+                proposal_state,
+                scope_gate
             )
         };
         let evidence = if usable {
@@ -10937,6 +11227,9 @@ async fn run_self_evolution_loop(
                 "self evolution".to_string(),
                 format!("accepted={}", report.accepted),
                 format!("fresh={}", fresh),
+                format!("proposal_state={proposal_state}"),
+                format!("scope_gate={scope_gate}"),
+                format!("durable_truth={durable_truth}"),
                 format!("composite_score={}", report.composite.score),
                 format!("composite_max={}", report.composite.max_score),
             ]
@@ -10946,6 +11239,8 @@ async fn run_self_evolution_loop(
                 format!("accepted={}", report.accepted),
                 format!("restored={}", report.restored),
                 format!("fresh={}", fresh),
+                format!("proposal_state={proposal_state}"),
+                format!("scope_gate={scope_gate}"),
             ]
         };
         let confidence_met =
@@ -10963,6 +11258,9 @@ async fn run_self_evolution_loop(
             }
             if report.composite.max_score == 0 {
                 reasons.push("zero_max_score".to_string());
+            }
+            if proposal_state == "none" {
+                reasons.push("no_evolution_proposal".to_string());
             }
             if usable && loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
                 reasons.extend(loop_trend_warning_reasons(
@@ -10987,13 +11285,54 @@ async fn run_self_evolution_loop(
             "restored": report.restored,
             "fresh": fresh,
             "usable": usable,
+            "proposal_state": proposal_state,
+            "scope_gate": scope_gate,
+            "durable_truth": durable_truth,
             "composite_score": report.composite.score,
             "composite_max": report.composite.max_score,
             "evidence": evidence,
             "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, if usable { 5 } else { 4 }),
             "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+            "proposal": proposal,
+            "branch_manifest": branch_manifest,
+            "authority_ledger": authority,
+            "merge_queue": merge_queue,
+            "durability_ledger": durability,
+            "durability_queue": durability_queue,
             "warning_reasons": warning_reasons,
         });
+        let artifact_paths = vec![
+            output
+                .join("experiments")
+                .join("latest.json")
+                .display()
+                .to_string(),
+            output
+                .join("evolution")
+                .join("latest-proposal.json")
+                .display()
+                .to_string(),
+            output
+                .join("evolution")
+                .join("latest-branch.json")
+                .display()
+                .to_string(),
+            output
+                .join("evolution")
+                .join("authority-ledger.json")
+                .display()
+                .to_string(),
+            output
+                .join("evolution")
+                .join("merge-queue.json")
+                .display()
+                .to_string(),
+            output
+                .join("evolution")
+                .join("durability-queue.json")
+                .display()
+                .to_string(),
+        ];
         if usable {
             let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
                 || !confidence_met
@@ -11008,7 +11347,7 @@ async fn run_self_evolution_loop(
                 percent,
                 token_savings,
                 summary,
-                vec!["self evolution".to_string()],
+                artifact_paths.clone(),
                 metadata,
                 status,
             ))
@@ -11019,7 +11358,7 @@ async fn run_self_evolution_loop(
                 percent,
                 token_savings,
                 summary,
-                vec!["self evolution".to_string()],
+                artifact_paths,
                 metadata,
                 "warning",
             ))
@@ -11503,7 +11842,7 @@ struct LoopEntry {
     path: PathBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LoopRecord {
     #[serde(default)]
     slug: Option<String>,
@@ -11532,7 +11871,7 @@ struct LoopSummary {
     entries: Vec<LoopSummaryEntry>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LoopSummaryEntry {
     slug: String,
     percent_improvement: Option<f64>,
@@ -16065,6 +16404,121 @@ fn heartbeat_presence_label(last_seen: DateTime<Utc>) -> &'static str {
     }
 }
 
+fn build_hive_session_retire_request_from_entry(
+    entry: &ProjectAwarenessEntry,
+    reason: impl Into<String>,
+) -> Option<memd_schema::HiveSessionRetireRequest> {
+    let session = entry
+        .session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(memd_schema::HiveSessionRetireRequest {
+        session: session.to_string(),
+        project: entry.project.clone(),
+        namespace: entry.namespace.clone(),
+        workspace: entry.workspace.clone(),
+        agent: entry.agent.clone(),
+        effective_agent: entry.effective_agent.clone(),
+        hive_system: entry.hive_system.clone(),
+        hive_role: entry.hive_role.clone(),
+        host: entry.host.clone(),
+        reason: Some(reason.into()),
+    })
+}
+
+fn build_hive_session_retire_request_from_record(
+    record: &memd_schema::HiveSessionRecord,
+    reason: impl Into<String>,
+) -> memd_schema::HiveSessionRetireRequest {
+    memd_schema::HiveSessionRetireRequest {
+        session: record.session.clone(),
+        project: record.project.clone(),
+        namespace: record.namespace.clone(),
+        workspace: record.workspace.clone(),
+        agent: record.agent.clone(),
+        effective_agent: record.effective_agent.clone(),
+        hive_system: record.hive_system.clone(),
+        hive_role: record.hive_role.clone(),
+        host: record.host.clone(),
+        reason: Some(reason.into()),
+    }
+}
+
+fn is_superseded_hive_session_record(
+    record: &memd_schema::HiveSessionRecord,
+    current: &BundleHeartbeatState,
+) -> bool {
+    heartbeat_presence_label(record.last_seen) == "stale"
+        && current.status == "live"
+        && current
+            .session
+            .as_deref()
+            .is_some_and(|session| session != record.session)
+        && record.project == current.project
+        && record.namespace == current.namespace
+        && record.workspace == current.workspace
+        && record.agent == current.agent
+        && record.base_url == current.base_url
+}
+
+async fn retire_hive_session_entry(
+    client: &MemdClient,
+    entry: &ProjectAwarenessEntry,
+    reason: impl Into<String>,
+) -> anyhow::Result<usize> {
+    let Some(request) = build_hive_session_retire_request_from_entry(entry, reason) else {
+        return Ok(0);
+    };
+    Ok(client.retire_hive_session(&request).await?.retired)
+}
+
+async fn retire_superseded_hive_sessions(
+    client: &MemdClient,
+    state: &BundleHeartbeatState,
+) -> anyhow::Result<usize> {
+    let Some(current_session) = state
+        .session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(0);
+    };
+    let sessions = client
+        .hive_sessions(&memd_schema::HiveSessionsRequest {
+            session: None,
+            project: state.project.clone(),
+            namespace: state.namespace.clone(),
+            workspace: state.workspace.clone(),
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(512),
+        })
+        .await?
+        .sessions;
+    let mut retired = 0usize;
+    for session in sessions {
+        if session.session == current_session {
+            continue;
+        }
+        if !is_superseded_hive_session_record(&session, state) {
+            continue;
+        }
+        retired += client
+            .retire_hive_session(&build_hive_session_retire_request_from_record(
+                &session,
+                format!("superseded by live session {current_session}"),
+            ))
+            .await?
+            .retired;
+    }
+    Ok(retired)
+}
+
 fn build_hive_heartbeat(
     output: &Path,
     snapshot: Option<&ResumeSnapshot>,
@@ -16208,20 +16662,40 @@ async fn refresh_bundle_heartbeat(
     read_bundle_heartbeat(output)?.context("reload bundle heartbeat after write")
 }
 
-async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Result<()> {
+async fn reconcile_bundle_heartbeat(
+    output: &Path,
+    snapshot: Option<&ResumeSnapshot>,
+    probe_base_url: bool,
+) -> anyhow::Result<(BundleHeartbeatState, usize)> {
+    let path = bundle_heartbeat_state_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let mut state = build_hive_heartbeat(output, snapshot)?;
+    if probe_base_url && let Some(url) = state.base_url.as_deref() {
+        state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
+    }
+    fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    let retired = publish_bundle_heartbeat(&state).await?;
+    let state = read_bundle_heartbeat(output)?.context("reload bundle heartbeat after reconcile")?;
+    Ok((state, retired))
+}
+
+async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Result<usize> {
     let Some(base_url) = state
         .base_url
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     else {
-        return Ok(());
+        return Ok(0);
     };
     let Some(session) = state
         .session
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     else {
-        return Ok(());
+        return Ok(0);
     };
 
     let client = MemdClient::new(base_url)?;
@@ -16255,7 +16729,8 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         client.upsert_hive_session(&request),
     )
     .await;
-    Ok(())
+    let retired = retire_superseded_hive_sessions(&client, state).await.unwrap_or(0);
+    Ok(retired)
 }
 
 fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
@@ -17170,12 +17645,146 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
     })
 }
 
+async fn run_session_command(args: &SessionArgs, base_url: &str) -> anyhow::Result<SessionResponse> {
+    let runtime_before_overlay = read_bundle_runtime_config_raw(&args.output)?;
+    let bundle_session_before = runtime_before_overlay
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let runtime = read_bundle_runtime_config(&args.output)?
+        .context("session requires a readable bundle runtime config")?;
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime.base_url.as_deref(),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+
+    let mut action = "summary".to_string();
+    let mut retired_sessions = 0usize;
+    let mut retire_target = None;
+    let mut heartbeat = None;
+    let mut reconciled = false;
+    let mut reconciled_retired_sessions = 0usize;
+
+    if args.rebind
+        && let Some(live_session) = runtime.session.as_deref()
+    {
+        set_bundle_session(&args.output, live_session)?;
+        if let Some(tab_id) = runtime.tab_id.as_deref() {
+            set_bundle_tab_id(&args.output, tab_id)?;
+        }
+        action = "rebind".to_string();
+    }
+
+    if let Some(target_session) = args
+        .retire_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let target = awareness
+            .entries
+            .iter()
+            .find(|entry| entry.session.as_deref() == Some(target_session))
+            .context("session retire target not found in awareness")?;
+        retired_sessions = retire_hive_session_entry(
+            &client,
+            target,
+            format!(
+                "retired by live session {}",
+                runtime.session.as_deref().unwrap_or("unknown")
+            ),
+        )
+        .await?;
+        retire_target = Some(target_session.to_string());
+        action = if action == "summary" {
+            "retire".to_string()
+        } else {
+            format!("{action}+retire")
+        };
+    }
+
+    if args.reconcile || args.rebind {
+        let (heartbeat_state, retired) = reconcile_bundle_heartbeat(&args.output, None, false).await?;
+        heartbeat = Some(serde_json::to_value(heartbeat_state)?);
+        reconciled = true;
+        reconciled_retired_sessions = retired;
+        if action == "summary" {
+            action = "reconcile".to_string();
+        } else if action != "rebind" {
+            action = format!("{action}+reconcile");
+        }
+    }
+
+    let runtime_after_overlay = read_bundle_runtime_config_raw(&args.output)?;
+    let runtime_after = read_bundle_runtime_config(&args.output)?
+        .context("reload bundle runtime config after session action")?;
+
+    Ok(SessionResponse {
+        action,
+        bundle_root: args.output.display().to_string(),
+        bundle_session: runtime_after_overlay.and_then(|config| config.session),
+        live_session: runtime_after.session.clone(),
+        rebased_from: match (bundle_session_before, runtime_after.session.clone()) {
+            (Some(bundle), Some(live)) if bundle != live => Some(bundle),
+            _ => None,
+        },
+        tab_id: runtime_after.tab_id,
+        reconciled,
+        reconciled_retired_sessions,
+        retired_sessions,
+        retire_target,
+        heartbeat,
+    })
+}
+
+fn render_session_summary(response: &SessionResponse) -> String {
+    format!(
+        "session action={} bundle={} bundle_session={} live_session={} rebased_from={} tab={} reconciled={} reconciled_retired={} retired={} retire_target={} heartbeat={}",
+        response.action,
+        response.bundle_root,
+        response.bundle_session.as_deref().unwrap_or("none"),
+        response.live_session.as_deref().unwrap_or("none"),
+        response.rebased_from.as_deref().unwrap_or("none"),
+        response.tab_id.as_deref().unwrap_or("none"),
+        if response.reconciled { "yes" } else { "no" },
+        response.reconciled_retired_sessions,
+        response.retired_sessions,
+        response.retire_target.as_deref().unwrap_or("none"),
+        if response.heartbeat.is_some() { "published" } else { "skipped" }
+    )
+}
+
 fn render_tasks_summary(response: &TasksResponse) -> String {
+    let help = response.tasks.iter().filter(|task| task.help_requested).count();
+    let review = response.tasks.iter().filter(|task| task.review_requested).count();
+    let exclusive = response
+        .tasks
+        .iter()
+        .filter(|task| task.coordination_mode == "exclusive_write")
+        .count();
+    let shared = response.tasks.len().saturating_sub(exclusive);
+    let open = response
+        .tasks
+        .iter()
+        .filter(|task| task.status != "done" && task.status != "closed")
+        .count();
     let mut lines = vec![format!(
-        "tasks bundle={} current_session={} count={}",
+        "tasks bundle={} current_session={} count={} open={} help={} review={} exclusive={} shared={}",
         response.bundle_root,
         response.current_session.as_deref().unwrap_or("none"),
-        response.tasks.len()
+        response.tasks.len(),
+        open,
+        help,
+        review,
+        exclusive,
+        shared
     )];
     for task in &response.tasks {
         lines.push(format!(
@@ -17267,6 +17876,58 @@ async fn run_coordination_command(
         .cloned()
         .collect::<Vec<_>>();
 
+    if let Some(retire_session) = args
+        .retire_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let stale_entry = stale_hives
+            .iter()
+            .find(|entry| entry.session.as_deref() == Some(retire_session))
+            .cloned()
+            .context("retire_session must target a stale or dead session")?;
+        let retired_sessions = retire_hive_session_entry(
+            &client,
+            &stale_entry,
+            format!("retired by live session {current_session}"),
+        )
+        .await?;
+        auto_checkpoint_bundle_event(
+            &args.output,
+            &current_base_url,
+            "coordination",
+            format!(
+                "Retired {} session record(s) for {} session {}.",
+                retired_sessions, stale_entry.presence, retire_session
+            ),
+            vec![
+                "coordination".to_string(),
+                "retirement".to_string(),
+                "auto-checkpoint".to_string(),
+            ],
+            0.82,
+        )
+        .await?;
+        emit_coordination_receipt(
+            &client,
+            "stale_session_retirement",
+            &current_session,
+            current_effective_agent.clone(),
+            None,
+            None,
+            None,
+            runtime.as_ref().and_then(|config| config.project.clone()),
+            runtime.as_ref().and_then(|config| config.namespace.clone()),
+            runtime.as_ref().and_then(|config| config.workspace.clone()),
+            format!(
+                "Retired {} session record(s) for {} session {}.",
+                retired_sessions, stale_entry.presence, retire_session
+            ),
+        )
+        .await?;
+    }
+
     if let Some(recover_session) = args
         .recover_session
         .as_deref()
@@ -17340,16 +18001,26 @@ async fn run_coordination_command(
                 })
                 .await?;
         }
+        let retired_sessions = retire_hive_session_entry(
+            &client,
+            &stale_entry,
+            format!(
+                "recovered to {}",
+                destination.session.as_deref().unwrap_or("unknown")
+            ),
+        )
+        .await?;
         auto_checkpoint_bundle_event(
             &args.output,
             &current_base_url,
             "coordination",
             format!(
-                "Recovered {} claims and {} tasks from {} session {}.",
+                "Recovered {} claims and {} tasks from {} session {} and retired {} session record(s).",
                 recover_claims.len(),
                 recover_tasks.len(),
                 stale_entry.presence,
-                recover_session
+                recover_session,
+                retired_sessions
             ),
             vec![
                 "coordination".to_string(),
@@ -17371,11 +18042,12 @@ async fn run_coordination_command(
             runtime.as_ref().and_then(|config| config.namespace.clone()),
             runtime.as_ref().and_then(|config| config.workspace.clone()),
             format!(
-                "Recovered {} claims and {} tasks from {} session {}.",
+                "Recovered {} claims and {} tasks from {} session {} and retired {} session record(s).",
                 recover_claims.len(),
                 recover_tasks.len(),
                 stale_entry.presence,
-                recover_session
+                recover_session,
+                retired_sessions
             ),
         )
         .await?;
@@ -17502,6 +18174,17 @@ async fn run_coordination_command(
                     })
                 })
                 .collect(),
+            retireable_sessions: stale_hives
+                .iter()
+                .filter(|entry| {
+                    let session = entry.session.as_deref();
+                    !claims
+                        .iter()
+                        .any(|claim| claim.session.as_deref() == session)
+                        && !tasks.iter().any(|task| task.session.as_deref() == session)
+                })
+                .cloned()
+                .collect(),
         },
         policy_conflicts,
         suggestions,
@@ -17516,23 +18199,33 @@ async fn run_coordination_command(
 
 fn render_coordination_summary(response: &CoordinationResponse, view: Option<&str>) -> String {
     let view = view.unwrap_or("all");
+    let exclusive = response
+        .inbox
+        .owned_tasks
+        .iter()
+        .filter(|task| task.coordination_mode == "exclusive_write")
+        .count();
+    let shared = response.inbox.owned_tasks.len().saturating_sub(exclusive);
     let mut lines = vec![
         format!(
             "coordination bundle={} session={}",
             response.bundle_root, response.current_session
         ),
         format!(
-            "pressure messages={} owned={} help={} review={}",
+            "pressure messages={} owned={} help={} review={} exclusive={} shared={}",
             response.inbox.messages.len(),
             response.inbox.owned_tasks.len(),
             response.inbox.help_tasks.len(),
             response.inbox.review_tasks.len(),
+            exclusive,
+            shared,
         ),
         format!(
-            "recovery stale_hives={} reclaimable_claims={} stalled_tasks={}",
+            "recovery stale_hives={} reclaimable_claims={} stalled_tasks={} retireable_sessions={}",
             response.recovery.stale_hives.len(),
             response.recovery.reclaimable_claims.len(),
             response.recovery.stalled_tasks.len(),
+            response.recovery.retireable_sessions.len(),
         ),
         format!(
             "policy conflicts={} recommendations={} suggestions={} receipts={}",
@@ -17643,6 +18336,20 @@ fn suggest_coordination_actions(
                 .filter(|task| task.session.as_deref() == Some(stale_session))
                 .count();
             if reclaimable_claims == 0 && stalled_tasks == 0 {
+                let suggestion = CoordinationSuggestion {
+                    action: "retire_session".to_string(),
+                    priority: "medium".to_string(),
+                    target_session: None,
+                    task_id: None,
+                    scope: None,
+                    message_id: None,
+                    reason: format!(
+                        "Retire stale session {} because it holds no active claims or stalled tasks.",
+                        stale_session
+                    ),
+                    stale_session: Some(stale_session.to_string()),
+                };
+                push_unique(suggestion, &mut emitted, &mut suggestions);
                 continue;
             }
             let suggestion = CoordinationSuggestion {
@@ -18693,6 +19400,143 @@ fn write_bundle_eval_artifacts(output: &Path, response: &BundleEvalResponse) -> 
     Ok(())
 }
 
+fn maintain_reports_dir(output: &Path) -> PathBuf {
+    output.join("maintenance")
+}
+
+fn read_latest_maintain_report(output: &Path) -> anyhow::Result<Option<MaintainReport>> {
+    let path = maintain_reports_dir(output).join("latest.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let report = serde_json::from_str::<MaintainReport>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(report))
+}
+
+fn write_maintain_artifacts(output: &Path, response: &MaintainReport) -> anyhow::Result<()> {
+    let maintain_dir = maintain_reports_dir(output);
+    fs::create_dir_all(&maintain_dir)
+        .with_context(|| format!("create {}", maintain_dir.display()))?;
+
+    let timestamp = response.generated_at.format("%Y%m%dT%H%M%SZ").to_string();
+    let json = serde_json::to_string_pretty(response)? + "\n";
+    let markdown = format!(
+        "# memd maintain report\n\n- mode: {}\n- receipt: {}\n- compacted: {}\n- refreshed: {}\n- repaired: {}\n\n## Findings\n{}\n",
+        response.mode.as_str(),
+        response.receipt_id.as_deref().unwrap_or("none"),
+        response.compacted_items,
+        response.refreshed_items,
+        response.repaired_items,
+        if response.findings.is_empty() {
+            "- none".to_string()
+        } else {
+            response
+                .findings
+                .iter()
+                .map(|value| format!("- {}", value))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    );
+
+    let latest_json = maintain_dir.join("latest.json");
+    let latest_md = maintain_dir.join("latest.md");
+    let timestamped_json = maintain_dir.join(format!("{timestamp}.json"));
+    let timestamped_md = maintain_dir.join(format!("{timestamp}.md"));
+
+    fs::write(&latest_json, &json).with_context(|| format!("write {}", latest_json.display()))?;
+    fs::write(&latest_md, &markdown).with_context(|| format!("write {}", latest_md.display()))?;
+    fs::write(&timestamped_json, &json)
+        .with_context(|| format!("write {}", timestamped_json.display()))?;
+    fs::write(&timestamped_md, &markdown)
+        .with_context(|| format!("write {}", timestamped_md.display()))?;
+    Ok(())
+}
+
+async fn run_maintain_command(
+    args: &MaintainArgs,
+    base_url: &str,
+) -> anyhow::Result<MaintainReport> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let client = MemdClient::new(base_url)?;
+    let maintenance = client
+        .maintenance_report(&MemoryMaintenanceReportRequest {
+            project: runtime.as_ref().and_then(|value| value.project.clone()),
+            namespace: runtime.as_ref().and_then(|value| value.namespace.clone()),
+            inactive_days: Some(7),
+            lookback_days: Some(30),
+            min_events: Some(2),
+            max_decay: Some(0.5),
+            mode: Some(args.mode.clone()),
+            apply: Some(args.apply),
+        })
+        .await?;
+    let response = MaintainReport {
+        mode: args.mode.clone(),
+        receipt_id: maintenance.receipt_id.clone(),
+        compacted_items: if args.mode == "compact" {
+            maintenance
+                .compacted_items
+                .max(maintenance.consolidated_candidates)
+        } else {
+            maintenance.compacted_items
+        },
+        refreshed_items: if args.mode == "refresh" {
+            maintenance
+                .refreshed_items
+                .max(maintenance.reinforced_candidates)
+        } else {
+            maintenance.refreshed_items
+        },
+        repaired_items: if args.mode == "repair" {
+            maintenance
+                .repaired_items
+                .max(maintenance.cooled_candidates)
+        } else {
+            maintenance.repaired_items
+        },
+        findings: maintenance.highlights.clone(),
+        generated_at: maintenance.generated_at,
+    };
+    write_maintain_artifacts(&args.output, &response)?;
+    auto_checkpoint_bundle_event(
+        &args.output,
+        base_url,
+        "maintenance",
+        format!(
+            "Maintenance {} compacted={} refreshed={} repaired={} findings={}.",
+            response.mode.as_str(),
+            response.compacted_items,
+            response.refreshed_items,
+            response.repaired_items,
+            response.findings.len()
+        ),
+        vec!["maintenance".to_string(), response.mode.clone()],
+        0.78,
+    )
+    .await?;
+    Ok(response)
+}
+
+fn render_maintain_summary(response: &MaintainReport) -> String {
+    let findings = if response.findings.is_empty() {
+        "none".to_string()
+    } else {
+        response.findings.join(" | ")
+    };
+    format!(
+        "maintain mode={} receipt={} compacted={} refreshed={} repaired={} findings={}",
+        response.mode.as_str(),
+        response.receipt_id.as_deref().unwrap_or("none"),
+        response.compacted_items,
+        response.refreshed_items,
+        response.repaired_items,
+        findings
+    )
+}
+
 fn gap_reports_dir(output: &Path) -> PathBuf {
     output.join("gaps")
 }
@@ -18870,6 +19714,42 @@ fn build_improvement_actions(
                     &candidate.recommendation,
                 );
             }
+            "coordination:stale_remote_sessions" => {
+                if candidate
+                    .evidence
+                    .iter()
+                    .any(|value| value.starts_with("recovery=memd coordination --recover-session"))
+                {
+                    add(
+                        &mut actions,
+                        &mut seen,
+                        "recover_session",
+                        "high",
+                        None,
+                        None,
+                        None,
+                        None,
+                        &candidate.recommendation,
+                    );
+                }
+                if candidate
+                    .evidence
+                    .iter()
+                    .any(|value| value.starts_with("retirement=memd coordination --retire-session"))
+                {
+                    add(
+                        &mut actions,
+                        &mut seen,
+                        "retire_session",
+                        "medium",
+                        None,
+                        None,
+                        None,
+                        None,
+                        &candidate.recommendation,
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -18898,6 +19778,21 @@ fn build_improvement_actions(
                             &mut actions,
                             &mut seen,
                             "recover_session",
+                            &suggestion.priority,
+                            Some(session),
+                            None,
+                            None,
+                            None,
+                            &suggestion.reason,
+                        );
+                    }
+                }
+                "retire_session" => {
+                    if let Some(session) = suggestion.stale_session.clone() {
+                        add(
+                            &mut actions,
+                            &mut seen,
+                            "retire_session",
                             &suggestion.priority,
                             Some(session),
                             None,
@@ -19038,6 +19933,7 @@ async fn apply_improvement_action(
                     watch: false,
                     interval_secs: 30,
                     recover_session: action.target_session.clone(),
+                    retire_session: None,
                     to_session: None,
                     summary: false,
                 },
@@ -19046,6 +19942,31 @@ async fn apply_improvement_action(
             .await?;
             Ok(format!(
                 "recovered stale session pressure (stale_hives={})",
+                response.recovery.stale_hives.len()
+            ))
+        }
+        "retire_session" => {
+            let target_session = action
+                .target_session
+                .clone()
+                .context("retire_session requires a target_session")?;
+            let response = run_coordination_command(
+                &CoordinationArgs {
+                    output: output.to_path_buf(),
+                    view: Some("all".to_string()),
+                    changes_only: false,
+                    watch: false,
+                    interval_secs: 30,
+                    recover_session: None,
+                    retire_session: Some(target_session.clone()),
+                    to_session: None,
+                    summary: false,
+                },
+                base_url,
+            )
+            .await?;
+            Ok(format!(
+                "retired stale session {target_session} (stale_hives={})",
                 response.recovery.stale_hives.len()
             ))
         }
@@ -19818,6 +20739,7 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
                 watch: false,
                 interval_secs: 30,
                 recover_session: None,
+                retire_session: None,
                 to_session: None,
                 summary: false,
             },
@@ -19939,6 +20861,7 @@ async fn run_improvement_loop(
                     watch: false,
                     interval_secs: 30,
                     recover_session: None,
+                    retire_session: None,
                     to_session: None,
                     summary: false,
                 },
@@ -20184,6 +21107,7 @@ async fn run_scenario_command(
                 watch: false,
                 interval_secs: 30,
                 recover_session: None,
+                retire_session: None,
                 to_session: None,
                 summary: false,
             },
@@ -20785,6 +21709,7 @@ async fn run_composite_command(
                 watch: false,
                 interval_secs: 30,
                 recover_session: None,
+                retire_session: None,
                 to_session: None,
                 summary: false,
             },
@@ -21302,11 +22227,1193 @@ fn write_experiment_artifacts(output: &Path, response: &ExperimentReport) -> any
         .with_context(|| format!("write {}", timestamp_json.display()))?;
     fs::write(&timestamp_md, &markdown)
         .with_context(|| format!("write {}", timestamp_md.display()))?;
+    let proposal = build_evolution_proposal_report(response);
+    write_evolution_proposal_artifacts(output, &proposal)?;
+    let branch_manifest = create_or_update_evolution_branch(output, &proposal)?;
+    write_evolution_branch_artifacts(output, &branch_manifest)?;
+    append_evolution_durability_entry(output, &proposal)?;
+    append_evolution_authority_entry(output, &proposal)?;
+    append_evolution_merge_queue_entry(output, &proposal)?;
+    append_evolution_durability_queue_entry(output, &proposal)?;
+    process_evolution_queues(output)?;
     Ok(())
 }
 
 fn experiment_reports_dir(output: &Path) -> PathBuf {
     output.join("experiments")
+}
+
+fn evolution_reports_dir(output: &Path) -> PathBuf {
+    output.join("evolution")
+}
+
+fn evolution_durability_ledger_path(output: &Path) -> PathBuf {
+    evolution_reports_dir(output).join("durability-ledger.json")
+}
+
+fn evolution_authority_ledger_path(output: &Path) -> PathBuf {
+    evolution_reports_dir(output).join("authority-ledger.json")
+}
+
+fn evolution_merge_queue_path(output: &Path) -> PathBuf {
+    evolution_reports_dir(output).join("merge-queue.json")
+}
+
+fn evolution_durability_queue_path(output: &Path) -> PathBuf {
+    evolution_reports_dir(output).join("durability-queue.json")
+}
+
+fn write_evolution_proposal_artifacts(
+    output: &Path,
+    response: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let evolution_dir = evolution_reports_dir(output);
+    fs::create_dir_all(&evolution_dir)
+        .with_context(|| format!("create {}", evolution_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let baseline_json = evolution_dir.join("latest-proposal.json");
+    let timestamp_json = evolution_dir.join(format!("proposal-{timestamp}.json"));
+    let json = serde_json::to_string_pretty(response)? + "\n";
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    Ok(())
+}
+
+fn write_evolution_branch_artifacts(
+    output: &Path,
+    response: &EvolutionBranchManifest,
+) -> anyhow::Result<()> {
+    let evolution_dir = evolution_reports_dir(output);
+    fs::create_dir_all(&evolution_dir)
+        .with_context(|| format!("create {}", evolution_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let baseline_json = evolution_dir.join("latest-branch.json");
+    let timestamp_json = evolution_dir.join(format!("branch-{timestamp}.json"));
+    let json = serde_json::to_string_pretty(response)? + "\n";
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    Ok(())
+}
+
+fn read_latest_evolution_proposal(
+    output: &Path,
+) -> anyhow::Result<Option<EvolutionProposalReport>> {
+    let path = evolution_reports_dir(output).join("latest-proposal.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let report = serde_json::from_str::<EvolutionProposalReport>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(report))
+}
+
+fn read_latest_evolution_branch_manifest(
+    output: &Path,
+) -> anyhow::Result<Option<EvolutionBranchManifest>> {
+    let path = evolution_reports_dir(output).join("latest-branch.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let manifest = serde_json::from_str::<EvolutionBranchManifest>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(manifest))
+}
+
+fn read_evolution_durability_ledger(
+    output: &Path,
+) -> anyhow::Result<Option<EvolutionDurabilityLedger>> {
+    let path = evolution_durability_ledger_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let ledger = serde_json::from_str::<EvolutionDurabilityLedger>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(ledger))
+}
+
+fn read_evolution_authority_ledger(
+    output: &Path,
+) -> anyhow::Result<Option<EvolutionAuthorityLedger>> {
+    let path = evolution_authority_ledger_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let ledger = serde_json::from_str::<EvolutionAuthorityLedger>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(ledger))
+}
+
+fn read_evolution_merge_queue(output: &Path) -> anyhow::Result<Option<EvolutionMergeQueue>> {
+    let path = evolution_merge_queue_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let queue = serde_json::from_str::<EvolutionMergeQueue>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(queue))
+}
+
+fn read_evolution_durability_queue(
+    output: &Path,
+) -> anyhow::Result<Option<EvolutionDurabilityQueue>> {
+    let path = evolution_durability_queue_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let queue = serde_json::from_str::<EvolutionDurabilityQueue>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(queue))
+}
+
+fn write_evolution_merge_queue(output: &Path, queue: &EvolutionMergeQueue) -> anyhow::Result<()> {
+    let path = evolution_merge_queue_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(queue)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn write_evolution_durability_queue(
+    output: &Path,
+    queue: &EvolutionDurabilityQueue,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_queue_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(queue)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_durability_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_ledger_path(output);
+    let mut ledger = read_evolution_durability_ledger(output)?.unwrap_or_default();
+    ledger.entries.push(EvolutionDurabilityEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        branch_prefix: format!(
+            "auto/evolution/{}/{}",
+            branch_safe_slug(&proposal.scope_class),
+            branch_safe_slug(&proposal.topic)
+        ),
+        state: proposal.state.clone(),
+        scope_class: proposal.scope_class.clone(),
+        scope_gate: proposal.scope_gate.clone(),
+        merge_eligible: proposal.merge_eligible,
+        durable_truth: proposal.durable_truth,
+        recorded_at: proposal.generated_at,
+    });
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_authority_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let path = evolution_authority_ledger_path(output);
+    let mut ledger = read_evolution_authority_ledger(output)?.unwrap_or_default();
+    ledger.entries.push(EvolutionAuthorityEntry {
+        scope_class: proposal.scope_class.clone(),
+        authority_tier: proposal.authority_tier.clone(),
+        accepted: proposal.accepted,
+        merged: proposal.state == "merged" || proposal.state == "durable_truth",
+        durable_truth: proposal.durable_truth,
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        recorded_at: proposal.generated_at,
+    });
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_merge_queue_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let path = evolution_merge_queue_path(output);
+    let mut queue = read_evolution_merge_queue(output)?.unwrap_or_default();
+    queue.entries.push(EvolutionMergeQueueEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        scope_class: proposal.scope_class.clone(),
+        scope_gate: proposal.scope_gate.clone(),
+        authority_tier: proposal.authority_tier.clone(),
+        status: if proposal.merge_eligible {
+            "pending_merge".to_string()
+        } else {
+            "human_review".to_string()
+        },
+        merge_eligible: proposal.merge_eligible,
+        recorded_at: proposal.generated_at,
+    });
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&queue)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_durability_queue_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_queue_path(output);
+    let mut queue = read_evolution_durability_queue(output)?.unwrap_or_default();
+    queue.entries.push(EvolutionDurabilityQueueEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        state: proposal.state.clone(),
+        status: if proposal.state == "merged" || proposal.state == "durable_truth" {
+            "scheduled".to_string()
+        } else if !proposal.merge_eligible {
+            "human_review".to_string()
+        } else {
+            "waiting_for_merge".to_string()
+        },
+        due_at: proposal.durability_due_at,
+        recorded_at: proposal.generated_at,
+    });
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&queue)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn process_evolution_queues(output: &Path) -> anyhow::Result<()> {
+    process_evolution_merge_queue(output)?;
+    process_evolution_durability_queue(output)?;
+    Ok(())
+}
+
+fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
+    let Some(mut queue) = read_evolution_merge_queue(output)? else {
+        return Ok(());
+    };
+    let project_root = infer_bundle_project_root(output);
+    for entry in &mut queue.entries {
+        if entry.status == "merged" || entry.status == "human_review" && entry.authority_tier == "proposal_only" {
+            continue;
+        }
+        let Some(root) = project_root.as_ref() else {
+            entry.status = "blocked_no_project_root".to_string();
+            continue;
+        };
+        if git_worktree_dirty(root) {
+            entry.status = "blocked_dirty_worktree".to_string();
+            continue;
+        }
+        let Some(base_branch) = git_stdout(root, &["branch", "--show-current"]) else {
+            entry.status = "blocked_no_base".to_string();
+            continue;
+        };
+        if !git_branch_exists(root, &entry.branch) {
+            entry.status = "blocked_missing_branch".to_string();
+            continue;
+        }
+        if !git_branch_has_diff(root, &base_branch, &entry.branch) {
+            entry.status = "no_diff".to_string();
+            continue;
+        }
+        let evaluated_status = if entry.authority_tier == "proposal_only" {
+            "human_review".to_string()
+        } else {
+            "merge_ready".to_string()
+        };
+        if evaluated_status == "merge_ready" {
+            entry.status = execute_evolution_merge(output, root, entry, &base_branch)?;
+        } else {
+            entry.status = evaluated_status;
+        }
+    }
+    write_evolution_merge_queue(output, &queue)?;
+    Ok(())
+}
+
+fn process_evolution_durability_queue(output: &Path) -> anyhow::Result<()> {
+    let Some(mut queue) = read_evolution_durability_queue(output)? else {
+        return Ok(());
+    };
+    let merge_queue = read_evolution_merge_queue(output)?.unwrap_or_default();
+    for entry in &mut queue.entries {
+        if entry.status == "scheduled" {
+            entry.status = execute_evolution_durability_check(output, entry)?;
+            continue;
+        }
+        if matches!(entry.status.as_str(), "verified" | "regressed") {
+            continue;
+        }
+        let merge_status = merge_queue
+            .entries
+            .iter()
+            .rev()
+            .find(|candidate| candidate.proposal_id == entry.proposal_id)
+            .map(|candidate| candidate.status.as_str())
+            .unwrap_or("unknown");
+        entry.status = match merge_status {
+            "merge_ready" => "scheduled".to_string(),
+            "merged" => "scheduled".to_string(),
+            "human_review" => "human_review".to_string(),
+            "no_diff" => "no_diff".to_string(),
+            "blocked_dirty_worktree" => "blocked_dirty_worktree".to_string(),
+            "blocked_no_base" => "blocked_no_base".to_string(),
+            "blocked_missing_branch" => "blocked_missing_branch".to_string(),
+            _ => entry.status.clone(),
+        };
+    }
+    write_evolution_durability_queue(output, &queue)?;
+    Ok(())
+}
+
+fn execute_evolution_durability_check(
+    output: &Path,
+    entry: &EvolutionDurabilityQueueEntry,
+) -> anyhow::Result<String> {
+    let Some(due_at) = entry.due_at else {
+        return Ok("scheduled".to_string());
+    };
+    if due_at > Utc::now() {
+        return Ok("scheduled".to_string());
+    }
+    let Some(root) = infer_bundle_project_root(output) else {
+        return Ok("blocked_no_project_root".to_string());
+    };
+    if git_worktree_dirty(&root) {
+        return Ok("blocked_dirty_worktree".to_string());
+    }
+    if !git_branch_exists(&root, &entry.branch) {
+        return Ok("blocked_missing_branch".to_string());
+    }
+    if !git_branch_tip_ancestor_of_head(&root, &entry.branch) {
+        transition_evolution_proposal_state(output, &entry.proposal_id, "merged", false, Some(due_at))?;
+        transition_evolution_branch_state(output, &entry.proposal_id, "merged", false)?;
+        return Ok("regressed".to_string());
+    }
+    transition_evolution_proposal_state(output, &entry.proposal_id, "durable_truth", true, Some(due_at))?;
+    transition_evolution_branch_state(output, &entry.proposal_id, "durable_truth", true)?;
+    append_evolution_durability_transition_from_queue(output, entry, "durable_truth", true)?;
+    append_evolution_authority_transition_from_queue(output, entry, "durable_truth", true)?;
+    Ok("verified".to_string())
+}
+
+fn execute_evolution_merge(
+    output: &Path,
+    root: &Path,
+    entry: &EvolutionMergeQueueEntry,
+    base_branch: &str,
+) -> anyhow::Result<String> {
+    let current_branch = git_stdout(root, &["branch", "--show-current"]);
+    if current_branch.as_deref() != Some(base_branch) {
+        return Ok("blocked_wrong_base_branch".to_string());
+    }
+
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("merge")
+        .arg("--ff-only")
+        .arg(&entry.branch)
+        .status();
+    let Ok(status) = status else {
+        return Ok("merge_error".to_string());
+    };
+    if !status.success() {
+        return Ok("merge_conflict".to_string());
+    }
+
+    let due_at = Some(Utc::now() + chrono::TimeDelta::hours(1));
+    transition_evolution_proposal_state(output, &entry.proposal_id, "merged", false, due_at)?;
+    transition_evolution_branch_state(output, &entry.proposal_id, "merged", false)?;
+    append_evolution_durability_transition(output, entry, "merged", false)?;
+    append_evolution_authority_transition(output, entry, "merged", false)?;
+    Ok("merged".to_string())
+}
+
+fn transition_evolution_proposal_state(
+    output: &Path,
+    proposal_id: &str,
+    state: &str,
+    durable_truth: bool,
+    durability_due_at: Option<DateTime<Utc>>,
+) -> anyhow::Result<()> {
+    let Some(mut proposal) = read_latest_evolution_proposal(output)? else {
+        return Ok(());
+    };
+    if proposal.proposal_id != proposal_id {
+        return Ok(());
+    }
+    proposal.state = state.to_string();
+    proposal.durable_truth = durable_truth;
+    proposal.durability_due_at = durability_due_at;
+    write_evolution_proposal_artifacts(output, &proposal)?;
+    Ok(())
+}
+
+fn transition_evolution_branch_state(
+    output: &Path,
+    proposal_id: &str,
+    status: &str,
+    durable_truth: bool,
+) -> anyhow::Result<()> {
+    let Some(mut manifest) = read_latest_evolution_branch_manifest(output)? else {
+        return Ok(());
+    };
+    if manifest.proposal_id != proposal_id {
+        return Ok(());
+    }
+    manifest.status = status.to_string();
+    manifest.durable_truth = durable_truth;
+    write_evolution_branch_artifacts(output, &manifest)?;
+    Ok(())
+}
+
+fn append_evolution_durability_transition(
+    output: &Path,
+    entry: &EvolutionMergeQueueEntry,
+    state: &str,
+    durable_truth: bool,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_ledger_path(output);
+    let mut ledger = read_evolution_durability_ledger(output)?.unwrap_or_default();
+    ledger.entries.push(EvolutionDurabilityEntry {
+        proposal_id: entry.proposal_id.clone(),
+        branch: entry.branch.clone(),
+        branch_prefix: branch_prefix_from_branch_name(&entry.branch),
+        state: state.to_string(),
+        scope_class: entry.scope_class.clone(),
+        scope_gate: entry.scope_gate.clone(),
+        merge_eligible: entry.merge_eligible,
+        durable_truth,
+        recorded_at: Utc::now(),
+    });
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_authority_transition(
+    output: &Path,
+    entry: &EvolutionMergeQueueEntry,
+    state: &str,
+    durable_truth: bool,
+) -> anyhow::Result<()> {
+    let path = evolution_authority_ledger_path(output);
+    let mut ledger = read_evolution_authority_ledger(output)?.unwrap_or_default();
+    ledger.entries.push(EvolutionAuthorityEntry {
+        scope_class: entry.scope_class.clone(),
+        authority_tier: entry.authority_tier.clone(),
+        accepted: true,
+        merged: state == "merged" || state == "durable_truth",
+        durable_truth,
+        proposal_id: entry.proposal_id.clone(),
+        branch: entry.branch.clone(),
+        recorded_at: Utc::now(),
+    });
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_durability_transition_from_queue(
+    output: &Path,
+    entry: &EvolutionDurabilityQueueEntry,
+    state: &str,
+    durable_truth: bool,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_ledger_path(output);
+    let mut ledger = read_evolution_durability_ledger(output)?.unwrap_or_default();
+    let proposal = read_latest_evolution_proposal(output)?
+        .filter(|proposal| proposal.proposal_id == entry.proposal_id);
+    ledger.entries.push(EvolutionDurabilityEntry {
+        proposal_id: entry.proposal_id.clone(),
+        branch: entry.branch.clone(),
+        branch_prefix: branch_prefix_from_branch_name(&entry.branch),
+        state: state.to_string(),
+        scope_class: proposal
+            .as_ref()
+            .map(|value| value.scope_class.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        scope_gate: proposal
+            .as_ref()
+            .map(|value| value.scope_gate.clone())
+            .unwrap_or_else(|| "proposal_only".to_string()),
+        merge_eligible: proposal.as_ref().is_some_and(|value| value.merge_eligible),
+        durable_truth,
+        recorded_at: Utc::now(),
+    });
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn append_evolution_authority_transition_from_queue(
+    output: &Path,
+    entry: &EvolutionDurabilityQueueEntry,
+    state: &str,
+    durable_truth: bool,
+) -> anyhow::Result<()> {
+    let path = evolution_authority_ledger_path(output);
+    let mut ledger = read_evolution_authority_ledger(output)?.unwrap_or_default();
+    let proposal = read_latest_evolution_proposal(output)?
+        .filter(|proposal| proposal.proposal_id == entry.proposal_id);
+    ledger.entries.push(EvolutionAuthorityEntry {
+        scope_class: proposal
+            .as_ref()
+            .map(|value| value.scope_class.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        authority_tier: proposal
+            .as_ref()
+            .map(|value| value.authority_tier.clone())
+            .unwrap_or_else(default_evolution_authority_tier),
+        accepted: true,
+        merged: state == "merged" || state == "durable_truth",
+        durable_truth,
+        proposal_id: entry.proposal_id.clone(),
+        branch: entry.branch.clone(),
+        recorded_at: Utc::now(),
+    });
+    let json = serde_json::to_string_pretty(&ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn create_or_update_evolution_branch(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<EvolutionBranchManifest> {
+    let branch_prefix = format!(
+        "auto/evolution/{}/{}",
+        branch_safe_slug(&proposal.scope_class),
+        branch_safe_slug(&proposal.topic)
+    );
+    let Some(project_root) = infer_bundle_project_root(output) else {
+        return Ok(EvolutionBranchManifest {
+            proposal_id: proposal.proposal_id.clone(),
+            branch: proposal.branch.clone(),
+            branch_prefix,
+            project_root: None,
+            head_sha: None,
+            base_branch: None,
+            status: "no_project_root".to_string(),
+            merge_eligible: proposal.merge_eligible,
+            durable_truth: proposal.durable_truth,
+            scope_class: proposal.scope_class.clone(),
+            scope_gate: proposal.scope_gate.clone(),
+            generated_at: proposal.generated_at,
+            notes: vec!["bundle is not attached to a detectable project root".to_string()],
+        });
+    };
+
+    let head_sha = git_stdout(&project_root, &["rev-parse", "HEAD"]);
+    let base_branch = git_stdout(&project_root, &["branch", "--show-current"]);
+
+    if !proposal.accepted {
+        return Ok(EvolutionBranchManifest {
+            proposal_id: proposal.proposal_id.clone(),
+            branch: proposal.branch.clone(),
+            branch_prefix,
+            project_root: Some(display_path_nonempty(&project_root)),
+            head_sha,
+            base_branch,
+            status: "rejected".to_string(),
+            merge_eligible: proposal.merge_eligible,
+            durable_truth: proposal.durable_truth,
+            scope_class: proposal.scope_class.clone(),
+            scope_gate: proposal.scope_gate.clone(),
+            generated_at: proposal.generated_at,
+            notes: vec!["rejected proposals do not create evolution branches".to_string()],
+        });
+    }
+
+    let exists = Command::new("git")
+        .arg("-C")
+        .arg(&project_root)
+        .arg("show-ref")
+        .arg("--verify")
+        .arg(format!("refs/heads/{}", proposal.branch))
+        .output()
+        .ok()
+        .is_some_and(|output| output.status.success());
+
+    let status = if exists {
+        "existing".to_string()
+    } else {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C")
+            .arg(&project_root)
+            .arg("branch")
+            .arg(&proposal.branch);
+        if let Some(head) = head_sha.as_deref() {
+            cmd.arg(head);
+        }
+        match cmd.output() {
+            Ok(output) if output.status.success() => "created".to_string(),
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Ok(EvolutionBranchManifest {
+                    proposal_id: proposal.proposal_id.clone(),
+                    branch: proposal.branch.clone(),
+                    branch_prefix,
+                    project_root: Some(display_path_nonempty(&project_root)),
+                    head_sha,
+                    base_branch,
+                    status: "branch_error".to_string(),
+                    merge_eligible: proposal.merge_eligible,
+                    durable_truth: proposal.durable_truth,
+                    scope_class: proposal.scope_class.clone(),
+                    scope_gate: proposal.scope_gate.clone(),
+                    generated_at: proposal.generated_at,
+                    notes: vec![if stderr.is_empty() {
+                        "git branch creation failed".to_string()
+                    } else {
+                        stderr
+                    }],
+                });
+            }
+            Err(err) => {
+                return Ok(EvolutionBranchManifest {
+                    proposal_id: proposal.proposal_id.clone(),
+                    branch: proposal.branch.clone(),
+                    branch_prefix,
+                    project_root: Some(display_path_nonempty(&project_root)),
+                    head_sha,
+                    base_branch,
+                    status: "branch_error".to_string(),
+                    merge_eligible: proposal.merge_eligible,
+                    durable_truth: proposal.durable_truth,
+                    scope_class: proposal.scope_class.clone(),
+                    scope_gate: proposal.scope_gate.clone(),
+                    generated_at: proposal.generated_at,
+                    notes: vec![format!("git branch creation failed: {err}")],
+                });
+            }
+        }
+    };
+
+    Ok(EvolutionBranchManifest {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        branch_prefix,
+        project_root: Some(display_path_nonempty(&project_root)),
+        head_sha,
+        base_branch,
+        status,
+        merge_eligible: proposal.merge_eligible,
+        durable_truth: proposal.durable_truth,
+        scope_class: proposal.scope_class.clone(),
+        scope_gate: proposal.scope_gate.clone(),
+        generated_at: proposal.generated_at,
+        notes: vec!["evolution branch isolated from active working branch".to_string()],
+    })
+}
+
+fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn git_worktree_dirty(root: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .ok()
+        .is_some_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .filter_map(parse_git_status_path)
+                    .any(|path| !is_bundle_generated_path(&path))
+        })
+}
+
+fn parse_git_status_path(line: &str) -> Option<String> {
+    if line.len() < 4 {
+        return None;
+    }
+    let path = line.get(3..)?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    if let Some((_, renamed)) = path.split_once(" -> ") {
+        return Some(renamed.trim().to_string());
+    }
+    Some(path.to_string())
+}
+
+fn is_bundle_generated_path(path: &str) -> bool {
+    let normalized = path.trim_start_matches("./");
+    normalized == ".memd" || normalized.starts_with(".memd/") || normalized.contains("/.memd/")
+}
+
+fn branch_prefix_from_branch_name(branch: &str) -> String {
+    branch
+        .rsplit_once('/')
+        .map(|(prefix, _)| prefix.to_string())
+        .unwrap_or_else(|| branch.to_string())
+}
+
+fn git_branch_exists(root: &Path, branch: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("show-ref")
+        .arg("--verify")
+        .arg(format!("refs/heads/{branch}"))
+        .output()
+        .ok()
+        .is_some_and(|output| output.status.success())
+}
+
+fn git_branch_has_diff(root: &Path, base_branch: &str, branch: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("diff")
+        .arg("--quiet")
+        .arg(format!("{base_branch}..{branch}"))
+        .status()
+        .ok()
+        .is_some_and(|status| !status.success())
+}
+
+fn git_branch_tip_ancestor_of_head(root: &Path, branch: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(branch)
+        .arg("HEAD")
+        .status()
+        .ok()
+        .is_some_and(|status| status.success())
+}
+
+fn display_path_nonempty(path: &Path) -> String {
+    let rendered = path.display().to_string();
+    if rendered.is_empty() {
+        ".".to_string()
+    } else {
+        rendered
+    }
+}
+
+fn compute_evolution_authority_tier(output: &Path, scope_class: &str, scope_gate: &str) -> String {
+    if scope_gate != "auto_merge" {
+        return "proposal_only".to_string();
+    }
+    let recent = read_evolution_authority_ledger(output)
+        .ok()
+        .flatten()
+        .map(|ledger| {
+            ledger
+                .entries
+                .into_iter()
+                .filter(|entry| entry.scope_class == scope_class)
+                .rev()
+                .take(3)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if recent.len() >= 2 && recent.iter().take(2).any(|entry| !entry.accepted) {
+        return "proposal_only".to_string();
+    }
+    if recent.len() >= 3 && recent.iter().take(3).all(|entry| entry.durable_truth) {
+        return "durable_auto_merge".to_string();
+    }
+    "phase1_auto_merge".to_string()
+}
+
+fn default_evolution_authority_tier() -> String {
+    "proposal_only".to_string()
+}
+
+fn ensure_evolution_artifacts(output: &Path, report: &ExperimentReport) -> anyhow::Result<()> {
+    let proposal = if let Some(existing) = read_latest_evolution_proposal(output)? {
+        existing
+    } else {
+        let built = build_evolution_proposal_report(report);
+        write_evolution_proposal_artifacts(output, &built)?;
+        built
+    };
+    let existing_branch_manifest = read_latest_evolution_branch_manifest(output)?;
+    if !existing_branch_manifest
+        .as_ref()
+        .is_some_and(|manifest| !manifest.project_root.as_deref().unwrap_or("").is_empty())
+    {
+        let branch_manifest = create_or_update_evolution_branch(output, &proposal)?;
+        write_evolution_branch_artifacts(output, &branch_manifest)?;
+    }
+    if read_evolution_durability_ledger(output)?.is_none() {
+        append_evolution_durability_entry(output, &proposal)?;
+    }
+    if read_evolution_authority_ledger(output)?.is_none() {
+        append_evolution_authority_entry(output, &proposal)?;
+    }
+    if read_evolution_merge_queue(output)?.is_none() {
+        append_evolution_merge_queue_entry(output, &proposal)?;
+    }
+    if read_evolution_durability_queue(output)?.is_none() {
+        append_evolution_durability_queue_entry(output, &proposal)?;
+    }
+    process_evolution_queues(output)?;
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct EvolutionScopeAssessment {
+    topic: String,
+    scope_class: String,
+    scope_gate: String,
+    allowed_write_surface: Vec<String>,
+    scope_reasons: Vec<String>,
+}
+
+fn build_evolution_proposal_report(report: &ExperimentReport) -> EvolutionProposalReport {
+    let scope = classify_evolution_scope(report);
+    let branch = evolution_branch_name(&scope, report.completed_at);
+    let authority_tier = compute_evolution_authority_tier(
+        Path::new(&report.bundle_root),
+        &scope.scope_class,
+        &scope.scope_gate,
+    );
+    let merge_eligible =
+        report.accepted && scope.scope_gate == "auto_merge" && authority_tier != "proposal_only";
+    let prior_ledger = read_evolution_durability_ledger(Path::new(&report.bundle_root))
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let prior_merged = prior_ledger
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| entry.branch_prefix == evolution_branch_prefix(&scope))
+        .is_some_and(|entry| entry.state == "merged" || entry.state == "durable_truth");
+    let state = if !report.accepted {
+        "rejected".to_string()
+    } else if merge_eligible && prior_merged {
+        "durable_truth".to_string()
+    } else if merge_eligible && report.apply {
+        "merged".to_string()
+    } else {
+        "accepted_proposal".to_string()
+    };
+    let evidence = vec![
+        format!("accepted={}", report.accepted),
+        format!("restored={}", report.restored),
+        format!("scope_class={}", scope.scope_class),
+        format!("scope_gate={}", scope.scope_gate),
+        format!(
+            "composite_score={}/{}",
+            report.composite.score, report.composite.max_score
+        ),
+    ];
+    EvolutionProposalReport {
+        bundle_root: report.bundle_root.clone(),
+        project: report.project.clone(),
+        namespace: report.namespace.clone(),
+        agent: report.agent.clone(),
+        session: report.session.clone(),
+        workspace: report.workspace.clone(),
+        visibility: report.visibility.clone(),
+        proposal_id: format!(
+            "{}-{}",
+            canonical_slug(
+                report
+                    .composite
+                    .scenario
+                    .as_deref()
+                    .unwrap_or("self-evolution")
+            ),
+            report.completed_at.format("%Y%m%dT%H%M%SZ")
+        ),
+        scenario: report.composite.scenario.clone(),
+        topic: scope.topic,
+        branch,
+        state: state.clone(),
+        scope_class: scope.scope_class,
+        scope_gate: scope.scope_gate,
+        authority_tier,
+        allowed_write_surface: scope.allowed_write_surface,
+        merge_eligible,
+        durable_truth: state == "durable_truth",
+        accepted: report.accepted,
+        restored: report.restored,
+        composite_score: report.composite.score,
+        composite_max: report.composite.max_score,
+        evidence,
+        scope_reasons: scope.scope_reasons,
+        generated_at: report.completed_at,
+        durability_due_at: if state == "merged" {
+            Some(report.completed_at + chrono::TimeDelta::hours(1))
+        } else {
+            None
+        },
+    }
+}
+
+fn evolution_branch_name(scope: &EvolutionScopeAssessment, recorded_at: DateTime<Utc>) -> String {
+    format!(
+        "{}/{}",
+        evolution_branch_prefix(scope),
+        recorded_at.format("%Y%m%d%H%M%S")
+    )
+}
+
+fn evolution_branch_prefix(scope: &EvolutionScopeAssessment) -> String {
+    format!(
+        "auto/evolution/{}/{}",
+        branch_safe_slug(&scope.scope_class),
+        branch_safe_slug(&scope.topic)
+    )
+}
+
+fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessment {
+    let mut haystack = report.improvement.final_changes.join(" ").to_lowercase();
+    if !haystack.is_empty() {
+        haystack.push(' ');
+    }
+    haystack.push_str(&report.findings.join(" ").to_lowercase());
+    if !haystack.is_empty() {
+        haystack.push(' ');
+    }
+    haystack.push_str(&report.recommendations.join(" ").to_lowercase());
+    let topic_source = report
+        .improvement
+        .final_changes
+        .first()
+        .cloned()
+        .or_else(|| report.composite.scenario.clone())
+        .unwrap_or_else(|| "self-evolution".to_string());
+    let scenario = report.composite.scenario.as_deref().unwrap_or_default();
+    let docs_score = count_matches(
+        &haystack,
+        &["docs/", ".md", "spec", "manifest", "readme", "docs", "guide"],
+    );
+    let runtime_policy_score = count_matches(
+        &haystack,
+        &[
+            "threshold",
+            "floor",
+            "cutoff",
+            "gate",
+            "policy",
+            "prompt",
+            "weight",
+            "penalty",
+            "bonus",
+            "clamp",
+            "cap",
+            "tune",
+            "retune",
+            "calibrate",
+            "refresh cadence",
+        ],
+    );
+    let evaluation_score = count_matches(
+        &haystack,
+        &[
+            "evaluation",
+            "eval",
+            "score",
+            "scoring",
+            "scorer",
+            "grader",
+            "rubric",
+            "composite",
+            "dimension",
+            "signal",
+            "pass/fail",
+            "acceptance",
+            "readiness",
+            "judge",
+            "ranking",
+            "heuristic",
+            "review readiness",
+            "loop",
+        ],
+    );
+    let persistence_score = count_matches(
+        &haystack,
+        &[
+            "schema",
+            "migration",
+            "persist",
+            "sqlite",
+            "storage",
+            "database",
+            "ledger format",
+            "journal format",
+        ],
+    );
+    let coordination_score = count_matches(
+        &haystack,
+        &[
+            "coordination",
+            "claim",
+            "claims",
+            "task",
+            "tasks",
+            "hive",
+            "heartbeat",
+            "protocol",
+            "session roster",
+        ],
+    );
+    let api_score = count_matches(&haystack, &["api", "contract", "endpoint", "wire format"]);
+    let self_evolution_prior = usize::from(scenario == "self_evolution");
+
+    let (scope_class, scope_gate, allowed_write_surface, scope_reasons) = if persistence_score > 0 {
+        (
+            "persistence_semantics".to_string(),
+            "proposal_only".to_string(),
+            vec!["proposal-only".to_string()],
+            vec![format!("persistence semantics signal ({persistence_score})")],
+        )
+    } else if coordination_score > 0 {
+        (
+            "coordination_semantics".to_string(),
+            "proposal_only".to_string(),
+            vec!["proposal-only".to_string()],
+            vec![format!("coordination semantics signal ({coordination_score})")],
+        )
+    } else if api_score > 0 {
+        (
+            "api_contract".to_string(),
+            "proposal_only".to_string(),
+            vec!["proposal-only".to_string()],
+            vec![format!("api contract signal ({api_score})")],
+        )
+    } else if docs_score > 0 && runtime_policy_score == 0 && evaluation_score == 0 {
+        (
+            "docs_spec".to_string(),
+            "auto_merge".to_string(),
+            vec!["docs/**".to_string(), "*.md".to_string()],
+            vec![format!("docs/spec signal ({docs_score})")],
+        )
+    } else if runtime_policy_score > 0 && runtime_policy_score >= evaluation_score {
+        let mut reasons = vec![format!("runtime policy score={runtime_policy_score}")];
+        if self_evolution_prior > 0 {
+            reasons.push("self_evolution scenario prior".to_string());
+        }
+        (
+            "runtime_policy".to_string(),
+            "auto_merge".to_string(),
+            vec![
+                ".memd/**".to_string(),
+                "policy/**".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+            reasons,
+        )
+    } else if evaluation_score > 0 || self_evolution_prior > 0 {
+        let mut reasons = vec![format!(
+            "evaluation score={}",
+            evaluation_score + self_evolution_prior
+        )];
+        if self_evolution_prior > 0 {
+            reasons.push("self_evolution scenario prior".to_string());
+        }
+        (
+            "low_risk_evaluation_code".to_string(),
+            "auto_merge".to_string(),
+            vec!["crates/memd-client/src/main.rs".to_string()],
+            reasons,
+        )
+    } else if docs_score > 0 {
+        (
+            "docs_spec".to_string(),
+            "auto_merge".to_string(),
+            vec!["docs/**".to_string(), "*.md".to_string()],
+            vec![format!("docs/spec signal ({docs_score})")],
+        )
+    } else {
+        (
+            "broader_implementation".to_string(),
+            "proposal_only".to_string(),
+            vec!["proposal-only".to_string()],
+            vec!["scope unclear; keep on proposal branch".to_string()],
+        )
+    };
+
+    EvolutionScopeAssessment {
+        topic: canonical_slug(&topic_source),
+        scope_class,
+        scope_gate,
+        allowed_write_surface,
+        scope_reasons,
+    }
+}
+
+fn count_matches(haystack: &str, needles: &[&str]) -> usize {
+    needles.iter().filter(|needle| haystack.contains(**needle)).count()
+}
+
+fn branch_safe_slug(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_dash = false;
+    for ch in value.chars() {
+        let normalized = if ch.is_ascii_alphanumeric() {
+            ch.to_ascii_lowercase()
+        } else {
+            '-'
+        };
+        if normalized == '-' {
+            if !last_dash {
+                slug.push('-');
+            }
+            last_dash = true;
+        } else {
+            slug.push(normalized);
+            last_dash = false;
+        }
+    }
+    slug.trim_matches('-').to_string()
 }
 
 fn snapshot_bundle_for_reversion(output: &Path) -> anyhow::Result<PathBuf> {
@@ -21751,19 +23858,64 @@ fn build_gap_candidates(
             .filter(|entry| entry.project_dir == "remote")
             .filter(|entry| entry.presence == "stale" || entry.presence == "dead")
             .collect::<Vec<_>>();
-        if current_entry
-            .is_some_and(|entry| entry.presence == "active")
+        if current_entry.is_some_and(|entry| entry.presence == "active")
             && !stale_remote_sessions.is_empty()
         {
+            let recoverable_sessions = stale_remote_sessions
+                .iter()
+                .copied()
+                .filter(|entry| {
+                    let session = entry.session.as_deref();
+                    coordination.is_some_and(|value| {
+                        value
+                            .recovery
+                            .reclaimable_claims
+                            .iter()
+                            .any(|claim| claim.session.as_deref() == session)
+                            || value
+                                .recovery
+                                .stalled_tasks
+                                .iter()
+                                .any(|task| task.session.as_deref() == session)
+                    })
+                })
+                .collect::<Vec<_>>();
+            let retireable_sessions = stale_remote_sessions
+                .iter()
+                .copied()
+                .filter(|entry| {
+                    let session = entry.session.as_deref();
+                    !coordination.is_some_and(|value| {
+                        value
+                            .recovery
+                            .reclaimable_claims
+                            .iter()
+                            .any(|claim| claim.session.as_deref() == session)
+                            || value
+                                .recovery
+                                .stalled_tasks
+                                .iter()
+                                .any(|task| task.session.as_deref() == session)
+                    })
+                })
+                .collect::<Vec<_>>();
             let sessions = stale_remote_sessions
                 .iter()
                 .take(3)
                 .filter_map(|entry| entry.session.as_deref())
                 .collect::<Vec<_>>();
-            let recovery_hint = sessions
-                .first()
+            let recovery_hint = recoverable_sessions
+                .iter()
+                .filter_map(|entry| entry.session.as_deref())
+                .next()
                 .map(|session| format!("memd coordination --recover-session {session}"))
-                .unwrap_or_else(|| "memd coordination --recover-session <session>".to_string());
+                .unwrap_or_else(|| "none".to_string());
+            let retirement_hint = retireable_sessions
+                .iter()
+                .filter_map(|entry| entry.session.as_deref())
+                .next()
+                .map(|session| format!("memd coordination --retire-session {session}"))
+                .unwrap_or_else(|| "none".to_string());
             add(
                 &mut candidates,
                 "coordination",
@@ -21771,6 +23923,8 @@ fn build_gap_candidates(
                 87,
                 vec![
                     format!("stale remote sessions={}", stale_remote_sessions.len()),
+                    format!("recoverable sessions={}", recoverable_sessions.len()),
+                    format!("retireable sessions={}", retireable_sessions.len()),
                     format!(
                         "sessions={}",
                         if sessions.is_empty() {
@@ -21780,8 +23934,9 @@ fn build_gap_candidates(
                         }
                     ),
                     format!("recovery={recovery_hint}"),
+                    format!("retirement={retirement_hint}"),
                 ],
-                "recover the stale remote sessions or re-hive them before adding new claims",
+                "recover stale sessions with owned work and retire the rest before adding new claims",
             );
         }
     }
@@ -23599,6 +25754,109 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     } else {
         None
     };
+    let truth_summary = if output.join("config.json").exists() && health.is_some() {
+        let snapshot = read_bundle_resume(
+            &ResumeArgs {
+                output: output.to_path_buf(),
+                project: None,
+                namespace: None,
+                agent: None,
+                workspace: None,
+                visibility: None,
+                route: None,
+                intent: Some("current_task".to_string()),
+                limit: Some(4),
+                rehydration_limit: Some(2),
+                semantic: true,
+                prompt: false,
+                summary: false,
+            },
+            &resolved_base_url,
+        )
+        .await
+        .ok();
+        snapshot.map(|snapshot| serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null))
+    } else {
+        None
+    };
+    let current_project = runtime.as_ref().and_then(|config| config.project.clone());
+    let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let current_session = runtime.as_ref().and_then(|config| config.session.clone());
+    let cowork_surface = if health.is_some() {
+        let inbox = client
+            .hive_coordination_inbox(&HiveCoordinationInboxRequest {
+                session: current_session.clone().unwrap_or_default(),
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                limit: Some(128),
+            })
+            .await
+            .ok();
+        let tasks = client
+            .hive_tasks(&HiveTasksRequest {
+                session: None,
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                active_only: Some(false),
+                limit: Some(256),
+            })
+            .await
+            .ok();
+        match (inbox, tasks) {
+            (Some(inbox), Some(tasks)) => {
+                let exclusive = tasks
+                    .tasks
+                    .iter()
+                    .filter(|task| task.coordination_mode == "exclusive_write")
+                    .count();
+                let open = tasks
+                    .tasks
+                    .iter()
+                    .filter(|task| task.status != "done" && task.status != "closed")
+                    .count();
+                Some(serde_json::json!({
+                    "tasks": tasks.tasks.len(),
+                    "open_tasks": open,
+                    "help_tasks": tasks.tasks.iter().filter(|task| task.help_requested).count(),
+                    "review_tasks": tasks.tasks.iter().filter(|task| task.review_requested).count(),
+                    "exclusive_tasks": exclusive,
+                    "shared_tasks": tasks.tasks.len().saturating_sub(exclusive),
+                    "inbox_messages": inbox.messages.len(),
+                    "owned_tasks": inbox.owned_tasks.len(),
+                    "owned_exclusive_tasks": inbox
+                        .owned_tasks
+                        .iter()
+                        .filter(|task| task.coordination_mode == "exclusive_write")
+                        .count(),
+                    "owned_shared_tasks": inbox
+                        .owned_tasks
+                        .iter()
+                        .filter(|task| task.coordination_mode != "exclusive_write")
+                        .count(),
+                    "help_inbox": inbox.help_tasks.len(),
+                    "review_inbox": inbox.review_tasks.len(),
+                }))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let maintenance_surface = read_latest_maintain_report(output)?
+        .map(|report| {
+            serde_json::json!({
+                "mode": report.mode,
+                "receipt": report.receipt_id,
+                "compacted": report.compacted_items,
+                "refreshed": report.refreshed_items,
+                "repaired": report.repaired_items,
+                "findings": report.findings.len(),
+                "generated_at": report.generated_at,
+            })
+        });
     let rag_config = read_bundle_rag_config(output)?;
     let rag = match rag_config {
         Some(config) if config.enabled => {
@@ -23664,6 +25922,27 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                     .unwrap_or(false)
         })
         .unwrap_or(true);
+    let evolution = summarize_evolution_status(output)?;
+    let capability_registry =
+        build_bundle_capability_registry(std::env::current_dir().ok().as_deref());
+    let capability_surface = serde_json::json!({
+        "discovered": capability_registry.capabilities.len(),
+        "universal": capability_registry
+            .capabilities
+            .iter()
+            .filter(|record| is_universal_class(&record.portability_class))
+            .count(),
+        "bridgeable": capability_registry
+            .capabilities
+            .iter()
+            .filter(|record| is_bridgeable_class(&record.portability_class))
+            .count(),
+        "harness_native": capability_registry
+            .capabilities
+            .iter()
+            .filter(|record| is_harness_native_class(&record.portability_class))
+            .count(),
+    });
     let bridge_ready = harness_bridge.all_wired;
     let setup_ready = output.exists()
         && missing.is_empty()
@@ -23744,6 +26023,11 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "last_seen": value.last_seen,
         })),
         "resume_preview": resume_preview,
+        "truth_summary": truth_summary,
+        "evolution": evolution,
+        "cowork_surface": cowork_surface,
+        "maintenance_surface": maintenance_surface,
+        "capability_surface": capability_surface,
         "server": health,
         "rag": rag.unwrap_or_else(|| serde_json::json!({
             "configured": false,
@@ -23751,6 +26035,50 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "healthy": null,
         })),
     }))
+}
+
+fn summarize_evolution_status(output: &Path) -> anyhow::Result<Option<serde_json::Value>> {
+    let proposal = read_latest_evolution_proposal(output)?;
+    let branch_manifest = read_latest_evolution_branch_manifest(output)?;
+    let authority = read_evolution_authority_ledger(output)?;
+    let merge_queue = read_evolution_merge_queue(output)?;
+    let durability_queue = read_evolution_durability_queue(output)?;
+
+    if proposal.is_none()
+        && branch_manifest.is_none()
+        && authority.is_none()
+        && merge_queue.is_none()
+        && durability_queue.is_none()
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(serde_json::json!({
+        "proposal_state": proposal.as_ref().map(|value| value.state.clone()).unwrap_or_else(|| "none".to_string()),
+        "scope_class": proposal.as_ref().map(|value| value.scope_class.clone()).unwrap_or_else(|| "none".to_string()),
+        "scope_gate": proposal.as_ref().map(|value| value.scope_gate.clone()).unwrap_or_else(|| "none".to_string()),
+        "authority_tier": proposal
+            .as_ref()
+            .map(|value| value.authority_tier.clone())
+            .or_else(|| authority.as_ref().and_then(|ledger| ledger.entries.last()).map(|entry| entry.authority_tier.clone()))
+            .unwrap_or_else(|| "none".to_string()),
+        "merge_status": merge_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        "durability_status": durability_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        "branch": proposal
+            .as_ref()
+            .map(|value| value.branch.clone())
+            .or_else(|| branch_manifest.as_ref().map(|value| value.branch.clone()))
+            .unwrap_or_else(|| "none".to_string()),
+        "durable_truth": proposal.as_ref().is_some_and(|value| value.durable_truth),
+    })))
 }
 
 fn read_memd_runtime_wiring() -> serde_json::Value {
@@ -24812,7 +27140,10 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .take(3)
         .collect::<Vec<_>>();
     let superseded_stale_suffix = if superseded_stale_count > superseded_stale_session_ids.len() {
-        format!(" +{}", superseded_stale_count - superseded_stale_session_ids.len())
+        format!(
+            " +{}",
+            superseded_stale_count - superseded_stale_session_ids.len()
+        )
     } else {
         String::new()
     };
@@ -27881,6 +30212,40 @@ struct ResumeSnapshot {
     refresh_recommended: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RetrievalTier {
+    Hot,
+    Working,
+    Rehydration,
+    Evidence,
+    RawFallback,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TruthRecordSummary {
+    lane: String,
+    truth: String,
+    freshness: String,
+    retrieval_tier: RetrievalTier,
+    confidence: f32,
+    provenance: String,
+    preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TruthSummary {
+    retrieval_tier: RetrievalTier,
+    truth: String,
+    freshness: String,
+    confidence: f32,
+    action_hint: String,
+    source_count: usize,
+    contested_sources: usize,
+    compact_records: usize,
+    records: Vec<TruthRecordSummary>,
+}
+
 impl ResumeSnapshot {
     fn memory_pressure_drivers(&self) -> Vec<&'static str> {
         let mut drivers = Vec::new();
@@ -28315,6 +30680,176 @@ impl ResumeSnapshot {
     }
 }
 
+fn truth_freshness_label(snapshot: &ResumeSnapshot) -> String {
+    match snapshot.resume_state_age_minutes {
+        Some(minutes) if minutes >= 90 || snapshot.refresh_recommended => "stale".to_string(),
+        Some(minutes) if minutes >= 30 => "aging".to_string(),
+        _ if snapshot.refresh_recommended => "stale".to_string(),
+        _ => "fresh".to_string(),
+    }
+}
+
+fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
+    if snapshot.refresh_recommended {
+        "aging".to_string()
+    } else if snapshot.redundant_context_items() > 0 {
+        "contested".to_string()
+    } else if !snapshot.event_spine().is_empty() {
+        "current".to_string()
+    } else if !snapshot.compact_working_records().is_empty() {
+        "working".to_string()
+    } else {
+        "fallback".to_string()
+    }
+}
+
+fn choose_retrieval_tier(snapshot: &ResumeSnapshot) -> RetrievalTier {
+    if !snapshot.event_spine().is_empty() {
+        RetrievalTier::Hot
+    } else if !snapshot.compact_working_records().is_empty() || !snapshot.compact_context_records().is_empty() {
+        RetrievalTier::Working
+    } else if !snapshot.compact_rehydration_summaries().is_empty() {
+        RetrievalTier::Rehydration
+    } else if !snapshot.compact_semantic_items().is_empty() {
+        RetrievalTier::Evidence
+    } else {
+        RetrievalTier::RawFallback
+    }
+}
+
+fn top_source_provenance(snapshot: &ResumeSnapshot) -> String {
+    snapshot
+        .sources
+        .sources
+        .iter()
+        .max_by(|left, right| left.trust_score.total_cmp(&right.trust_score))
+        .map(|source| {
+            ResumeSnapshot::source_label(
+                source.source_agent.as_deref(),
+                source.source_system.as_deref(),
+                None,
+            )
+        })
+        .unwrap_or_else(|| "bundle / compact".to_string())
+}
+
+fn top_source_confidence(snapshot: &ResumeSnapshot) -> f32 {
+    snapshot
+        .sources
+        .sources
+        .iter()
+        .map(|source| source.avg_confidence)
+        .max_by(|left, right| left.total_cmp(right))
+        .unwrap_or(0.92)
+}
+
+fn build_truth_record_summary(
+    lane: &str,
+    truth: &str,
+    freshness: &str,
+    retrieval_tier: RetrievalTier,
+    confidence: f32,
+    provenance: &str,
+    preview: &str,
+) -> TruthRecordSummary {
+    TruthRecordSummary {
+        lane: lane.to_string(),
+        truth: truth.to_string(),
+        freshness: freshness.to_string(),
+        retrieval_tier,
+        confidence,
+        provenance: provenance.to_string(),
+        preview: compact_inline(preview, 120),
+    }
+}
+
+fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
+    let freshness = truth_freshness_label(snapshot);
+    let truth = truth_status_label(snapshot);
+    let retrieval_tier = choose_retrieval_tier(snapshot);
+    let provenance = top_source_provenance(snapshot);
+    let confidence = top_source_confidence(snapshot);
+    let mut records = Vec::new();
+
+    if let Some(event) = snapshot.event_spine().first() {
+        records.push(build_truth_record_summary(
+            "live_truth",
+            "current",
+            &freshness,
+            RetrievalTier::Hot,
+            confidence.max(0.95),
+            "event_spine / compact",
+            event,
+        ));
+    }
+    if let Some(record) = snapshot.compact_working_records().first() {
+        records.push(build_truth_record_summary(
+            "working_set",
+            if snapshot.redundant_context_items() > 0 { "contested" } else { "working" },
+            &freshness,
+            RetrievalTier::Working,
+            confidence,
+            &provenance,
+            record,
+        ));
+    }
+    if let Some(item) = snapshot.compact_rehydration_summaries().first() {
+        records.push(build_truth_record_summary(
+            "rehydration",
+            "pending",
+            &freshness,
+            RetrievalTier::Rehydration,
+            (confidence - 0.08).max(0.5),
+            "rehydration / deferred",
+            item,
+        ));
+    }
+    if let Some(item) = snapshot.compact_semantic_items().first() {
+        records.push(build_truth_record_summary(
+            "evidence",
+            "evidence",
+            &freshness,
+            RetrievalTier::Evidence,
+            confidence,
+            &provenance,
+            item,
+        ));
+    }
+    if let Some(item) = snapshot.compact_inbox_items().first() {
+        records.push(build_truth_record_summary(
+            "inbox",
+            "candidate",
+            &freshness,
+            RetrievalTier::Working,
+            (confidence - 0.12).max(0.45),
+            "inbox / unmerged",
+            item,
+        ));
+    }
+
+    records.truncate(4);
+
+    TruthSummary {
+        retrieval_tier,
+        truth,
+        freshness,
+        confidence,
+        action_hint: snapshot.memory_action_hint().to_string(),
+        source_count: snapshot.sources.sources.len(),
+        contested_sources: snapshot
+            .sources
+            .sources
+            .iter()
+            .filter(|source| source.contested_count > 0)
+            .count(),
+        compact_records: snapshot.compact_context_records().len()
+            + snapshot.compact_working_records().len()
+            + snapshot.compact_rehydration_summaries().len()
+            + snapshot.compact_inbox_items().len(),
+        records,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HandoffSnapshot {
     generated_at: DateTime<Utc>,
@@ -28510,6 +31045,121 @@ struct ExperimentReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionProposalReport {
+    bundle_root: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    workspace: Option<String>,
+    visibility: Option<String>,
+    proposal_id: String,
+    scenario: Option<String>,
+    topic: String,
+    branch: String,
+    state: String,
+    scope_class: String,
+    scope_gate: String,
+    #[serde(default = "default_evolution_authority_tier")]
+    authority_tier: String,
+    allowed_write_surface: Vec<String>,
+    merge_eligible: bool,
+    durable_truth: bool,
+    accepted: bool,
+    restored: bool,
+    composite_score: u8,
+    composite_max: u8,
+    evidence: Vec<String>,
+    scope_reasons: Vec<String>,
+    generated_at: DateTime<Utc>,
+    durability_due_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionDurabilityEntry {
+    proposal_id: String,
+    branch: String,
+    branch_prefix: String,
+    state: String,
+    scope_class: String,
+    scope_gate: String,
+    merge_eligible: bool,
+    durable_truth: bool,
+    recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct EvolutionDurabilityLedger {
+    entries: Vec<EvolutionDurabilityEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionBranchManifest {
+    proposal_id: String,
+    branch: String,
+    branch_prefix: String,
+    project_root: Option<String>,
+    head_sha: Option<String>,
+    base_branch: Option<String>,
+    status: String,
+    merge_eligible: bool,
+    durable_truth: bool,
+    scope_class: String,
+    scope_gate: String,
+    generated_at: DateTime<Utc>,
+    notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionAuthorityEntry {
+    scope_class: String,
+    authority_tier: String,
+    accepted: bool,
+    merged: bool,
+    durable_truth: bool,
+    proposal_id: String,
+    branch: String,
+    recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct EvolutionAuthorityLedger {
+    entries: Vec<EvolutionAuthorityEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionMergeQueueEntry {
+    proposal_id: String,
+    branch: String,
+    scope_class: String,
+    scope_gate: String,
+    authority_tier: String,
+    status: String,
+    merge_eligible: bool,
+    recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct EvolutionMergeQueue {
+    entries: Vec<EvolutionMergeQueueEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvolutionDurabilityQueueEntry {
+    proposal_id: String,
+    branch: String,
+    state: String,
+    status: String,
+    due_at: Option<DateTime<Utc>>,
+    recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct EvolutionDurabilityQueue {
+    entries: Vec<EvolutionDurabilityQueueEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GapReport {
     bundle_root: String,
     project: Option<String>,
@@ -28673,6 +31323,21 @@ struct MessagesResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct SessionResponse {
+    action: String,
+    bundle_root: String,
+    bundle_session: Option<String>,
+    live_session: Option<String>,
+    rebased_from: Option<String>,
+    tab_id: Option<String>,
+    reconciled: bool,
+    reconciled_retired_sessions: usize,
+    retired_sessions: usize,
+    retire_target: Option<String>,
+    heartbeat: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct TasksResponse {
     bundle_root: String,
     current_session: Option<String>,
@@ -28696,6 +31361,7 @@ struct CoordinationRecoverySummary {
     stale_hives: Vec<ProjectAwarenessEntry>,
     reclaimable_claims: Vec<SessionClaim>,
     stalled_tasks: Vec<HiveTaskRecord>,
+    retireable_sessions: Vec<ProjectAwarenessEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -29017,6 +31683,9 @@ mod tests {
         stored: Arc<Mutex<Vec<memd_schema::StoreMemoryRequest>>>,
         repaired: Arc<Mutex<Vec<memd_schema::RepairMemoryRequest>>>,
         session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
+        session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
+        session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
+        task_records: Arc<Mutex<Vec<HiveTaskRecord>>>,
         search_count: Arc<Mutex<usize>>,
         source_requests: Arc<Mutex<Vec<memd_schema::SourceMemoryRequest>>>,
         context_compact_response: Arc<Mutex<Option<memd_schema::CompactContextResponse>>>,
@@ -29359,6 +32028,125 @@ mod tests {
         })
     }
 
+    async fn mock_maintenance_report(
+        Query(req): Query<MemoryMaintenanceReportRequest>,
+    ) -> Json<memd_schema::MemoryMaintenanceReportResponse> {
+        let mode = req.mode.unwrap_or_else(|| "scan".to_string());
+        Json(memd_schema::MemoryMaintenanceReportResponse {
+            reinforced_candidates: 2,
+            cooled_candidates: 1,
+            consolidated_candidates: 3,
+            stale_items: 4,
+            skipped: 1,
+            highlights: vec!["memory maintenance mock".to_string()],
+            receipt_id: Some(uuid::Uuid::new_v4().to_string()),
+            mode: Some(mode.clone()),
+            compacted_items: if mode == "compact" { 3 } else { 0 },
+            refreshed_items: if mode == "refresh" { 2 } else { 0 },
+            repaired_items: if mode == "repair" { 1 } else { 0 },
+            generated_at: Utc::now(),
+        })
+    }
+
+    async fn mock_hive_tasks(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<HiveTasksRequest>,
+    ) -> Json<memd_schema::HiveTasksResponse> {
+        let tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .iter()
+            .filter(|task| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|project| task.project.as_ref() == Some(project))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| task.namespace.as_ref() == Some(namespace))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| task.workspace.as_ref() == Some(workspace))
+                    && req
+                        .session
+                        .as_ref()
+                        .is_none_or(|session| task.session.as_ref() == Some(session))
+                    && (!req.active_only.unwrap_or(false)
+                        || (task.status != "done" && task.status != "closed"))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveTasksResponse { tasks })
+    }
+
+    async fn mock_hive_coordination_inbox(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<HiveCoordinationInboxRequest>,
+    ) -> Json<HiveCoordinationInboxResponse> {
+        let tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .clone();
+        let owned_tasks = tasks
+            .iter()
+            .filter(|task| task.session.as_deref() == Some(req.session.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let help_tasks = tasks
+            .iter()
+            .filter(|task| task.help_requested)
+            .cloned()
+            .collect::<Vec<_>>();
+        let review_tasks = tasks
+            .iter()
+            .filter(|task| task.review_requested)
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(HiveCoordinationInboxResponse {
+            messages: vec![HiveMessageRecord {
+                id: "msg-1".to_string(),
+                kind: "help_request".to_string(),
+                from_session: "codex-b".to_string(),
+                from_agent: Some("codex@codex-b".to_string()),
+                to_session: req.session,
+                project: req.project,
+                namespace: req.namespace,
+                workspace: req.workspace,
+                content: "Need help on shared task".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            }],
+            owned_tasks,
+            help_tasks,
+            review_tasks,
+        })
+    }
+
+    async fn mock_runtime_maintain(
+        Json(req): Json<memd_schema::MaintainReportRequest>,
+    ) -> Json<MaintainReport> {
+        let mode = req.mode.clone();
+        Json(MaintainReport {
+            mode: mode.clone(),
+            receipt_id: Some(uuid::Uuid::new_v4().to_string()),
+            compacted_items: if mode == "compact" { 3 } else { 1 },
+            refreshed_items: if mode == "refresh" { 2 } else { 0 },
+            repaired_items: if mode == "repair" { 1 } else { 0 },
+            findings: vec![
+                format!("memory maintain mode={mode}"),
+                if req.apply {
+                    "apply requested".to_string()
+                } else {
+                    "scan only".to_string()
+                },
+            ],
+            generated_at: Utc::now(),
+        })
+    }
+
     async fn mock_skill_policy_activations(
         State(state): State<MockHiveState>,
         Query(req): Query<SkillPolicyActivationEntriesRequest>,
@@ -29617,33 +32405,125 @@ mod tests {
             .lock()
             .expect("lock session upserts")
             .push(req.clone());
+        let record = memd_schema::HiveSessionRecord {
+            session: req.session,
+            tab_id: req.tab_id,
+            agent: req.agent,
+            effective_agent: req.effective_agent,
+            hive_system: req.hive_system,
+            hive_role: req.hive_role,
+            capabilities: req.capabilities,
+            hive_groups: req.hive_groups,
+            hive_group_goal: req.hive_group_goal,
+            authority: req.authority,
+            heartbeat_model: req.heartbeat_model,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            visibility: req.visibility,
+            base_url: req.base_url,
+            base_url_healthy: req.base_url_healthy,
+            host: req.host,
+            pid: req.pid,
+            focus: req.focus,
+            pressure: req.pressure,
+            next_recovery: req.next_recovery,
+            status: req.status.unwrap_or_else(|| "live".to_string()),
+            last_seen: Utc::now(),
+        };
+        {
+            let mut records = state.session_records.lock().expect("lock session records");
+            records.push(record.clone());
+        }
         Json(memd_schema::HiveSessionsResponse {
-            sessions: vec![memd_schema::HiveSessionRecord {
-                session: req.session,
-                tab_id: req.tab_id,
-                agent: req.agent,
-                effective_agent: req.effective_agent,
-                hive_system: req.hive_system,
-                hive_role: req.hive_role,
-                capabilities: req.capabilities,
-                hive_groups: req.hive_groups,
-                hive_group_goal: req.hive_group_goal,
-                authority: req.authority,
-                heartbeat_model: req.heartbeat_model,
-                project: req.project,
-                namespace: req.namespace,
-                workspace: req.workspace,
-                visibility: req.visibility,
-                base_url: req.base_url,
-                base_url_healthy: req.base_url_healthy,
-                host: req.host,
-                pid: req.pid,
-                focus: req.focus,
-                pressure: req.pressure,
-                next_recovery: req.next_recovery,
-                status: req.status.unwrap_or_else(|| "live".to_string()),
-                last_seen: Utc::now(),
-            }],
+            sessions: vec![record],
+        })
+    }
+
+    async fn mock_hive_sessions(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveSessionsRequest>,
+    ) -> Json<memd_schema::HiveSessionsResponse> {
+        let sessions = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .filter(|record| {
+                req.session
+                    .as_ref()
+                    .is_none_or(|value| record.session == *value)
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|value| record.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveSessionsResponse { sessions })
+    }
+
+    async fn mock_hive_session_retire(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<memd_schema::HiveSessionRetireRequest>,
+    ) -> Json<memd_schema::HiveSessionRetireResponse> {
+        state
+            .session_retires
+            .lock()
+            .expect("lock session retires")
+            .push(req.clone());
+        let mut records = state.session_records.lock().expect("lock session records");
+        let mut retired = Vec::new();
+        records.retain(|record| {
+            let matches = record.session == req.session
+                && req
+                    .project
+                    .as_ref()
+                    .is_none_or(|value| record.project.as_ref() == Some(value))
+                && req
+                    .namespace
+                    .as_ref()
+                    .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                && req
+                    .workspace
+                    .as_ref()
+                    .is_none_or(|value| record.workspace.as_ref() == Some(value))
+                && req
+                    .agent
+                    .as_ref()
+                    .is_none_or(|value| record.agent.as_ref() == Some(value))
+                && req
+                    .effective_agent
+                    .as_ref()
+                    .is_none_or(|value| record.effective_agent.as_ref() == Some(value))
+                && req
+                    .hive_system
+                    .as_ref()
+                    .is_none_or(|value| record.hive_system.as_ref() == Some(value))
+                && req
+                    .hive_role
+                    .as_ref()
+                    .is_none_or(|value| record.hive_role.as_ref() == Some(value))
+                && req
+                    .host
+                    .as_ref()
+                    .is_none_or(|value| record.host.as_ref() == Some(value));
+            if matches {
+                retired.push(record.clone());
+            }
+            !matches
+        });
+        Json(memd_schema::HiveSessionRetireResponse {
+            retired: retired.len(),
+            sessions: retired,
         })
     }
 
@@ -29676,6 +32556,8 @@ mod tests {
             .route("/memory/working", get(mock_working_memory))
             .route("/memory/inbox", get(mock_inbox))
             .route("/memory/workspaces", get(mock_workspace_memory))
+            .route("/memory/maintenance/report", get(mock_maintenance_report))
+            .route("/runtime/maintain", post(mock_runtime_maintain))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -29702,11 +32584,20 @@ mod tests {
             .route("/memory/working", get(mock_working_memory))
             .route("/memory/inbox", get(mock_inbox))
             .route("/memory/workspaces", get(mock_workspace_memory))
+            .route("/memory/maintenance/report", get(mock_maintenance_report))
+            .route("/runtime/maintain", post(mock_runtime_maintain))
             .route("/memory/source", get(mock_source_memory))
             .route("/memory/search", post(mock_search_memory))
             .route("/memory/store", post(mock_store_memory))
             .route("/memory/repair", post(mock_repair_memory))
+            .route("/coordination/inbox", get(mock_hive_coordination_inbox))
+            .route("/coordination/tasks", get(mock_hive_tasks))
             .route("/coordination/sessions/upsert", hive_route)
+            .route("/coordination/sessions", get(mock_hive_sessions))
+            .route(
+                "/coordination/sessions/retire",
+                post(mock_hive_session_retire),
+            )
             .with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -33190,9 +36081,7 @@ mod tests {
             )
         );
         assert!(summary.contains("active_hive_sessions:"));
-        assert!(summary.contains(
-            "sibling [hive-session] | presence=active truth=fresh"
-        ));
+        assert!(summary.contains("sibling [hive-session] | presence=active truth=fresh"));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
         assert!(summary.contains("tab=tab-a"));
@@ -34624,6 +37513,137 @@ mod tests {
         fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         let state = MockRuntimeState::default();
+        {
+            let mut tasks = state.task_records.lock().expect("lock task records");
+            tasks.push(HiveTaskRecord {
+                task_id: "task-1".to_string(),
+                title: "exclusive task".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["src/main.rs".to_string()],
+                help_requested: true,
+                review_requested: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+            tasks.push(HiveTaskRecord {
+                task_id: "task-2".to_string(),
+                title: "review task".to_string(),
+                description: None,
+                status: "needs_review".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("codex-b".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: Vec::new(),
+                help_requested: false,
+                review_requested: true,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        }
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+        fs::write(dir.join("env.ps1"), "$env:MEMD_BASE_URL='test'\n").expect("write env ps1");
+        write_maintain_artifacts(
+            &dir,
+            &MaintainReport {
+                mode: "compact".to_string(),
+                receipt_id: Some("receipt-1".to_string()),
+                compacted_items: 3,
+                refreshed_items: 1,
+                repaired_items: 0,
+                findings: vec!["trimmed stale memory".to_string()],
+                generated_at: Utc::now(),
+            },
+        )
+        .expect("write maintenance artifact");
+
+        let status = read_bundle_status(&dir, SHARED_MEMD_BASE_URL)
+            .await
+            .expect("status via runtime base url");
+        assert_eq!(
+            status
+                .get("server")
+                .and_then(|value| value.get("status"))
+                .and_then(|value| value.as_str()),
+            Some("ok")
+        );
+        assert_eq!(
+            status
+                .get("server")
+                .and_then(|value| value.get("items"))
+                .and_then(|value| value.as_u64()),
+            Some(1)
+        );
+        assert!(status
+            .get("capability_surface")
+            .and_then(|value| value.get("discovered"))
+            .and_then(|value| value.as_u64())
+            .is_some());
+        assert_eq!(
+            status
+                .get("cowork_surface")
+                .and_then(|value| value.get("tasks"))
+                .and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert_eq!(
+            status
+                .get("cowork_surface")
+                .and_then(|value| value.get("inbox_messages"))
+                .and_then(|value| value.as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            status
+                .get("maintenance_surface")
+                .and_then(|value| value.get("mode"))
+                .and_then(|value| value.as_str()),
+            Some("compact")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup status dir");
+    }
+
+    #[tokio::test]
+    async fn read_bundle_status_emits_truth_summary() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-status-truth-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
+        fs::create_dir_all(dir.join("agents")).expect("create agents dir");
+        let state = MockRuntimeState::default();
         let base_url = spawn_mock_runtime_server(state, false).await;
         fs::write(
             dir.join("config.json"),
@@ -34652,19 +37672,76 @@ mod tests {
         let status = read_bundle_status(&dir, SHARED_MEMD_BASE_URL)
             .await
             .expect("status via runtime base url");
+        let truth = status.get("truth_summary").expect("truth summary present");
         assert_eq!(
-            status
-                .get("server")
-                .and_then(|value| value.get("status"))
-                .and_then(|value| value.as_str()),
-            Some("ok")
+            truth.get("retrieval_tier").and_then(JsonValue::as_str),
+            Some("working")
+        );
+        assert!(truth
+            .get("records")
+            .and_then(JsonValue::as_array)
+            .is_some_and(|records| !records.is_empty()));
+        assert!(truth
+            .get("source_count")
+            .and_then(JsonValue::as_u64)
+            .is_some());
+
+        fs::remove_dir_all(dir).expect("cleanup status dir");
+    }
+
+    #[tokio::test]
+    async fn read_bundle_status_surfaces_evolution_summary() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-status-evolution-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
+        fs::create_dir_all(dir.join("agents")).expect("create agents dir");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+        fs::write(dir.join("env.ps1"), "$env:MEMD_BASE_URL='test'\n").expect("write env ps1");
+
+        let mut report = test_experiment_report(&dir, true, false, 96, 100, Utc::now());
+        report.composite.scenario = Some("self_evolution".to_string());
+        report.improvement.final_changes =
+            vec!["retune pass/fail gate for self-evolution proposals".to_string()];
+        write_experiment_artifacts(&dir, &report).expect("write experiment artifacts");
+
+        let status = read_bundle_status(&dir, SHARED_MEMD_BASE_URL)
+            .await
+            .expect("status via runtime base url");
+        let evolution = status.get("evolution").expect("evolution summary present");
+        assert_eq!(
+            evolution.get("proposal_state").and_then(JsonValue::as_str),
+            Some("accepted_proposal")
         );
         assert_eq!(
-            status
-                .get("server")
-                .and_then(|value| value.get("items"))
-                .and_then(|value| value.as_u64()),
-            Some(1)
+            evolution.get("scope_class").and_then(JsonValue::as_str),
+            Some("runtime_policy")
+        );
+        assert_eq!(
+            evolution.get("scope_gate").and_then(JsonValue::as_str),
+            Some("auto_merge")
         );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
@@ -34730,6 +37807,162 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
+    }
+
+    #[tokio::test]
+    async fn write_bundle_heartbeat_retires_superseded_stale_sessions() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-heartbeat-retire-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create heartbeat dir");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .push(memd_schema::HiveSessionRecord {
+                session: "codex-stale".to_string(),
+                tab_id: Some("tab-alpha".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-stale".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now() - chrono::TimeDelta::minutes(8),
+            });
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+
+        write_bundle_heartbeat(&dir, None, false)
+            .await
+            .expect("write heartbeat");
+
+        let retires = state.session_retires.lock().expect("lock session retires");
+        assert_eq!(retires.len(), 1);
+        assert_eq!(retires[0].session, "codex-stale");
+        assert_eq!(retires[0].agent.as_deref(), Some("codex"));
+        drop(retires);
+
+        let records = state.session_records.lock().expect("lock session records");
+        assert!(records.iter().all(|record| record.session != "codex-stale"));
+
+        fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
+    }
+
+    #[tokio::test]
+    async fn retire_hive_session_entry_uses_awareness_identity() {
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .push(memd_schema::HiveSessionRecord {
+                session: "codex-stale".to_string(),
+                tab_id: Some("tab-alpha".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-stale".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now() - chrono::TimeDelta::minutes(8),
+            });
+
+        let retired = retire_hive_session_entry(
+            &MemdClient::new(&base_url).expect("client"),
+            &ProjectAwarenessEntry {
+                project_dir: "remote".to_string(),
+                bundle_root: format!("remote:{base_url}:codex-stale"),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("codex-stale".to_string()),
+                tab_id: Some("tab-alpha".to_string()),
+                effective_agent: Some("codex@codex-stale".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some(base_url.clone()),
+                presence: "stale".to_string(),
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(8)),
+            },
+            "recovered to codex-fresh",
+        )
+        .await
+        .expect("retire stale entry");
+        assert_eq!(retired, 1);
+
+        let retires = state.session_retires.lock().expect("lock session retires");
+        assert_eq!(retires.len(), 1);
+        assert_eq!(retires[0].session, "codex-stale");
+        assert_eq!(
+            retires[0].reason.as_deref(),
+            Some("recovered to codex-fresh")
+        );
     }
 
     #[tokio::test]
@@ -37315,7 +40548,10 @@ mod tests {
         assert_eq!(response.bundle_session.as_deref(), Some("codex-stale"));
         assert_eq!(response.live_session.as_deref(), Some("codex-fresh"));
         assert_eq!(response.session.as_deref(), Some("codex-fresh"));
-        assert_eq!(response.rebased_from_session.as_deref(), Some("codex-stale"));
+        assert_eq!(
+            response.rebased_from_session.as_deref(),
+            Some("codex-stale")
+        );
 
         let summary = render_hive_wire_summary(&response);
         assert!(summary.contains("bundle_session=codex-stale"));
@@ -37394,15 +40630,21 @@ mod tests {
             .get("session_overlay")
             .expect("session overlay present");
         assert_eq!(
-            overlay.get("bundle_session").and_then(serde_json::Value::as_str),
+            overlay
+                .get("bundle_session")
+                .and_then(serde_json::Value::as_str),
             Some("codex-stale")
         );
         assert_eq!(
-            overlay.get("live_session").and_then(serde_json::Value::as_str),
+            overlay
+                .get("live_session")
+                .and_then(serde_json::Value::as_str),
             Some("codex-fresh")
         );
         assert_eq!(
-            overlay.get("rebased_from").and_then(serde_json::Value::as_str),
+            overlay
+                .get("rebased_from")
+                .and_then(serde_json::Value::as_str),
             Some("codex-stale")
         );
 
@@ -37417,6 +40659,94 @@ mod tests {
             }
         }
         fs::remove_dir_all(temp_root).expect("cleanup status rebind temp");
+    }
+
+    #[tokio::test]
+    async fn run_session_command_rebinds_local_bundle_to_live_session() {
+        let _home_lock = lock_home_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-session-rebind-{}", uuid::Uuid::new_v4()));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(global_root.join("state")).expect("create global state");
+        fs::create_dir_all(local_bundle.join("state")).expect("create local state");
+        fs::write(
+            global_root.join("config.json"),
+            format!(
+                r#"{{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "{SHARED_MEMD_BASE_URL}"
+}}
+"#
+            ),
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "tab_id": "tab-stale",
+  "base_url": "{SHARED_MEMD_BASE_URL}",
+  "workspace": "shared",
+  "visibility": "workspace"
+}}
+"#
+            ),
+        )
+        .expect("write local config");
+        fs::write(local_bundle.join("env"), "MEMD_SESSION=codex-stale\nMEMD_AGENT=codex@codex-stale\n")
+            .expect("write env");
+        fs::write(local_bundle.join("env.ps1"), "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n")
+            .expect("write env ps1");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let response = run_session_command(
+            &SessionArgs {
+                output: local_bundle.clone(),
+                rebind: true,
+                reconcile: false,
+                retire_session: None,
+                summary: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect("run session command");
+        assert_eq!(response.action, "rebind");
+        assert_eq!(response.bundle_session.as_deref(), Some("codex-fresh"));
+        assert_eq!(response.live_session.as_deref(), Some("codex-fresh"));
+
+        let config = fs::read_to_string(local_bundle.join("config.json")).expect("read config");
+        assert!(config.contains("\"session\": \"codex-fresh\""));
+        assert!(config.contains("\"tab_id\": \"tab-alpha\""));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup session rebind temp");
     }
 
     #[tokio::test]
@@ -38095,6 +41425,55 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn run_maintain_command_persists_scan_report() {
+        let dir = std::env::temp_dir().join(format!("memd-maintain-scan-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"project":"demo","namespace":"main","agent":"codex","session":"session-a","auto_short_term_capture":false}"#,
+        )
+        .expect("write config");
+
+        let base_url = spawn_mock_memory_server().await;
+        let report = run_maintain_command(
+            &MaintainArgs {
+                output: dir.clone(),
+                mode: "scan".to_string(),
+                apply: false,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run maintain scan");
+
+        assert_eq!(report.mode.as_str(), "scan");
+        assert!(report.receipt_id.is_some());
+        assert!(report.findings.iter().any(|value| value.contains("memory")));
+        assert!(dir.join("maintenance").join("latest.json").exists());
+        assert!(dir.join("maintenance").join("latest.md").exists());
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn render_maintain_summary_surfaces_receipt_and_counts() {
+        let summary = render_maintain_summary(&MaintainReport {
+            mode: "compact".to_string(),
+            receipt_id: Some("receipt-1".to_string()),
+            compacted_items: 3,
+            refreshed_items: 0,
+            repaired_items: 1,
+            findings: vec!["compacted stale duplicates".to_string()],
+            generated_at: Utc::now(),
+        });
+        assert!(summary.contains("maintain mode=compact"));
+        assert!(summary.contains("receipt=receipt-1"));
+        assert!(summary.contains("compacted=3"));
+        assert!(summary.contains("repaired=1"));
+    }
+
     #[test]
     fn suggest_coordination_actions_emits_multi_priority_output() {
         let now = Utc::now();
@@ -38278,6 +41657,37 @@ mod tests {
             suggestions
                 .iter()
                 .any(|s| s.stale_session.as_deref() == Some("hive-stale"))
+        );
+    }
+
+    #[test]
+    fn suggest_coordination_actions_retires_stale_session_without_owned_work() {
+        let suggestions = suggest_coordination_actions(
+            &HiveCoordinationInboxResponse {
+                messages: Vec::new(),
+                owned_tasks: Vec::new(),
+                help_tasks: Vec::new(),
+                review_tasks: Vec::new(),
+            },
+            &["hive-stale-empty"],
+            &[],
+            &[],
+            &[],
+            "codex",
+            &[],
+        );
+
+        assert!(
+            suggestions
+                .iter()
+                .any(|value| value.action == "retire_session"
+                    && value.stale_session.as_deref() == Some("hive-stale-empty"))
+        );
+        assert!(
+            !suggestions
+                .iter()
+                .any(|value| value.action == "recover_session"),
+            "stale sessions without owned work should retire instead of recover"
         );
     }
 
@@ -38731,6 +42141,7 @@ mod tests {
                 stale_hives: Vec::new(),
                 reclaimable_claims: Vec::new(),
                 stalled_tasks: Vec::new(),
+                retireable_sessions: Vec::new(),
             },
             policy_conflicts: Vec::new(),
             suggestions: (0..10)
@@ -38779,6 +42190,205 @@ mod tests {
                 <= 1,
             "duplicate suggestion keys should dedupe"
         );
+    }
+
+    #[test]
+    fn build_improvement_actions_includes_retire_session_suggestions() {
+        let gap = test_gap_report(
+            2,
+            1,
+            Some(70),
+            vec!["coordination:stale_remote_sessions".to_string()],
+        );
+        let coordination = CoordinationResponse {
+            bundle_root: ".memd".to_string(),
+            current_session: "codex".to_string(),
+            inbox: HiveCoordinationInboxResponse {
+                messages: Vec::new(),
+                owned_tasks: Vec::new(),
+                help_tasks: Vec::new(),
+                review_tasks: Vec::new(),
+            },
+            recovery: CoordinationRecoverySummary {
+                stale_hives: Vec::new(),
+                reclaimable_claims: Vec::new(),
+                stalled_tasks: Vec::new(),
+                retireable_sessions: Vec::new(),
+            },
+            policy_conflicts: Vec::new(),
+            suggestions: vec![CoordinationSuggestion {
+                action: "retire_session".to_string(),
+                priority: "medium".to_string(),
+                target_session: None,
+                task_id: None,
+                scope: None,
+                message_id: None,
+                reason: "retire stale session".to_string(),
+                stale_session: Some("session-stale".to_string()),
+            }],
+            boundary_recommendations: Vec::new(),
+            receipts: Vec::new(),
+        };
+
+        let actions = build_improvement_actions(&gap, Some(&coordination));
+        assert!(actions.iter().any(|value| {
+            value.action == "retire_session"
+                && value.target_session.as_deref() == Some("session-stale")
+        }));
+    }
+
+    #[test]
+    fn render_coordination_summary_surfaces_retireable_sessions() {
+        let summary = render_coordination_summary(
+            &CoordinationResponse {
+                bundle_root: ".memd".to_string(),
+                current_session: "codex".to_string(),
+                inbox: HiveCoordinationInboxResponse {
+                    messages: Vec::new(),
+                    owned_tasks: Vec::new(),
+                    help_tasks: Vec::new(),
+                    review_tasks: Vec::new(),
+                },
+                recovery: CoordinationRecoverySummary {
+                    stale_hives: Vec::new(),
+                    reclaimable_claims: Vec::new(),
+                    stalled_tasks: Vec::new(),
+                    retireable_sessions: vec![ProjectAwarenessEntry {
+                        project_dir: "remote".to_string(),
+                        bundle_root: "remote:http://127.0.0.1:8787:stale".to_string(),
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        agent: Some("codex".to_string()),
+                        session: Some("stale".to_string()),
+                        tab_id: None,
+                        effective_agent: Some("codex@stale".to_string()),
+                        hive_system: Some("codex".to_string()),
+                        hive_role: Some("agent".to_string()),
+                        capabilities: vec!["memory".to_string()],
+                        hive_groups: vec!["project:demo".to_string()],
+                        hive_group_goal: None,
+                        authority: Some("participant".to_string()),
+                        base_url: Some("http://127.0.0.1:8787".to_string()),
+                        presence: "stale".to_string(),
+                        host: Some("workstation".to_string()),
+                        pid: Some(1),
+                        active_claims: 0,
+                        workspace: Some("shared".to_string()),
+                        visibility: Some("workspace".to_string()),
+                        focus: None,
+                        pressure: None,
+                        next_recovery: None,
+                        last_updated: Some(Utc::now()),
+                    }],
+                },
+                policy_conflicts: Vec::new(),
+                suggestions: Vec::new(),
+                boundary_recommendations: Vec::new(),
+                receipts: Vec::new(),
+            },
+            Some("overview"),
+        );
+
+        assert!(summary.contains("retireable_sessions=1"));
+    }
+
+    #[test]
+    fn render_session_summary_surfaces_rebind_and_retire_state() {
+        let summary = render_session_summary(&SessionResponse {
+            action: "rebind+retire".to_string(),
+            bundle_root: ".memd".to_string(),
+            bundle_session: Some("codex-fresh".to_string()),
+            live_session: Some("codex-fresh".to_string()),
+            rebased_from: Some("codex-stale".to_string()),
+            tab_id: Some("tab-alpha".to_string()),
+            reconciled: true,
+            reconciled_retired_sessions: 2,
+            retired_sessions: 1,
+            retire_target: Some("codex-old".to_string()),
+            heartbeat: Some(serde_json::json!({"status":"active"})),
+        });
+
+        assert!(summary.contains("action=rebind+retire"));
+        assert!(summary.contains("bundle_session=codex-fresh"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
+        assert!(summary.contains("reconciled=yes"));
+        assert!(summary.contains("reconciled_retired=2"));
+        assert!(summary.contains("retired=1"));
+        assert!(summary.contains("retire_target=codex-old"));
+        assert!(summary.contains("heartbeat=published"));
+    }
+
+    #[test]
+    fn render_tasks_summary_surfaces_task_taxonomy_counts() {
+        let now = Utc::now();
+        let summary = render_tasks_summary(&TasksResponse {
+            bundle_root: ".memd".to_string(),
+            current_session: Some("codex-a".to_string()),
+            tasks: vec![
+                HiveTaskRecord {
+                    task_id: "t1".to_string(),
+                    title: "exclusive open".to_string(),
+                    description: None,
+                    status: "in_progress".to_string(),
+                    coordination_mode: "exclusive_write".to_string(),
+                    session: Some("codex-a".to_string()),
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@codex-a".to_string()),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    claim_scopes: vec!["src/main.rs".to_string()],
+                    help_requested: true,
+                    review_requested: false,
+                    created_at: now,
+                    updated_at: now,
+                },
+                HiveTaskRecord {
+                    task_id: "t2".to_string(),
+                    title: "shared review".to_string(),
+                    description: None,
+                    status: "needs_review".to_string(),
+                    coordination_mode: "shared_review".to_string(),
+                    session: Some("codex-b".to_string()),
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@codex-b".to_string()),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    claim_scopes: vec![],
+                    help_requested: false,
+                    review_requested: true,
+                    created_at: now,
+                    updated_at: now,
+                },
+                HiveTaskRecord {
+                    task_id: "t3".to_string(),
+                    title: "closed".to_string(),
+                    description: None,
+                    status: "done".to_string(),
+                    coordination_mode: "shared_review".to_string(),
+                    session: Some("codex-c".to_string()),
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@codex-c".to_string()),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    claim_scopes: vec![],
+                    help_requested: false,
+                    review_requested: false,
+                    created_at: now,
+                    updated_at: now,
+                },
+            ],
+        });
+
+        assert!(summary.contains("count=3"));
+        assert!(summary.contains("open=2"));
+        assert!(summary.contains("help=1"));
+        assert!(summary.contains("review=1"));
+        assert!(summary.contains("exclusive=1"));
+        assert!(summary.contains("shared=2"));
     }
 
     #[test]
@@ -39583,6 +43193,36 @@ mod tests {
     }
 
     #[test]
+    fn autoresearch_sweep_signature_rounds_loop_metrics() {
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "prompt-efficiency")
+            .expect("prompt efficiency descriptor");
+        let record = LoopRecord {
+            slug: Some("prompt-efficiency".to_string()),
+            name: Some("Prompt Efficiency".to_string()),
+            iteration: Some(1),
+            percent_improvement: Some(31.915),
+            token_savings: Some(709.004),
+            status: Some("success".to_string()),
+            summary: None,
+            artifacts: None,
+            created_at: Some(Utc::now()),
+            metadata: serde_json::json!({}),
+        };
+        let signature = build_autoresearch_sweep_signature(&[
+            (descriptor, record.clone()),
+            (descriptor, record),
+        ]);
+
+        assert_eq!(signature.len(), 2);
+        assert_eq!(signature[0].slug, "prompt-efficiency");
+        assert_eq!(signature[0].status, "success");
+        assert_eq!(signature[0].percent_bp, 3192);
+        assert_eq!(signature[0].tokens_bp, 70900);
+    }
+
+    #[test]
     fn autoresearch_emits_ten_loop_records() {
         let output =
             std::env::temp_dir().join(format!("memd-10-loop-records-{}", uuid::Uuid::new_v4()));
@@ -40171,6 +43811,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_self_evolution_loop_surfaces_accepted_proposal_state() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-self-evolution-proposal-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
+        report.improvement.final_changes = vec![
+            "tighten evaluation score heuristic".to_string(),
+            "lower loop threshold floor".to_string(),
+        ];
+        write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "self-evolution")
+            .expect("self-evolution descriptor");
+        let record = run_self_evolution_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run self evolution loop");
+
+        assert_eq!(record.status.as_deref(), Some("success"));
+        assert_eq!(
+            record
+                .metadata
+                .get("proposal_state")
+                .and_then(serde_json::Value::as_str),
+            Some("accepted_proposal")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("scope_gate")
+                .and_then(serde_json::Value::as_str),
+            Some("auto_merge")
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
     async fn run_hive_health_loop_warns_on_claim_collision() {
         let root = std::env::temp_dir().join(format!("memd-hive-health-{}", uuid::Uuid::new_v4()));
         let current_project = root.join("current");
@@ -40404,6 +44086,648 @@ mod tests {
         assert!(parsed.accepted);
 
         fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
+    }
+
+    #[test]
+    fn write_experiment_artifacts_writes_evolution_proposal_and_ledger() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-evolution-proposal-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut report = test_experiment_report(&dir, true, false, 92, 100, Utc::now());
+        report.improvement.final_changes = vec![
+            "tighten scoring heuristic for self-evolution loop".to_string(),
+            "adjust loop threshold floor".to_string(),
+        ];
+        write_experiment_artifacts(&dir, &report).expect("write experiment artifacts");
+
+        let proposal_path = dir.join("evolution").join("latest-proposal.json");
+        let ledger_path = dir.join("evolution").join("durability-ledger.json");
+        assert!(proposal_path.exists());
+        assert!(ledger_path.exists());
+
+        let proposal: EvolutionProposalReport =
+            serde_json::from_str(&fs::read_to_string(&proposal_path).expect("read proposal"))
+                .expect("parse proposal");
+        assert_eq!(proposal.state, "accepted_proposal");
+        assert_eq!(proposal.scope_gate, "auto_merge");
+        assert!(proposal.merge_eligible);
+
+        let ledger: EvolutionDurabilityLedger =
+            serde_json::from_str(&fs::read_to_string(&ledger_path).expect("read ledger"))
+                .expect("parse ledger");
+        assert_eq!(ledger.entries.len(), 1);
+        assert_eq!(ledger.entries[0].state, "accepted_proposal");
+
+        fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
+    }
+
+    #[test]
+    fn write_experiment_artifacts_keeps_coordination_scope_on_proposal_branch() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-evolution-proposal-coordination-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut report = test_experiment_report(&dir, true, false, 91, 100, Utc::now());
+        report.improvement.final_changes =
+            vec!["change hive coordination protocol for task claims".to_string()];
+        write_experiment_artifacts(&dir, &report).expect("write experiment artifacts");
+
+        let proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(dir.join("evolution").join("latest-proposal.json"))
+                .expect("read proposal"),
+        )
+        .expect("parse proposal");
+        assert_eq!(proposal.scope_class, "coordination_semantics");
+        assert_eq!(proposal.scope_gate, "proposal_only");
+        assert!(!proposal.merge_eligible);
+        assert_eq!(proposal.state, "accepted_proposal");
+
+        fs::remove_dir_all(dir).expect("cleanup experiment temp bundle");
+    }
+
+    #[test]
+    fn write_experiment_artifacts_creates_isolated_evolution_branch_and_authority_ledger() {
+        let root =
+            std::env::temp_dir().join(format!("memd-evolution-branch-{}", uuid::Uuid::new_v4()));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.email")
+            .arg("memd@example.com")
+            .status()
+            .expect("git user email");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.name")
+            .arg("memd")
+            .status()
+            .expect("git user name");
+        fs::write(root.join("README.md"), "# demo\n").expect("write readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg(".")
+            .status()
+            .expect("git add");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("init")
+            .status()
+            .expect("git commit");
+
+        let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
+        report.improvement.final_changes = vec![
+            "tighten evaluation score heuristic".to_string(),
+            "adjust loop threshold floor".to_string(),
+        ];
+        write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
+
+        let branch_manifest: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read branch manifest"),
+        )
+        .expect("parse branch manifest");
+        assert!(matches!(
+            branch_manifest.status.as_str(),
+            "created" | "existing"
+        ));
+        assert!(branch_manifest.branch.starts_with("auto/evolution/"));
+
+        let branch_exists = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("show-ref")
+            .arg("--verify")
+            .arg(format!("refs/heads/{}", branch_manifest.branch))
+            .status()
+            .expect("show ref")
+            .success();
+        assert!(branch_exists);
+
+        let authority: EvolutionAuthorityLedger = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("authority-ledger.json"))
+                .expect("read authority ledger"),
+        )
+        .expect("parse authority ledger");
+        assert_eq!(authority.entries.len(), 1);
+        assert_eq!(authority.entries[0].authority_tier, "phase1_auto_merge");
+
+        let merge_queue: EvolutionMergeQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("merge-queue.json"))
+                .expect("read merge queue"),
+        )
+        .expect("parse merge queue");
+        assert_eq!(merge_queue.entries.len(), 1);
+        assert_eq!(merge_queue.entries[0].status, "no_diff");
+
+        let durability_queue: EvolutionDurabilityQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
+                .expect("read durability queue"),
+        )
+        .expect("parse durability queue");
+        assert_eq!(durability_queue.entries.len(), 1);
+        assert_eq!(durability_queue.entries[0].status, "no_diff");
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn write_experiment_artifacts_blocks_merge_queue_on_dirty_worktree() {
+        let root =
+            std::env::temp_dir().join(format!("memd-evolution-dirty-{}", uuid::Uuid::new_v4()));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.email")
+            .arg("memd@example.com")
+            .status()
+            .expect("git user email");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.name")
+            .arg("memd")
+            .status()
+            .expect("git user name");
+        fs::write(root.join("README.md"), "# demo\n").expect("write readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg(".")
+            .status()
+            .expect("git add");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("init")
+            .status()
+            .expect("git commit");
+        fs::write(root.join("DIRTY.txt"), "dirty\n").expect("write dirty file");
+
+        let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
+        report.improvement.final_changes = vec!["adjust loop threshold floor".to_string()];
+        write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
+
+        let merge_queue: EvolutionMergeQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("merge-queue.json"))
+                .expect("read merge queue"),
+        )
+        .expect("parse merge queue");
+        assert_eq!(merge_queue.entries[0].status, "blocked_dirty_worktree");
+
+        let durability_queue: EvolutionDurabilityQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
+                .expect("read durability queue"),
+        )
+        .expect("parse durability queue");
+        assert_eq!(durability_queue.entries[0].status, "blocked_dirty_worktree");
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn process_evolution_queues_merges_ready_auto_merge_branch() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-evolution-merge-ready-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.email")
+            .arg("memd@example.com")
+            .status()
+            .expect("git user email");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.name")
+            .arg("memd")
+            .status()
+            .expect("git user name");
+        fs::write(root.join("README.md"), "# demo\n").expect("write readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg(".")
+            .status()
+            .expect("git add");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("init")
+            .status()
+            .expect("git commit");
+
+        let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
+        report.improvement.final_changes = vec!["adjust loop threshold floor".to_string()];
+        write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
+
+        let proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-proposal.json"))
+                .expect("read proposal"),
+        )
+        .expect("parse proposal");
+        let branch_manifest: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read branch manifest"),
+        )
+        .expect("parse branch manifest");
+        assert_eq!(proposal.authority_tier, "phase1_auto_merge");
+        assert!(proposal.merge_eligible);
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(&proposal.branch)
+            .status()
+            .expect("checkout proposal branch");
+        fs::write(root.join("README.md"), "# demo\n\nmerged change\n").expect("write branch change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("README.md")
+            .status()
+            .expect("git add readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("proposal change")
+            .status()
+            .expect("commit proposal change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(branch_manifest.base_branch.as_deref().unwrap_or("master"))
+            .status()
+            .expect("checkout base branch");
+
+        process_evolution_queues(&output).expect("process evolution queues");
+
+        let merge_queue: EvolutionMergeQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("merge-queue.json"))
+                .expect("read merge queue"),
+        )
+        .expect("parse merge queue");
+        assert_eq!(merge_queue.entries[0].status, "merged");
+
+        let durability_queue: EvolutionDurabilityQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
+                .expect("read durability queue"),
+        )
+        .expect("parse durability queue");
+        assert_eq!(durability_queue.entries[0].status, "scheduled");
+
+        let latest_proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-proposal.json"))
+                .expect("read latest proposal"),
+        )
+        .expect("parse latest proposal");
+        assert_eq!(latest_proposal.state, "merged");
+
+        let latest_branch: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read latest branch"),
+        )
+        .expect("parse latest branch");
+        assert_eq!(latest_branch.status, "merged");
+
+        let readme = fs::read_to_string(root.join("README.md")).expect("read merged readme");
+        assert!(readme.contains("merged change"));
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn process_evolution_queues_promotes_merged_branch_to_durable_truth() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-evolution-durable-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp bundle");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.email")
+            .arg("memd@example.com")
+            .status()
+            .expect("git user email");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("config")
+            .arg("user.name")
+            .arg("memd")
+            .status()
+            .expect("git user name");
+        fs::write(root.join("README.md"), "# demo\n").expect("write readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg(".")
+            .status()
+            .expect("git add");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("init")
+            .status()
+            .expect("git commit");
+
+        let mut report = test_experiment_report(&output, true, false, 100, 100, Utc::now());
+        report.improvement.final_changes = vec!["adjust loop threshold floor".to_string()];
+        write_experiment_artifacts(&output, &report).expect("write experiment artifacts");
+
+        let proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-proposal.json"))
+                .expect("read proposal"),
+        )
+        .expect("parse proposal");
+        let branch_manifest: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read branch manifest"),
+        )
+        .expect("parse branch manifest");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(&proposal.branch)
+            .status()
+            .expect("checkout proposal branch");
+        fs::write(root.join("README.md"), "# demo\n\ndurable change\n").expect("write branch change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("README.md")
+            .status()
+            .expect("git add readme");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("commit")
+            .arg("-m")
+            .arg("proposal change")
+            .status()
+            .expect("commit proposal change");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg(branch_manifest.base_branch.as_deref().unwrap_or("master"))
+            .status()
+            .expect("checkout base branch");
+
+        process_evolution_queues(&output).expect("merge proposal");
+
+        let mut durability_queue: EvolutionDurabilityQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
+                .expect("read durability queue"),
+        )
+        .expect("parse durability queue");
+        durability_queue.entries[0].due_at = Some(Utc::now() - chrono::TimeDelta::minutes(1));
+        write_evolution_durability_queue(&output, &durability_queue)
+            .expect("rewrite durability queue");
+
+        process_evolution_queues(&output).expect("process durability");
+
+        let final_queue: EvolutionDurabilityQueue = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("durability-queue.json"))
+                .expect("read final durability queue"),
+        )
+        .expect("parse final durability queue");
+        assert_eq!(final_queue.entries[0].status, "verified");
+
+        let latest_proposal: EvolutionProposalReport = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-proposal.json"))
+                .expect("read latest proposal"),
+        )
+        .expect("parse latest proposal");
+        assert_eq!(latest_proposal.state, "durable_truth");
+        assert!(latest_proposal.durable_truth);
+
+        let latest_branch: EvolutionBranchManifest = serde_json::from_str(
+            &fs::read_to_string(output.join("evolution").join("latest-branch.json"))
+                .expect("read latest branch"),
+        )
+        .expect("parse latest branch");
+        assert_eq!(latest_branch.status, "durable_truth");
+        assert!(latest_branch.durable_truth);
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn compute_evolution_authority_tier_expands_and_contracts() {
+        let output =
+            std::env::temp_dir().join(format!("memd-evolution-authority-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(output.join("evolution")).expect("create evolution dir");
+
+        fs::write(
+            output.join("evolution").join("authority-ledger.json"),
+            serde_json::to_string_pretty(&EvolutionAuthorityLedger {
+                entries: vec![
+                    EvolutionAuthorityEntry {
+                        scope_class: "runtime_policy".to_string(),
+                        authority_tier: "phase1_auto_merge".to_string(),
+                        accepted: true,
+                        merged: true,
+                        durable_truth: true,
+                        proposal_id: "p3".to_string(),
+                        branch: "b3".to_string(),
+                        recorded_at: Utc::now(),
+                    },
+                    EvolutionAuthorityEntry {
+                        scope_class: "runtime_policy".to_string(),
+                        authority_tier: "phase1_auto_merge".to_string(),
+                        accepted: true,
+                        merged: true,
+                        durable_truth: true,
+                        proposal_id: "p2".to_string(),
+                        branch: "b2".to_string(),
+                        recorded_at: Utc::now(),
+                    },
+                    EvolutionAuthorityEntry {
+                        scope_class: "runtime_policy".to_string(),
+                        authority_tier: "phase1_auto_merge".to_string(),
+                        accepted: true,
+                        merged: true,
+                        durable_truth: true,
+                        proposal_id: "p1".to_string(),
+                        branch: "b1".to_string(),
+                        recorded_at: Utc::now(),
+                    },
+                ],
+            })
+            .expect("serialize authority"),
+        )
+        .expect("write authority");
+        assert_eq!(
+            compute_evolution_authority_tier(&output, "runtime_policy", "auto_merge"),
+            "durable_auto_merge"
+        );
+
+        fs::write(
+            output.join("evolution").join("authority-ledger.json"),
+            serde_json::to_string_pretty(&EvolutionAuthorityLedger {
+                entries: vec![
+                    EvolutionAuthorityEntry {
+                        scope_class: "runtime_policy".to_string(),
+                        authority_tier: "phase1_auto_merge".to_string(),
+                        accepted: false,
+                        merged: false,
+                        durable_truth: false,
+                        proposal_id: "p2".to_string(),
+                        branch: "b2".to_string(),
+                        recorded_at: Utc::now(),
+                    },
+                    EvolutionAuthorityEntry {
+                        scope_class: "runtime_policy".to_string(),
+                        authority_tier: "phase1_auto_merge".to_string(),
+                        accepted: true,
+                        merged: false,
+                        durable_truth: false,
+                        proposal_id: "p1".to_string(),
+                        branch: "b1".to_string(),
+                        recorded_at: Utc::now(),
+                    },
+                ],
+            })
+            .expect("serialize authority"),
+        )
+        .expect("write authority");
+        assert_eq!(
+            compute_evolution_authority_tier(&output, "runtime_policy", "auto_merge"),
+            "proposal_only"
+        );
+
+        fs::remove_dir_all(output).expect("cleanup authority output");
+    }
+
+    #[test]
+    fn classify_evolution_scope_biases_safe_self_evolution_changes_into_auto_merge_lanes() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-evolution-classifier-safe-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut report = test_experiment_report(&dir, true, false, 96, 100, Utc::now());
+        report.composite.scenario = Some("self_evolution".to_string());
+        report.improvement.final_changes =
+            vec!["retune pass/fail gate for self-evolution proposals".to_string()];
+        let scope = classify_evolution_scope(&report);
+        assert_eq!(scope.scope_class, "runtime_policy");
+        assert_eq!(scope.scope_gate, "auto_merge");
+
+        report.improvement.final_changes =
+            vec!["refine composite dimension calculation for self-evolution".to_string()];
+        let scope = classify_evolution_scope(&report);
+        assert_eq!(scope.scope_class, "low_risk_evaluation_code");
+        assert_eq!(scope.scope_gate, "auto_merge");
+
+        report.improvement.final_changes =
+            vec!["adjust acceptance signal aggregation in proposal scoring".to_string()];
+        let scope = classify_evolution_scope(&report);
+        assert_eq!(scope.scope_class, "low_risk_evaluation_code");
+        assert_eq!(scope.scope_gate, "auto_merge");
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn classify_evolution_scope_keeps_high_risk_changes_on_proposal_branch() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-evolution-classifier-risky-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut report = test_experiment_report(&dir, true, false, 96, 100, Utc::now());
+        report.composite.scenario = Some("self_evolution".to_string());
+        report.improvement.final_changes =
+            vec!["change hive coordination protocol for task claims".to_string()];
+        let scope = classify_evolution_scope(&report);
+        assert_eq!(scope.scope_class, "coordination_semantics");
+        assert_eq!(scope.scope_gate, "proposal_only");
+
+        report.improvement.final_changes =
+            vec!["update storage schema for evolution durability ledger".to_string()];
+        let scope = classify_evolution_scope(&report);
+        assert_eq!(scope.scope_class, "persistence_semantics");
+        assert_eq!(scope.scope_gate, "proposal_only");
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]

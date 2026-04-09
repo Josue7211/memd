@@ -672,6 +672,180 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         }
     }
 
+    if let Some(truth) = status
+        .get("truth_summary")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        let truth_state = truth
+            .get("truth")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let freshness = truth
+            .get("freshness")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let tier = truth
+            .get("retrieval_tier")
+            .and_then(Value::as_str)
+            .unwrap_or("raw_fallback");
+        let confidence = truth
+            .get("confidence")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let sources = truth
+            .get("source_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let contested = truth
+            .get("contested_sources")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        output.push_str(&format!(
+            " truth={} freshness={} retrieval={} conf={:.2} sources={} contested={}",
+            truth_state, freshness, tier, confidence, sources, contested
+        ));
+        if let Some(action_hint) = truth.get("action_hint").and_then(Value::as_str)
+            && action_hint != "none"
+        {
+            output.push_str(&format!(
+                " truth_action=\"{}\"",
+                compact_inline(action_hint, 64)
+            ));
+        }
+        if let Some(record) = truth
+            .get("records")
+            .and_then(Value::as_array)
+            .and_then(|records| records.first())
+        {
+            let lane = record.get("lane").and_then(Value::as_str).unwrap_or("none");
+            let preview = record.get("preview").and_then(Value::as_str).unwrap_or("none");
+            output.push_str(&format!(
+                " truth_head={} truth_preview=\"{}\"",
+                lane,
+                compact_inline(preview, 72)
+            ));
+        }
+    }
+
+    if let Some(evolution) = status
+        .get("evolution")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " evolution={} scope={}/{} authority={} merge={} durability={}",
+            evolution
+                .get("proposal_state")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            evolution
+                .get("scope_class")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            evolution
+                .get("scope_gate")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            evolution
+                .get("authority_tier")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            evolution
+                .get("merge_status")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            evolution
+                .get("durability_status")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+        if let Some(branch) = evolution.get("branch").and_then(Value::as_str)
+            && branch != "none"
+        {
+            output.push_str(&format!(" evo_branch={}", compact_inline(branch, 64)));
+        }
+    }
+
+    if let Some(capability) = status
+        .get("capability_surface")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " capabilities={} universal={} bridgeable={} harness_native={}",
+            capability
+                .get("discovered")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            capability
+                .get("universal")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            capability
+                .get("bridgeable")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            capability
+                .get("harness_native")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        ));
+    }
+
+    if let Some(cowork) = status
+        .get("cowork_surface")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " cowork_tasks={} open={} help={} review={} exclusive={} shared={} inbox_messages={} owned={}",
+            cowork.get("tasks").and_then(Value::as_u64).unwrap_or(0),
+            cowork.get("open_tasks").and_then(Value::as_u64).unwrap_or(0),
+            cowork.get("help_tasks").and_then(Value::as_u64).unwrap_or(0),
+            cowork.get("review_tasks").and_then(Value::as_u64).unwrap_or(0),
+            cowork
+                .get("exclusive_tasks")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            cowork.get("shared_tasks").and_then(Value::as_u64).unwrap_or(0),
+            cowork
+                .get("inbox_messages")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            cowork.get("owned_tasks").and_then(Value::as_u64).unwrap_or(0),
+        ));
+    }
+
+    if let Some(maintenance) = status
+        .get("maintenance_surface")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " maintain_mode={} maintain_receipt={} compacted={} refreshed={} repaired={} findings={}",
+            maintenance
+                .get("mode")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            maintenance
+                .get("receipt")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            maintenance
+                .get("compacted")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            maintenance
+                .get("refreshed")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            maintenance
+                .get("repaired")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            maintenance
+                .get("findings")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        ));
+    }
+
     if let Some(missing) = status.get("missing").and_then(Value::as_array) {
         let missing = missing
             .iter()
@@ -2792,5 +2966,155 @@ mod tests {
         assert!(summary.contains("bundle_session=codex-stale"));
         assert!(summary.contains("live_session=codex-fresh"));
         assert!(summary.contains("rebased_from=codex-stale"));
+    }
+
+    #[test]
+    fn status_summary_surfaces_truth_first_retrieval_state() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": null,
+            "truth_summary": {
+                "truth": "current",
+                "freshness": "fresh",
+                "retrieval_tier": "hot",
+                "confidence": 0.97,
+                "action_hint": "use the event spine first",
+                "source_count": 3,
+                "contested_sources": 1,
+                "records": [
+                    {
+                        "lane": "live_truth",
+                        "preview": "event spine compact summary"
+                    }
+                ]
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("truth=current"));
+        assert!(summary.contains("freshness=fresh"));
+        assert!(summary.contains("retrieval=hot"));
+        assert!(summary.contains("conf=0.97"));
+        assert!(summary.contains("sources=3"));
+        assert!(summary.contains("contested=1"));
+        assert!(summary.contains("truth_action=\"use the event spine first\""));
+        assert!(summary.contains("truth_head=live_truth"));
+        assert!(summary.contains("truth_preview=\"event spine compact summary\""));
+    }
+
+    #[test]
+    fn status_summary_surfaces_capability_surface_counts() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": null,
+            "capability_surface": {
+                "discovered": 12,
+                "universal": 4,
+                "bridgeable": 3,
+                "harness_native": 5
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("capabilities=12"));
+        assert!(summary.contains("universal=4"));
+        assert!(summary.contains("bridgeable=3"));
+        assert!(summary.contains("harness_native=5"));
+    }
+
+    #[test]
+    fn status_summary_surfaces_cowork_counts() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": null,
+            "cowork_surface": {
+                "tasks": 4,
+                "open_tasks": 3,
+                "help_tasks": 1,
+                "review_tasks": 2,
+                "exclusive_tasks": 2,
+                "shared_tasks": 2,
+                "inbox_messages": 3,
+                "owned_tasks": 1
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("cowork_tasks=4"));
+        assert!(summary.contains("open=3"));
+        assert!(summary.contains("help=1"));
+        assert!(summary.contains("review=2"));
+        assert!(summary.contains("exclusive=2"));
+        assert!(summary.contains("shared=2"));
+        assert!(summary.contains("inbox_messages=3"));
+        assert!(summary.contains("owned=1"));
+    }
+
+    #[test]
+    fn status_summary_surfaces_maintenance_state() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "resume_preview": null,
+            "maintenance_surface": {
+                "mode": "compact",
+                "receipt": "r-123",
+                "compacted": 3,
+                "refreshed": 1,
+                "repaired": 0,
+                "findings": 2
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("maintain_mode=compact"));
+        assert!(summary.contains("maintain_receipt=r-123"));
+        assert!(summary.contains("compacted=3"));
+        assert!(summary.contains("refreshed=1"));
+        assert!(summary.contains("repaired=0"));
+        assert!(summary.contains("findings=2"));
     }
 }

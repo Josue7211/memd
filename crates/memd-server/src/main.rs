@@ -3,6 +3,7 @@ mod keys;
 mod repair;
 mod routing;
 mod store;
+mod ui;
 mod working;
 
 use std::collections::{HashSet, VecDeque};
@@ -29,21 +30,24 @@ use memd_schema::{
     HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
     HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionUpsertRequest, HiveSessionsRequest,
-    HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest,
-    HiveTasksResponse, InboxMemoryItem, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
-    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
+    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
+    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
+    InboxMemoryItem, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
+    MemoryConsolidationResponse, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
+    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
+    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
+    MemoryVisibility, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
+    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemorySnapshotResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
@@ -280,6 +284,7 @@ async fn main() {
     };
     let app = Router::new()
         .route("/", get(dashboard))
+        .route("/ui/snapshot", get(get_visible_memory_snapshot))
         .route("/healthz", get(healthz))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
@@ -346,6 +351,10 @@ async fn main() {
             "/coordination/sessions/upsert",
             post(post_hive_session_upsert),
         )
+        .route(
+            "/coordination/sessions/retire",
+            post(post_hive_session_retire),
+        )
         .route("/coordination/sessions", get(get_hive_sessions))
         .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
         .route("/coordination/tasks/assign", post(post_hive_task_assign))
@@ -353,6 +362,7 @@ async fn main() {
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
+        .route("/runtime/maintain", post(post_runtime_maintain))
         .route("/memory/policy", get(get_memory_policy))
         .with_state(state);
 
@@ -371,6 +381,13 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
 
 async fn dashboard() -> Html<String> {
     Html(dashboard_html())
+}
+
+async fn get_visible_memory_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<VisibleMemorySnapshotResponse>, (StatusCode, String)> {
+    let response = ui::build_visible_memory_snapshot(&state).map_err(internal_error)?;
+    Ok(Json(response))
 }
 
 async fn store_memory(
@@ -1076,6 +1093,23 @@ async fn post_hive_session_upsert(
     Ok(Json(response))
 }
 
+async fn post_hive_session_retire(
+    State(state): State<AppState>,
+    Json(req): Json<HiveSessionRetireRequest>,
+) -> Result<Json<HiveSessionRetireResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state
+        .store
+        .retire_hive_session(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 async fn get_hive_sessions(
     State(state): State<AppState>,
     Query(req): Query<HiveSessionsRequest>,
@@ -1178,6 +1212,14 @@ async fn get_maintenance_report(
     Query(req): Query<MemoryMaintenanceReportRequest>,
 ) -> Result<Json<MemoryMaintenanceReportResponse>, (StatusCode, String)> {
     let response = state.maintenance_report(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_runtime_maintain(
+    State(state): State<AppState>,
+    Json(req): Json<MaintainReportRequest>,
+) -> Result<Json<MaintainReport>, (StatusCode, String)> {
+    let response = state.maintain_runtime(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1472,7 +1514,29 @@ impl AppState {
             stale_items,
             skipped,
             highlights,
+            receipt_id: Some(uuid::Uuid::new_v4().to_string()),
+            mode: req.mode.clone().or_else(|| Some("scan".to_string())),
+            compacted_items: if req.mode.as_deref() == Some("compact") {
+                consolidated_candidates
+            } else {
+                0
+            },
+            refreshed_items: if req.mode.as_deref() == Some("refresh") {
+                reinforced_candidates
+            } else {
+                0
+            },
+            repaired_items: if req.mode.as_deref() == Some("repair") {
+                cooled_candidates
+            } else {
+                0
+            },
+            generated_at: Utc::now(),
         })
+    }
+
+    fn maintain_runtime(&self, req: &MaintainReportRequest) -> anyhow::Result<MaintainReport> {
+        self.store.maintain_runtime(req)
     }
 
     fn entity_view(

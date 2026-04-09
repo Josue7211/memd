@@ -91,6 +91,84 @@ pub enum MemoryVisibility {
     Public,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VisibleMemoryStatus {
+    Current,
+    Candidate,
+    Stale,
+    Superseded,
+    Conflicted,
+    Archived,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryProvenance {
+    pub source_system: Option<String>,
+    pub source_path: Option<String>,
+    pub producer: Option<String>,
+    pub trust_reason: String,
+    pub last_verified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryArtifact {
+    pub id: Uuid,
+    pub title: String,
+    pub body: String,
+    pub artifact_kind: String,
+    pub memory_kind: Option<MemoryKind>,
+    pub scope: Option<MemoryScope>,
+    pub visibility: Option<MemoryVisibility>,
+    pub workspace: Option<String>,
+    pub status: VisibleMemoryStatus,
+    pub freshness: String,
+    pub confidence: f32,
+    pub provenance: VisibleMemoryProvenance,
+    pub sources: Vec<String>,
+    pub linked_artifact_ids: Vec<Uuid>,
+    pub linked_sessions: Vec<String>,
+    pub linked_agents: Vec<String>,
+    pub repair_state: String,
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryHome {
+    pub focus_artifact: VisibleMemoryArtifact,
+    pub inbox_count: usize,
+    pub repair_count: usize,
+    pub awareness_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryGraphNode {
+    pub artifact_id: Uuid,
+    pub title: String,
+    pub artifact_kind: String,
+    pub status: VisibleMemoryStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryGraphEdge {
+    pub from: Uuid,
+    pub to: Uuid,
+    pub relation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemoryKnowledgeMap {
+    pub nodes: Vec<VisibleMemoryGraphNode>,
+    pub edges: Vec<VisibleMemoryGraphEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisibleMemorySnapshotResponse {
+    pub generated_at: DateTime<Utc>,
+    pub home: VisibleMemoryHome,
+    pub knowledge_map: VisibleMemoryKnowledgeMap,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryItem {
     pub id: Uuid,
@@ -689,6 +767,26 @@ pub struct HiveSessionsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveSessionRetireRequest {
+    pub session: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub agent: Option<String>,
+    pub effective_agent: Option<String>,
+    pub hive_system: Option<String>,
+    pub hive_role: Option<String>,
+    pub host: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveSessionRetireResponse {
+    pub retired: usize,
+    pub sessions: Vec<HiveSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTaskRecord {
     pub task_id: String,
     pub title: String,
@@ -1184,6 +1282,10 @@ pub struct MemoryMaintenanceReportRequest {
     pub lookback_days: Option<i64>,
     pub min_events: Option<usize>,
     pub max_decay: Option<f32>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub apply: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1194,6 +1296,39 @@ pub struct MemoryMaintenanceReportResponse {
     pub stale_items: usize,
     pub skipped: usize,
     pub highlights: Vec<String>,
+    #[serde(default)]
+    pub receipt_id: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub compacted_items: usize,
+    #[serde(default)]
+    pub refreshed_items: usize,
+    #[serde(default)]
+    pub repaired_items: usize,
+    #[serde(default = "Utc::now")]
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MaintainReportRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub session: Option<String>,
+    pub mode: String,
+    pub apply: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintainReport {
+    pub mode: String,
+    pub receipt_id: Option<String>,
+    pub compacted_items: usize,
+    pub refreshed_items: usize,
+    pub repaired_items: usize,
+    pub findings: Vec<String>,
+    pub generated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1547,6 +1682,66 @@ mod tests {
     }
 
     #[test]
+    fn visible_memory_artifact_snapshot_round_trips() {
+        let snapshot = VisibleMemorySnapshotResponse {
+            generated_at: Utc::now(),
+            home: VisibleMemoryHome {
+                focus_artifact: VisibleMemoryArtifact {
+                    id: Uuid::new_v4(),
+                    title: "runtime spine".to_string(),
+                    body: "runtime spine is the canonical memory contract".to_string(),
+                    artifact_kind: "compiled_page".to_string(),
+                    memory_kind: Some(MemoryKind::Decision),
+                    scope: Some(MemoryScope::Project),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    workspace: Some("team-alpha".to_string()),
+                    status: VisibleMemoryStatus::Current,
+                    freshness: "fresh".to_string(),
+                    confidence: 0.93,
+                    provenance: VisibleMemoryProvenance {
+                        source_system: Some("obsidian".to_string()),
+                        source_path: Some("wiki/runtime-spine.md".to_string()),
+                        producer: Some("obsidian compile".to_string()),
+                        trust_reason: "verified from compiled workspace page".to_string(),
+                        last_verified_at: None,
+                    },
+                    sources: vec!["wiki/runtime-spine.md".to_string()],
+                    linked_artifact_ids: vec![],
+                    linked_sessions: vec!["codex-01".to_string()],
+                    linked_agents: vec!["codex".to_string()],
+                    repair_state: "healthy".to_string(),
+                    actions: vec!["inspect".to_string(), "verify_current".to_string()],
+                },
+                inbox_count: 3,
+                repair_count: 1,
+                awareness_count: 2,
+            },
+            knowledge_map: VisibleMemoryKnowledgeMap {
+                nodes: vec![VisibleMemoryGraphNode {
+                    artifact_id: Uuid::new_v4(),
+                    title: "runtime spine".to_string(),
+                    artifact_kind: "compiled_page".to_string(),
+                    status: VisibleMemoryStatus::Current,
+                }],
+                edges: vec![VisibleMemoryGraphEdge {
+                    from: Uuid::new_v4(),
+                    to: Uuid::new_v4(),
+                    relation: "focus".to_string(),
+                }],
+            },
+        };
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let decoded: VisibleMemorySnapshotResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.home.focus_artifact.title, "runtime spine");
+        assert_eq!(decoded.home.focus_artifact.status, VisibleMemoryStatus::Current);
+        assert_eq!(decoded.home.inbox_count, 3);
+        assert_eq!(decoded.home.repair_count, 1);
+        assert_eq!(decoded.knowledge_map.nodes.len(), 1);
+        assert_eq!(decoded.knowledge_map.edges.len(), 1);
+    }
+
+    #[test]
     fn entity_search_roundtrips() {
         let entity = MemoryEntityRecord {
             id: Uuid::new_v4(),
@@ -1776,6 +1971,8 @@ mod tests {
             lookback_days: Some(14),
             min_events: Some(3),
             max_decay: Some(0.12),
+            mode: Some("scan".to_string()),
+            apply: Some(false),
         };
 
         let response = MemoryMaintenanceReportResponse {
@@ -1785,6 +1982,12 @@ mod tests {
             stale_items: 11,
             skipped: 2,
             highlights: vec!["repo:3 events".to_string()],
+            receipt_id: Some("receipt-1".to_string()),
+            mode: Some("scan".to_string()),
+            compacted_items: 2,
+            refreshed_items: 4,
+            repaired_items: 1,
+            generated_at: Utc::now(),
         };
 
         let request_json = serde_json::to_string(&request).unwrap();
@@ -1797,6 +2000,45 @@ mod tests {
         assert_eq!(decoded_response.stale_items, response.stale_items);
         assert_eq!(decoded_response.skipped, response.skipped);
         assert_eq!(decoded_response.highlights, response.highlights);
+        assert_eq!(decoded_response.mode, response.mode);
+        assert_eq!(decoded_response.receipt_id, response.receipt_id);
+        assert_eq!(decoded_response.compacted_items, response.compacted_items);
+        assert_eq!(decoded_response.refreshed_items, response.refreshed_items);
+        assert_eq!(decoded_response.repaired_items, response.repaired_items);
+    }
+
+    #[test]
+    fn maintain_report_roundtrips() {
+        let request = MaintainReportRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("agent".to_string()),
+            workspace: Some("shared".to_string()),
+            session: Some("session-a".to_string()),
+            mode: "scan".to_string(),
+            apply: false,
+        };
+
+        let response = MaintainReport {
+            mode: "scan".to_string(),
+            receipt_id: Some("receipt-1".to_string()),
+            compacted_items: 3,
+            refreshed_items: 2,
+            repaired_items: 1,
+            findings: vec!["memory scan complete".to_string()],
+            generated_at: Utc::now(),
+        };
+
+        let request_json = serde_json::to_string(&request).unwrap();
+        let response_json = serde_json::to_string(&response).unwrap();
+        let decoded_request: MaintainReportRequest = serde_json::from_str(&request_json).unwrap();
+        let decoded_response: MaintainReport = serde_json::from_str(&response_json).unwrap();
+        assert_eq!(decoded_request.mode, request.mode);
+        assert_eq!(decoded_request.apply, request.apply);
+        assert_eq!(decoded_request.workspace, request.workspace);
+        assert_eq!(decoded_response.mode, response.mode);
+        assert_eq!(decoded_response.receipt_id, response.receipt_id);
+        assert_eq!(decoded_response.compacted_items, response.compacted_items);
+        assert_eq!(decoded_response.findings, response.findings);
     }
 
     #[test]

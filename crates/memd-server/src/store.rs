@@ -10,15 +10,16 @@ use memd_schema::{
     HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
     HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRecord,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
-    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyActivationEntry, SkillPolicyApplyReceipt, SkillPolicyApplyReceiptsRequest,
-    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
-    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
+    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskRecord,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
+    MaintainReportRequest, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
+    MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
+    MemoryMaintenanceReportRequest, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyActivationEntry, SkillPolicyApplyReceipt,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SkillPolicyApplyResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
+    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -72,6 +73,12 @@ pub struct RecordEventArgs {
 struct SkillPolicyApplyRecordPayload {
     receipt: SkillPolicyApplyReceipt,
     request: SkillPolicyApplyRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MaintainReportRecordPayload {
+    request: MaintainReportRequest,
+    response: MaintainReport,
 }
 
 impl SqliteStore {
@@ -251,6 +258,19 @@ impl SqliteStore {
               ON skill_policy_activations(receipt_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_skill_policy_activations_project_namespace
               ON skill_policy_activations(project, namespace, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS runtime_maintenance_reports (
+              receipt_id TEXT PRIMARY KEY,
+              mode TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              workspace TEXT,
+              session TEXT,
+              created_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_runtime_maintenance_reports_scope
+              ON runtime_maintenance_reports(project, namespace, workspace, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS hive_sessions (
               session_key TEXT PRIMARY KEY,
@@ -815,6 +835,112 @@ impl SqliteStore {
             skipped,
             highlights,
         ))
+    }
+
+    pub fn maintain_runtime(
+        &self,
+        request: &MaintainReportRequest,
+    ) -> anyhow::Result<MaintainReport> {
+        let mode = request.mode.trim();
+        let mode = if mode.is_empty() { "scan" } else { mode };
+        let maintenance_request = MemoryMaintenanceReportRequest {
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            inactive_days: Some(7),
+            lookback_days: Some(30),
+            min_events: Some(2),
+            max_decay: Some(0.5),
+            mode: Some(mode.to_string()),
+            apply: Some(request.apply),
+        };
+        let (
+            reinforced_candidates,
+            cooled_candidates,
+            consolidated_candidates,
+            stale_items,
+            skipped,
+            highlights,
+        ) = self.maintenance_report(&maintenance_request)?;
+        let receipt_id = Uuid::new_v4().to_string();
+        let generated_at = chrono::Utc::now();
+        let compacted_items = if mode == "compact" {
+            consolidated_candidates
+        } else {
+            0
+        };
+        let refreshed_items = if mode == "refresh" {
+            cooled_candidates
+        } else {
+            0
+        };
+        let repaired_items = if mode == "repair" {
+            reinforced_candidates
+        } else {
+            0
+        };
+        let mut findings = vec![
+            format!("memory maintain mode={mode}"),
+            format!(
+                "scope project={} namespace={} workspace={} session={}",
+                request.project.as_deref().unwrap_or("none"),
+                request.namespace.as_deref().unwrap_or("none"),
+                request.workspace.as_deref().unwrap_or("none"),
+                request.session.as_deref().unwrap_or("none")
+            ),
+            format!(
+                "signals stale={} reinforced={} cooled={} consolidated={} skipped={}",
+                stale_items,
+                reinforced_candidates,
+                cooled_candidates,
+                consolidated_candidates,
+                skipped
+            ),
+        ];
+        if request.apply {
+            findings.push("apply requested".to_string());
+        }
+        findings.extend(
+            highlights
+                .into_iter()
+                .map(|value| format!("highlight: {value}")),
+        );
+        let response = MaintainReport {
+            mode: mode.to_string(),
+            receipt_id: Some(receipt_id.clone()),
+            compacted_items,
+            refreshed_items,
+            repaired_items,
+            findings,
+            generated_at,
+        };
+        let payload = MaintainReportRecordPayload {
+            request: request.clone(),
+            response: response.clone(),
+        };
+        let payload_json =
+            serde_json::to_string(&payload).context("serialize maintain report payload")?;
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO runtime_maintenance_reports (
+              receipt_id, mode, project, namespace, workspace, session, created_at, payload_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                receipt_id,
+                response.mode.as_str(),
+                &request.project,
+                &request.namespace,
+                &request.workspace,
+                &request.session,
+                response.generated_at.to_rfc3339(),
+                payload_json,
+            ],
+        )
+        .context("insert runtime maintenance report")?;
+
+        Ok(response)
     }
 
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
@@ -2288,6 +2414,124 @@ impl SqliteStore {
         }
 
         Ok(HiveSessionsResponse { sessions })
+    }
+
+    pub fn retire_hive_session(
+        &self,
+        request: &HiveSessionRetireRequest,
+    ) -> anyhow::Result<HiveSessionRetireResponse> {
+        let session = request.session.trim();
+        anyhow::ensure!(!session.is_empty(), "session must not be empty");
+
+        let project = request
+            .project
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let namespace = request
+            .namespace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let workspace = request
+            .workspace
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let agent = request
+            .agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let effective_agent = request
+            .effective_agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let hive_system = request
+            .hive_system
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let hive_role = request
+            .hive_role
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let host = request
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT session_key, payload_json
+            FROM hive_sessions
+            WHERE session = ?1
+              AND (?2 IS NULL OR project = ?2)
+              AND (?3 IS NULL OR namespace = ?3)
+              AND (?4 IS NULL OR workspace = ?4)
+              AND (?5 IS NULL OR json_extract(payload_json, '$.agent') = ?5)
+              AND (?6 IS NULL OR json_extract(payload_json, '$.effective_agent') = ?6)
+              AND (?7 IS NULL OR hive_system = ?7)
+              AND (?8 IS NULL OR hive_role = ?8)
+              AND (?9 IS NULL OR host = ?9)
+            "#,
+        )?;
+        let rows = stmt.query_map(
+            params![
+                session,
+                project,
+                namespace,
+                workspace,
+                agent,
+                effective_agent,
+                hive_system,
+                hive_role,
+                host,
+            ],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+
+        let mut targets = Vec::new();
+        for row in rows {
+            let (session_key, payload) = row.context("read hive session retire row")?;
+            targets.push((
+                session_key,
+                serde_json::from_str::<HiveSessionRecord>(&payload)
+                    .context("deserialize retired hive session payload")?,
+            ));
+        }
+        if targets.is_empty() {
+            return Ok(HiveSessionRetireResponse {
+                retired: 0,
+                sessions: Vec::new(),
+            });
+        }
+
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction()
+            .context("begin hive session retire transaction")?;
+        for (session_key, _) in &targets {
+            tx.execute(
+                "DELETE FROM hive_session_groups WHERE session_key = ?1",
+                params![session_key],
+            )?;
+            tx.execute(
+                "DELETE FROM hive_sessions WHERE session_key = ?1",
+                params![session_key],
+            )?;
+        }
+        tx.commit()
+            .context("commit hive session retire transaction")?;
+
+        Ok(HiveSessionRetireResponse {
+            retired: targets.len(),
+            sessions: targets.into_iter().map(|(_, record)| record).collect(),
+        })
     }
 
     pub fn upsert_hive_task(
@@ -4079,6 +4323,104 @@ mod tests {
     }
 
     #[test]
+    fn retire_hive_session_removes_only_matching_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-retire-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(111),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert codex session");
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(222),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert claude session");
+
+        let retired = store
+            .retire_hive_session(&HiveSessionRetireRequest {
+                session: "shared-session".to_string(),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                host: Some("workstation".to_string()),
+                reason: Some("superseded".to_string()),
+            })
+            .expect("retire codex session");
+        assert_eq!(retired.retired, 1);
+        assert_eq!(retired.sessions[0].agent.as_deref(), Some("codex"));
+
+        let sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("query remaining sessions");
+        assert_eq!(sessions.sessions.len(), 1);
+        assert_eq!(sessions.sessions[0].agent.as_deref(), Some("claude-code"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn hive_sessions_filter_by_hive_identity() {
         let dir = std::env::temp_dir().join(format!("memd-hive-filter-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
@@ -4321,6 +4663,45 @@ mod tests {
                 .iter()
                 .any(|value| value == "idx_hive_sessions_host")
         );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn maintain_runtime_persists_report_receipt() {
+        let dir = std::env::temp_dir().join(format!("runtime-maintain-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        let report = store
+            .maintain_runtime(&MaintainReportRequest {
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                session: Some("session-a".to_string()),
+                mode: "scan".to_string(),
+                apply: false,
+            })
+            .expect("run maintain runtime");
+
+        assert_eq!(report.mode, "scan");
+        assert!(report.receipt_id.is_some());
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|line| line.contains("memory maintain"))
+        );
+
+        let conn = store.connect().expect("connect sqlite store");
+        let persisted: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM runtime_maintenance_reports",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count persisted maintenance reports");
+        assert_eq!(persisted, 1);
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
