@@ -1171,6 +1171,15 @@ async fn get_hive_board(
     State(state): State<AppState>,
     Query(req): Query<HiveBoardRequest>,
 ) -> Result<Json<HiveBoardResponse>, (StatusCode, String)> {
+    state
+        .store
+        .auto_retire_stale_hive_sessions(
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            Utc::now(),
+        )
+        .map_err(internal_error)?;
     let response = state.store.hive_board(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
@@ -3295,6 +3304,132 @@ mod tests {
             .expect("run hive follow route");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_board_route_auto_retires_stale_sessions() {
+        let (dir, state) = temp_state("memd-hive-board-auto-retire");
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "stale-bee".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@stale-bee".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("StaleBee".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("old-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/stale-bee".to_string()),
+                branch: Some("feature/old".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(303),
+                topic_claim: Some("Old work".to_string()),
+                scope_claims: vec!["crates/memd-client/src/old.rs".to_string()],
+                task_id: Some("old-task".to_string()),
+                focus: Some("stale work".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.6".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert stale bee");
+
+        let mut session = state
+            .store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("stale-bee".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("load stale bee")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("stale bee exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(45);
+        let conn = rusqlite::Connection::open(dir.join("memd.db")).expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            rusqlite::params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize stale session"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("mark hive session stale");
+
+        let app = test_hive_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/board?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive board route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveBoardResponse = decode_json(response).await;
+        assert!(!body.stale_bees.iter().any(|session| session == "stale-bee"));
+
+        let remaining = state
+            .store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("list sessions after hive board");
+        assert!(
+            remaining
+                .sessions
+                .iter()
+                .all(|session| session.session != "stale-bee")
+        );
+
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
