@@ -16,9 +16,9 @@ use crate::{
         codex::CodexHarnessPack,
         hermes::HermesHarnessPack,
         index::{HarnessPackIndex, HarnessPackIndexEntry},
-        preset::HarnessPreset,
         openclaw::OpenClawHarnessPack,
         opencode::OpenCodeHarnessPack,
+        preset::HarnessPreset,
         shared::render_harness_pack_markdown,
     },
     migration::{MigrationAudit, MigrationAuditEntry},
@@ -207,10 +207,7 @@ pub(crate) fn render_harness_pack_index_summary(
         ));
     }
     if !index.preset_names.is_empty() {
-        summary.push_str(&format!(
-            " presets={}",
-            index.preset_names.join("|")
-        ));
+        summary.push_str(&format!(" presets={}", index.preset_names.join("|")));
     }
     summary
 }
