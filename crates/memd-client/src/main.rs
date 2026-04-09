@@ -14748,7 +14748,6 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     .with_context(|| format!("write {}", output.join("config.json").display()))?;
 
     write_bundle_backend_env(&output, &config)?;
-    write_bundle_authority_env(&output, &config.authority_policy, &config.authority_state)?;
 
     fs::write(
         output.join("env"),
@@ -14874,6 +14873,8 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         ),
     )
     .with_context(|| format!("write {}", output.join("env.ps1").display()))?;
+
+    write_bundle_authority_env(&output, &config.authority_policy, &config.authority_state)?;
 
     if let Some(hive_system) = hive_profile.hive_system.as_deref() {
         rewrite_env_assignment(
@@ -31244,6 +31245,9 @@ fn is_shadowed_local_seen_session(
     entry: &ProjectAwarenessEntry,
     current: &ProjectAwarenessEntry,
 ) -> bool {
+    if entry.presence != "unknown" {
+        return false;
+    }
     entry.bundle_root != current.bundle_root
         && entry.project_dir != "remote"
         && current.presence == "active"
@@ -31325,6 +31329,7 @@ fn prune_dead_local_bundle_heartbeat(
     heartbeat: Option<&BundleHeartbeatState>,
     active_claims: usize,
     is_current_bundle: bool,
+    current_runtime: Option<&BundleRuntimeConfig>,
 ) -> anyhow::Result<bool> {
     if is_current_bundle || active_claims > 0 {
         return Ok(false);
@@ -31333,6 +31338,17 @@ fn prune_dead_local_bundle_heartbeat(
         return Ok(false);
     };
     if heartbeat_presence_label(heartbeat.last_seen) != "dead" {
+        return Ok(false);
+    }
+    let shares_current_session = current_runtime
+        .and_then(|runtime| runtime.session.as_deref())
+        .zip(heartbeat.session.as_deref())
+        .is_some_and(|(current_session, heartbeat_session)| current_session == heartbeat_session);
+    let shares_current_tab = current_runtime
+        .and_then(|runtime| runtime.tab_id.as_deref())
+        .zip(heartbeat.tab_id.as_deref())
+        .is_some_and(|(current_tab, heartbeat_tab)| current_tab == heartbeat_tab);
+    if shares_current_session || shares_current_tab {
         return Ok(false);
     }
 
@@ -31346,10 +31362,11 @@ fn prune_dead_local_bundle_heartbeat(
 
 fn skip_inactive_local_bundle_entry(
     heartbeat: Option<&BundleHeartbeatState>,
+    state: Option<&ResumeState>,
     active_claims: usize,
     is_current_bundle: bool,
 ) -> bool {
-    !is_current_bundle && active_claims == 0 && heartbeat.is_none()
+    !is_current_bundle && active_claims == 0 && heartbeat.is_none() && state.is_none()
 }
 
 async fn read_project_awareness_shared(
@@ -31559,6 +31576,7 @@ fn session_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> 
 
 fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
     let (current_bundle, _current_project, scan_root) = resolve_awareness_paths(args)?;
+    let current_runtime = read_bundle_runtime_config(&current_bundle)?;
 
     let mut entries = Vec::new();
     let mut base_url_counts = std::collections::BTreeMap::<String, usize>::new();
@@ -31620,11 +31638,13 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             heartbeat.as_ref(),
             active_claims,
             canonical_bundle == current_bundle,
+            current_runtime.as_ref(),
         )? {
             continue;
         }
         if skip_inactive_local_bundle_entry(
             heartbeat.as_ref(),
+            state.as_ref(),
             active_claims,
             canonical_bundle == current_bundle,
         ) {
