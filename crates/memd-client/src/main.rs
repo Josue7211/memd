@@ -5,7 +5,7 @@ mod obsidian;
 mod render;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -49,7 +49,7 @@ use memd_schema::{
     SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
     SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
-    WorkingMemoryRequest,
+    VisibleMemorySnapshotResponse, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -67,7 +67,7 @@ use render::{
     render_recall_summary, render_repair_summary, render_resume_prompt, render_scenario_markdown,
     render_scenario_summary, render_skill_catalog_markdown, render_skill_catalog_match_markdown,
     render_skill_catalog_match_summary, render_skill_catalog_summary, render_skill_policy_summary,
-    render_source_summary, render_timeline_summary, render_working_summary,
+    render_source_summary, render_timeline_summary, render_visible_memory_home, render_working_summary,
     render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,7 @@ struct Cli {
 enum Commands {
     Healthz,
     Status(StatusArgs),
+    Capabilities(CapabilitiesArgs),
     Session(SessionArgs),
     Wake(WakeArgs),
     Awareness(AwarenessArgs),
@@ -158,6 +159,7 @@ enum Commands {
     SkillPolicy(PolicyArgs),
     Compact(CompactArgs),
     Obsidian(ObsidianArgs),
+    Ui(UiArgs),
     Hook(HookArgs),
     Init(InitArgs),
     Loops(LoopsArgs),
@@ -810,6 +812,26 @@ enum ObsidianMode {
 }
 
 #[derive(Debug, Clone, Args)]
+struct UiArgs {
+    #[command(subcommand)]
+    mode: UiMode,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum UiMode {
+    Home(UiHomeArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct UiHomeArgs {
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct SearchArgs {
     #[command(flatten)]
     input: RequestInput,
@@ -1453,6 +1475,18 @@ struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct CapabilitiesArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct AwarenessArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -1609,6 +1643,9 @@ struct TasksArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2360,6 +2397,14 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&status)?;
             }
         }
+        Commands::Capabilities(args) => {
+            let response = run_capabilities_command(&args)?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_capabilities_runtime_summary(&response));
+            }
+        }
         Commands::Session(args) => {
             let response = run_session_command(&args, &base_url).await?;
             if args.summary {
@@ -2517,10 +2562,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Tasks(args) => {
             let response = run_tasks_command(&args, &base_url).await?;
-            if args.summary {
-                println!("{}", render_tasks_summary(&response));
-            } else {
+            if args.json {
                 print_json(&response)?;
+            } else {
+                println!("{}", render_tasks_summary(&response));
             }
         }
         Commands::Coordination(args) => {
@@ -2767,9 +2812,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Experiment(args) => {
-            let response = run_experiment_command(&args, &base_url).await?;
+            let mut response = run_experiment_command(&args, &base_url).await?;
             if args.write {
                 write_experiment_artifacts(&args.output, &response)?;
+                hydrate_experiment_evolution_summary(&mut response, &args.output)?;
             }
             if args.summary {
                 println!("{}", render_experiment_summary(&response));
@@ -3310,7 +3356,23 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Memory(args) => {
             let bundle_root = resolve_compiled_memory_bundle_root(args.root.as_deref())?;
-            if args.quality {
+            let use_runtime_summary = !args.quality
+                && !args.list
+                && compiled_memory_target(&args).is_none()
+                && args.query.is_none()
+                && !args.json;
+            if use_runtime_summary {
+                match read_memory_surface(&bundle_root, &base_url).await {
+                    Ok(response) => println!("{}", render_memory_surface_summary(&response)),
+                    Err(_) => {
+                        let page =
+                            bundle_compiled_memory_path(&bundle_root, MemoryObjectLane::Working);
+                        let content = fs::read_to_string(&page)
+                            .with_context(|| format!("read {}", page.display()))?;
+                        println!("{}", render_compiled_memory_page_summary(&page, &content));
+                    }
+                }
+            } else if args.quality {
                 let report = build_compiled_memory_quality_report(&bundle_root)?;
                 if args.json {
                     print_json(&render_compiled_memory_quality_json(&bundle_root, &report))?;
@@ -4077,6 +4139,16 @@ async fn main() -> anyhow::Result<()> {
             }
             ObsidianMode::Status => {
                 run_obsidian_status(&client, &args).await?;
+            }
+        },
+        Commands::Ui(args) => match args.mode {
+            UiMode::Home(args) => {
+                let snapshot = fetch_visible_memory_snapshot(&cli.base_url).await?;
+                if args.json {
+                    print_json(&snapshot)?;
+                } else {
+                    println!("{}", render_visible_memory_home(&snapshot, args.follow));
+                }
             }
         },
         Commands::Hook(args) => match args.mode {
@@ -6219,13 +6291,10 @@ fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value)
             }
         }
     }
-    if let Some(evolution) = status.get("evolution").and_then(|value| {
-        if value.is_null() {
-            None
-        } else {
-            Some(value)
-        }
-    }) {
+    if let Some(evolution) = status
+        .get("evolution")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
         markdown.push_str("\n## Evolution\n");
         markdown.push_str(&format!(
             "- proposal state: `{}`\n",
@@ -8644,6 +8713,23 @@ where
     Ok(())
 }
 
+async fn fetch_visible_memory_snapshot(
+    base_url: &str,
+) -> anyhow::Result<VisibleMemorySnapshotResponse> {
+    let url = format!("{}/ui/snapshot", base_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .context("request visible memory snapshot")?
+        .error_for_status()
+        .context("fetch visible memory snapshot")?;
+    response
+        .json::<VisibleMemorySnapshotResponse>()
+        .await
+        .context("parse visible memory snapshot")
+}
+
 #[derive(Debug, Serialize)]
 struct ObsidianImportOutput {
     preview: ObsidianImportPreview,
@@ -9626,6 +9712,21 @@ fn print_loop_detail(entries: &[LoopEntry], slug_arg: &str) -> anyhow::Result<()
     if let Some(summary) = &entry.record.summary {
         println!("Summary:\n{}", indent_text(summary, 2));
     }
+    if entry.normalized_slug == "self-evolution"
+        && let Some(control_plane) = loop_control_plane_summary(entry)
+    {
+        println!("Control plane:");
+        println!("  proposal: {}", control_plane.proposal_state);
+        println!(
+            "  scope: {}/{}",
+            control_plane.scope_class, control_plane.scope_gate
+        );
+        println!("  authority: {}", control_plane.authority_tier);
+        println!("  merge: {}", control_plane.merge_status);
+        println!("  durability: {}", control_plane.durability_status);
+        println!("  durable truth: {}", control_plane.durable_truth);
+        println!("  branch: {}", control_plane.branch);
+    }
     if let Some(artifacts) = &entry.record.artifacts {
         println!("Artifacts:");
         for artifact in artifacts {
@@ -9718,6 +9819,119 @@ fn print_loop_summary(entries: &[LoopEntry]) {
             format_tokens(Some(value))
         );
     }
+
+    if let Some(entry) = entries
+        .iter()
+        .find(|entry| entry.normalized_slug == "self-evolution")
+        && let Some(control_plane) = loop_control_plane_summary(entry)
+    {
+        println!(
+            "Self-evolution: {} scope={}/{} authority={} merge={} durability={}",
+            control_plane.proposal_state,
+            control_plane.scope_class,
+            control_plane.scope_gate,
+            control_plane.authority_tier,
+            control_plane.merge_status,
+            control_plane.durability_status
+        );
+    }
+}
+
+fn loop_control_plane_summary(entry: &LoopEntry) -> Option<ExperimentEvolutionSummary> {
+    let metadata = &entry.record.metadata;
+    let proposal_state = metadata
+        .get("proposal_state")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            metadata
+                .get("proposal")
+                .and_then(|value| value.get("state"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })?;
+    let scope_class = metadata
+        .get("proposal")
+        .and_then(|value| value.get("scope_class"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none")
+        .to_string();
+    let scope_gate = metadata
+        .get("scope_gate")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            metadata
+                .get("proposal")
+                .and_then(|value| value.get("scope_gate"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("none")
+        .to_string();
+    let authority_tier = metadata
+        .get("proposal")
+        .and_then(|value| value.get("authority_tier"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            metadata
+                .get("authority_ledger")
+                .and_then(|value| value.get("entries"))
+                .and_then(serde_json::Value::as_array)
+                .and_then(|entries| entries.last())
+                .and_then(|value| value.get("authority_tier"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("none")
+        .to_string();
+    let merge_status = metadata
+        .get("merge_queue")
+        .and_then(|value| value.get("entries"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|entries| entries.last())
+        .and_then(|value| value.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none")
+        .to_string();
+    let durability_status = metadata
+        .get("durability_queue")
+        .and_then(|value| value.get("entries"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|entries| entries.last())
+        .and_then(|value| value.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none")
+        .to_string();
+    let branch = metadata
+        .get("proposal")
+        .and_then(|value| value.get("branch"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            metadata
+                .get("branch_manifest")
+                .and_then(|value| value.get("branch"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("none")
+        .to_string();
+    let durable_truth = metadata
+        .get("durable_truth")
+        .and_then(serde_json::Value::as_bool)
+        .or_else(|| {
+            metadata
+                .get("proposal")
+                .and_then(|value| value.get("durable_truth"))
+                .and_then(serde_json::Value::as_bool)
+        })
+        .unwrap_or(false);
+    Some(ExperimentEvolutionSummary {
+        proposal_state,
+        scope_class,
+        scope_gate,
+        authority_tier,
+        merge_status,
+        durability_status,
+        branch,
+        durable_truth,
+    })
 }
 
 fn run_telemetry(args: &TelemetryArgs) -> anyhow::Result<()> {
@@ -16678,7 +16892,8 @@ async fn reconcile_bundle_heartbeat(
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     let retired = publish_bundle_heartbeat(&state).await?;
-    let state = read_bundle_heartbeat(output)?.context("reload bundle heartbeat after reconcile")?;
+    let state =
+        read_bundle_heartbeat(output)?.context("reload bundle heartbeat after reconcile")?;
     Ok((state, retired))
 }
 
@@ -16729,7 +16944,9 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         client.upsert_hive_session(&request),
     )
     .await;
-    let retired = retire_superseded_hive_sessions(&client, state).await.unwrap_or(0);
+    let retired = retire_superseded_hive_sessions(&client, state)
+        .await
+        .unwrap_or(0);
     Ok(retired)
 }
 
@@ -17645,17 +17862,17 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
     })
 }
 
-async fn run_session_command(args: &SessionArgs, base_url: &str) -> anyhow::Result<SessionResponse> {
+async fn run_session_command(
+    args: &SessionArgs,
+    base_url: &str,
+) -> anyhow::Result<SessionResponse> {
     let runtime_before_overlay = read_bundle_runtime_config_raw(&args.output)?;
     let bundle_session_before = runtime_before_overlay
         .as_ref()
         .and_then(|config| config.session.clone());
     let runtime = read_bundle_runtime_config(&args.output)?
         .context("session requires a readable bundle runtime config")?;
-    let resolved_base_url = resolve_bundle_command_base_url(
-        base_url,
-        runtime.base_url.as_deref(),
-    );
+    let resolved_base_url = resolve_bundle_command_base_url(base_url, runtime.base_url.as_deref());
     let client = MemdClient::new(&resolved_base_url)?;
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
@@ -17711,7 +17928,8 @@ async fn run_session_command(args: &SessionArgs, base_url: &str) -> anyhow::Resu
     }
 
     if args.reconcile || args.rebind {
-        let (heartbeat_state, retired) = reconcile_bundle_heartbeat(&args.output, None, false).await?;
+        let (heartbeat_state, retired) =
+            reconcile_bundle_heartbeat(&args.output, None, false).await?;
         heartbeat = Some(serde_json::to_value(heartbeat_state)?);
         reconciled = true;
         reconciled_retired_sessions = retired;
@@ -17757,13 +17975,126 @@ fn render_session_summary(response: &SessionResponse) -> String {
         response.reconciled_retired_sessions,
         response.retired_sessions,
         response.retire_target.as_deref().unwrap_or("none"),
-        if response.heartbeat.is_some() { "published" } else { "skipped" }
+        if response.heartbeat.is_some() {
+            "published"
+        } else {
+            "skipped"
+        }
     )
 }
 
+fn run_capabilities_command(args: &CapabilitiesArgs) -> anyhow::Result<CapabilitiesResponse> {
+    let project_root = infer_bundle_project_root(&args.output);
+    let registry = build_bundle_capability_registry(project_root.as_deref());
+    let bridges = detect_capability_bridges();
+    let mut harnesses = BTreeMap::<String, CapabilityHarnessSummary>::new();
+    for capability in &registry.capabilities {
+        let entry = harnesses
+            .entry(capability.harness.clone())
+            .or_insert_with(|| CapabilityHarnessSummary {
+                harness: capability.harness.clone(),
+                capabilities: 0,
+                installed: 0,
+                bridge_actions: 0,
+            });
+        entry.capabilities += 1;
+        if capability.status == "installed" || capability.status == "discovered" {
+            entry.installed += 1;
+        }
+    }
+    for action in &bridges.actions {
+        let entry =
+            harnesses
+                .entry(action.harness.clone())
+                .or_insert_with(|| CapabilityHarnessSummary {
+                    harness: action.harness.clone(),
+                    capabilities: 0,
+                    installed: 0,
+                    bridge_actions: 0,
+                });
+        entry.bridge_actions += 1;
+    }
+
+    Ok(CapabilitiesResponse {
+        bundle_root: args.output.display().to_string(),
+        generated_at: registry.generated_at,
+        discovered: registry.capabilities.len(),
+        universal: registry
+            .capabilities
+            .iter()
+            .filter(|record| is_universal_class(&record.portability_class))
+            .count(),
+        bridgeable: registry
+            .capabilities
+            .iter()
+            .filter(|record| is_bridgeable_class(&record.portability_class))
+            .count(),
+        harness_native: registry
+            .capabilities
+            .iter()
+            .filter(|record| is_harness_native_class(&record.portability_class))
+            .count(),
+        bridge_actions: bridges.actions.len(),
+        wired_harnesses: bridges
+            .actions
+            .iter()
+            .map(|action| action.harness.clone())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        harnesses: harnesses.into_values().collect(),
+    })
+}
+
+fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> String {
+    let harnesses = response
+        .harnesses
+        .iter()
+        .take(4)
+        .map(|harness| {
+            format!(
+                "{}:{}/{}/{}",
+                harness.harness, harness.capabilities, harness.installed, harness.bridge_actions
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    if harnesses.is_empty() {
+        format!(
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} harnesses=none",
+            response.bundle_root,
+            response.discovered,
+            response.universal,
+            response.bridgeable,
+            response.harness_native,
+            response.bridge_actions,
+            response.wired_harnesses,
+        )
+    } else {
+        format!(
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} harnesses={}",
+            response.bundle_root,
+            response.discovered,
+            response.universal,
+            response.bridgeable,
+            response.harness_native,
+            response.bridge_actions,
+            response.wired_harnesses,
+            harnesses
+        )
+    }
+}
+
 fn render_tasks_summary(response: &TasksResponse) -> String {
-    let help = response.tasks.iter().filter(|task| task.help_requested).count();
-    let review = response.tasks.iter().filter(|task| task.review_requested).count();
+    let help = response
+        .tasks
+        .iter()
+        .filter(|task| task.help_requested)
+        .count();
+    let review = response
+        .tasks
+        .iter()
+        .filter(|task| task.review_requested)
+        .count();
     let exclusive = response
         .tasks
         .iter()
@@ -17775,8 +18106,20 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
         .iter()
         .filter(|task| task.status != "done" && task.status != "closed")
         .count();
+    let active_sessions = response
+        .tasks
+        .iter()
+        .filter(|task| task.status != "done" && task.status != "closed")
+        .filter_map(|task| task.session.clone())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let owned = response
+        .tasks
+        .iter()
+        .filter(|task| task.session.as_deref() == response.current_session.as_deref())
+        .count();
     let mut lines = vec![format!(
-        "tasks bundle={} current_session={} count={} open={} help={} review={} exclusive={} shared={}",
+        "tasks bundle={} current_session={} count={} open={} help={} review={} exclusive={} shared={} active_sessions={} owned={}",
         response.bundle_root,
         response.current_session.as_deref().unwrap_or("none"),
         response.tasks.len(),
@@ -17784,9 +18127,12 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
         help,
         review,
         exclusive,
-        shared
+        shared,
+        active_sessions,
+        owned
     )];
-    for task in &response.tasks {
+    let visible = response.tasks.iter().take(12);
+    for task in visible {
         lines.push(format!(
             "- {} [{}:{}] owner={} scopes={} help={} review={} | {}",
             task.task_id,
@@ -17806,7 +18152,89 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
             compact_inline(&task.title, 80)
         ));
     }
+    if response.tasks.len() > 12 {
+        lines.push(format!(
+            "- ... {} more task(s) hidden",
+            response.tasks.len() - 12
+        ));
+    }
     lines.join("\n")
+}
+
+async fn read_memory_surface(
+    output: &Path,
+    base_url: &str,
+) -> anyhow::Result<MemorySurfaceResponse> {
+    let snapshot = read_bundle_resume(
+        &ResumeArgs {
+            output: output.to_path_buf(),
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some("current_task".to_string()),
+            limit: Some(4),
+            rehydration_limit: Some(2),
+            semantic: true,
+            prompt: false,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+    Ok(MemorySurfaceResponse {
+        bundle_root: output.display().to_string(),
+        truth_summary: build_truth_summary(&snapshot),
+        context_records: snapshot.context.records.len(),
+        working_records: snapshot.working.records.len(),
+        inbox_items: snapshot.inbox.items.len(),
+        source_lanes: snapshot.sources.sources.len(),
+        rehydration_queue: snapshot.working.rehydration_queue.len(),
+        semantic_hits: snapshot
+            .semantic
+            .as_ref()
+            .map(|semantic| semantic.items.len())
+            .unwrap_or(0),
+        change_summary: snapshot.change_summary.len(),
+        estimated_prompt_tokens: snapshot.estimated_prompt_tokens(),
+        refresh_recommended: snapshot.refresh_recommended,
+    })
+}
+
+fn render_memory_surface_summary(response: &MemorySurfaceResponse) -> String {
+    let truth = &response.truth_summary;
+    let head = truth.records.first();
+    format!(
+        "memory bundle={} truth={} freshness={} retrieval={} conf={:.2} tiers=context:{} working:{} inbox:{} sources:{} rehydrate:{} semantic:{} changes:{} tok={} refresh={} action=\"{}\" head={} preview=\"{}\"",
+        response.bundle_root,
+        truth.truth,
+        truth.freshness,
+        serde_json::to_string(&truth.retrieval_tier)
+            .unwrap_or_else(|_| "\"raw_fallback\"".to_string())
+            .trim_matches('"'),
+        truth.confidence,
+        response.context_records,
+        response.working_records,
+        response.inbox_items,
+        response.source_lanes,
+        response.rehydration_queue,
+        response.semantic_hits,
+        response.change_summary,
+        response.estimated_prompt_tokens,
+        if response.refresh_recommended {
+            "yes"
+        } else {
+            "no"
+        },
+        compact_inline(&truth.action_hint, 64),
+        head.map(|record| record.lane.as_str()).unwrap_or("none"),
+        compact_inline(
+            head.map(|record| record.preview.as_str()).unwrap_or("none"),
+            72
+        )
+    )
 }
 
 async fn run_coordination_command(
@@ -20010,6 +20438,7 @@ async fn apply_improvement_action(
                     request_review: false,
                     all: false,
                     summary: false,
+                    json: false,
                 },
                 base_url,
             )
@@ -20033,6 +20462,7 @@ async fn apply_improvement_action(
                     request_review: false,
                     all: false,
                     summary: false,
+                    json: false,
                 },
                 base_url,
             )
@@ -20059,6 +20489,7 @@ async fn apply_improvement_action(
                     request_review: true,
                     all: false,
                     summary: false,
+                    json: false,
                 },
                 base_url,
             )
@@ -22154,6 +22585,7 @@ async fn run_experiment_command(
         findings,
         recommendations,
         evidence,
+        evolution: None,
     })
 }
 
@@ -22234,22 +22666,6 @@ fn write_experiment_artifacts(output: &Path, response: &ExperimentReport) -> any
     fs::create_dir_all(&experiment_dir)
         .with_context(|| format!("create {}", experiment_dir.display()))?;
 
-    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    let baseline_json = experiment_dir.join("latest.json");
-    let baseline_md = experiment_dir.join("latest.md");
-    let timestamp_json = experiment_dir.join(format!("{timestamp}.json"));
-    let timestamp_md = experiment_dir.join(format!("{timestamp}.md"));
-    let json = serde_json::to_string_pretty(response)? + "\n";
-    let markdown = render_experiment_markdown(response);
-
-    fs::write(&baseline_json, &json)
-        .with_context(|| format!("write {}", baseline_json.display()))?;
-    fs::write(&baseline_md, &markdown)
-        .with_context(|| format!("write {}", baseline_md.display()))?;
-    fs::write(&timestamp_json, &json)
-        .with_context(|| format!("write {}", timestamp_json.display()))?;
-    fs::write(&timestamp_md, &markdown)
-        .with_context(|| format!("write {}", timestamp_md.display()))?;
     let proposal = build_evolution_proposal_report(response);
     write_evolution_proposal_artifacts(output, &proposal)?;
     let branch_manifest = create_or_update_evolution_branch(output, &proposal)?;
@@ -22259,6 +22675,34 @@ fn write_experiment_artifacts(output: &Path, response: &ExperimentReport) -> any
     append_evolution_merge_queue_entry(output, &proposal)?;
     append_evolution_durability_queue_entry(output, &proposal)?;
     process_evolution_queues(output)?;
+
+    let mut enriched = response.clone();
+    hydrate_experiment_evolution_summary(&mut enriched, output)?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let baseline_json = experiment_dir.join("latest.json");
+    let baseline_md = experiment_dir.join("latest.md");
+    let timestamp_json = experiment_dir.join(format!("{timestamp}.json"));
+    let timestamp_md = experiment_dir.join(format!("{timestamp}.md"));
+    let json = serde_json::to_string_pretty(&enriched)? + "\n";
+    let markdown = render_experiment_markdown(&enriched);
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&baseline_md, &markdown)
+        .with_context(|| format!("write {}", baseline_md.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    fs::write(&timestamp_md, &markdown)
+        .with_context(|| format!("write {}", timestamp_md.display()))?;
+    Ok(())
+}
+
+fn hydrate_experiment_evolution_summary(
+    response: &mut ExperimentReport,
+    output: &Path,
+) -> anyhow::Result<()> {
+    response.evolution = experiment_evolution_summary(output)?;
     Ok(())
 }
 
@@ -22546,7 +22990,9 @@ fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
     };
     let project_root = infer_bundle_project_root(output);
     for entry in &mut queue.entries {
-        if entry.status == "merged" || entry.status == "human_review" && entry.authority_tier == "proposal_only" {
+        if entry.status == "merged"
+            || entry.status == "human_review" && entry.authority_tier == "proposal_only"
+        {
             continue;
         }
         let Some(root) = project_root.as_ref() else {
@@ -22639,11 +23085,23 @@ fn execute_evolution_durability_check(
         return Ok("blocked_missing_branch".to_string());
     }
     if !git_branch_tip_ancestor_of_head(&root, &entry.branch) {
-        transition_evolution_proposal_state(output, &entry.proposal_id, "merged", false, Some(due_at))?;
+        transition_evolution_proposal_state(
+            output,
+            &entry.proposal_id,
+            "merged",
+            false,
+            Some(due_at),
+        )?;
         transition_evolution_branch_state(output, &entry.proposal_id, "merged", false)?;
         return Ok("regressed".to_string());
     }
-    transition_evolution_proposal_state(output, &entry.proposal_id, "durable_truth", true, Some(due_at))?;
+    transition_evolution_proposal_state(
+        output,
+        &entry.proposal_id,
+        "durable_truth",
+        true,
+        Some(due_at),
+    )?;
     transition_evolution_branch_state(output, &entry.proposal_id, "durable_truth", true)?;
     append_evolution_durability_transition_from_queue(output, entry, "durable_truth", true)?;
     append_evolution_authority_transition_from_queue(output, entry, "durable_truth", true)?;
@@ -23256,7 +23714,9 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
     let scenario = report.composite.scenario.as_deref().unwrap_or_default();
     let docs_score = count_matches(
         &haystack,
-        &["docs/", ".md", "spec", "manifest", "readme", "docs", "guide"],
+        &[
+            "docs/", ".md", "spec", "manifest", "readme", "docs", "guide",
+        ],
     );
     let runtime_policy_score = count_matches(
         &haystack,
@@ -23336,14 +23796,18 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
             "persistence_semantics".to_string(),
             "proposal_only".to_string(),
             vec!["proposal-only".to_string()],
-            vec![format!("persistence semantics signal ({persistence_score})")],
+            vec![format!(
+                "persistence semantics signal ({persistence_score})"
+            )],
         )
     } else if coordination_score > 0 {
         (
             "coordination_semantics".to_string(),
             "proposal_only".to_string(),
             vec!["proposal-only".to_string()],
-            vec![format!("coordination semantics signal ({coordination_score})")],
+            vec![format!(
+                "coordination semantics signal ({coordination_score})"
+            )],
         )
     } else if api_score > 0 {
         (
@@ -23414,7 +23878,10 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
 }
 
 fn count_matches(haystack: &str, needles: &[&str]) -> usize {
-    needles.iter().filter(|needle| haystack.contains(**needle)).count()
+    needles
+        .iter()
+        .filter(|needle| haystack.contains(**needle))
+        .count()
 }
 
 fn branch_safe_slug(value: &str) -> String {
@@ -25798,7 +26265,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         )
         .await
         .ok();
-        snapshot.map(|snapshot| serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null))
+        snapshot.map(|snapshot| {
+            serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null)
+        })
     } else {
         None
     };
@@ -26119,6 +26588,66 @@ fn summarize_evolution_status(output: &Path) -> anyhow::Result<Option<serde_json
             .unwrap_or_else(|| "none".to_string()),
         "durable_truth": proposal.as_ref().is_some_and(|value| value.durable_truth),
     })))
+}
+
+fn experiment_evolution_summary(
+    output: &Path,
+) -> anyhow::Result<Option<ExperimentEvolutionSummary>> {
+    let proposal = read_latest_evolution_proposal(output)?;
+    let branch_manifest = read_latest_evolution_branch_manifest(output)?;
+    let authority = read_evolution_authority_ledger(output)?;
+    let merge_queue = read_evolution_merge_queue(output)?;
+    let durability_queue = read_evolution_durability_queue(output)?;
+
+    if proposal.is_none()
+        && branch_manifest.is_none()
+        && authority.is_none()
+        && merge_queue.is_none()
+        && durability_queue.is_none()
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(ExperimentEvolutionSummary {
+        proposal_state: proposal
+            .as_ref()
+            .map(|value| value.state.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        scope_class: proposal
+            .as_ref()
+            .map(|value| value.scope_class.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        scope_gate: proposal
+            .as_ref()
+            .map(|value| value.scope_gate.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        authority_tier: proposal
+            .as_ref()
+            .map(|value| value.authority_tier.clone())
+            .or_else(|| {
+                authority
+                    .as_ref()
+                    .and_then(|ledger| ledger.entries.last())
+                    .map(|entry| entry.authority_tier.clone())
+            })
+            .unwrap_or_else(|| "none".to_string()),
+        merge_status: merge_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        durability_status: durability_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        branch: proposal
+            .as_ref()
+            .map(|value| value.branch.clone())
+            .or_else(|| branch_manifest.as_ref().map(|value| value.branch.clone()))
+            .unwrap_or_else(|| "none".to_string()),
+        durable_truth: proposal.as_ref().is_some_and(|value| value.durable_truth),
+    }))
 }
 
 fn read_memd_runtime_wiring() -> serde_json::Value {
@@ -30746,7 +31275,9 @@ fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
 fn choose_retrieval_tier(snapshot: &ResumeSnapshot) -> RetrievalTier {
     if !snapshot.event_spine().is_empty() {
         RetrievalTier::Hot
-    } else if !snapshot.compact_working_records().is_empty() || !snapshot.compact_context_records().is_empty() {
+    } else if !snapshot.compact_working_records().is_empty()
+        || !snapshot.compact_context_records().is_empty()
+    {
         RetrievalTier::Working
     } else if !snapshot.compact_rehydration_summaries().is_empty() {
         RetrievalTier::Rehydration
@@ -30825,7 +31356,11 @@ fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
     if let Some(record) = snapshot.compact_working_records().first() {
         records.push(build_truth_record_summary(
             "working_set",
-            if snapshot.redundant_context_items() > 0 { "contested" } else { "working" },
+            if snapshot.redundant_context_items() > 0 {
+                "contested"
+            } else {
+                "working"
+            },
             &freshness,
             RetrievalTier::Working,
             confidence,
@@ -31082,6 +31617,19 @@ struct ExperimentReport {
     findings: Vec<String>,
     recommendations: Vec<String>,
     evidence: Vec<String>,
+    evolution: Option<ExperimentEvolutionSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExperimentEvolutionSummary {
+    proposal_state: String,
+    scope_class: String,
+    scope_gate: String,
+    authority_tier: String,
+    merge_status: String,
+    durability_status: String,
+    branch: String,
+    durable_truth: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31378,10 +31926,46 @@ struct SessionResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct CapabilitiesResponse {
+    bundle_root: String,
+    generated_at: DateTime<Utc>,
+    discovered: usize,
+    universal: usize,
+    bridgeable: usize,
+    harness_native: usize,
+    bridge_actions: usize,
+    wired_harnesses: usize,
+    harnesses: Vec<CapabilityHarnessSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapabilityHarnessSummary {
+    harness: String,
+    capabilities: usize,
+    installed: usize,
+    bridge_actions: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct TasksResponse {
     bundle_root: String,
     current_session: Option<String>,
     tasks: Vec<HiveTaskRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MemorySurfaceResponse {
+    bundle_root: String,
+    truth_summary: TruthSummary,
+    context_records: usize,
+    working_records: usize,
+    inbox_items: usize,
+    source_lanes: usize,
+    rehydration_queue: usize,
+    semantic_hits: usize,
+    change_summary: usize,
+    estimated_prompt_tokens: usize,
+    refresh_recommended: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -37647,11 +38231,13 @@ mod tests {
                 .and_then(|value| value.as_u64()),
             Some(1)
         );
-        assert!(status
-            .get("capability_surface")
-            .and_then(|value| value.get("discovered"))
-            .and_then(|value| value.as_u64())
-            .is_some());
+        assert!(
+            status
+                .get("capability_surface")
+                .and_then(|value| value.get("discovered"))
+                .and_then(|value| value.as_u64())
+                .is_some()
+        );
         assert_eq!(
             status
                 .get("cowork_surface")
@@ -37679,10 +38265,8 @@ mod tests {
 
     #[test]
     fn read_previous_maintain_report_uses_latest_timestamped_report() {
-        let dir = std::env::temp_dir().join(format!(
-            "memd-maintain-history-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("memd-maintain-history-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         let maintain_dir = dir.join("maintenance");
         fs::create_dir_all(&maintain_dir).expect("create maintenance dir");
@@ -37742,8 +38326,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_bundle_status_emits_truth_summary() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-status-truth-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-status-truth-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         let state = MockRuntimeState::default();
@@ -37780,14 +38363,18 @@ mod tests {
             truth.get("retrieval_tier").and_then(JsonValue::as_str),
             Some("working")
         );
-        assert!(truth
-            .get("records")
-            .and_then(JsonValue::as_array)
-            .is_some_and(|records| !records.is_empty()));
-        assert!(truth
-            .get("source_count")
-            .and_then(JsonValue::as_u64)
-            .is_some());
+        assert!(
+            truth
+                .get("records")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|records| !records.is_empty())
+        );
+        assert!(
+            truth
+                .get("source_count")
+                .and_then(JsonValue::as_u64)
+                .is_some()
+        );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
     }
@@ -40807,10 +41394,16 @@ mod tests {
             ),
         )
         .expect("write local config");
-        fs::write(local_bundle.join("env"), "MEMD_SESSION=codex-stale\nMEMD_AGENT=codex@codex-stale\n")
-            .expect("write env");
-        fs::write(local_bundle.join("env.ps1"), "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n")
-            .expect("write env ps1");
+        fs::write(
+            local_bundle.join("env"),
+            "MEMD_SESSION=codex-stale\nMEMD_AGENT=codex@codex-stale\n",
+        )
+        .expect("write env");
+        fs::write(
+            local_bundle.join("env.ps1"),
+            "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n",
+        )
+        .expect("write env ps1");
 
         let original_home = std::env::var_os("HOME");
         let original_dir = std::env::current_dir().expect("read cwd");
@@ -42492,6 +43085,85 @@ mod tests {
         assert!(summary.contains("review=1"));
         assert!(summary.contains("exclusive=1"));
         assert!(summary.contains("shared=2"));
+        assert!(summary.contains("active_sessions=2"));
+        assert!(summary.contains("owned=1"));
+    }
+
+    #[test]
+    fn render_capabilities_runtime_summary_surfaces_harness_breakdown() {
+        let summary = render_capabilities_runtime_summary(&CapabilitiesResponse {
+            bundle_root: ".memd".to_string(),
+            generated_at: Utc::now(),
+            discovered: 7,
+            universal: 2,
+            bridgeable: 3,
+            harness_native: 2,
+            bridge_actions: 4,
+            wired_harnesses: 2,
+            harnesses: vec![
+                CapabilityHarnessSummary {
+                    harness: "codex".to_string(),
+                    capabilities: 3,
+                    installed: 2,
+                    bridge_actions: 1,
+                },
+                CapabilityHarnessSummary {
+                    harness: "claude-code".to_string(),
+                    capabilities: 4,
+                    installed: 4,
+                    bridge_actions: 3,
+                },
+            ],
+        });
+
+        assert!(summary.contains("discovered=7"));
+        assert!(summary.contains("bridge_actions=4"));
+        assert!(summary.contains("wired_harnesses=2"));
+        assert!(summary.contains("codex:3/2/1"));
+        assert!(summary.contains("claude-code:4/4/3"));
+    }
+
+    #[test]
+    fn render_memory_surface_summary_surfaces_truth_and_tiers() {
+        let summary = render_memory_surface_summary(&MemorySurfaceResponse {
+            bundle_root: ".memd".to_string(),
+            truth_summary: TruthSummary {
+                retrieval_tier: RetrievalTier::Hot,
+                truth: "current".to_string(),
+                freshness: "fresh".to_string(),
+                confidence: 0.97,
+                action_hint: "keep current truth hot".to_string(),
+                source_count: 2,
+                contested_sources: 0,
+                compact_records: 5,
+                records: vec![TruthRecordSummary {
+                    lane: "live_truth".to_string(),
+                    truth: "current".to_string(),
+                    freshness: "fresh".to_string(),
+                    retrieval_tier: RetrievalTier::Hot,
+                    confidence: 0.97,
+                    provenance: "event_spine / compact".to_string(),
+                    preview: "Current live truth head".to_string(),
+                }],
+            },
+            context_records: 2,
+            working_records: 3,
+            inbox_items: 1,
+            source_lanes: 2,
+            rehydration_queue: 1,
+            semantic_hits: 2,
+            change_summary: 1,
+            estimated_prompt_tokens: 180,
+            refresh_recommended: false,
+        });
+
+        assert!(summary.contains("truth=current"));
+        assert!(summary.contains("freshness=fresh"));
+        assert!(summary.contains("retrieval=hot"));
+        assert!(summary.contains("working:3"));
+        assert!(summary.contains("sources:2"));
+        assert!(summary.contains("tok=180"));
+        assert!(summary.contains("head=live_truth"));
     }
 
     #[test]
@@ -42874,6 +43546,7 @@ mod tests {
             findings: Vec::new(),
             recommendations: Vec::new(),
             evidence: Vec::new(),
+            evolution: None,
         }
     }
 
@@ -44496,7 +45169,8 @@ mod tests {
             .arg(&proposal.branch)
             .status()
             .expect("checkout proposal branch");
-        fs::write(root.join("README.md"), "# demo\n\nmerged change\n").expect("write branch change");
+        fs::write(root.join("README.md"), "# demo\n\nmerged change\n")
+            .expect("write branch change");
         let _ = Command::new("git")
             .arg("-C")
             .arg(&root)
@@ -44558,10 +45232,8 @@ mod tests {
 
     #[test]
     fn process_evolution_queues_promotes_merged_branch_to_durable_truth() {
-        let root = std::env::temp_dir().join(format!(
-            "memd-evolution-durable-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("memd-evolution-durable-{}", uuid::Uuid::new_v4()));
         let output = root.join(".memd");
         fs::create_dir_all(&output).expect("create temp bundle");
         write_test_bundle_config(&output, "http://127.0.0.1:59999");
@@ -44627,7 +45299,8 @@ mod tests {
             .arg(&proposal.branch)
             .status()
             .expect("checkout proposal branch");
-        fs::write(root.join("README.md"), "# demo\n\ndurable change\n").expect("write branch change");
+        fs::write(root.join("README.md"), "# demo\n\ndurable change\n")
+            .expect("write branch change");
         let _ = Command::new("git")
             .arg("-C")
             .arg(&root)
