@@ -3433,6 +3433,142 @@ mod tests {
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
+    #[tokio::test]
+    async fn dashboard_route_surfaces_hive_controls_and_coordination_endpoints() {
+        let (dir, state) = temp_state("memd-dashboard-hive-controls");
+        crate::ui::test_insert_visible_item(&state, "runtime spine", true)
+            .expect("seed visible memory");
+        seed_hive_route_state(&state);
+        let app = Router::new()
+            .route("/", get(dashboard))
+            .route("/coordination/messages/send", post(post_hive_message))
+            .route(
+                "/coordination/receipts/record",
+                post(post_hive_coordination_receipt),
+            )
+            .route(
+                "/coordination/sessions/retire",
+                post(post_hive_session_retire),
+            )
+            .route(
+                "/coordination/sessions/auto-retire",
+                post(post_hive_session_auto_retire),
+            )
+            .route("/hive/board", get(get_hive_board))
+            .route("/hive/roster", get(get_hive_roster))
+            .route("/hive/follow", get(get_hive_follow))
+            .with_state(state.clone());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("build dashboard request"),
+            )
+            .await
+            .expect("run dashboard route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read dashboard body")
+                .to_vec(),
+        )
+        .expect("decode dashboard html");
+        assert!(html.contains("data-hive-queen-action=\"deny-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"reroute-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"handoff-focused\""));
+        assert!(html.contains("/coordination/receipts/record"));
+        assert!(html.contains("/coordination/messages/send"));
+
+        let receipt_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/coordination/receipts/record")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "kind": "queen_deny",
+                            "actor_session": "queen-1",
+                            "actor_agent": "dashboard",
+                            "target_session": "bee-1",
+                            "task_id": null,
+                            "scope": null,
+                            "project": "memd",
+                            "namespace": "main",
+                            "workspace": "shared",
+                            "summary": "Queen denied overlapping lane or scope work for session bee-1."
+                        })
+                        .to_string(),
+                    ))
+                    .expect("build receipt request"),
+            )
+            .await
+            .expect("record receipt");
+        assert_eq!(receipt_response.status(), StatusCode::OK);
+
+        let message_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/coordination/messages/send")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "kind": "handoff",
+                            "from_session": "queen-1",
+                            "from_agent": "dashboard",
+                            "to_session": "bee-1",
+                            "project": "memd",
+                            "namespace": "main",
+                            "workspace": "shared",
+                            "content": "handoff_scope: crates/memd-client/src/main.rs"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("build message request"),
+            )
+            .await
+            .expect("record message");
+        assert_eq!(message_response.status(), StatusCode::OK);
+
+        let receipts = state
+            .store
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                limit: Some(16),
+            })
+            .expect("list receipts");
+        assert!(receipts
+            .receipts
+            .iter()
+            .any(|receipt| receipt.kind == "queen_deny"));
+        let inbox = state
+            .store
+            .hive_inbox(&HiveMessageInboxRequest {
+                session: "bee-1".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                include_acknowledged: Some(true),
+                limit: Some(8),
+            })
+            .expect("load hive inbox");
+        assert!(inbox
+            .messages
+            .iter()
+            .any(|message| message.kind == "handoff"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
     #[test]
     fn matching_workspace_ranks_above_other_shared_workspace() {
         let req = ContextRequest {
