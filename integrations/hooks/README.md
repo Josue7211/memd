@@ -12,7 +12,7 @@ Use them when a client wants:
 For per-project bootstrap, use:
 
 ```bash
-memd init --project <project> --namespace <namespace> --agent <agent>
+memd setup --output .memd --project <project> --namespace <namespace> --agent <agent>
 ```
 
 Check bundle health with:

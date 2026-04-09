@@ -37,7 +37,7 @@ Before tagging a release:
 1. verify the intended milestone branch is coherent
 2. ensure public docs match shipped behavior
 3. verify bundle bootstrap still works from the README quickstart:
-   - `memd init`
+   - `memd setup --agent codex`
    - `memd status --output .memd`
    - one agent launch surface
 4. verify user-facing status/setup signals are accurate:

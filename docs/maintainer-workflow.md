@@ -78,7 +78,7 @@ docs, or assistant output invent URLs or accessibility claims from context.
 1. land verified scoped work into the active `work/<milestone>` branch
 2. update `CHANGELOG.md`
 3. verify the release-facing setup path from scratch:
-   - `memd init`
+   - `memd setup --agent codex`
    - `memd status --output .memd`
    - one bundle-backed agent launch surface
 4. cut `release/vX.Y.Z` if release prep needs its own branch
