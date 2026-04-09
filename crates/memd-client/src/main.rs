@@ -112,6 +112,7 @@ enum Commands {
     Experiment(ExperimentArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
+    Truth(TruthArgs),
     Resume(ResumeArgs),
     Refresh(ResumeArgs),
     Watch(WatchArgs),
@@ -123,6 +124,7 @@ enum Commands {
     Ingest(IngestArgs),
     Inspiration(InspirationArgs),
     Skills(SkillsArgs),
+    Capabilities(CapabilitiesArgs),
     Packs(PacksArgs),
     Commands(CommandCatalogArgs),
     Setup(SetupArgs),
@@ -266,6 +268,9 @@ struct ContextArgs {
 
 #[derive(Debug, Clone, Args)]
 struct WorkingArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
     #[arg(long)]
     project: Option<String>,
 
@@ -969,6 +974,24 @@ struct SkillsArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct CapabilitiesArgs {
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    #[arg(long)]
+    query: Option<String>,
+
+    #[arg(long)]
+    summary: bool,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    apply: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct PacksArgs {
     #[arg(long)]
     root: Option<PathBuf>,
@@ -1605,6 +1628,12 @@ struct TasksArgs {
     request_review: bool,
 
     #[arg(long)]
+    view: Option<String>,
+
+    #[arg(long)]
+    query: Option<String>,
+
+    #[arg(long)]
     all: bool,
 
     #[arg(long)]
@@ -1996,6 +2025,45 @@ struct ResumeArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct TruthArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    project: Option<String>,
+
+    #[arg(long)]
+    namespace: Option<String>,
+
+    #[arg(long)]
+    agent: Option<String>,
+
+    #[arg(long)]
+    workspace: Option<String>,
+
+    #[arg(long)]
+    visibility: Option<String>,
+
+    #[arg(long)]
+    route: Option<String>,
+
+    #[arg(long)]
+    intent: Option<String>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    rehydration_limit: Option<usize>,
+
+    #[arg(long)]
+    semantic: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct WatchArgs {
     #[arg(long, default_value_os_t = std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))]
     root: PathBuf,
@@ -2355,7 +2423,12 @@ async fn main() -> anyhow::Result<()> {
         Commands::Status(args) => {
             let status = read_bundle_status(&args.output, &base_url).await?;
             if args.summary {
-                println!("{}", render_bundle_status_summary(&status));
+                let base = render_bundle_status_summary(&status);
+                if let Some(truth) = render_truth_summary_from_status_json(&status) {
+                    println!("{base}\n{truth}");
+                } else {
+                    println!("{base}");
+                }
             } else {
                 print_json(&status)?;
             }
@@ -2828,6 +2901,15 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|| "bash".to_string());
             println!("{}", render_attach_snippet(&shell, &args.output)?);
         }
+        Commands::Truth(args) => {
+            let snapshot = read_bundle_resume(&truth_args_to_resume_args(&args), &base_url).await?;
+            let truth = build_truth_summary(&snapshot);
+            if args.summary {
+                println!("{}", render_truth_summary_line(&snapshot, &truth));
+            } else {
+                print_json(&serde_json::to_value(truth)?)?;
+            }
+        }
         Commands::Resume(args) => {
             let codex_pack =
                 harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
@@ -2893,37 +2975,7 @@ async fn main() -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else if args.summary {
-                let focus = snapshot
-                    .working
-                    .records
-                    .first()
-                    .map(|record| compact_inline(&record.record, 72))
-                    .unwrap_or_else(|| "none".to_string());
-                let pressure = snapshot
-                    .inbox
-                    .items
-                    .first()
-                    .map(|item| compact_inline(&item.item.content, 72))
-                    .unwrap_or_else(|| "none".to_string());
-                println!(
-                    "resume project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                    snapshot.agent.as_deref().unwrap_or("none"),
-                    snapshot.workspace.as_deref().unwrap_or("none"),
-                    snapshot.visibility.as_deref().unwrap_or("all"),
-                    snapshot.context.records.len(),
-                    snapshot.working.records.len(),
-                    snapshot.inbox.items.len(),
-                    snapshot.workspaces.workspaces.len(),
-                    snapshot.change_summary.len(),
-                    snapshot.estimated_prompt_tokens(),
-                    snapshot.context_pressure(),
-                    snapshot.redundant_context_items(),
-                    snapshot.refresh_recommended,
-                    focus,
-                    pressure,
-                );
+                println!("{}", render_resume_state_summary("resume", &snapshot));
             } else {
                 print_json(&snapshot)?;
             }
@@ -2942,37 +2994,7 @@ async fn main() -> anyhow::Result<()> {
             if args.prompt {
                 println!("{}", render_resume_prompt(&snapshot));
             } else {
-                let focus = snapshot
-                    .working
-                    .records
-                    .first()
-                    .map(|record| compact_inline(&record.record, 72))
-                    .unwrap_or_else(|| "none".to_string());
-                let pressure = snapshot
-                    .inbox
-                    .items
-                    .first()
-                    .map(|item| compact_inline(&item.item.content, 72))
-                    .unwrap_or_else(|| "none".to_string());
-                println!(
-                    "refresh project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"",
-                    snapshot.project.as_deref().unwrap_or("none"),
-                    snapshot.namespace.as_deref().unwrap_or("none"),
-                    snapshot.agent.as_deref().unwrap_or("none"),
-                    snapshot.workspace.as_deref().unwrap_or("none"),
-                    snapshot.visibility.as_deref().unwrap_or("all"),
-                    snapshot.context.records.len(),
-                    snapshot.working.records.len(),
-                    snapshot.inbox.items.len(),
-                    snapshot.workspaces.workspaces.len(),
-                    snapshot.change_summary.len(),
-                    snapshot.estimated_prompt_tokens(),
-                    snapshot.context_pressure(),
-                    snapshot.redundant_context_items(),
-                    snapshot.refresh_recommended,
-                    focus,
-                    pressure,
-                );
+                println!("{}", render_resume_state_summary("refresh", &snapshot));
             }
         }
         Commands::Watch(args) => {
@@ -3194,6 +3216,48 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", render_skill_catalog_summary(&catalog));
             } else {
                 println!("{}", render_skill_catalog_markdown(&catalog));
+            }
+        }
+        Commands::Capabilities(args) => {
+            let bundle_root = resolve_pack_bundle_root(args.root.as_deref())?;
+            let project_root =
+                infer_bundle_project_root(&bundle_root).or_else(|| std::env::current_dir().ok());
+            let registry = build_bundle_capability_registry(project_root.as_deref());
+            let bridges = if args.apply {
+                apply_capability_bridges()
+            } else {
+                detect_capability_bridges()
+            };
+            let harnesses = build_harness_bridge_registry();
+            let registry = filter_capability_registry(registry, args.query.as_deref());
+            let bridges = filter_capability_bridge_registry(bridges, args.query.as_deref());
+            let harnesses = filter_harness_bridge_registry(harnesses, args.query.as_deref());
+
+            if args.apply {
+                write_bundle_capability_registry(&bundle_root, &registry)?;
+                write_bundle_capability_bridges(&bundle_root, &bridges)?;
+                write_filtered_harness_bridge_registry(&bundle_root, &harnesses)?;
+            }
+
+            if args.json {
+                print_json(&build_capability_surface_json(
+                    &bundle_root,
+                    args.query.as_deref(),
+                    args.apply,
+                    &registry,
+                    &bridges,
+                    &harnesses,
+                ))?;
+            } else {
+                let report = render_capability_surface_report(
+                    &bundle_root,
+                    args.query.as_deref(),
+                    args.apply,
+                    &registry,
+                    &bridges,
+                    &harnesses,
+                );
+                println!("{report}");
             }
         }
         Commands::Packs(args) => {
@@ -3535,7 +3599,18 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await?;
             if args.summary {
-                println!("{}", render_working_summary(&response, args.follow));
+                let base = render_working_summary(&response, args.follow);
+                let truth = read_bundle_resume(&working_args_to_resume_args(&args), &base_url)
+                    .await
+                    .ok()
+                    .map(|snapshot| {
+                        render_truth_summary_line(&snapshot, &build_truth_summary(&snapshot))
+                    });
+                if let Some(truth) = truth {
+                    println!("{base}\n{truth}");
+                } else {
+                    println!("{base}");
+                }
             } else {
                 print_json(&response)?;
             }
@@ -6008,6 +6083,42 @@ fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
     }
 }
 
+fn truth_args_to_resume_args(args: &TruthArgs) -> ResumeArgs {
+    ResumeArgs {
+        output: args.output.clone(),
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        agent: args.agent.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
+        route: args.route.clone(),
+        intent: args.intent.clone(),
+        limit: args.limit,
+        rehydration_limit: args.rehydration_limit,
+        semantic: args.semantic,
+        prompt: false,
+        summary: false,
+    }
+}
+
+fn working_args_to_resume_args(args: &WorkingArgs) -> ResumeArgs {
+    ResumeArgs {
+        output: args.output.clone(),
+        project: args.project.clone(),
+        namespace: None,
+        agent: args.agent.clone(),
+        workspace: args.workspace.clone(),
+        visibility: args.visibility.clone(),
+        route: args.route.clone(),
+        intent: args.intent.clone(),
+        limit: args.limit,
+        rehydration_limit: args.rehydration_limit,
+        semantic: false,
+        prompt: false,
+        summary: false,
+    }
+}
+
 fn doctor_args_to_setup_args(
     args: &DoctorArgs,
     output: PathBuf,
@@ -6219,13 +6330,10 @@ fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value)
             }
         }
     }
-    if let Some(evolution) = status.get("evolution").and_then(|value| {
-        if value.is_null() {
-            None
-        } else {
-            Some(value)
-        }
-    }) {
+    if let Some(evolution) = status
+        .get("evolution")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
         markdown.push_str("\n## Evolution\n");
         markdown.push_str(&format!(
             "- proposal state: `{}`\n",
@@ -12686,6 +12794,161 @@ fn render_capability_bridge_summary(registry: &CapabilityBridgeRegistry) -> Stri
     markdown
 }
 
+fn filter_capability_registry(
+    mut registry: CapabilityRegistry,
+    query: Option<&str>,
+) -> CapabilityRegistry {
+    let Some(query) = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return registry;
+    };
+    registry.capabilities.retain(|record| {
+        [
+            record.harness.as_str(),
+            record.kind.as_str(),
+            record.name.as_str(),
+            record.status.as_str(),
+            record.portability_class.as_str(),
+            record.source_path.as_str(),
+            record.bridge_hint.as_deref().unwrap_or_default(),
+        ]
+        .into_iter()
+        .any(|value| value.to_ascii_lowercase().contains(&query))
+            || record
+                .notes
+                .iter()
+                .any(|note| note.to_ascii_lowercase().contains(&query))
+    });
+    registry
+}
+
+fn filter_capability_bridge_registry(
+    mut registry: CapabilityBridgeRegistry,
+    query: Option<&str>,
+) -> CapabilityBridgeRegistry {
+    let Some(query) = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return registry;
+    };
+    registry.actions.retain(|action| {
+        [
+            action.harness.as_str(),
+            action.capability.as_str(),
+            action.status.as_str(),
+            action.source_path.as_str(),
+            action.target_path.as_str(),
+        ]
+        .into_iter()
+        .any(|value| value.to_ascii_lowercase().contains(&query))
+            || action
+                .notes
+                .iter()
+                .any(|note| note.to_ascii_lowercase().contains(&query))
+    });
+    registry
+}
+
+fn filter_harness_bridge_registry(
+    mut registry: HarnessBridgeRegistry,
+    query: Option<&str>,
+) -> HarnessBridgeRegistry {
+    let Some(query) = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return registry;
+    };
+    registry.harnesses.retain(|record| {
+        [
+            record.harness.as_str(),
+            record.portability_class.as_str(),
+            if record.wired { "wired" } else { "missing" },
+        ]
+        .into_iter()
+        .any(|value| value.to_ascii_lowercase().contains(&query))
+            || record
+                .required_surfaces
+                .iter()
+                .any(|surface| surface.to_ascii_lowercase().contains(&query))
+            || record
+                .missing_surfaces
+                .iter()
+                .any(|surface| surface.to_ascii_lowercase().contains(&query))
+            || record
+                .notes
+                .iter()
+                .any(|note| note.to_ascii_lowercase().contains(&query))
+    });
+    registry.all_wired = registry.harnesses.iter().all(|record| record.wired);
+    registry.overall_portability_class = if registry.all_wired {
+        "portable".to_string()
+    } else {
+        "adapter-required".to_string()
+    };
+    registry
+}
+
+fn render_capability_surface_report(
+    bundle_root: &Path,
+    query: Option<&str>,
+    apply: bool,
+    registry: &CapabilityRegistry,
+    bridges: &CapabilityBridgeRegistry,
+    harnesses: &HarnessBridgeRegistry,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# Capability Surface\n\n");
+    markdown.push_str(&format!("- bundle: `{}`\n", bundle_root.display()));
+    markdown.push_str(&format!(
+        "- mode: `{}`\n",
+        if apply { "apply" } else { "inspect" }
+    ));
+    markdown.push_str(&format!(
+        "- query: `{}`\n\n",
+        query
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("all")
+    ));
+    markdown.push_str(&render_capability_registry_summary(registry));
+    if !markdown.ends_with('\n') {
+        markdown.push('\n');
+    }
+    markdown.push('\n');
+    markdown.push_str(&render_capability_bridge_summary(bridges));
+    if !markdown.ends_with('\n') {
+        markdown.push('\n');
+    }
+    markdown.push('\n');
+    markdown.push_str(&render_harness_bridge_markdown(harnesses));
+    markdown
+}
+
+fn build_capability_surface_json(
+    bundle_root: &Path,
+    query: Option<&str>,
+    apply: bool,
+    registry: &CapabilityRegistry,
+    bridges: &CapabilityBridgeRegistry,
+    harnesses: &HarnessBridgeRegistry,
+) -> JsonValue {
+    json!({
+        "bundle_root": bundle_root.display().to_string(),
+        "mode": if apply { "apply" } else { "inspect" },
+        "query": query.map(str::trim).filter(|value| !value.is_empty()),
+        "capability_registry": registry,
+        "capability_bridges": bridges,
+        "harness_bridges": harnesses,
+    })
+}
+
 fn build_skill_lifecycle_report(policy: &MemoryPolicyResponse) -> SkillLifecycleReport {
     let registry = build_bundle_capability_registry(None);
     let bridges = detect_capability_bridges();
@@ -15694,11 +15957,19 @@ fn harness_bridge_registry_path(output: &Path) -> PathBuf {
 
 fn write_bundle_harness_bridge_registry(output: &Path) -> anyhow::Result<HarnessBridgeRegistry> {
     let registry = build_harness_bridge_registry();
+    write_filtered_harness_bridge_registry(output, &registry)?;
+    Ok(registry)
+}
+
+fn write_filtered_harness_bridge_registry(
+    output: &Path,
+    registry: &HarnessBridgeRegistry,
+) -> anyhow::Result<()> {
     let path = harness_bridge_registry_path(output);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    fs::write(&path, serde_json::to_string_pretty(&registry)? + "\n")
+    fs::write(&path, serde_json::to_string_pretty(registry)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     let markdown_path = output.join("agents").join("HARNESS_BRIDGES.md");
     if let Some(parent) = markdown_path.parent() {
@@ -15706,7 +15977,7 @@ fn write_bundle_harness_bridge_registry(output: &Path) -> anyhow::Result<Harness
     }
     fs::write(&markdown_path, render_harness_bridge_markdown(&registry))
         .with_context(|| format!("write {}", markdown_path.display()))?;
-    Ok(registry)
+    Ok(())
 }
 
 fn read_bundle_harness_bridge_registry(
@@ -16678,7 +16949,8 @@ async fn reconcile_bundle_heartbeat(
     fs::write(&path, serde_json::to_string_pretty(&state)? + "\n")
         .with_context(|| format!("write {}", path.display()))?;
     let retired = publish_bundle_heartbeat(&state).await?;
-    let state = read_bundle_heartbeat(output)?.context("reload bundle heartbeat after reconcile")?;
+    let state =
+        read_bundle_heartbeat(output)?.context("reload bundle heartbeat after reconcile")?;
     Ok((state, retired))
 }
 
@@ -16729,7 +17001,9 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         client.upsert_hive_session(&request),
     )
     .await;
-    let retired = retire_superseded_hive_sessions(&client, state).await.unwrap_or(0);
+    let retired = retire_superseded_hive_sessions(&client, state)
+        .await
+        .unwrap_or(0);
     Ok(retired)
 }
 
@@ -17408,6 +17682,8 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         return Ok(TasksResponse {
             bundle_root: args.output.display().to_string(),
             current_session,
+            view: args.view.clone(),
+            query: args.query.clone(),
             tasks: response.tasks,
         });
     }
@@ -17496,6 +17772,8 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         return Ok(TasksResponse {
             bundle_root: args.output.display().to_string(),
             current_session,
+            view: args.view.clone(),
+            query: args.query.clone(),
             tasks: response.tasks,
         });
     }
@@ -17624,6 +17902,8 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         return Ok(TasksResponse {
             bundle_root: args.output.display().to_string(),
             current_session,
+            view: args.view.clone(),
+            query: args.query.clone(),
             tasks: tasks.tasks,
         });
     }
@@ -17638,24 +17918,32 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             limit: Some(256),
         })
         .await?;
+    let tasks = filter_tasks(
+        response.tasks,
+        current_session.as_deref(),
+        args.view.as_deref(),
+        args.query.as_deref(),
+    );
     Ok(TasksResponse {
         bundle_root: args.output.display().to_string(),
         current_session,
-        tasks: response.tasks,
+        view: args.view.clone(),
+        query: args.query.clone(),
+        tasks,
     })
 }
 
-async fn run_session_command(args: &SessionArgs, base_url: &str) -> anyhow::Result<SessionResponse> {
+async fn run_session_command(
+    args: &SessionArgs,
+    base_url: &str,
+) -> anyhow::Result<SessionResponse> {
     let runtime_before_overlay = read_bundle_runtime_config_raw(&args.output)?;
     let bundle_session_before = runtime_before_overlay
         .as_ref()
         .and_then(|config| config.session.clone());
     let runtime = read_bundle_runtime_config(&args.output)?
         .context("session requires a readable bundle runtime config")?;
-    let resolved_base_url = resolve_bundle_command_base_url(
-        base_url,
-        runtime.base_url.as_deref(),
-    );
+    let resolved_base_url = resolve_bundle_command_base_url(base_url, runtime.base_url.as_deref());
     let client = MemdClient::new(&resolved_base_url)?;
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
@@ -17711,7 +17999,8 @@ async fn run_session_command(args: &SessionArgs, base_url: &str) -> anyhow::Resu
     }
 
     if args.reconcile || args.rebind {
-        let (heartbeat_state, retired) = reconcile_bundle_heartbeat(&args.output, None, false).await?;
+        let (heartbeat_state, retired) =
+            reconcile_bundle_heartbeat(&args.output, None, false).await?;
         heartbeat = Some(serde_json::to_value(heartbeat_state)?);
         reconciled = true;
         reconciled_retired_sessions = retired;
@@ -17757,13 +18046,25 @@ fn render_session_summary(response: &SessionResponse) -> String {
         response.reconciled_retired_sessions,
         response.retired_sessions,
         response.retire_target.as_deref().unwrap_or("none"),
-        if response.heartbeat.is_some() { "published" } else { "skipped" }
+        if response.heartbeat.is_some() {
+            "published"
+        } else {
+            "skipped"
+        }
     )
 }
 
 fn render_tasks_summary(response: &TasksResponse) -> String {
-    let help = response.tasks.iter().filter(|task| task.help_requested).count();
-    let review = response.tasks.iter().filter(|task| task.review_requested).count();
+    let help = response
+        .tasks
+        .iter()
+        .filter(|task| task.help_requested)
+        .count();
+    let review = response
+        .tasks
+        .iter()
+        .filter(|task| task.review_requested)
+        .count();
     let exclusive = response
         .tasks
         .iter()
@@ -17775,12 +18076,47 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
         .iter()
         .filter(|task| task.status != "done" && task.status != "closed")
         .count();
+    let mine = response
+        .current_session
+        .as_deref()
+        .map(|session| {
+            response
+                .tasks
+                .iter()
+                .filter(|task| task.session.as_deref() == Some(session))
+                .count()
+        })
+        .unwrap_or(0);
+    let cowork = response.tasks.len().saturating_sub(mine);
+    let blocked = response
+        .tasks
+        .iter()
+        .filter(|task| {
+            matches!(
+                task.status.as_str(),
+                "blocked" | "needs_help" | "needs_review"
+            )
+        })
+        .count();
+    let unassigned = response
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.session.as_deref().is_none() && task.effective_agent.as_deref().is_none()
+        })
+        .count();
     let mut lines = vec![format!(
-        "tasks bundle={} current_session={} count={} open={} help={} review={} exclusive={} shared={}",
+        "tasks bundle={} current_session={} view={} query={} count={} open={} blocked={} mine={} cowork={} unassigned={} help={} review={} exclusive={} shared={}",
         response.bundle_root,
         response.current_session.as_deref().unwrap_or("none"),
+        response.view.as_deref().unwrap_or("all"),
+        response.query.as_deref().unwrap_or("none"),
         response.tasks.len(),
         open,
+        blocked,
+        mine,
+        cowork,
+        unassigned,
         help,
         review,
         exclusive,
@@ -17807,6 +18143,68 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
         ));
     }
     lines.join("\n")
+}
+
+fn filter_tasks(
+    tasks: Vec<HiveTaskRecord>,
+    current_session: Option<&str>,
+    view: Option<&str>,
+    query: Option<&str>,
+) -> Vec<HiveTaskRecord> {
+    let normalized_view = view
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    let normalized_query = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    tasks
+        .into_iter()
+        .filter(|task| match normalized_view.as_deref() {
+            Some("mine") => {
+                current_session.is_some_and(|session| task.session.as_deref() == Some(session))
+            }
+            Some("cowork") | Some("others") => {
+                current_session.is_none_or(|session| task.session.as_deref() != Some(session))
+            }
+            Some("help") => task.help_requested || task.status == "needs_help",
+            Some("review") => task.review_requested || task.status == "needs_review",
+            Some("blocked") => matches!(
+                task.status.as_str(),
+                "blocked" | "needs_help" | "needs_review"
+            ),
+            Some("done") | Some("closed") => matches!(task.status.as_str(), "done" | "closed"),
+            Some("open") => !matches!(task.status.as_str(), "done" | "closed"),
+            Some("exclusive") => task.coordination_mode == "exclusive_write",
+            Some("shared") => task.coordination_mode != "exclusive_write",
+            Some("unassigned") => {
+                task.session.as_deref().is_none() && task.effective_agent.as_deref().is_none()
+            }
+            Some(_) | None => true,
+        })
+        .filter(|task| {
+            normalized_query.as_ref().is_none_or(|query| {
+                [
+                    task.task_id.as_str(),
+                    task.title.as_str(),
+                    task.description.as_deref().unwrap_or_default(),
+                    task.status.as_str(),
+                    task.coordination_mode.as_str(),
+                    task.session.as_deref().unwrap_or_default(),
+                    task.agent.as_deref().unwrap_or_default(),
+                    task.effective_agent.as_deref().unwrap_or_default(),
+                ]
+                .into_iter()
+                .any(|value| value.to_ascii_lowercase().contains(query))
+                    || task
+                        .claim_scopes
+                        .iter()
+                        .any(|scope| scope.to_ascii_lowercase().contains(query))
+            })
+        })
+        .collect()
 }
 
 async fn run_coordination_command(
@@ -20008,6 +20406,8 @@ async fn apply_improvement_action(
                     scope: Vec::new(),
                     request_help: false,
                     request_review: false,
+                    view: None,
+                    query: None,
                     all: false,
                     summary: false,
                 },
@@ -20031,6 +20431,8 @@ async fn apply_improvement_action(
                     scope: Vec::new(),
                     request_help: true,
                     request_review: false,
+                    view: None,
+                    query: None,
                     all: false,
                     summary: false,
                 },
@@ -20057,6 +20459,8 @@ async fn apply_improvement_action(
                     scope: Vec::new(),
                     request_help: false,
                     request_review: true,
+                    view: None,
+                    query: None,
                     all: false,
                     summary: false,
                 },
@@ -22546,7 +22950,9 @@ fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
     };
     let project_root = infer_bundle_project_root(output);
     for entry in &mut queue.entries {
-        if entry.status == "merged" || entry.status == "human_review" && entry.authority_tier == "proposal_only" {
+        if entry.status == "merged"
+            || entry.status == "human_review" && entry.authority_tier == "proposal_only"
+        {
             continue;
         }
         let Some(root) = project_root.as_ref() else {
@@ -22639,11 +23045,23 @@ fn execute_evolution_durability_check(
         return Ok("blocked_missing_branch".to_string());
     }
     if !git_branch_tip_ancestor_of_head(&root, &entry.branch) {
-        transition_evolution_proposal_state(output, &entry.proposal_id, "merged", false, Some(due_at))?;
+        transition_evolution_proposal_state(
+            output,
+            &entry.proposal_id,
+            "merged",
+            false,
+            Some(due_at),
+        )?;
         transition_evolution_branch_state(output, &entry.proposal_id, "merged", false)?;
         return Ok("regressed".to_string());
     }
-    transition_evolution_proposal_state(output, &entry.proposal_id, "durable_truth", true, Some(due_at))?;
+    transition_evolution_proposal_state(
+        output,
+        &entry.proposal_id,
+        "durable_truth",
+        true,
+        Some(due_at),
+    )?;
     transition_evolution_branch_state(output, &entry.proposal_id, "durable_truth", true)?;
     append_evolution_durability_transition_from_queue(output, entry, "durable_truth", true)?;
     append_evolution_authority_transition_from_queue(output, entry, "durable_truth", true)?;
@@ -23256,7 +23674,9 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
     let scenario = report.composite.scenario.as_deref().unwrap_or_default();
     let docs_score = count_matches(
         &haystack,
-        &["docs/", ".md", "spec", "manifest", "readme", "docs", "guide"],
+        &[
+            "docs/", ".md", "spec", "manifest", "readme", "docs", "guide",
+        ],
     );
     let runtime_policy_score = count_matches(
         &haystack,
@@ -23336,14 +23756,18 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
             "persistence_semantics".to_string(),
             "proposal_only".to_string(),
             vec!["proposal-only".to_string()],
-            vec![format!("persistence semantics signal ({persistence_score})")],
+            vec![format!(
+                "persistence semantics signal ({persistence_score})"
+            )],
         )
     } else if coordination_score > 0 {
         (
             "coordination_semantics".to_string(),
             "proposal_only".to_string(),
             vec!["proposal-only".to_string()],
-            vec![format!("coordination semantics signal ({coordination_score})")],
+            vec![format!(
+                "coordination semantics signal ({coordination_score})"
+            )],
         )
     } else if api_score > 0 {
         (
@@ -23414,7 +23838,10 @@ fn classify_evolution_scope(report: &ExperimentReport) -> EvolutionScopeAssessme
 }
 
 fn count_matches(haystack: &str, needles: &[&str]) -> usize {
-    needles.iter().filter(|needle| haystack.contains(**needle)).count()
+    needles
+        .iter()
+        .filter(|needle| haystack.contains(**needle))
+        .count()
 }
 
 fn branch_safe_slug(value: &str) -> String {
@@ -24695,6 +25122,42 @@ fn render_bundle_wakeup_summary(snapshot: &ResumeSnapshot) -> String {
     )
 }
 
+fn render_resume_state_summary(mode: &str, snapshot: &ResumeSnapshot) -> String {
+    let focus = snapshot
+        .working
+        .records
+        .first()
+        .map(|record| compact_inline(&record.record, 72))
+        .unwrap_or_else(|| "none".to_string());
+    let pressure = snapshot
+        .inbox
+        .items
+        .first()
+        .map(|item| compact_inline(&item.item.content, 72))
+        .unwrap_or_else(|| "none".to_string());
+    let truth = render_truth_summary_line(snapshot, &build_truth_summary(snapshot));
+    format!(
+        "{mode} project={} namespace={} agent={} workspace={} visibility={} context={} working={} inbox={} workspaces={} changes={} est_tokens={} context_pressure={} redundant_items={} refresh_recommended={} focus=\"{}\" pressure=\"{}\"\n{}",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        snapshot.context.records.len(),
+        snapshot.working.records.len(),
+        snapshot.inbox.items.len(),
+        snapshot.workspaces.workspaces.len(),
+        snapshot.change_summary.len(),
+        snapshot.estimated_prompt_tokens(),
+        snapshot.context_pressure(),
+        snapshot.redundant_context_items(),
+        snapshot.refresh_recommended,
+        focus,
+        pressure,
+        truth,
+    )
+}
+
 fn render_bundle_scope_markdown(output: &Path, snapshot: &ResumeSnapshot) -> String {
     let runtime = read_bundle_runtime_config(output).ok().flatten();
     let heartbeat_tab_id = read_bundle_heartbeat(output)
@@ -25798,7 +26261,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         )
         .await
         .ok();
-        snapshot.map(|snapshot| serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null))
+        snapshot.map(|snapshot| {
+            serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null)
+        })
     } else {
         None
     };
@@ -30746,7 +31211,9 @@ fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
 fn choose_retrieval_tier(snapshot: &ResumeSnapshot) -> RetrievalTier {
     if !snapshot.event_spine().is_empty() {
         RetrievalTier::Hot
-    } else if !snapshot.compact_working_records().is_empty() || !snapshot.compact_context_records().is_empty() {
+    } else if !snapshot.compact_working_records().is_empty()
+        || !snapshot.compact_context_records().is_empty()
+    {
         RetrievalTier::Working
     } else if !snapshot.compact_rehydration_summaries().is_empty() {
         RetrievalTier::Rehydration
@@ -30825,7 +31292,11 @@ fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
     if let Some(record) = snapshot.compact_working_records().first() {
         records.push(build_truth_record_summary(
             "working_set",
-            if snapshot.redundant_context_items() > 0 { "contested" } else { "working" },
+            if snapshot.redundant_context_items() > 0 {
+                "contested"
+            } else {
+                "working"
+            },
             &freshness,
             RetrievalTier::Working,
             confidence,
@@ -30888,6 +31359,134 @@ fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
             + snapshot.compact_inbox_items().len(),
         records,
     }
+}
+
+fn retrieval_tier_label(tier: &RetrievalTier) -> &'static str {
+    match tier {
+        RetrievalTier::Hot => "hot",
+        RetrievalTier::Working => "working",
+        RetrievalTier::Rehydration => "rehydration",
+        RetrievalTier::Evidence => "evidence",
+        RetrievalTier::RawFallback => "raw_fallback",
+    }
+}
+
+fn render_truth_summary_line(snapshot: &ResumeSnapshot, truth: &TruthSummary) -> String {
+    let top = truth
+        .records
+        .first()
+        .map(|record| compact_inline(&record.preview, 72))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "truth project={} namespace={} agent={} workspace={} visibility={} tier={} truth={} freshness={} confidence={:.2} records={} contested_sources={} action_hint=\"{}\" top=\"{}\"",
+        snapshot.project.as_deref().unwrap_or("none"),
+        snapshot.namespace.as_deref().unwrap_or("none"),
+        snapshot.agent.as_deref().unwrap_or("none"),
+        snapshot.workspace.as_deref().unwrap_or("none"),
+        snapshot.visibility.as_deref().unwrap_or("all"),
+        retrieval_tier_label(&truth.retrieval_tier),
+        truth.truth,
+        truth.freshness,
+        truth.confidence,
+        truth.records.len(),
+        truth.contested_sources,
+        compact_inline(&truth.action_hint, 72),
+        top,
+    )
+}
+
+fn render_truth_summary_from_status_json(status: &JsonValue) -> Option<String> {
+    let truth = status
+        .get("truth_summary")
+        .filter(|value| !value.is_null())?;
+    let top = truth
+        .get("records")
+        .and_then(JsonValue::as_array)
+        .and_then(|records| records.first())
+        .and_then(|record| record.get("preview").and_then(JsonValue::as_str))
+        .map(|value| compact_inline(value, 72))
+        .unwrap_or_else(|| "none".to_string());
+    Some(format!(
+        "truth project={} namespace={} agent={} workspace={} visibility={} tier={} truth={} freshness={} confidence={:.2} records={} contested_sources={} action_hint=\"{}\" top=\"{}\"",
+        truth
+            .get("project")
+            .and_then(JsonValue::as_str)
+            .or_else(|| status
+                .get("resume_preview")
+                .and_then(JsonValue::as_object)
+                .and_then(|preview| preview.get("project"))
+                .and_then(JsonValue::as_str))
+            .unwrap_or("none"),
+        truth
+            .get("namespace")
+            .and_then(JsonValue::as_str)
+            .or_else(|| status
+                .get("resume_preview")
+                .and_then(JsonValue::as_object)
+                .and_then(|preview| preview.get("namespace"))
+                .and_then(JsonValue::as_str))
+            .unwrap_or("none"),
+        truth
+            .get("agent")
+            .and_then(JsonValue::as_str)
+            .or_else(|| status
+                .get("resume_preview")
+                .and_then(JsonValue::as_object)
+                .and_then(|preview| preview.get("agent"))
+                .and_then(JsonValue::as_str))
+            .unwrap_or("none"),
+        truth
+            .get("workspace")
+            .and_then(JsonValue::as_str)
+            .or_else(|| status
+                .get("resume_preview")
+                .and_then(JsonValue::as_object)
+                .and_then(|preview| preview.get("workspace"))
+                .and_then(JsonValue::as_str))
+            .unwrap_or("none"),
+        truth
+            .get("visibility")
+            .and_then(JsonValue::as_str)
+            .or_else(|| status
+                .get("resume_preview")
+                .and_then(JsonValue::as_object)
+                .and_then(|preview| preview.get("visibility"))
+                .and_then(JsonValue::as_str))
+            .unwrap_or("all"),
+        truth
+            .get("retrieval_tier")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("raw_fallback"),
+        truth
+            .get("truth")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        truth
+            .get("freshness")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown"),
+        truth
+            .get("confidence")
+            .and_then(JsonValue::as_f64)
+            .unwrap_or(0.0),
+        truth
+            .get("records")
+            .and_then(JsonValue::as_array)
+            .map(|records| records.len())
+            .unwrap_or(0),
+        truth
+            .get("contested_sources")
+            .and_then(JsonValue::as_u64)
+            .unwrap_or(0),
+        compact_inline(
+            truth
+                .get("action_hint")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("none"),
+            72
+        ),
+        top,
+    ))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31381,6 +31980,8 @@ struct SessionResponse {
 struct TasksResponse {
     bundle_root: String,
     current_session: Option<String>,
+    view: Option<String>,
+    query: Option<String>,
     tasks: Vec<HiveTaskRecord>,
 }
 
@@ -34433,6 +35034,154 @@ mod tests {
             .to_string();
         assert!(summary.contains(&modern_target));
         assert!(summary.contains(&legacy_target));
+    }
+
+    #[test]
+    fn filter_capability_surface_respects_query() {
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![
+                CapabilityRecord {
+                    harness: "claude".to_string(),
+                    kind: "plugin".to_string(),
+                    name: "superpowers".to_string(),
+                    status: "enabled".to_string(),
+                    portability_class: "bridgeable".to_string(),
+                    source_path: "src/superpowers".to_string(),
+                    bridge_hint: Some("codex bridge".to_string()),
+                    hash: None,
+                    notes: vec!["portable".to_string()],
+                },
+                CapabilityRecord {
+                    harness: "codex".to_string(),
+                    kind: "skill".to_string(),
+                    name: "other".to_string(),
+                    status: "installed".to_string(),
+                    portability_class: "universal".to_string(),
+                    source_path: "src/other".to_string(),
+                    bridge_hint: None,
+                    hash: None,
+                    notes: vec!["none".to_string()],
+                },
+            ],
+        };
+        let bridges = CapabilityBridgeRegistry {
+            generated_at: Utc::now(),
+            actions: vec![
+                CapabilityBridgeAction {
+                    harness: "codex".to_string(),
+                    capability: "superpowers".to_string(),
+                    status: "bridged".to_string(),
+                    source_path: "src/superpowers".to_string(),
+                    target_path: "target/superpowers".to_string(),
+                    notes: vec!["created bridge".to_string()],
+                },
+                CapabilityBridgeAction {
+                    harness: "opencode".to_string(),
+                    capability: "other".to_string(),
+                    status: "available".to_string(),
+                    source_path: "src/other".to_string(),
+                    target_path: "target/other".to_string(),
+                    notes: vec!["none".to_string()],
+                },
+            ],
+        };
+        let harnesses = HarnessBridgeRegistry {
+            generated_at: Utc::now(),
+            overall_portability_class: "adapter-required".to_string(),
+            all_wired: false,
+            harnesses: vec![
+                HarnessBridgeRecord {
+                    harness: "codex".to_string(),
+                    wired: true,
+                    portability_class: "harness-native".to_string(),
+                    required_surfaces: vec!["config".to_string()],
+                    missing_surfaces: Vec::new(),
+                    notes: vec!["native".to_string()],
+                },
+                HarnessBridgeRecord {
+                    harness: "opencode".to_string(),
+                    wired: false,
+                    portability_class: "adapter-required".to_string(),
+                    required_surfaces: vec!["plugin".to_string()],
+                    missing_surfaces: vec!["plugin".to_string()],
+                    notes: vec!["needs plugin".to_string()],
+                },
+            ],
+        };
+
+        let filtered_registry = filter_capability_registry(registry, Some("superpowers"));
+        let filtered_bridges = filter_capability_bridge_registry(bridges, Some("superpowers"));
+        let filtered_harnesses = filter_harness_bridge_registry(harnesses, Some("codex"));
+
+        assert_eq!(filtered_registry.capabilities.len(), 1);
+        assert_eq!(filtered_registry.capabilities[0].name, "superpowers");
+        assert_eq!(filtered_bridges.actions.len(), 1);
+        assert_eq!(filtered_bridges.actions[0].capability, "superpowers");
+        assert_eq!(filtered_harnesses.harnesses.len(), 1);
+        assert_eq!(filtered_harnesses.harnesses[0].harness, "codex");
+        assert!(filtered_harnesses.all_wired);
+        assert_eq!(filtered_harnesses.overall_portability_class, "portable");
+    }
+
+    #[test]
+    fn capability_surface_report_includes_mode_query_and_sections() {
+        let registry = CapabilityRegistry {
+            generated_at: Utc::now(),
+            project_root: None,
+            capabilities: vec![CapabilityRecord {
+                harness: "claude".to_string(),
+                kind: "plugin".to_string(),
+                name: "superpowers".to_string(),
+                status: "enabled".to_string(),
+                portability_class: "bridgeable".to_string(),
+                source_path: "src/superpowers".to_string(),
+                bridge_hint: Some("codex bridge".to_string()),
+                hash: None,
+                notes: Vec::new(),
+            }],
+        };
+        let bridges = CapabilityBridgeRegistry {
+            generated_at: Utc::now(),
+            actions: vec![CapabilityBridgeAction {
+                harness: "codex".to_string(),
+                capability: "superpowers".to_string(),
+                status: "available".to_string(),
+                source_path: "src/superpowers".to_string(),
+                target_path: "target/superpowers".to_string(),
+                notes: vec!["bridge target can be created by explicit init".to_string()],
+            }],
+        };
+        let harnesses = HarnessBridgeRegistry {
+            generated_at: Utc::now(),
+            overall_portability_class: "adapter-required".to_string(),
+            all_wired: false,
+            harnesses: vec![HarnessBridgeRecord {
+                harness: "codex".to_string(),
+                wired: false,
+                portability_class: "adapter-required".to_string(),
+                required_surfaces: vec!["config".to_string(), "skill".to_string()],
+                missing_surfaces: vec!["skill".to_string()],
+                notes: vec!["needs skill".to_string()],
+            }],
+        };
+
+        let report = render_capability_surface_report(
+            Path::new("/tmp/demo/.memd"),
+            Some("superpowers"),
+            true,
+            &registry,
+            &bridges,
+            &harnesses,
+        );
+
+        assert!(report.contains("# Capability Surface"));
+        assert!(report.contains("- mode: `apply`"));
+        assert!(report.contains("- query: `superpowers`"));
+        assert!(report.contains("## Capability Registry"));
+        assert!(report.contains("## Capability Bridges"));
+        assert!(report.contains("# memd harness bridge matrix"));
     }
 
     #[test]
@@ -37647,11 +38396,13 @@ mod tests {
                 .and_then(|value| value.as_u64()),
             Some(1)
         );
-        assert!(status
-            .get("capability_surface")
-            .and_then(|value| value.get("discovered"))
-            .and_then(|value| value.as_u64())
-            .is_some());
+        assert!(
+            status
+                .get("capability_surface")
+                .and_then(|value| value.get("discovered"))
+                .and_then(|value| value.as_u64())
+                .is_some()
+        );
         assert_eq!(
             status
                 .get("cowork_surface")
@@ -37679,10 +38430,8 @@ mod tests {
 
     #[test]
     fn read_previous_maintain_report_uses_latest_timestamped_report() {
-        let dir = std::env::temp_dir().join(format!(
-            "memd-maintain-history-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("memd-maintain-history-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         let maintain_dir = dir.join("maintenance");
         fs::create_dir_all(&maintain_dir).expect("create maintenance dir");
@@ -37742,8 +38491,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_bundle_status_emits_truth_summary() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-status-truth-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-status-truth-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         let state = MockRuntimeState::default();
@@ -37780,16 +38528,159 @@ mod tests {
             truth.get("retrieval_tier").and_then(JsonValue::as_str),
             Some("working")
         );
-        assert!(truth
-            .get("records")
-            .and_then(JsonValue::as_array)
-            .is_some_and(|records| !records.is_empty()));
-        assert!(truth
-            .get("source_count")
-            .and_then(JsonValue::as_u64)
-            .is_some());
+        assert!(
+            truth
+                .get("records")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|records| !records.is_empty())
+        );
+        assert!(
+            truth
+                .get("source_count")
+                .and_then(JsonValue::as_u64)
+                .is_some()
+        );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
+    }
+
+    #[test]
+    fn truth_args_convert_to_resume_args_without_prompt_surface() {
+        let args = TruthArgs {
+            output: PathBuf::from(".memd"),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("current_task".to_string()),
+            limit: Some(9),
+            rehydration_limit: Some(3),
+            semantic: true,
+            summary: true,
+        };
+
+        let resume = truth_args_to_resume_args(&args);
+        assert_eq!(resume.output, PathBuf::from(".memd"));
+        assert_eq!(resume.project.as_deref(), Some("demo"));
+        assert_eq!(resume.namespace.as_deref(), Some("main"));
+        assert_eq!(resume.agent.as_deref(), Some("codex"));
+        assert_eq!(resume.workspace.as_deref(), Some("shared"));
+        assert_eq!(resume.visibility.as_deref(), Some("workspace"));
+        assert_eq!(resume.route.as_deref(), Some("auto"));
+        assert_eq!(resume.intent.as_deref(), Some("current_task"));
+        assert_eq!(resume.limit, Some(9));
+        assert_eq!(resume.rehydration_limit, Some(3));
+        assert!(resume.semantic);
+        assert!(!resume.prompt);
+        assert!(!resume.summary);
+    }
+
+    #[test]
+    fn working_args_convert_to_resume_args_with_bundle_scope() {
+        let args = WorkingArgs {
+            output: PathBuf::from(".memd"),
+            project: Some("demo".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            limit: Some(7),
+            max_chars_per_item: Some(280),
+            max_total_chars: Some(1200),
+            rehydration_limit: Some(2),
+            route: Some("auto".to_string()),
+            intent: Some("current_task".to_string()),
+            summary: true,
+            follow: false,
+            auto_consolidate: false,
+        };
+
+        let resume = working_args_to_resume_args(&args);
+        assert_eq!(resume.output, PathBuf::from(".memd"));
+        assert_eq!(resume.project.as_deref(), Some("demo"));
+        assert_eq!(resume.agent.as_deref(), Some("codex"));
+        assert_eq!(resume.workspace.as_deref(), Some("shared"));
+        assert_eq!(resume.visibility.as_deref(), Some("workspace"));
+        assert_eq!(resume.route.as_deref(), Some("auto"));
+        assert_eq!(resume.intent.as_deref(), Some("current_task"));
+        assert_eq!(resume.limit, Some(7));
+        assert_eq!(resume.rehydration_limit, Some(2));
+        assert!(!resume.semantic);
+        assert!(!resume.prompt);
+        assert!(!resume.summary);
+    }
+
+    #[test]
+    fn render_truth_summary_line_surfaces_compact_current_truth() {
+        let snapshot = codex_test_snapshot("demo", "main", "codex");
+        let truth = build_truth_summary(&snapshot);
+        let summary = render_truth_summary_line(&snapshot, &truth);
+
+        assert!(summary.contains("truth project=demo"));
+        assert!(summary.contains("namespace=main"));
+        assert!(summary.contains("agent=codex"));
+        assert!(summary.contains(&format!(
+            "tier={}",
+            retrieval_tier_label(&truth.retrieval_tier)
+        )));
+        assert!(summary.contains(&format!("truth={}", truth.truth)));
+        assert!(summary.contains(&format!("freshness={}", truth.freshness)));
+        assert!(summary.contains("action_hint="));
+        assert!(summary.contains("top=\""));
+    }
+
+    #[test]
+    fn render_resume_state_summary_includes_truth_line() {
+        let snapshot = codex_test_snapshot("demo", "main", "codex");
+        let summary = render_resume_state_summary("resume", &snapshot);
+
+        assert!(summary.contains("resume project=demo"));
+        assert!(summary.contains("context="));
+        assert!(summary.contains("refresh_recommended="));
+        assert!(summary.contains("\ntruth project=demo"));
+        assert!(summary.contains("tier="));
+        assert!(summary.contains("action_hint="));
+    }
+
+    #[test]
+    fn render_truth_summary_from_status_json_uses_truth_and_resume_preview() {
+        let status = serde_json::json!({
+            "resume_preview": {
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "workspace": "shared",
+                "visibility": "workspace"
+            },
+            "truth_summary": {
+                "retrieval_tier": "hot",
+                "truth": "current",
+                "freshness": "fresh",
+                "confidence": 0.97,
+                "contested_sources": 1,
+                "action_hint": "watch prompt growth",
+                "records": [
+                    {
+                        "preview": "event spine compact summary"
+                    }
+                ]
+            }
+        });
+
+        let summary =
+            render_truth_summary_from_status_json(&status).expect("truth summary line exists");
+        assert!(summary.contains("truth project=demo"));
+        assert!(summary.contains("namespace=main"));
+        assert!(summary.contains("agent=codex"));
+        assert!(summary.contains("workspace=shared"));
+        assert!(summary.contains("visibility=workspace"));
+        assert!(summary.contains("tier=hot"));
+        assert!(summary.contains("truth=current"));
+        assert!(summary.contains("freshness=fresh"));
+        assert!(summary.contains("contested_sources=1"));
+        assert!(summary.contains("action_hint=\"watch prompt growth\""));
+        assert!(summary.contains("top=\"event spine compact summary\""));
     }
 
     #[tokio::test]
@@ -40807,10 +41698,16 @@ mod tests {
             ),
         )
         .expect("write local config");
-        fs::write(local_bundle.join("env"), "MEMD_SESSION=codex-stale\nMEMD_AGENT=codex@codex-stale\n")
-            .expect("write env");
-        fs::write(local_bundle.join("env.ps1"), "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n")
-            .expect("write env ps1");
+        fs::write(
+            local_bundle.join("env"),
+            "MEMD_SESSION=codex-stale\nMEMD_AGENT=codex@codex-stale\n",
+        )
+        .expect("write env");
+        fs::write(
+            local_bundle.join("env.ps1"),
+            "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n",
+        )
+        .expect("write env ps1");
 
         let original_home = std::env::var_os("HOME");
         let original_dir = std::env::current_dir().expect("read cwd");
@@ -42428,6 +43325,8 @@ mod tests {
         let summary = render_tasks_summary(&TasksResponse {
             bundle_root: ".memd".to_string(),
             current_session: Some("codex-a".to_string()),
+            view: Some("mine".to_string()),
+            query: Some("exclusive".to_string()),
             tasks: vec![
                 HiveTaskRecord {
                     task_id: "t1".to_string(),
@@ -42488,10 +43387,112 @@ mod tests {
 
         assert!(summary.contains("count=3"));
         assert!(summary.contains("open=2"));
+        assert!(summary.contains("blocked=1"));
+        assert!(summary.contains("mine=1"));
+        assert!(summary.contains("cowork=2"));
+        assert!(summary.contains("unassigned=0"));
         assert!(summary.contains("help=1"));
         assert!(summary.contains("review=1"));
         assert!(summary.contains("exclusive=1"));
         assert!(summary.contains("shared=2"));
+        assert!(summary.contains("view=mine"));
+        assert!(summary.contains("query=exclusive"));
+    }
+
+    #[test]
+    fn filter_tasks_supports_mine_help_review_and_query_views() {
+        let now = Utc::now();
+        let tasks = vec![
+            HiveTaskRecord {
+                task_id: "mine-open".to_string(),
+                title: "Local task".to_string(),
+                description: Some("important".to_string()),
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec!["src/main.rs".to_string()],
+                help_requested: false,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+            HiveTaskRecord {
+                task_id: "help-task".to_string(),
+                title: "Need help".to_string(),
+                description: None,
+                status: "needs_help".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("codex-b".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-b".to_string()),
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec![],
+                help_requested: true,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+            HiveTaskRecord {
+                task_id: "review-task".to_string(),
+                title: "Review parser".to_string(),
+                description: None,
+                status: "needs_review".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("codex-c".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-c".to_string()),
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec!["src/parser.rs".to_string()],
+                help_requested: false,
+                review_requested: true,
+                created_at: now,
+                updated_at: now,
+            },
+            HiveTaskRecord {
+                task_id: "free-task".to_string(),
+                title: "Unassigned docs".to_string(),
+                description: None,
+                status: "queued".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: None,
+                agent: None,
+                effective_agent: None,
+                project: None,
+                namespace: None,
+                workspace: None,
+                claim_scopes: vec!["docs/setup.md".to_string()],
+                help_requested: false,
+                review_requested: false,
+                created_at: now,
+                updated_at: now,
+            },
+        ];
+
+        let mine = filter_tasks(tasks.clone(), Some("codex-a"), Some("mine"), None);
+        let help = filter_tasks(tasks.clone(), Some("codex-a"), Some("help"), None);
+        let review = filter_tasks(tasks.clone(), Some("codex-a"), Some("review"), None);
+        let query = filter_tasks(tasks.clone(), Some("codex-a"), None, Some("parser"));
+        let unassigned = filter_tasks(tasks, Some("codex-a"), Some("unassigned"), None);
+
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].task_id, "mine-open");
+        assert_eq!(help.len(), 1);
+        assert_eq!(help[0].task_id, "help-task");
+        assert_eq!(review.len(), 1);
+        assert_eq!(review[0].task_id, "review-task");
+        assert_eq!(query.len(), 1);
+        assert_eq!(query[0].task_id, "review-task");
+        assert_eq!(unassigned.len(), 1);
+        assert_eq!(unassigned[0].task_id, "free-task");
     }
 
     #[test]
@@ -44496,7 +45497,8 @@ mod tests {
             .arg(&proposal.branch)
             .status()
             .expect("checkout proposal branch");
-        fs::write(root.join("README.md"), "# demo\n\nmerged change\n").expect("write branch change");
+        fs::write(root.join("README.md"), "# demo\n\nmerged change\n")
+            .expect("write branch change");
         let _ = Command::new("git")
             .arg("-C")
             .arg(&root)
@@ -44558,10 +45560,8 @@ mod tests {
 
     #[test]
     fn process_evolution_queues_promotes_merged_branch_to_durable_truth() {
-        let root = std::env::temp_dir().join(format!(
-            "memd-evolution-durable-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("memd-evolution-durable-{}", uuid::Uuid::new_v4()));
         let output = root.join(".memd");
         fs::create_dir_all(&output).expect("create temp bundle");
         write_test_bundle_config(&output, "http://127.0.0.1:59999");
@@ -44627,7 +45627,8 @@ mod tests {
             .arg(&proposal.branch)
             .status()
             .expect("checkout proposal branch");
-        fs::write(root.join("README.md"), "# demo\n\ndurable change\n").expect("write branch change");
+        fs::write(root.join("README.md"), "# demo\n\ndurable change\n")
+            .expect("write branch change");
         let _ = Command::new("git")
             .arg("-C")
             .arg(&root)
