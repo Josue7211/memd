@@ -14191,6 +14191,9 @@ struct HiveWireResponse {
     output: String,
     project_root: Option<String>,
     agent: String,
+    bundle_session: Option<String>,
+    live_session: Option<String>,
+    rebased_from_session: Option<String>,
     session: Option<String>,
     tab_id: Option<String>,
     hive_system: Option<String>,
@@ -14431,6 +14434,7 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         }
     }
 
+    let runtime_before_overlay = read_bundle_runtime_config_raw(&output)?;
     let runtime = read_bundle_runtime_config(&output)?
         .context("hive wiring requires a readable bundle runtime config")?;
     let resolved_base_url = resolve_project_hive_base_url(Some(&runtime), Some(&args.base_url))
@@ -14440,6 +14444,14 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     }
     let runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive wiring")?;
+    let bundle_session = runtime_before_overlay
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let live_session = runtime.session.clone();
+    let rebased_from_session = match (bundle_session.as_deref(), live_session.as_deref()) {
+        (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
+        _ => None,
+    };
     propagate_hive_metadata_to_active_project_bundles(&output, &runtime, args.publish_heartbeat)
         .await?;
     let heartbeat = if args.publish_heartbeat {
@@ -14455,6 +14467,9 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         output: output.display().to_string(),
         project_root: project_root.map(|value| value.display().to_string()),
         agent: runtime.agent.unwrap_or(init_args.agent),
+        bundle_session,
+        live_session,
+        rebased_from_session,
         session: runtime.session,
         tab_id: runtime.tab_id,
         hive_system: runtime.hive_system,
@@ -14824,11 +14839,18 @@ async fn join_hive_bundle(
 }
 
 fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
+    let rebased = response
+        .rebased_from_session
+        .as_deref()
+        .map(|value| format!("rebased_from={value}"))
+        .unwrap_or_else(|| "rebased_from=none".to_string());
     format!(
-        "hive {} bundle={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
+        "hive {} bundle={} agent={} bundle_session={} live_session={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={} {}",
         response.action,
         response.output,
         response.agent,
+        response.bundle_session.as_deref().unwrap_or("none"),
+        response.live_session.as_deref().unwrap_or("none"),
         response.session.as_deref().unwrap_or("none"),
         response.tab_id.as_deref().unwrap_or("none"),
         response.hive_system.as_deref().unwrap_or("none"),
@@ -14845,6 +14867,7 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
         } else {
             "skipped"
         },
+        rebased,
     )
 }
 
@@ -33690,6 +33713,32 @@ mod tests {
         assert!(summary.contains("pressure=\"Avoid memory drift\""));
     }
 
+    #[test]
+    fn render_hive_wire_summary_marks_rebased_live_session() {
+        let summary = render_hive_wire_summary(&HiveWireResponse {
+            action: "updated".to_string(),
+            output: ".memd".to_string(),
+            project_root: Some("/tmp/demo".to_string()),
+            agent: "codex".to_string(),
+            bundle_session: Some("codex-stale".to_string()),
+            live_session: Some("codex-fresh".to_string()),
+            rebased_from_session: Some("codex-stale".to_string()),
+            session: Some("codex-fresh".to_string()),
+            tab_id: Some("tab-alpha".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            hive_groups: vec!["project:memd".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            heartbeat: None,
+        });
+
+        assert!(summary.contains("bundle_session=codex-stale"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
+    }
+
     #[tokio::test]
     async fn resolve_target_session_bundle_finds_matching_session() {
         let root =
@@ -36803,6 +36852,110 @@ mod tests {
             }
         }
         fs::remove_dir_all(temp_root).expect("cleanup live overlay temp");
+    }
+
+    #[tokio::test]
+    async fn run_hive_command_reports_live_session_rebind() {
+        let _home_lock = lock_home_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-hive-rebind-{}", uuid::Uuid::new_v4()));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(global_root.join("state")).expect("create global state");
+        fs::create_dir_all(local_bundle.join("state")).expect("create local state");
+        fs::write(
+            global_root.join("config.json"),
+            format!(
+                r#"{{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "{SHARED_MEMD_BASE_URL}"
+}}
+"#
+            ),
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "base_url": "{SHARED_MEMD_BASE_URL}",
+  "route": "auto",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}}
+"#
+            ),
+        )
+        .expect("write local config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let response = run_hive_command(&HiveArgs {
+            agent: None,
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(repo_root.clone()),
+            seed_existing: false,
+            session: None,
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: Vec::new(),
+            hive_group: vec!["project:memd".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: local_bundle.clone(),
+            base_url: SHARED_MEMD_BASE_URL.to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            publish_heartbeat: false,
+            force: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive command");
+
+        assert_eq!(response.bundle_session.as_deref(), Some("codex-stale"));
+        assert_eq!(response.live_session.as_deref(), Some("codex-fresh"));
+        assert_eq!(response.session.as_deref(), Some("codex-fresh"));
+        assert_eq!(response.rebased_from_session.as_deref(), Some("codex-stale"));
+
+        let summary = render_hive_wire_summary(&response);
+        assert!(summary.contains("bundle_session=codex-stale"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup hive rebind temp");
     }
 
     #[test]
