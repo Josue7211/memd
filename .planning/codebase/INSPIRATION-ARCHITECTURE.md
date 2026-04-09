@@ -54,10 +54,10 @@ Borrow:
 ## 4. Live coordination
 
 Source:
-- [louislva/claude-peers-mcp](https://github.com/louislva/claude-peers-mcp)
+- [live coordination source](https://github.com/louislva/claude-peers-mcp)
 
 Memd subsystem:
-- peer groups
+- live session groups
 - session handoff
 - live memory sharing
 - presence / heartbeat
@@ -66,7 +66,7 @@ Borrow:
 - broker daemon pattern
 - registration + heartbeat + cleanup
 - push notifications for urgent messages
-- summarized peer state
+- summarized live session state
 
 ## 5. Turnkey memory + plugin distribution
 
@@ -171,6 +171,30 @@ Borrow:
 - persistent memory across sessions
 - Obsidian as one of several working surfaces
 
+## 11. Full terminal-first assistant runtime
+
+Source:
+- [anthropics/claude-code](https://github.com/anthropics/claude-code) as reconstructed in `/home/josue/Documents/projects/claude-code-source-build`
+
+Memd subsystem:
+- session continuity
+- memory truth / freshness
+- live coordination
+- worktree isolation
+- IDE integration
+- capability catalogs
+- session lifecycle controls
+- background maintenance loops
+
+Borrow:
+- managed session memory and compaction
+- auto-maintenance / consolidation loops
+- bridge / remote-control lifecycle
+- worktree-aware isolation for parallel work
+- IDE integration as part of the live context model
+- explicit tool, command, skill, and task catalogs
+- native integrations and analytics as visible control planes
+
 ## Cross-Repo Synthesis
 
 The product shape these repos imply:
@@ -178,7 +202,7 @@ The product shape these repos imply:
 - `caveman` says compress output carefully.
 - `MinerU` says extract input carefully.
 - `LightRAG` says keep the backend swappable.
-- `claude-peers-mcp` says make memory and coordination live.
+- the live coordination source says make memory and coordination live.
 - `supermemory` says package the memory system as harness-specific plugins over one API.
 - `awesome-design-md` says keep design inspiration portable.
 - `mempalace` says store the original truth first, then organize it.
@@ -187,13 +211,14 @@ The product shape these repos imply:
 - `agent-zero` says behavior should live in prompts and plugins, not hidden rails.
 - `Hermes` says cloud-first onboarding can coexist with self-host later.
 - `supermemory` says memory should ship as a shared core plus thin per-harness adapters, with a separate graph surface for inspection.
+- Claude Code says the full runtime should keep sessions continuous, memory maintained, worktrees isolated, and live context visible.
 
 Memd should combine all of them:
 
 - short outputs
 - strong ingest
 - clean API boundary
-- live peer context
+- live session context
 - design memory lanes
 - raw evidence retention
 - Obsidian-first wiki workflow
