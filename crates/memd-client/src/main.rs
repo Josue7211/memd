@@ -35,7 +35,7 @@ use memd_rag::{
     RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest, RagRetrieveResponse,
 };
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
+    AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest, BenchmarkRegistry,
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
@@ -2882,6 +2882,11 @@ async fn main() -> anyhow::Result<()> {
             let response = run_feature_benchmark_command(&args, &base_url).await?;
             if args.write {
                 write_feature_benchmark_artifacts(&args.output, &response)?;
+                if let Some((repo_root, registry)) =
+                    load_benchmark_registry_for_output(&args.output)?
+                {
+                    write_benchmark_registry_docs(&repo_root, &registry, &response)?;
+                }
             }
             if args.summary {
                 println!("{}", render_feature_benchmark_summary(&response));
@@ -6256,6 +6261,11 @@ struct BundleConfigSnapshot {
     hive_role: Option<String>,
     hive_group_goal: Option<String>,
     authority: Option<String>,
+    authority_mode: Option<String>,
+    authority_degraded: bool,
+    shared_base_url: Option<String>,
+    fallback_base_url: Option<String>,
+    localhost_fallback_policy: Option<String>,
 }
 
 fn render_bundle_config_snapshot(
@@ -6290,12 +6300,32 @@ fn render_bundle_config_snapshot(
             .as_ref()
             .and_then(|value| value.hive_group_goal.clone()),
         authority: runtime.as_ref().and_then(|value| value.authority.clone()),
+        authority_mode: runtime
+            .as_ref()
+            .map(|value| value.authority_state.mode.clone()),
+        authority_degraded: runtime
+            .as_ref()
+            .map(|value| value.authority_state.degraded)
+            .unwrap_or(false),
+        shared_base_url: runtime
+            .as_ref()
+            .and_then(|value| value.authority_state.shared_base_url.clone()),
+        fallback_base_url: runtime
+            .as_ref()
+            .and_then(|value| value.authority_state.fallback_base_url.clone()),
+        localhost_fallback_policy: runtime.as_ref().map(|value| {
+            value
+                .authority_policy
+                .localhost_fallback_policy
+                .as_str()
+                .to_string()
+        }),
     }
 }
 
 fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> String {
     format!(
-        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={}",
+        "config bundle={} ready={} project={} namespace={} agent={} session={} base_url={} route={} intent={} authority={} degraded={}",
         config.bundle_root,
         config.setup_ready,
         config.project.as_deref().unwrap_or("none"),
@@ -6304,7 +6334,13 @@ fn render_bundle_config_summary(config: &BundleConfigSnapshot) -> String {
         config.session.as_deref().unwrap_or("none"),
         config.base_url.as_deref().unwrap_or("none"),
         config.route.as_deref().unwrap_or("none"),
-        config.intent.as_deref().unwrap_or("none")
+        config.intent.as_deref().unwrap_or("none"),
+        config.authority_mode.as_deref().unwrap_or("shared"),
+        if config.authority_degraded {
+            "yes"
+        } else {
+            "no"
+        }
     )
 }
 
@@ -6371,6 +6407,33 @@ fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {
     markdown.push_str(&format!(
         "- authority: `{}`\n",
         config.authority.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- authority mode: `{}`\n",
+        config.authority_mode.as_deref().unwrap_or("shared")
+    ));
+    markdown.push_str(&format!(
+        "- authority degraded: `{}`\n",
+        if config.authority_degraded {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    markdown.push_str(&format!(
+        "- shared base url: `{}`\n",
+        config.shared_base_url.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- fallback base url: `{}`\n",
+        config.fallback_base_url.as_deref().unwrap_or("none")
+    ));
+    markdown.push_str(&format!(
+        "- localhost fallback policy: `{}`\n",
+        config
+            .localhost_fallback_policy
+            .as_deref()
+            .unwrap_or("deny")
     ));
     markdown
 }
@@ -9527,6 +9590,14 @@ fn compact_resume_rag_text(input: &str, max_chars: usize) -> String {
 
 fn default_auto_short_term_capture() -> bool {
     true
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_authority_mode() -> String {
+    "shared".to_string()
 }
 
 const SHARED_MEMD_BASE_URL: &str = "http://100.104.154.24:8787";
@@ -14436,6 +14507,19 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         visibility: args.visibility.clone(),
         heartbeat_model: default_heartbeat_model(),
         auto_short_term_capture: true,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState {
+            mode: default_authority_mode(),
+            degraded: false,
+            shared_base_url: Some(args.base_url.clone()),
+            fallback_base_url: None,
+            activated_at: Some(Utc::now()),
+            activated_by: Some("init".to_string()),
+            reason: Some("shared authority available".to_string()),
+            warning_acknowledged_at: None,
+            expires_at: None,
+            blocked_capabilities: Vec::new(),
+        },
         backend: BundleBackendConfig {
             rag: BundleRagConfig {
                 enabled: rag_enabled,
@@ -14460,6 +14544,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     .with_context(|| format!("write {}", output.join("config.json").display()))?;
 
     write_bundle_backend_env(&output, &config)?;
+    write_bundle_authority_env(&output, &config.authority_policy, &config.authority_state)?;
 
     fs::write(
         output.join("env"),
@@ -14793,6 +14878,14 @@ fn build_bundle_turn_placeholder_config(
         visibility,
         heartbeat_model,
         auto_short_term_capture,
+        authority_policy: runtime
+            .as_ref()
+            .map(|value| value.authority_policy.clone())
+            .unwrap_or_default(),
+        authority_state: runtime
+            .as_ref()
+            .map(|value| value.authority_state.clone())
+            .unwrap_or_default(),
         backend: BundleBackendConfig {
             rag: BundleRagConfig {
                 enabled: false,
@@ -15137,6 +15230,12 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         .unwrap_or_else(|| args.base_url.clone());
     if runtime.base_url.as_deref() != Some(resolved_base_url.as_str()) {
         set_bundle_base_url(&output, &resolved_base_url)?;
+        set_bundle_shared_authority_state(
+            &output,
+            &resolved_base_url,
+            "hive",
+            "shared authority available",
+        )?;
     }
     let runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive wiring")?;
@@ -15303,6 +15402,12 @@ async fn run_hive_project_command(args: &HiveProjectArgs) -> anyhow::Result<Hive
         ) {
             if shared_base_url != runtime_after_enable.base_url.as_deref().unwrap_or_default() {
                 set_bundle_base_url(&args.output, &shared_base_url)?;
+                set_bundle_shared_authority_state(
+                    &args.output,
+                    &shared_base_url,
+                    "hive-project",
+                    "shared authority available",
+                )?;
             }
         }
         write_agent_profiles(&args.output)?;
@@ -15491,6 +15596,12 @@ async fn join_hive_bundle(
     let join_base_url = resolve_hive_join_base_url(Some(&runtime), base_url);
 
     set_bundle_base_url(&output, &join_base_url)?;
+    set_bundle_shared_authority_state(
+        &output,
+        &join_base_url,
+        "hive-join",
+        "shared authority available",
+    )?;
     if let Some(project) = runtime.project.as_deref() {
         set_bundle_project(&output, project)?;
     }
@@ -16970,6 +17081,8 @@ fn build_hive_heartbeat(
         visibility: None,
         heartbeat_model: Some(default_heartbeat_model()),
         auto_short_term_capture: true,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState::default(),
     });
     let session = runtime.session.clone();
     let agent = runtime.agent.clone();
@@ -17048,6 +17161,8 @@ fn build_hive_heartbeat(
         ),
         hive_group_goal: runtime.hive_group_goal,
         authority: runtime.authority,
+        authority_mode: Some(runtime.authority_state.mode),
+        authority_degraded: runtime.authority_state.degraded,
         heartbeat_model: runtime.heartbeat_model,
         project: snapshot
             .and_then(|value| value.project.clone())
@@ -17127,6 +17242,15 @@ async fn reconcile_bundle_heartbeat(
 }
 
 async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Result<usize> {
+    if state
+        .authority_mode
+        .as_deref()
+        .is_some_and(|mode| mode == "localhost_read_only")
+    {
+        anyhow::bail!(
+            "localhost read-only fallback active; heartbeat publication requires trusted shared authority"
+        );
+    }
     let Some(base_url) = state
         .base_url
         .as_deref()
@@ -17254,6 +17378,9 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
     });
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
     let (shared_project, shared_namespace) = shared_awareness_scope(runtime.as_ref());
+    if args.acquire || args.release || args.transfer_to_session.is_some() {
+        ensure_shared_authority_write_allowed(runtime.as_ref(), "claims mutation")?;
+    }
     let client = MemdClient::new(&current_base_url)?;
 
     if args.acquire {
@@ -17545,6 +17672,9 @@ async fn run_messages_command(
             .as_ref()
             .and_then(|config| config.base_url.as_deref()),
     );
+    if args.send || args.ack.is_some() {
+        ensure_shared_authority_write_allowed(runtime.as_ref(), "message coordination")?;
+    }
 
     if args.send {
         let target_session = args
@@ -17859,6 +17989,9 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             .as_ref()
             .and_then(|config| config.base_url.as_deref()),
     );
+    if args.upsert || args.assign_to_session.is_some() || args.request_help || args.request_review {
+        ensure_shared_authority_write_allowed(runtime.as_ref(), "task coordination")?;
+    }
     let client = MemdClient::new(&current_base_url)?;
 
     if args.upsert {
@@ -18232,6 +18365,9 @@ async fn run_session_command(
     let runtime = read_bundle_runtime_config(&args.output)?
         .context("session requires a readable bundle runtime config")?;
     let resolved_base_url = resolve_bundle_command_base_url(base_url, runtime.base_url.as_deref());
+    if args.retire_session.is_some() || args.reconcile {
+        ensure_shared_authority_write_allowed(Some(&runtime), "session repair")?;
+    }
     let client = MemdClient::new(&resolved_base_url)?;
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
@@ -18786,6 +18922,15 @@ async fn run_coordination_command(
             .as_deref()
             .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
     });
+    let mutating_request = args.recover_session.is_some()
+        || args.retire_session.is_some()
+        || args.to_session.is_some()
+        || args.deny_session.is_some()
+        || args.reroute_session.is_some()
+        || args.handoff_scope.is_some();
+    if mutating_request {
+        ensure_shared_authority_write_allowed(runtime.as_ref(), "coordination queen actions")?;
+    }
     let client = MemdClient::new(&current_base_url)?;
     let server_reachable = timeout_ok(client.healthz()).await.is_some();
     let awareness = read_project_awareness(&AwarenessArgs {
@@ -18806,12 +18951,6 @@ async fn run_coordination_command(
     .and_then(|conflict| {
         build_lane_fault_surface(&args.output, Some(current_session.as_str()), &conflict)
     });
-    let mutating_request = args.recover_session.is_some()
-        || args.retire_session.is_some()
-        || args.to_session.is_some()
-        || args.deny_session.is_some()
-        || args.reroute_session.is_some()
-        || args.handoff_scope.is_some();
     if !server_reachable && mutating_request {
         anyhow::bail!(
             "coordination backend unreachable at {}; queen actions require a live memd server",
@@ -23459,6 +23598,7 @@ async fn run_feature_benchmark_command(
 ) -> anyhow::Result<FeatureBenchmarkReport> {
     let started_at = Utc::now();
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let benchmark_registry = load_benchmark_registry_for_output(&args.output)?;
     let status = tokio::time::timeout(
         Duration::from_secs(2),
         read_bundle_status(&args.output, base_url),
@@ -23903,6 +24043,21 @@ async fn run_feature_benchmark_command(
             "memory_quality score={}/{} latency_ms={}",
             report.score, report.max_score, report.latency_ms
         ));
+    }
+    if let Some((repo_root, registry)) = benchmark_registry.as_ref() {
+        evidence.push(format!(
+            "benchmark_registry root={} version={} features={} journeys={} loops={} scorecards={} baseline_modes={} runtime_policies={}",
+            repo_root.display(),
+            registry.version,
+            registry.features.len(),
+            registry.journeys.len(),
+            registry.loops.len(),
+            registry.scorecards.len(),
+            registry.baseline_modes.len(),
+            registry.runtime_policies.len()
+        ));
+    } else {
+        evidence.push("benchmark_registry root=unavailable".to_string());
     }
 
     let recommendations = areas
@@ -24378,6 +24533,299 @@ fn write_composite_artifacts(output: &Path, response: &CompositeReport) -> anyho
 
 fn feature_benchmark_reports_dir(output: &Path) -> PathBuf {
     output.join("benchmarks").join("features")
+}
+
+fn benchmark_registry_docs_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("docs").join("verification")
+}
+
+fn benchmark_registry_json_path(repo_root: &Path) -> PathBuf {
+    benchmark_registry_docs_dir(repo_root).join("benchmark-registry.json")
+}
+
+fn benchmark_registry_markdown_path(repo_root: &Path, name: &str) -> PathBuf {
+    benchmark_registry_docs_dir(repo_root).join(name)
+}
+
+fn load_benchmark_registry_for_output(
+    output: &Path,
+) -> anyhow::Result<Option<(PathBuf, BenchmarkRegistry)>> {
+    let Some(repo_root) = infer_bundle_project_root(output) else {
+        return Ok(None);
+    };
+    let registry_path = benchmark_registry_json_path(&repo_root);
+    let registry_json = fs::read_to_string(&registry_path)
+        .with_context(|| format!("read {}", registry_path.display()))?;
+    let registry = serde_json::from_str::<BenchmarkRegistry>(&registry_json)
+        .with_context(|| format!("parse {}", registry_path.display()))?;
+    Ok(Some((repo_root, registry)))
+}
+
+#[derive(Debug, Clone)]
+struct BenchmarkRegistryDocsReport {
+    repo_root: PathBuf,
+    registry_path: PathBuf,
+    registry: BenchmarkRegistry,
+    benchmarks_markdown: String,
+    loops_markdown: String,
+    coverage_markdown: String,
+    scores_markdown: String,
+}
+
+fn build_benchmark_registry_docs_report(
+    repo_root: &Path,
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> BenchmarkRegistryDocsReport {
+    let registry_path = benchmark_registry_json_path(repo_root);
+    let benchmarks_markdown =
+        render_benchmark_registry_benchmarks_markdown(repo_root, registry, benchmark);
+    let loops_markdown = render_benchmark_registry_loops_markdown(registry);
+    let coverage_markdown = render_benchmark_registry_coverage_markdown(registry, benchmark);
+    let scores_markdown = render_benchmark_registry_scores_markdown(registry, benchmark);
+
+    BenchmarkRegistryDocsReport {
+        repo_root: repo_root.to_path_buf(),
+        registry_path,
+        registry: registry.clone(),
+        benchmarks_markdown,
+        loops_markdown,
+        coverage_markdown,
+        scores_markdown,
+    }
+}
+
+fn write_benchmark_registry_docs(
+    repo_root: &Path,
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> anyhow::Result<()> {
+    let report = build_benchmark_registry_docs_report(repo_root, registry, benchmark);
+    let verification_dir = benchmark_registry_docs_dir(repo_root);
+    fs::create_dir_all(&verification_dir)
+        .with_context(|| format!("create {}", verification_dir.display()))?;
+
+    let benchmarks_path = benchmark_registry_markdown_path(repo_root, "BENCHMARKS.md");
+    let loops_path = benchmark_registry_markdown_path(repo_root, "LOOPS.md");
+    let coverage_path = benchmark_registry_markdown_path(repo_root, "COVERAGE.md");
+    let scores_path = benchmark_registry_markdown_path(repo_root, "SCORES.md");
+
+    fs::write(&benchmarks_path, &report.benchmarks_markdown)
+        .with_context(|| format!("write {}", benchmarks_path.display()))?;
+    fs::write(&loops_path, &report.loops_markdown)
+        .with_context(|| format!("write {}", loops_path.display()))?;
+    fs::write(&coverage_path, &report.coverage_markdown)
+        .with_context(|| format!("write {}", coverage_path.display()))?;
+    fs::write(&scores_path, &report.scores_markdown)
+        .with_context(|| format!("write {}", scores_path.display()))?;
+    Ok(())
+}
+
+fn render_benchmark_registry_benchmarks_markdown(
+    repo_root: &Path,
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd benchmark registry\n\n");
+    markdown.push_str(&format!("- Root: `{}`\n", repo_root.display()));
+    markdown.push_str(&format!(
+        "- Registry: `docs/verification/benchmark-registry.json`\n"
+    ));
+    markdown.push_str(&format!("- Version: `{}`\n", registry.version));
+    markdown.push_str(&format!("- App goal: {}\n", registry.app_goal));
+    markdown.push_str(&format!(
+        "- Current benchmark score: `{}/{}`\n",
+        benchmark.score, benchmark.max_score
+    ));
+    markdown.push_str(&format!(
+        "- Quality dimensions: `{}`\n",
+        registry.quality_dimensions.len()
+    ));
+    markdown.push_str(&format!("- Pillars: `{}`\n", registry.pillars.len()));
+    markdown.push_str(&format!("- Families: `{}`\n", registry.families.len()));
+    markdown.push_str(&format!("- Features: `{}`\n", registry.features.len()));
+    markdown.push_str(&format!("- Journeys: `{}`\n", registry.journeys.len()));
+    markdown.push_str(&format!("- Loops: `{}`\n", registry.loops.len()));
+    markdown.push_str(&format!("- Scorecards: `{}`\n", registry.scorecards.len()));
+    markdown.push_str(&format!(
+        "- Evidence records: `{}`\n",
+        registry.evidence.len()
+    ));
+    markdown.push_str(&format!("- Gates: `{}`\n", registry.gates.len()));
+    markdown.push_str(&format!(
+        "- Baseline modes: `{}`\n",
+        registry.baseline_modes.len()
+    ));
+    markdown.push_str(&format!(
+        "- Runtime policies: `{}`\n\n",
+        registry.runtime_policies.len()
+    ));
+
+    markdown.push_str("## Pillars\n");
+    for pillar in &registry.pillars {
+        let family_count = registry
+            .families
+            .iter()
+            .filter(|family| family.pillar == pillar.id)
+            .count();
+        let feature_count = registry
+            .features
+            .iter()
+            .filter(|feature| feature.pillar == pillar.id)
+            .count();
+        markdown.push_str(&format!(
+            "- `{}`: {} family surfaces, {} features\n",
+            pillar.id, family_count, feature_count
+        ));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Feature Coverage Snapshot\n");
+    for feature in registry.features.iter().take(12) {
+        markdown.push_str(&format!(
+            "- `{}` [{}] {} | continuity={} | loops={}\n",
+            feature.id,
+            feature.family,
+            feature.coverage_status,
+            feature.continuity_critical,
+            feature.loop_ids.len()
+        ));
+    }
+    if registry.features.len() > 12 {
+        markdown.push_str(&format!(
+            "- ... and {} more features\n",
+            registry.features.len() - 12
+        ));
+    }
+    markdown.push('\n');
+
+    markdown.push_str("## Quality Dimensions\n");
+    for dimension in &registry.quality_dimensions {
+        markdown.push_str(&format!(
+            "- `{}` weight `{}`\n",
+            dimension.id, dimension.weight
+        ));
+    }
+    markdown.push('\n');
+    markdown
+}
+
+fn render_benchmark_registry_loops_markdown(registry: &BenchmarkRegistry) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd benchmark loops\n\n");
+    markdown.push_str(&format!("- Loops: `{}`\n", registry.loops.len()));
+    markdown.push_str(&format!("- Journeys: `{}`\n\n", registry.journeys.len()));
+    markdown.push_str("| Loop | Type | Family | Baseline | Features | Journeys | Status |\n");
+    markdown.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
+    for loop_record in &registry.loops {
+        markdown.push_str(&format!(
+            "| `{}` | `{}` | `{}` | `{}` | `{}` | `{}` | `{}` |\n",
+            loop_record.id,
+            loop_record.loop_type,
+            loop_record.family,
+            loop_record.baseline_mode,
+            loop_record.covers_features.len(),
+            loop_record.journey_ids.len(),
+            loop_record.status
+        ));
+    }
+    markdown.push('\n');
+    markdown.push_str("## Loop Coverage Notes\n");
+    for loop_record in &registry.loops {
+        markdown.push_str(&format!(
+            "- `{}` probes `{}` and `{}`\n",
+            loop_record.id, loop_record.workflow_probe, loop_record.adversarial_probe
+        ));
+    }
+    markdown.push('\n');
+    markdown
+}
+
+fn render_benchmark_registry_coverage_markdown(
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd benchmark coverage\n\n");
+    markdown.push_str(&format!(
+        "- Current benchmark score: `{}/{}`\n",
+        benchmark.score, benchmark.max_score
+    ));
+    markdown.push_str(&format!(
+        "- Feature coverage records: `{}`\n",
+        registry.features.len()
+    ));
+    markdown.push_str(&format!(
+        "- Journey coverage records: `{}`\n\n",
+        registry.journeys.len()
+    ));
+    markdown.push_str("## Continuity-Critical Features\n");
+    for feature in registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical)
+    {
+        markdown.push_str(&format!(
+            "- `{}` [{}] loops={} drift={}\n",
+            feature.id,
+            feature.coverage_status,
+            feature.loop_ids.len(),
+            feature.drift_risks.join("|")
+        ));
+    }
+    markdown.push('\n');
+    markdown.push_str("## Journeys\n");
+    for journey in &registry.journeys {
+        markdown.push_str(&format!(
+            "- `{}` [{}] features={} loops={} gate={}\n",
+            journey.id,
+            journey.goal,
+            journey.feature_ids.len(),
+            journey.loop_ids.len(),
+            journey.gate_target
+        ));
+    }
+    markdown.push('\n');
+    markdown.push_str("## Current Benchmark Areas\n");
+    for area in &benchmark.areas {
+        markdown.push_str(&format!(
+            "- `{}`: `{}/{}`\n",
+            area.slug, area.score, area.max_score
+        ));
+    }
+    markdown.push('\n');
+    markdown
+}
+
+fn render_benchmark_registry_scores_markdown(
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd benchmark scores\n\n");
+    markdown.push_str(&format!(
+        "- Current benchmark score: `{}/{}`\n",
+        benchmark.score, benchmark.max_score
+    ));
+    markdown.push_str(&format!(
+        "- Area score count: `{}`\n\n",
+        benchmark.areas.len()
+    ));
+    markdown.push_str("## Quality Dimension Weights\n");
+    for dimension in &registry.quality_dimensions {
+        markdown.push_str(&format!("- `{}` -> `{}`\n", dimension.id, dimension.weight));
+    }
+    markdown.push('\n');
+    markdown.push_str("## Current Benchmark Areas\n");
+    for area in &benchmark.areas {
+        markdown.push_str(&format!(
+            "- `{}`: `{}/{}`\n",
+            area.name, area.score, area.max_score
+        ));
+    }
+    markdown.push('\n');
+    markdown
 }
 
 fn write_feature_benchmark_artifacts(
@@ -26881,6 +27329,11 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         .flatten()
         .map(|runtime| runtime.hive_project_enabled)
         .unwrap_or(false);
+    let authority_warning = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| authority_warning_lines(Some(&runtime)))
+        .unwrap_or_default();
     let mut script = format!(
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
@@ -26894,6 +27347,15 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
     script.push_str(
         "if [[ -z \"${MEMD_TAB_ID:-}\" ]]; then\n  if [[ -n \"${WT_SESSION:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${WT_SESSION:0:8}\"\n  elif [[ -n \"${TERM_SESSION_ID:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${TERM_SESSION_ID:0:8}\"\n  else\n    tty_id=\"$(tty 2>/dev/null || true)\"\n    if [[ -n \"$tty_id\" && \"$tty_id\" != \"not a tty\" ]]; then\n      export MEMD_TAB_ID=\"tab-${tty_id//\\//-}\"\n    else\n      export MEMD_TAB_ID=\"tab-$$\"\n    fi\n  fi\nfi\n",
     );
+    if !authority_warning.is_empty() {
+        script.push_str("printf '%s\\n' 'memd authority warning:' >&2\n");
+        for line in authority_warning {
+            script.push_str(&format!(
+                "printf '%s\\n' {} >&2\n",
+                shell_single_quote(&compact_bundle_value(&line))
+            ));
+        }
+    }
     if let Some(env_agent) = env_agent {
         script.push_str(&format!(
             "export MEMD_AGENT=\"{}\"\n",
@@ -26923,6 +27385,11 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         .flatten()
         .map(|runtime| runtime.hive_project_enabled)
         .unwrap_or(false);
+    let authority_warning = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| authority_warning_lines(Some(&runtime)))
+        .unwrap_or_default();
     let mut script = format!(
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
@@ -26936,6 +27403,15 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
     script.push_str(
         "if (-not $env:MEMD_TAB_ID) {\n  if ($env:WT_SESSION) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:WT_SESSION.Substring(0, [Math]::Min(8, $env:WT_SESSION.Length))\n  } elseif ($env:TERM_SESSION_ID) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:TERM_SESSION_ID.Substring(0, [Math]::Min(8, $env:TERM_SESSION_ID.Length))\n  } else {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $PID\n  }\n}\n",
     );
+    if !authority_warning.is_empty() {
+        script.push_str("Write-Host \"memd authority warning:\" -ForegroundColor Yellow\n");
+        for line in authority_warning {
+            script.push_str(&format!(
+                "Write-Host \"{}\" -ForegroundColor Yellow\n",
+                escape_ps1(&line)
+            ));
+        }
+    }
     if let Some(env_agent) = env_agent {
         script.push_str(&format!(
             "$env:MEMD_AGENT = \"{}\"\n",
@@ -28623,53 +29099,33 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 .collect::<Vec<_>>(),
         },
         "active_agent": runtime.as_ref().and_then(|config| config.agent.clone()),
-        "defaults": runtime.as_ref().map(|config| serde_json::json!({
-            "project": config.project,
-            "namespace": config.namespace,
-            "agent": config.agent,
-            "session": config.session,
-            "tab_id": config.tab_id,
-            "effective_agent": config.agent.as_ref().map(|agent| compose_agent_identity(agent, config.session.as_deref())),
-            "hive_system": config.hive_system,
-            "hive_role": config.hive_role,
-            "capabilities": config.capabilities,
-            "hive_groups": config.hive_groups,
-            "hive_group_goal": config.hive_group_goal,
-            "authority": config.authority,
-            "base_url": config.base_url,
-            "route": config.route,
-            "intent": config.intent,
-            "workspace": config.workspace,
-            "visibility": config.visibility,
-            "heartbeat_model": config.heartbeat_model,
-            "auto_short_term_capture": config.auto_short_term_capture,
-        })),
+        "defaults": runtime
+            .as_ref()
+            .and_then(|config| serde_json::to_value(config).ok()),
+        "authority": runtime
+            .as_ref()
+            .map(|config| config.authority_state.mode.clone()),
+        "shared_primary": runtime_prefers_shared_authority(runtime.as_ref()),
+        "localhost_read_only_allowed": runtime_allows_localhost_read_only(runtime.as_ref()),
+        "degraded": runtime
+            .as_ref()
+            .map(|config| config.authority_state.degraded)
+            .unwrap_or(false),
+        "shared_base_url": runtime
+            .as_ref()
+            .and_then(|config| config.authority_state.shared_base_url.clone()),
+        "fallback_base_url": runtime
+            .as_ref()
+            .and_then(|config| config.authority_state.fallback_base_url.clone()),
+        "authority_warning": authority_warning_lines(runtime.as_ref()),
         "session_overlay": {
             "bundle_session": bundle_session,
             "live_session": live_session,
             "rebased_from": rebased_from,
         },
-        "heartbeat": heartbeat.as_ref().map(|value| serde_json::json!({
-            "session": value.session,
-            "agent": value.agent,
-            "effective_agent": value.effective_agent,
-            "tab_id": value.tab_id,
-            "hive_system": value.hive_system,
-            "hive_role": value.hive_role,
-            "capabilities": value.capabilities,
-            "hive_groups": value.hive_groups,
-            "hive_group_goal": value.hive_group_goal,
-            "authority": value.authority,
-            "presence": heartbeat_presence_label(value.last_seen),
-            "heartbeat_model": value.heartbeat_model,
-            "base_url": value.base_url,
-            "host": value.host,
-            "pid": value.pid,
-            "focus": value.focus,
-            "pressure": value.pressure,
-            "next_recovery": value.next_recovery,
-            "last_seen": value.last_seen,
-        })),
+        "heartbeat": heartbeat
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
         "resume_preview": resume_preview,
         "truth_summary": truth_summary,
         "evolution": evolution,
@@ -29066,6 +29522,8 @@ fn read_bundle_runtime_config_raw(output: &Path) -> anyhow::Result<Option<Bundle
         visibility: config.visibility,
         heartbeat_model: config.heartbeat_model,
         auto_short_term_capture: config.auto_short_term_capture,
+        authority_policy: config.authority_policy,
+        authority_state: config.authority_state,
     }))
 }
 
@@ -29136,6 +29594,8 @@ fn resolve_live_session_overlay(
         visibility: None,
         heartbeat_model: None,
         auto_short_term_capture: false,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState::default(),
     }))
 }
 
@@ -29236,6 +29696,174 @@ fn resolve_bundle_command_base_url(requested: &str, runtime_base_url: Option<&st
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| requested.to_string())
+}
+
+fn runtime_prefers_shared_authority(runtime: Option<&BundleRuntimeConfig>) -> bool {
+    runtime
+        .map(|value| value.authority_policy.shared_primary)
+        .unwrap_or(true)
+}
+
+fn runtime_allows_localhost_read_only(runtime: Option<&BundleRuntimeConfig>) -> bool {
+    runtime
+        .map(|value| {
+            value.authority_policy.localhost_fallback_policy
+                == LocalhostFallbackPolicy::AllowReadOnly
+        })
+        .unwrap_or(false)
+}
+
+fn authority_warning_lines(runtime: Option<&BundleRuntimeConfig>) -> Vec<String> {
+    let Some(runtime) = runtime else {
+        return Vec::new();
+    };
+    if runtime.authority_state.mode != "localhost_read_only" {
+        return Vec::new();
+    }
+
+    let mut lines = vec![
+        "shared authority unavailable".to_string(),
+        "localhost fallback is lower trust".to_string(),
+        "prompt-injection and split-brain risk increased".to_string(),
+        "coordination writes blocked".to_string(),
+    ];
+    if let Some(reason) = runtime.authority_state.reason.as_deref() {
+        lines.push(format!("reason={reason}"));
+    }
+    if let Some(expires_at) = runtime.authority_state.expires_at.as_ref() {
+        lines.push(format!("expires_at={}", expires_at.to_rfc3339()));
+    }
+    lines
+}
+
+fn write_bundle_authority_env(
+    output: &Path,
+    policy: &BundleAuthorityPolicy,
+    state: &BundleAuthorityState,
+) -> anyhow::Result<()> {
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AUTHORITY_MODE=",
+        &format!("MEMD_AUTHORITY_MODE={}\n", state.mode),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AUTHORITY_MODE = ",
+        &format!(
+            "$env:MEMD_AUTHORITY_MODE = \"{}\"\n",
+            escape_ps1(&state.mode)
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_LOCALHOST_FALLBACK_POLICY=",
+        &format!(
+            "MEMD_LOCALHOST_FALLBACK_POLICY={}\n",
+            policy.localhost_fallback_policy.as_str()
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_LOCALHOST_FALLBACK_POLICY = ",
+        &format!(
+            "$env:MEMD_LOCALHOST_FALLBACK_POLICY = \"{}\"\n",
+            escape_ps1(policy.localhost_fallback_policy.as_str())
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_AUTHORITY_DEGRADED=",
+        &format!(
+            "MEMD_AUTHORITY_DEGRADED={}\n",
+            if state.degraded { "true" } else { "false" }
+        ),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_AUTHORITY_DEGRADED = ",
+        &format!(
+            "$env:MEMD_AUTHORITY_DEGRADED = \"{}\"\n",
+            if state.degraded { "true" } else { "false" }
+        ),
+    )?;
+    if let Some(shared_base_url) = state.shared_base_url.as_deref() {
+        rewrite_env_assignment(
+            &output.join("env"),
+            "MEMD_SHARED_BASE_URL=",
+            &format!("MEMD_SHARED_BASE_URL={shared_base_url}\n"),
+        )?;
+        rewrite_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_SHARED_BASE_URL = ",
+            &format!(
+                "$env:MEMD_SHARED_BASE_URL = \"{}\"\n",
+                escape_ps1(shared_base_url)
+            ),
+        )?;
+    } else {
+        remove_env_assignment(&output.join("env"), "MEMD_SHARED_BASE_URL=")?;
+        remove_env_assignment(&output.join("env.ps1"), "$env:MEMD_SHARED_BASE_URL = ")?;
+    }
+    if let Some(fallback_base_url) = state.fallback_base_url.as_deref() {
+        rewrite_env_assignment(
+            &output.join("env"),
+            "MEMD_LOCALHOST_FALLBACK_BASE_URL=",
+            &format!("MEMD_LOCALHOST_FALLBACK_BASE_URL={fallback_base_url}\n"),
+        )?;
+        rewrite_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_LOCALHOST_FALLBACK_BASE_URL = ",
+            &format!(
+                "$env:MEMD_LOCALHOST_FALLBACK_BASE_URL = \"{}\"\n",
+                escape_ps1(fallback_base_url)
+            ),
+        )?;
+    } else {
+        remove_env_assignment(&output.join("env"), "MEMD_LOCALHOST_FALLBACK_BASE_URL=")?;
+        remove_env_assignment(
+            &output.join("env.ps1"),
+            "$env:MEMD_LOCALHOST_FALLBACK_BASE_URL = ",
+        )?;
+    }
+    Ok(())
+}
+
+fn set_bundle_shared_authority_state(
+    output: &Path,
+    shared_base_url: &str,
+    activated_by: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let (config_path, mut config) = read_bundle_config_file(output)?;
+    config.authority_state.mode = "shared".to_string();
+    config.authority_state.degraded = false;
+    config.authority_state.shared_base_url = Some(shared_base_url.to_string());
+    config.authority_state.fallback_base_url = None;
+    config.authority_state.activated_at = Some(Utc::now());
+    config.authority_state.activated_by = Some(activated_by.to_string());
+    config.authority_state.reason = Some(reason.to_string());
+    config.authority_state.warning_acknowledged_at = None;
+    config.authority_state.expires_at = None;
+    config.authority_state.blocked_capabilities.clear();
+    write_bundle_config_file(&config_path, &config)?;
+    write_bundle_authority_env(output, &config.authority_policy, &config.authority_state)?;
+    Ok(())
+}
+
+fn ensure_shared_authority_write_allowed(
+    runtime: Option<&BundleRuntimeConfig>,
+    operation: &str,
+) -> anyhow::Result<()> {
+    if runtime
+        .map(|value| value.authority_state.mode.as_str() == "localhost_read_only")
+        .unwrap_or(false)
+    {
+        anyhow::bail!(
+            "localhost read-only fallback active; {} requires trusted shared authority",
+            operation
+        );
+    }
+    Ok(())
 }
 
 const LIVE_RPC_TIMEOUT: Duration = Duration::from_secs(2);
@@ -29719,6 +30347,8 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             visibility: None,
             heartbeat_model: Some(default_heartbeat_model()),
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         });
         let state = read_bundle_resume_state(&bundle_root)?;
         let heartbeat = read_bundle_heartbeat(&bundle_root)?;
@@ -33105,6 +33735,8 @@ struct BundleConfig {
     visibility: Option<String>,
     heartbeat_model: String,
     auto_short_term_capture: bool,
+    authority_policy: BundleAuthorityPolicy,
+    authority_state: BundleAuthorityState,
     backend: BundleBackendConfig,
     hooks: BundleHooksConfig,
     rag_url: Option<String>,
@@ -33130,6 +33762,86 @@ struct BundleHooksConfig {
     context_ps1: String,
     capture_ps1: String,
     spill_ps1: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum LocalhostFallbackPolicy {
+    Deny,
+    AllowReadOnly,
+}
+
+impl Default for LocalhostFallbackPolicy {
+    fn default() -> Self {
+        Self::Deny
+    }
+}
+
+impl LocalhostFallbackPolicy {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::AllowReadOnly => "allow_read_only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleAuthorityPolicy {
+    #[serde(default = "default_true")]
+    shared_primary: bool,
+    #[serde(default)]
+    localhost_fallback_policy: LocalhostFallbackPolicy,
+}
+
+impl Default for BundleAuthorityPolicy {
+    fn default() -> Self {
+        Self {
+            shared_primary: true,
+            localhost_fallback_policy: LocalhostFallbackPolicy::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleAuthorityState {
+    #[serde(default = "default_authority_mode")]
+    mode: String,
+    #[serde(default)]
+    degraded: bool,
+    #[serde(default)]
+    shared_base_url: Option<String>,
+    #[serde(default)]
+    fallback_base_url: Option<String>,
+    #[serde(default)]
+    activated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    activated_by: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    warning_acknowledged_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    blocked_capabilities: Vec<String>,
+}
+
+impl Default for BundleAuthorityState {
+    fn default() -> Self {
+        Self {
+            mode: default_authority_mode(),
+            degraded: false,
+            shared_base_url: None,
+            fallback_base_url: None,
+            activated_at: None,
+            activated_by: None,
+            reason: None,
+            warning_acknowledged_at: None,
+            expires_at: None,
+            blocked_capabilities: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -33180,6 +33892,10 @@ struct BundleConfigFile {
     rag_url: Option<String>,
     #[serde(default)]
     backend: Option<BundleBackendConfigFile>,
+    #[serde(default)]
+    authority_policy: BundleAuthorityPolicy,
+    #[serde(default)]
+    authority_state: BundleAuthorityState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33226,6 +33942,10 @@ struct BundleRuntimeConfig {
     heartbeat_model: Option<String>,
     #[serde(default = "default_auto_short_term_capture")]
     auto_short_term_capture: bool,
+    #[serde(default)]
+    authority_policy: BundleAuthorityPolicy,
+    #[serde(default)]
+    authority_state: BundleAuthorityState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34552,6 +35272,10 @@ struct BundleHeartbeatState {
     #[serde(default)]
     authority: Option<String>,
     #[serde(default)]
+    authority_mode: Option<String>,
+    #[serde(default)]
+    authority_degraded: bool,
+    #[serde(default)]
     heartbeat_model: Option<String>,
     #[serde(default)]
     project: Option<String>,
@@ -34839,6 +35563,10 @@ fn escape_ps1(value: &str) -> String {
 
 fn compact_bundle_value(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn memory_visibility_label(value: memd_schema::MemoryVisibility) -> &'static str {
@@ -36181,6 +36909,8 @@ mod tests {
             heartbeat_model: Some(default_heartbeat_model()),
             auto_short_term_capture: true,
             rag_url: None,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
             backend: Some(BundleBackendConfigFile {
                 rag: Some(BundleRagConfigFile {
                     enabled: Some(true),
@@ -36222,6 +36952,8 @@ mod tests {
             auto_short_term_capture: true,
             rag_url: Some("http://127.0.0.1:9000".to_string()),
             backend: None,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
 
         let resolved = resolve_bundle_rag_config(config).expect("bundle rag config");
@@ -36256,6 +36988,8 @@ mod tests {
             visibility: Some("workspace".to_string()),
             heartbeat_model: default_heartbeat_model(),
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
                     enabled: true,
@@ -36315,6 +37049,8 @@ mod tests {
             visibility: Some("workspace".to_string()),
             heartbeat_model: default_heartbeat_model(),
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
             backend: BundleBackendConfig {
                 rag: BundleRagConfig {
                     enabled: true,
@@ -38561,6 +39297,8 @@ mod tests {
             visibility: Some("workspace".to_string()),
             heartbeat_model: None,
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
 
         let req = build_lookup_request(&args, Some(&runtime)).expect("build lookup request");
@@ -40598,6 +41336,8 @@ mod tests {
             next_recovery: None,
             status: "live".to_string(),
             last_seen: Utc::now(),
+            authority_mode: Some("shared".to_string()),
+            authority_degraded: false,
         };
 
         let summary = render_bundle_heartbeat_summary(&state);
@@ -40707,6 +41447,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize heartbeat"),
         )
@@ -40777,6 +41519,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize heartbeat"),
         )
@@ -40880,6 +41624,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize current heartbeat"),
         )
@@ -40934,6 +41680,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize target heartbeat"),
         )
@@ -41167,6 +41915,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
 
@@ -41412,6 +42162,104 @@ mod tests {
                 .and_then(|value| value.as_array())
                 .map(|values| values.len()),
             Some(2)
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup status dir");
+    }
+
+    #[tokio::test]
+    async fn read_bundle_status_surfaces_localhost_read_only_authority_warning() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-status-authority-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("hooks")).expect("create hooks dir");
+        fs::create_dir_all(dir.join("agents")).expect("create agents dir");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task",
+  "authority_policy": {{
+    "shared_primary": true,
+    "localhost_fallback_policy": "allow_read_only"
+  }},
+  "authority_state": {{
+    "mode": "localhost_read_only",
+    "degraded": true,
+    "shared_base_url": "{}",
+    "fallback_base_url": "http://127.0.0.1:8787",
+    "reason": "tailscale is unavailable"
+  }}
+}}
+"#,
+                base_url, SHARED_MEMD_BASE_URL
+            ),
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "MEMD_BASE_URL=test\n").expect("write env");
+        fs::write(dir.join("env.ps1"), "$env:MEMD_BASE_URL='test'\n").expect("write env ps1");
+
+        let status = read_bundle_status(&dir, SHARED_MEMD_BASE_URL)
+            .await
+            .expect("status via runtime base url");
+        assert_eq!(
+            status.get("authority").and_then(JsonValue::as_str),
+            Some("localhost_read_only")
+        );
+        assert_eq!(
+            status.get("shared_primary").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            status
+                .get("localhost_read_only_allowed")
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            status.get("degraded").and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            status.get("shared_base_url").and_then(JsonValue::as_str),
+            Some(SHARED_MEMD_BASE_URL)
+        );
+        assert_eq!(
+            status.get("fallback_base_url").and_then(JsonValue::as_str),
+            Some("http://127.0.0.1:8787")
+        );
+        assert!(
+            status
+                .get("authority_warning")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|warning| warning
+                    .iter()
+                    .any(|line| line.as_str() == Some("shared authority unavailable")))
+        );
+        let defaults = status.get("defaults").expect("defaults present");
+        assert_eq!(
+            defaults
+                .get("authority_policy")
+                .and_then(|value| value.get("localhost_fallback_policy"))
+                .and_then(JsonValue::as_str),
+            Some("allow_read_only")
+        );
+        assert_eq!(
+            defaults
+                .get("authority_state")
+                .and_then(|value| value.get("mode"))
+                .and_then(JsonValue::as_str),
+            Some("localhost_read_only")
         );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
@@ -43030,6 +43878,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize target heartbeat"),
         )
@@ -43973,6 +44823,112 @@ mod tests {
     }
 
     #[test]
+    fn write_init_bundle_persists_authority_policy_state_and_env_files() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-init-root-{}", uuid::Uuid::new_v4()));
+        let output =
+            std::env::temp_dir().join(format!("memd-init-output-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&project_root).expect("create project root");
+
+        write_init_bundle(&InitArgs {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: Some(project_root.clone()),
+            seed_existing: false,
+            agent: "codex".to_string(),
+            session: Some("codex-a".to_string()),
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: vec!["memory".to_string()],
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: Some("keep the bundle safe".to_string()),
+            authority: Some("participant".to_string()),
+            output: output.clone(),
+            base_url: SHARED_MEMD_BASE_URL.to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            force: true,
+        })
+        .expect("write init bundle");
+
+        let config = fs::read_to_string(output.join("config.json")).expect("read config");
+        let env = fs::read_to_string(output.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(output.join("env.ps1")).expect("read env.ps1");
+        assert!(config.contains(r#""authority_policy""#));
+        assert!(config.contains(r#""localhost_fallback_policy": "deny""#));
+        assert!(config.contains(r#""authority_state""#));
+        assert!(config.contains(r#""mode": "shared""#));
+        assert!(config.contains(&format!(r#""shared_base_url": "{}""#, SHARED_MEMD_BASE_URL)));
+        assert!(env.contains("MEMD_AUTHORITY_MODE=shared"));
+        assert!(env.contains("MEMD_LOCALHOST_FALLBACK_POLICY=deny"));
+        assert!(env.contains(&format!("MEMD_SHARED_BASE_URL={SHARED_MEMD_BASE_URL}")));
+        assert!(env.contains("MEMD_AUTHORITY_DEGRADED=false"));
+        assert!(env_ps1.contains("$env:MEMD_AUTHORITY_MODE = \"shared\""));
+        assert!(env_ps1.contains("$env:MEMD_LOCALHOST_FALLBACK_POLICY = \"deny\""));
+        assert!(env_ps1.contains(&format!(
+            "$env:MEMD_SHARED_BASE_URL = \"{}\"",
+            SHARED_MEMD_BASE_URL
+        )));
+        assert!(env_ps1.contains("$env:MEMD_AUTHORITY_DEGRADED = \"false\""));
+
+        fs::remove_dir_all(project_root).expect("cleanup init project root");
+        fs::remove_dir_all(output).expect("cleanup init output");
+    }
+
+    #[test]
+    fn render_agent_profiles_surface_authority_warning_when_localhost_fallback_is_active() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-authority-profile-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task",
+  "authority_policy": {{
+    "shared_primary": true,
+    "localhost_fallback_policy": "allow_read_only"
+  }},
+  "authority_state": {{
+    "mode": "localhost_read_only",
+    "degraded": true,
+    "shared_base_url": "{}",
+    "fallback_base_url": "http://127.0.0.1:8787",
+    "reason": "tailscale is unavailable"
+  }}
+}}
+"#,
+                SHARED_MEMD_BASE_URL, SHARED_MEMD_BASE_URL
+            ),
+        )
+        .expect("write config");
+        fs::write(dir.join("env"), "").expect("write env");
+        fs::write(dir.join("env.ps1"), "").expect("write env.ps1");
+
+        let shell = render_agent_shell_profile(&dir, Some("codex"));
+        let ps1 = render_agent_ps1_profile(&dir, Some("codex"));
+        assert!(shell.contains("memd authority warning:"));
+        assert!(shell.contains("localhost fallback is lower trust"));
+        assert!(ps1.contains("memd authority warning:"));
+        assert!(ps1.contains("localhost fallback is lower trust"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn hive_project_state_round_trips_through_bundle_runtime_config() {
         let runtime = BundleRuntimeConfig {
             project: Some("demo".to_string()),
@@ -43996,6 +44952,8 @@ mod tests {
             hive_project_enabled: true,
             hive_project_anchor: Some("project:demo".to_string()),
             hive_project_joined_at: Some(Utc::now()),
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
         let json = serde_json::to_string(&runtime).unwrap();
         assert!(json.contains("\"hive_project_enabled\":true"));
@@ -44026,6 +44984,8 @@ mod tests {
             visibility: Some("private".to_string()),
             heartbeat_model: Some("llama-desktop/qwen".to_string()),
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
         let overlay = BundleRuntimeConfig {
             project: Some("memd".to_string()),
@@ -44049,6 +45009,8 @@ mod tests {
             visibility: Some("workspace".to_string()),
             heartbeat_model: None,
             auto_short_term_capture: false,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
 
         let merged = merge_bundle_runtime_config(runtime, overlay);
@@ -44502,6 +45464,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
 
@@ -44547,6 +45511,72 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("cleanup hive reroute root");
+    }
+
+    #[tokio::test]
+    async fn run_tasks_command_blocks_mutating_writes_in_localhost_read_only_mode() {
+        let dir = std::env::temp_dir().join(format!("memd-tasks-ro-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task",
+  "authority_policy": {{
+    "shared_primary": true,
+    "localhost_fallback_policy": "allow_read_only"
+  }},
+  "authority_state": {{
+    "mode": "localhost_read_only",
+    "degraded": true,
+    "shared_base_url": "{}",
+    "fallback_base_url": "http://127.0.0.1:8787",
+    "reason": "tailscale is unavailable"
+  }}
+}}
+"#,
+                SHARED_MEMD_BASE_URL, SHARED_MEMD_BASE_URL
+            ),
+        )
+        .expect("write config");
+
+        let err = run_tasks_command(
+            &TasksArgs {
+                output: dir.clone(),
+                upsert: true,
+                assign_to_session: None,
+                target_session: None,
+                task_id: Some("task-1".to_string()),
+                title: Some("keep work moving".to_string()),
+                description: Some("refresh the plan".to_string()),
+                status: Some("open".to_string()),
+                mode: None,
+                scope: vec!["src/main.rs".to_string()],
+                request_help: false,
+                request_review: false,
+                all: false,
+                view: None,
+                summary: false,
+                json: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect_err("shared write in localhost read-only mode should fail");
+        assert!(
+            err.to_string()
+                .contains("localhost read-only fallback active")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[tokio::test]
@@ -45063,6 +46093,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             })
             .expect("serialize sibling heartbeat")
                 + "\n",
@@ -45254,6 +46286,8 @@ mod tests {
             visibility: None,
             heartbeat_model: None,
             auto_short_term_capture: true,
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
         };
 
         let (project, namespace) = shared_awareness_scope(Some(&runtime));
@@ -46999,6 +48033,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
 
@@ -47107,6 +48143,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
 
@@ -47214,6 +48252,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
 
@@ -47320,6 +48360,8 @@ mod tests {
                 next_recovery: None,
                 status: "live".to_string(),
                 last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
             },
         );
         let conflict = detect_bundle_lane_collision(&current_bundle, Some("codex-a"))
@@ -48058,6 +49100,8 @@ mod tests {
             next_recovery: None,
             status: status.to_string(),
             last_seen,
+            authority_mode: Some("shared".to_string()),
+            authority_degraded: false,
         }
     }
 
