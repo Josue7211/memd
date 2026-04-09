@@ -19786,6 +19786,7 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
     })
     .await
     .ok();
+    let research_loops_doc_count = research_loops_doc_loop_count(project_root);
 
     let candidates = build_gap_candidates(
         &args.output,
@@ -19795,6 +19796,7 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
         eval.as_ref(),
         coordination.as_ref(),
         awareness.as_ref(),
+        research_loops_doc_count,
         &recent_commits,
         &mut evidence,
     );
@@ -21418,6 +21420,7 @@ fn build_gap_candidates(
     eval: Option<&BundleEvalResponse>,
     coordination: Option<&CoordinationResponse>,
     awareness: Option<&ProjectAwarenessResponse>,
+    research_loops_doc_count: Option<usize>,
     recent_commits: &[String],
     evidence: &mut Vec<String>,
 ) -> Vec<GapCandidate> {
@@ -21684,6 +21687,23 @@ fn build_gap_candidates(
         }
     }
 
+    if let Some(doc_count) = research_loops_doc_count {
+        let manifest_count = AUTORESEARCH_LOOPS.len();
+        if doc_count != manifest_count {
+            add(
+                &mut candidates,
+                "docs",
+                "loop_manifest_drift",
+                83,
+                vec![
+                    format!("docs/research-loops.md lists {} loop entries", doc_count),
+                    format!("runtime autoresearch manifest has {} loops", manifest_count),
+                ],
+                "update docs/research-loops.md to match `memd autoresearch --manifest` and rerun gap scoring",
+            );
+        }
+    }
+
     if let Some(runtime) = runtime {
         if let Some(agent) = runtime.agent.as_ref() {
             let mut session_hint = String::new();
@@ -21713,6 +21733,23 @@ fn build_gap_candidates(
     }
 
     candidates
+}
+
+fn research_loops_doc_loop_count(project_root: &Path) -> Option<usize> {
+    let path = project_root.join("docs/research-loops.md");
+    let raw = fs::read_to_string(&path).ok()?;
+    let count = raw
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| {
+            let digit_count = line.chars().take_while(|ch| ch.is_ascii_digit()).count();
+            digit_count > 0
+                && line
+                    .get(digit_count..)
+                    .is_some_and(|rest| rest.starts_with(". "))
+        })
+        .count();
+    Some(count)
 }
 
 fn evaluate_gap_changes(current: &GapReport, baseline: Option<&GapReport>) -> Vec<String> {
@@ -24058,18 +24095,7 @@ async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectA
     )
     .await?
     {
-        let mut entries = local.entries;
-        for entry in shared.entries {
-            let duplicate = entries.iter().any(|candidate| {
-                candidate.session == entry.session
-                    && candidate.base_url == entry.base_url
-                    && candidate.project == entry.project
-                    && candidate.namespace == entry.namespace
-            });
-            if !duplicate {
-                entries.push(entry);
-            }
-        }
+        let mut entries = merge_project_awareness_entries(local.entries, shared.entries);
         entries.sort_by(|left, right| left.bundle_root.cmp(&right.bundle_root));
 
         let mut collisions = local.collisions;
@@ -24087,6 +24113,84 @@ async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectA
         });
     }
     Ok(local)
+}
+
+fn merge_project_awareness_entries(
+    local_entries: Vec<ProjectAwarenessEntry>,
+    shared_entries: Vec<ProjectAwarenessEntry>,
+) -> Vec<ProjectAwarenessEntry> {
+    let mut entries = local_entries;
+    for entry in shared_entries {
+        if let Some(index) = entries
+            .iter()
+            .position(|candidate| awareness_entries_overlap(candidate, &entry))
+        {
+            let preferred = prefer_project_awareness_entry(entries[index].clone(), entry);
+            entries[index] = preferred;
+        } else {
+            entries.push(entry);
+        }
+    }
+    entries
+}
+
+fn awareness_entries_overlap(left: &ProjectAwarenessEntry, right: &ProjectAwarenessEntry) -> bool {
+    let same_session = left.session.is_some()
+        && left.session == right.session
+        && left.project == right.project
+        && left.namespace == right.namespace
+        && left.workspace == right.workspace;
+    if same_session {
+        return left.tab_id == right.tab_id || left.tab_id.is_none() || right.tab_id.is_none();
+    }
+
+    left.bundle_root == right.bundle_root
+        || (left.base_url.is_some()
+            && left.base_url == right.base_url
+            && left.project == right.project
+            && left.namespace == right.namespace
+            && left.session == right.session)
+}
+
+fn prefer_project_awareness_entry(
+    left: ProjectAwarenessEntry,
+    right: ProjectAwarenessEntry,
+) -> ProjectAwarenessEntry {
+    if project_awareness_entry_rank(&right) > project_awareness_entry_rank(&left) {
+        right
+    } else {
+        left
+    }
+}
+
+fn project_awareness_entry_rank(
+    entry: &ProjectAwarenessEntry,
+) -> (u8, u8, u8, u8, i64, usize, usize) {
+    (
+        if entry.project_dir == "remote" { 0 } else { 1 },
+        awareness_presence_rank(&entry.presence),
+        if entry.hive_system.is_some() || entry.hive_role.is_some() {
+            1
+        } else {
+            0
+        },
+        if entry.hive_groups.is_empty() { 0 } else { 1 },
+        entry
+            .last_updated
+            .map(|value| value.timestamp())
+            .unwrap_or_default(),
+        entry.active_claims,
+        entry.capabilities.len(),
+    )
+}
+
+fn awareness_presence_rank(presence: &str) -> u8 {
+    match presence {
+        "active" => 3,
+        "stale" => 2,
+        "dead" => 1,
+        _ => 0,
+    }
 }
 
 async fn read_project_awareness_shared(
@@ -32693,6 +32797,144 @@ mod tests {
     }
 
     #[test]
+    fn awareness_merge_prefers_fresher_local_session_metadata_over_stale_remote_row() {
+        let entries = merge_project_awareness_entries(
+            vec![ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/current".to_string(),
+                bundle_root: "/tmp/projects/current/.memd".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-2c2c883c".to_string()),
+                tab_id: Some("tab-alpha".to_string()),
+                effective_agent: Some("codex@session-2c2c883c".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 1,
+                workspace: Some("memd".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: Some("Ship the hive fix".to_string()),
+                pressure: Some("Repair awareness".to_string()),
+                next_recovery: None,
+                last_updated: Some(Utc::now()),
+            }],
+            vec![ProjectAwarenessEntry {
+                project_dir: "remote".to_string(),
+                bundle_root: "remote:http://127.0.0.1:8787:session-2c2c883c".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-2c2c883c".to_string()),
+                tab_id: Some("tab-alpha".to_string()),
+                effective_agent: Some("codex@session-2c2c883c".to_string()),
+                hive_system: None,
+                hive_role: None,
+                capabilities: vec!["memory".to_string()],
+                hive_groups: Vec::new(),
+                hive_group_goal: None,
+                authority: None,
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "stale".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("memd".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(10)),
+            }],
+        );
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project_dir, "/tmp/projects/current");
+        assert_eq!(entries[0].presence, "active");
+        assert_eq!(entries[0].hive_system.as_deref(), Some("codex"));
+        assert_eq!(entries[0].hive_groups, vec!["project:memd".to_string()]);
+    }
+
+    #[test]
+    fn awareness_merge_keeps_distinct_sessions_when_remote_rows_are_not_duplicates() {
+        let entries = merge_project_awareness_entries(
+            vec![ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/current".to_string(),
+                bundle_root: "/tmp/projects/current/.memd".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-2c2c883c".to_string()),
+                tab_id: Some("tab-alpha".to_string()),
+                effective_agent: Some("codex@session-2c2c883c".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 1,
+                workspace: Some("memd".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(Utc::now()),
+            }],
+            vec![ProjectAwarenessEntry {
+                project_dir: "remote".to_string(),
+                bundle_root: "remote:http://127.0.0.1:8787:session-6d422e56".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-6d422e56".to_string()),
+                tab_id: Some("tab-beta".to_string()),
+                effective_agent: Some("codex@session-6d422e56".to_string()),
+                hive_system: None,
+                hive_role: None,
+                capabilities: vec!["memory".to_string()],
+                hive_groups: Vec::new(),
+                hive_group_goal: None,
+                authority: None,
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("memd".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(Utc::now()),
+            }],
+        );
+
+        assert_eq!(entries.len(), 2);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.session.as_deref() == Some("session-2c2c883c"))
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.session.as_deref() == Some("session-6d422e56"))
+        );
+    }
+
+    #[test]
     fn session_collision_warnings_surface_shared_session_reuse() {
         let warnings = session_collision_warnings(&[
             ProjectAwarenessEntry {
@@ -35194,7 +35436,10 @@ mod tests {
         assert_eq!(sibling_runtime.hive_system.as_deref(), Some("codex"));
         assert_eq!(sibling_runtime.hive_role.as_deref(), Some("agent"));
         assert_eq!(sibling_runtime.authority.as_deref(), Some("participant"));
-        assert_eq!(sibling_runtime.base_url.as_deref(), Some(SHARED_MEMD_BASE_URL));
+        assert_eq!(
+            sibling_runtime.base_url.as_deref(),
+            Some(SHARED_MEMD_BASE_URL)
+        );
         assert!(
             sibling_runtime
                 .hive_groups
@@ -36488,6 +36733,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &commits,
             &mut evidence,
         );
@@ -36520,10 +36766,8 @@ mod tests {
 
     #[test]
     fn build_gap_candidates_surfaces_unhived_active_peers() {
-        let output = std::env::temp_dir().join(format!(
-            "memd-gap-awareness-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let output =
+            std::env::temp_dir().join(format!("memd-gap-awareness-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&output).expect("create temp output");
 
         let awareness = ProjectAwarenessResponse {
@@ -36597,6 +36841,7 @@ mod tests {
             None,
             None,
             Some(&awareness),
+            None,
             &[],
             &mut evidence,
         );
@@ -36610,6 +36855,35 @@ mod tests {
             candidates
                 .iter()
                 .any(|value| value.id == "coordination:awareness_collisions")
+        );
+
+        fs::remove_dir_all(&output).expect("cleanup temp output");
+    }
+
+    #[test]
+    fn build_gap_candidates_surfaces_loop_manifest_drift() {
+        let output =
+            std::env::temp_dir().join(format!("memd-gap-docs-drift-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+
+        let mut evidence = Vec::new();
+        let candidates = build_gap_candidates(
+            &output,
+            &None,
+            &None,
+            None,
+            None,
+            None,
+            None,
+            Some(8),
+            &[],
+            &mut evidence,
+        );
+
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "docs:loop_manifest_drift")
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
@@ -37703,7 +37977,11 @@ mod tests {
         let outputs = read_loop_entries(&output).expect("read loop entries");
         assert_eq!(outputs.len(), 10);
         assert!(outputs.iter().any(|record| record.slug == "hive-health"));
-        assert!(outputs.iter().any(|record| record.slug == "docs-spec-drift"));
+        assert!(
+            outputs
+                .iter()
+                .any(|record| record.slug == "docs-spec-drift")
+        );
         assert!(outputs.iter().all(|record| record.record.status.is_some()));
 
         fs::remove_dir_all(output).expect("cleanup temp output");
