@@ -2771,27 +2771,7 @@ impl SqliteStore {
                 let current = sessions
                     .iter()
                     .find(|session| session.session == current_session)?;
-                let shared_scopes = current
-                    .scope_claims
-                    .iter()
-                    .filter(|scope| target.scope_claims.iter().any(|other| other == *scope))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if !shared_scopes.is_empty() {
-                    Some(format!(
-                        "possible_work_overlap touches={}",
-                        shared_scopes.join(",")
-                    ))
-                } else if current.task_id.is_some() && current.task_id == target.task_id {
-                    current.task_id.as_ref().map(|task| {
-                        format!(
-                            "confirmed hive overlap: target session {} already owns task {}",
-                            target.session, task
-                        )
-                    })
-                } else {
-                    None
-                }
+                hive_follow_overlap_risk(current, &target)
             });
         let recommended_action = if overlap_risk.is_some() {
             "coordinate_now".to_string()
@@ -3747,6 +3727,86 @@ impl SqliteStore {
         .context("insert memory event")?;
         Ok(())
     }
+}
+
+fn hive_follow_overlap_risk(
+    current: &HiveSessionRecord,
+    target: &HiveSessionRecord,
+) -> Option<String> {
+    let current_task = normalized_hive_text(current.task_id.as_deref());
+    let target_task = normalized_hive_text(target.task_id.as_deref());
+    let current_topic = normalized_hive_text(current.topic_claim.as_deref());
+    let target_topic = normalized_hive_text(target.topic_claim.as_deref());
+    let current_scopes = hive_overlap_scopes(&current.scope_claims);
+    let target_scopes = hive_overlap_scopes(&target.scope_claims);
+    let shared_scopes = current_scopes
+        .iter()
+        .filter(|scope| target_scopes.iter().any(|other| other == *scope))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if let (Some(current_task), Some(target_task)) =
+        (current_task.as_deref(), target_task.as_deref())
+        && current_task != target_task
+        && !shared_scopes.is_empty()
+    {
+        return Some(format!(
+            "confirmed hive overlap: target session {} already owns scope(s) for task {}",
+            target.session, target_task
+        ));
+    }
+
+    if !shared_scopes.is_empty() {
+        return Some(format!(
+            "possible_work_overlap touches={}",
+            shared_scopes.join(",")
+        ));
+    }
+
+    if let (Some(current_task), Some(target_task)) =
+        (current_task.as_deref(), target_task.as_deref())
+        && current_task == target_task
+    {
+        return Some(format!(
+            "confirmed hive overlap: target session {} already owns task {}",
+            target.session, target_task
+        ));
+    }
+
+    if let (Some(current_topic), Some(target_topic)) =
+        (current_topic.as_deref(), target_topic.as_deref())
+        && current_topic == target_topic
+    {
+        return Some(format!(
+            "confirmed hive overlap: target session {} already owns topic {}",
+            target.session,
+            target.topic_claim.as_deref().unwrap_or("none")
+        ));
+    }
+
+    None
+}
+
+fn hive_overlap_scopes(scopes: &[String]) -> Vec<String> {
+    scopes
+        .iter()
+        .filter_map(|scope| normalized_hive_text(Some(scope.as_str())))
+        .filter(|scope| !is_generic_hive_overlap_scope(scope))
+        .collect()
+}
+
+fn normalized_hive_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn is_generic_hive_overlap_scope(value: &str) -> bool {
+    matches!(
+        value,
+        "project" | "workspace" | "shared" | "none" | "unknown"
+    )
 }
 
 fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {

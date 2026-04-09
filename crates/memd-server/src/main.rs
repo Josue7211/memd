@@ -2935,7 +2935,12 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
     use memd_schema::MemoryRepairMode;
+    use tower::util::ServiceExt;
 
     fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         let now = Utc::now();
@@ -2975,6 +2980,322 @@ mod tests {
             store: SqliteStore::open(&db_path).expect("open temp store"),
         };
         (dir, state)
+    }
+
+    fn test_hive_router(state: AppState) -> Router {
+        Router::new()
+            .route("/hive/board", get(get_hive_board))
+            .route("/hive/roster", get(get_hive_roster))
+            .route("/hive/follow", get(get_hive_follow))
+            .with_state(state)
+    }
+
+    fn seed_hive_route_state(state: &AppState) {
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "queen-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@queen-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("queen".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("queen-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("main".to_string()),
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(100),
+                topic_claim: Some("Route hive work".to_string()),
+                scope_claims: vec!["docs/hive.md".to_string()],
+                task_id: Some("queen-routing".to_string()),
+                focus: Some("Coordinate bee lanes".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Review overlap alerts".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.95".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert queen session");
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("parser-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/bee-1".to_string()),
+                branch: Some("feature/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(101),
+                topic_claim: Some("Parser lane refactor".to_string()),
+                scope_claims: vec![
+                    "project".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                    "task:parser-refactor".to_string(),
+                ],
+                task_id: Some("parser-refactor".to_string()),
+                focus: Some("Refine parser overlap flow".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Request review".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: Some("0.9".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert bee session");
+        state
+            .store
+            .upsert_hive_task(&HiveTaskUpsertRequest {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: Some("narrow parser work".to_string()),
+                status: Some("active".to_string()),
+                coordination_mode: Some("exclusive_write".to_string()),
+                session: Some("bee-1".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: Some(false),
+                review_requested: Some(true),
+            })
+            .expect("insert hive task");
+        state
+            .store
+            .send_hive_message(&HiveMessageSendRequest {
+                kind: "note".to_string(),
+                from_session: "queen-1".to_string(),
+                from_agent: Some("codex".to_string()),
+                to_session: "bee-1".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "Stay on parser lane only.".to_string(),
+            })
+            .expect("insert hive message");
+        state
+            .store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_assign".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("codex".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Assigned parser lane".to_string(),
+            })
+            .expect("insert coordination receipt");
+    }
+
+    async fn decode_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        serde_json::from_slice(&body).expect("decode response json")
+    }
+
+    #[tokio::test]
+    async fn hive_board_route_returns_active_bees_and_review_queue() {
+        let (dir, state) = temp_state("memd-hive-board-route");
+        seed_hive_route_state(&state);
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/board?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive board route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveBoardResponse = decode_json(response).await;
+        assert_eq!(body.queen_session.as_deref(), Some("queen-1"));
+        assert!(body.active_bees.iter().any(|bee| bee.session == "bee-1"));
+        assert!(
+            body.review_queue
+                .iter()
+                .any(|item| item.contains("parser-refactor"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_roster_route_returns_named_bees_and_queen() {
+        let (dir, state) = temp_state("memd-hive-roster-route");
+        seed_hive_route_state(&state);
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/roster?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive roster route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveRosterResponse = decode_json(response).await;
+        assert_eq!(body.queen_session.as_deref(), Some("queen-1"));
+        assert!(
+            body.bees
+                .iter()
+                .any(|bee| bee.worker_name.as_deref() == Some("Lorentz"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_follow_route_returns_messages_receipts_and_confirmed_overlap() {
+        let (dir, state) = temp_state("memd-hive-follow-route");
+        seed_hive_route_state(&state);
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-2".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-2".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("render-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/bee-2".to_string()),
+                branch: Some("feature/render".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(102),
+                topic_claim: Some("Render lane polish".to_string()),
+                scope_claims: vec![
+                    "project".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                    "task:render-refresh".to_string(),
+                ],
+                task_id: Some("render-refresh".to_string()),
+                focus: Some("Render lane polish".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Wait for parser ack".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.82".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert second bee");
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/follow?session=bee-1&current_session=bee-2&project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive follow route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveFollowResponse = decode_json(response).await;
+        assert_eq!(body.target.session, "bee-1");
+        assert_eq!(body.messages.len(), 1);
+        assert_eq!(body.recent_receipts.len(), 1);
+        assert_eq!(
+            body.overlap_risk.as_deref(),
+            Some(
+                "confirmed hive overlap: target session bee-1 already owns scope(s) for task parser-refactor"
+            )
+        );
+        assert_eq!(body.recommended_action, "coordinate_now");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_follow_route_rejects_empty_session() {
+        let (dir, state) = temp_state("memd-hive-follow-bad-request");
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/follow?session=")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive follow route");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
     #[test]

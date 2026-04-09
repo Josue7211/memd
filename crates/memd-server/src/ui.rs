@@ -531,26 +531,38 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       return board;
     }}
 
+    let selectedHiveFollowSession = {{ value: null }};
+
+    function beeLabel(bee) {{
+      return bee.worker_name || bee.display_name || bee.agent || bee.session || 'unnamed';
+    }}
+
+    function renderHiveRosterItems(bees) {{
+      return (bees || []).slice(0, 8).map((bee) => {{
+        const worker = beeLabel(bee);
+        const role = bee.role || bee.hive_role || 'worker';
+        const lane = bee.lane_id || bee.branch || 'none';
+        const task = bee.task_id || 'none';
+        const selected = selectedHiveFollowSession.value === bee.session ? ' selected' : '';
+        return `<button type="button" class="artifact-link hive-bee${{selected}}" data-hive-follow-session="${{bee.session}}"><strong>${{worker}}</strong><span>${{role}} · ${{lane}} · task=${{task}}</span></button>`;
+      }});
+    }}
+
     async function loadHiveRoster() {{
       const response = await fetch('/hive/roster');
       if (!response.ok) throw new Error(`hive roster failed: ${{response.status}}`);
       const roster = await response.json();
-      const items = (roster.bees || []).slice(0, 6).map((bee) => {{
-        const worker = bee.worker_name || bee.agent || 'unnamed';
-        const role = bee.role || bee.hive_role || 'worker';
-        const lane = bee.lane_id || bee.branch || 'none';
-        const task = bee.task_id || 'none';
-        return `<strong>${{worker}}</strong><span>${{role}} · ${{lane}} · task=${{task}}</span>`;
-      }});
-      renderList('hive-roster-list', items);
+      renderList('hive-roster-list', renderHiveRosterItems(roster.bees));
       return roster;
     }}
 
     async function loadHiveFollow(session) {{
       if (!session) {{
+        selectedHiveFollowSession.value = null;
         renderList('hive-follow-list', []);
         return null;
       }}
+      selectedHiveFollowSession.value = session;
       const response = await fetch(`/hive/follow?session=${{encodeURIComponent(session)}}`);
       if (!response.ok) throw new Error(`hive follow failed: ${{response.status}}`);
       const follow = await response.json();
@@ -581,6 +593,16 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         loadArtifactDetail(artifactLink.dataset.artifactId).catch((error) => {{
           text('action-status', String(error));
         }});
+        return;
+      }}
+      const hiveFollowButton = event.target.closest('[data-hive-follow-session]');
+      if (hiveFollowButton) {{
+        event.preventDefault();
+        loadHiveFollow(hiveFollowButton.dataset.hiveFollowSession)
+          .then(() => loadHiveRoster())
+          .catch((error) => {{
+            renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
+          }});
       }}
     }});
 
@@ -1425,6 +1447,7 @@ mod tests {
         assert!(html.contains("/hive/board"));
         assert!(html.contains("/hive/roster"));
         assert!(html.contains("/hive/follow?session="));
+        assert!(html.contains("data-hive-follow-session"));
     }
 
     #[test]
