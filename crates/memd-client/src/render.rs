@@ -21,7 +21,6 @@ use crate::{
         preset::HarnessPreset,
         shared::render_harness_pack_markdown,
     },
-    migration::{MigrationAudit, MigrationAuditEntry},
     obsidian::ObsidianVaultScan,
 };
 
@@ -344,126 +343,6 @@ pub(crate) fn render_command_catalog_json(catalog: &CommandCatalog) -> CommandCa
     }
 }
 
-pub(crate) fn render_migration_audit_summary(audit: &MigrationAudit) -> String {
-    let mut summary = format!(
-        "migration root={} project={} commands={} ready={} partial={} missing={} broken={}",
-        audit.bundle_root,
-        audit.project_root.as_deref().unwrap_or("none"),
-        audit.command_count,
-        audit.ready_count,
-        audit.partial_count,
-        audit.missing_count,
-        audit.broken_count
-    );
-    if !audit.commands.is_empty() {
-        summary.push_str(&format!(
-            " names={}",
-            audit
-                .commands
-                .iter()
-                .map(|command| command.name.as_str())
-                .collect::<Vec<_>>()
-                .join("|")
-        ));
-    }
-    summary
-}
-
-pub(crate) fn render_migration_audit_markdown(audit: &MigrationAudit) -> String {
-    let mut markdown = String::new();
-    markdown.push_str("# memd migration audit\n\n");
-    markdown.push_str(&format!("- Bundle root: `{}`\n", audit.bundle_root));
-    markdown.push_str(&format!(
-        "- Project root: `{}`\n",
-        audit.project_root.as_deref().unwrap_or("none")
-    ));
-    markdown.push_str(&format!(
-        "- Commands: `{}`\n- Ready: `{}`\n- Partial: `{}`\n- Missing: `{}`\n- Broken: `{}`\n\n",
-        audit.command_count,
-        audit.ready_count,
-        audit.partial_count,
-        audit.missing_count,
-        audit.broken_count
-    ));
-    markdown.push_str(
-        "memd makes native CLI universal and keeps bridge surfaces visible so migrations can tell what works, what is missing, and what still needs a target harness.\n\n",
-    );
-    markdown.push_str(&crate::render_capability_registry_summary(
-        &audit.capability_registry,
-    ));
-    markdown.push('\n');
-    for command in &audit.commands {
-        render_migration_audit_entry(&mut markdown, command);
-    }
-    markdown
-}
-
-pub(crate) fn render_migration_audit_json(audit: &MigrationAudit) -> MigrationAuditJson {
-    MigrationAuditJson {
-        generated_at: audit.generated_at,
-        bundle_root: audit.bundle_root.clone(),
-        project_root: audit.project_root.clone(),
-        command_count: audit.command_count,
-        ready_count: audit.ready_count,
-        partial_count: audit.partial_count,
-        missing_count: audit.missing_count,
-        broken_count: audit.broken_count,
-        capability_registry: audit.capability_registry.clone(),
-        commands: audit
-            .commands
-            .iter()
-            .map(MigrationAuditEntryJson::from)
-            .collect(),
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct MigrationAuditJson {
-    pub(crate) generated_at: chrono::DateTime<chrono::Utc>,
-    pub(crate) bundle_root: String,
-    pub(crate) project_root: Option<String>,
-    pub(crate) command_count: usize,
-    pub(crate) ready_count: usize,
-    pub(crate) partial_count: usize,
-    pub(crate) missing_count: usize,
-    pub(crate) broken_count: usize,
-    pub(crate) capability_registry: crate::CapabilityRegistry,
-    pub(crate) commands: Vec<MigrationAuditEntryJson>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct MigrationAuditEntryJson {
-    pub(crate) name: String,
-    pub(crate) surface: String,
-    pub(crate) kind: String,
-    pub(crate) ownership: String,
-    pub(crate) role: String,
-    pub(crate) compatibility_flags: Vec<String>,
-    pub(crate) status: String,
-    pub(crate) present: Vec<String>,
-    pub(crate) missing: Vec<String>,
-    pub(crate) broken: Vec<String>,
-    pub(crate) notes: Vec<String>,
-}
-
-impl From<&MigrationAuditEntry> for MigrationAuditEntryJson {
-    fn from(value: &MigrationAuditEntry) -> Self {
-        Self {
-            name: value.name.clone(),
-            surface: value.surface.clone(),
-            kind: value.kind.clone(),
-            ownership: value.ownership.clone(),
-            role: value.role.clone(),
-            compatibility_flags: value.compatibility_flags.clone(),
-            status: value.status.clone(),
-            present: value.present.clone(),
-            missing: value.missing.clone(),
-            broken: value.broken.clone(),
-            notes: value.notes.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CommandCatalogJson {
     pub(crate) root: String,
@@ -539,34 +418,6 @@ fn render_command_catalog_section<F>(
     for command in filtered {
         render_command_catalog_entry(markdown, command);
     }
-}
-
-fn render_migration_audit_entry(markdown: &mut String, command: &MigrationAuditEntry) {
-    markdown.push_str(&format!("## {}\n\n", command.name));
-    markdown.push_str(&format!("- surface: `{}`\n", command.surface));
-    markdown.push_str(&format!("- kind: `{}`\n", command.kind));
-    markdown.push_str(&format!("- ownership: `{}`\n", command.ownership));
-    markdown.push_str(&format!("- role: `{}`\n", command.role));
-    markdown.push_str(&format!("- status: `{}`\n", command.status));
-    if !command.compatibility_flags.is_empty() {
-        markdown.push_str(&format!(
-            "- compatibility: `{}`\n",
-            command.compatibility_flags.join("`, `")
-        ));
-    }
-    if !command.present.is_empty() {
-        markdown.push_str(&format!("- present: `{}`\n", command.present.join("`, `")));
-    }
-    if !command.missing.is_empty() {
-        markdown.push_str(&format!("- missing: `{}`\n", command.missing.join("`, `")));
-    }
-    if !command.broken.is_empty() {
-        markdown.push_str(&format!("- broken: `{}`\n", command.broken.join("`, `")));
-    }
-    if !command.notes.is_empty() {
-        markdown.push_str(&format!("- notes: {}\n", command.notes.join(" | ")));
-    }
-    markdown.push('\n');
 }
 
 fn render_harness_pack_section(markdown: &mut String, pack: &HarnessPackIndexEntry) {
@@ -2635,7 +2486,11 @@ pub(crate) fn is_default_runtime(runtime: &memd_schema::MemoryPolicyRuntime) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{render_bundle_status_summary, render_policy_summary, render_skill_policy_summary};
+    use super::{
+        render_bundle_status_summary, render_harness_preset_markdown, render_policy_summary,
+        render_skill_policy_summary,
+    };
+    use crate::harness::preset::HarnessPresetRegistry;
     use memd_schema::{
         MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyLiveTruth,
         MemoryPolicyMemoryCompilation, MemoryPolicyPromotion, MemoryPolicyResponse,
@@ -2797,6 +2652,19 @@ mod tests {
         assert!(summary.contains("sandbox=on"));
         assert!(summary.contains("activate=on"));
         assert!(summary.contains("flow=pattern->proposal->sandbox->eval->policy->activate"));
+    }
+
+    #[test]
+    fn harness_preset_markdown_includes_registry_metadata() {
+        let registry = HarnessPresetRegistry::default_registry();
+        let preset = registry.get("codex").expect("codex preset");
+
+        let markdown = render_harness_preset_markdown(preset);
+        assert!(markdown.contains("# Codex Harness Pack"));
+        assert!(markdown.contains("- pack id: `codex`"));
+        assert!(markdown.contains("## Surface Set"));
+        assert!(markdown.contains("## Default Verbs"));
+        assert!(markdown.contains("## Shared Core"));
     }
 
     #[test]

@@ -33,9 +33,9 @@ reuse forever, and always keep a path back to the evidence.
 
 ```bash
 cargo run -p memd-server
-cargo run -p memd-client --bin memd -- init --agent codex
+cargo run -p memd-client --bin memd -- setup --agent codex
 memd status --output .memd
-memd migrate --output .memd --summary
+memd doctor --output .memd --summary
 memd commands --output .memd --summary
 memd resume --output .memd --intent current_task
 ```
