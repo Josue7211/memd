@@ -24663,10 +24663,24 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .filter(|entry| !(entry.project_dir == "remote" && entry.presence == "dead"))
         .collect::<Vec<_>>();
     let hidden_remote_dead = response.entries.len().saturating_sub(visible_entries.len());
+    let current_session = visible_entries
+        .iter()
+        .find(|entry| entry.bundle_root == response.current_bundle)
+        .and_then(|entry| entry.session.as_deref());
     let stale_remote_peers = visible_entries
         .iter()
         .filter(|entry| entry.project_dir == "remote" && entry.presence == "stale")
         .collect::<Vec<_>>();
+    let active_peer_sessions = current_session
+        .map(|current| {
+            visible_entries
+                .iter()
+                .filter(|entry| entry.presence == "active")
+                .filter_map(|entry| entry.session.as_deref())
+                .filter(|session| *session != current)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let mut lines = vec![format!(
         "awareness root={} bundles={} collisions={} hidden_remote_dead={}",
         response.root,
@@ -24674,6 +24688,13 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         response.collisions.len(),
         hidden_remote_dead,
     )];
+    if !active_peer_sessions.is_empty() {
+        lines.push(format!(
+            "! active_peer_sessions={} sessions={}",
+            active_peer_sessions.len(),
+            active_peer_sessions.join(",")
+        ));
+    }
     if !stale_remote_peers.is_empty() {
         let sessions = stale_remote_peers
             .iter()
@@ -24700,6 +24721,16 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         lines.push(format!("! {}", collision));
     }
     for entry in visible_entries {
+        let role = if entry.bundle_root == response.current_bundle {
+            "current"
+        } else if current_session.is_some()
+            && entry.presence == "active"
+            && entry.session.as_deref() != current_session
+        {
+            "peer"
+        } else {
+            "seen"
+        };
         let focus = entry
             .focus
             .as_deref()
@@ -24711,8 +24742,9 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} [{}] | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
+            role,
             entry.presence,
             entry.active_claims,
             entry.namespace.as_deref().unwrap_or("none"),
@@ -32853,7 +32885,7 @@ mod tests {
             )
         );
         assert!(summary.contains(
-            "sibling | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
+            "sibling [seen] | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -33066,6 +33098,76 @@ mod tests {
 
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("! stale_remote_peers=1 sessions=session-stale"));
+    }
+
+    #[test]
+    fn project_awareness_summary_marks_current_and_active_peers() {
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/projects/current".to_string(),
+                    bundle_root: "/tmp/projects/current/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-current".to_string()),
+                    tab_id: Some("tab-alpha".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-peer".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-peer".to_string()),
+                    tab_id: Some("tab-beta".to_string()),
+                    effective_agent: Some("codex@session-peer".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: Some("all".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: None,
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(summary.contains("! active_peer_sessions=1 sessions=session-peer"));
+        assert!(summary.contains("memd [current] | presence=active"));
+        assert!(summary.contains("memd [peer] | presence=active"));
     }
 
     #[test]
