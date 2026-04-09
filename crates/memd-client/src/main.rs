@@ -24667,11 +24667,11 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .iter()
         .find(|entry| entry.bundle_root == response.current_bundle)
         .and_then(|entry| entry.session.as_deref());
-    let stale_remote_peers = visible_entries
+    let stale_remote_sessions = visible_entries
         .iter()
         .filter(|entry| entry.project_dir == "remote" && entry.presence == "stale")
         .collect::<Vec<_>>();
-    let active_peer_sessions = current_session
+    let active_other_sessions = current_session
         .map(|current| {
             visible_entries
                 .iter()
@@ -24688,27 +24688,27 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         response.collisions.len(),
         hidden_remote_dead,
     )];
-    if !active_peer_sessions.is_empty() {
+    if !active_other_sessions.is_empty() {
         lines.push(format!(
-            "! active_peer_sessions={} sessions={}",
-            active_peer_sessions.len(),
-            active_peer_sessions.join(",")
+            "! active_other_sessions={} sessions={}",
+            active_other_sessions.len(),
+            active_other_sessions.join(",")
         ));
     }
-    if !stale_remote_peers.is_empty() {
-        let sessions = stale_remote_peers
+    if !stale_remote_sessions.is_empty() {
+        let sessions = stale_remote_sessions
             .iter()
             .take(3)
             .filter_map(|entry| entry.session.as_deref())
             .collect::<Vec<_>>();
-        let suffix = if stale_remote_peers.len() > sessions.len() {
-            format!(" +{}", stale_remote_peers.len() - sessions.len())
+        let suffix = if stale_remote_sessions.len() > sessions.len() {
+            format!(" +{}", stale_remote_sessions.len() - sessions.len())
         } else {
             String::new()
         };
         lines.push(format!(
-            "! stale_remote_peers={} sessions={}{}",
-            stale_remote_peers.len(),
+            "! stale_remote_sessions={} sessions={}{}",
+            stale_remote_sessions.len(),
             if sessions.is_empty() {
                 "unknown".to_string()
             } else {
@@ -24727,7 +24727,7 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             && entry.presence == "active"
             && entry.session.as_deref() != current_session
         {
-            "peer"
+            "other-session"
         } else {
             "seen"
         };
@@ -33033,7 +33033,7 @@ mod tests {
     }
 
     #[test]
-    fn project_awareness_summary_calls_out_stale_remote_peers() {
+    fn project_awareness_summary_calls_out_stale_remote_sessions() {
         let response = ProjectAwarenessResponse {
             root: "server:http://127.0.0.1:8787".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
@@ -33097,11 +33097,11 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("! stale_remote_peers=1 sessions=session-stale"));
+        assert!(summary.contains("! stale_remote_sessions=1 sessions=session-stale"));
     }
 
     #[test]
-    fn project_awareness_summary_marks_current_and_active_peers() {
+    fn project_awareness_summary_marks_current_and_active_other_sessions() {
         let response = ProjectAwarenessResponse {
             root: "server:http://127.0.0.1:8787".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
@@ -33165,9 +33165,9 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("! active_peer_sessions=1 sessions=session-peer"));
+        assert!(summary.contains("! active_other_sessions=1 sessions=session-peer"));
         assert!(summary.contains("memd [current] | presence=active"));
-        assert!(summary.contains("memd [peer] | presence=active"));
+        assert!(summary.contains("memd [other-session] | presence=active"));
     }
 
     #[test]
