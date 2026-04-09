@@ -17291,6 +17291,8 @@ fn build_hive_heartbeat(
     });
     let session = runtime.session.clone();
     let agent = runtime.agent.clone();
+    let resume_state = read_bundle_resume_state(output).ok().flatten();
+    let claims_state = read_bundle_claims(output).ok();
     let project_root = infer_bundle_project_root(output);
     let worktree_root = project_root
         .as_deref()
@@ -17316,12 +17318,7 @@ fn build_hive_heartbeat(
                 .first()
                 .map(|record| record.record.clone())
         })
-        .or_else(|| {
-            read_bundle_resume_state(output)
-                .ok()
-                .flatten()
-                .and_then(|value| value.focus)
-        });
+        .or_else(|| resume_state.as_ref().and_then(|value| value.focus.clone()));
     let pressure = snapshot
         .and_then(|value| {
             value
@@ -17331,10 +17328,9 @@ fn build_hive_heartbeat(
                 .map(|item| item.item.content.clone())
         })
         .or_else(|| {
-            read_bundle_resume_state(output)
-                .ok()
-                .flatten()
-                .and_then(|value| value.pressure)
+            resume_state
+                .as_ref()
+                .and_then(|value| value.pressure.clone())
         });
     let next_recovery = snapshot
         .and_then(|value| {
@@ -17345,11 +17341,22 @@ fn build_hive_heartbeat(
                 .map(|item| format!("{}: {}", item.label, item.summary))
         })
         .or_else(|| {
-            read_bundle_resume_state(output)
-                .ok()
-                .flatten()
-                .and_then(|value| value.next_recovery)
+            resume_state
+                .as_ref()
+                .and_then(|value| value.next_recovery.clone())
         });
+    let topic_claim = derive_hive_topic_claim(
+        focus.as_deref(),
+        next_recovery.as_deref(),
+        pressure.as_deref(),
+    );
+    let scope_claims = derive_hive_scope_claims(
+        claims_state.as_ref(),
+        focus.as_deref(),
+        pressure.as_deref(),
+        next_recovery.as_deref(),
+    );
+    let task_id = derive_hive_task_id(&scope_claims, topic_claim.as_deref());
     Ok(BundleHeartbeatState {
         session,
         agent,
@@ -17389,6 +17396,9 @@ fn build_hive_heartbeat(
         base_url_healthy: None,
         host: detect_host_name(),
         pid: Some(std::process::id()),
+        topic_claim,
+        scope_claims,
+        task_id,
         focus,
         pressure,
         next_recovery,
@@ -17496,6 +17506,9 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         base_url_healthy: state.base_url_healthy,
         host: state.host.clone(),
         pid: state.pid,
+        topic_claim: state.topic_claim.clone(),
+        scope_claims: state.scope_claims.clone(),
+        task_id: state.task_id.clone(),
         focus: state.focus.clone(),
         pressure: state.pressure.clone(),
         next_recovery: state.next_recovery.clone(),
@@ -17514,7 +17527,7 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
 
 fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
     format!(
-        "heartbeat project={} agent={} hive={} role={} groups={} goal=\"{}\" authority={} session={} tab={} presence={} model={} base_url={} focus=\"{}\" pressure=\"{}\"",
+        "heartbeat project={} agent={} hive={} role={} groups={} goal=\"{}\" authority={} session={} tab={} presence={} model={} base_url={} topic=\"{}\" scopes={} task={} focus=\"{}\" pressure=\"{}\"",
         state.project.as_deref().unwrap_or("none"),
         state
             .effective_agent
@@ -17535,6 +17548,13 @@ fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
         heartbeat_presence_label(state.last_seen),
         state.heartbeat_model.as_deref().unwrap_or("none"),
         state.base_url.as_deref().unwrap_or("none"),
+        state.topic_claim.as_deref().unwrap_or("none"),
+        if state.scope_claims.is_empty() {
+            "none".to_string()
+        } else {
+            compact_inline(&state.scope_claims.join(","), 72)
+        },
+        state.task_id.as_deref().unwrap_or("none"),
         state
             .focus
             .as_deref()
@@ -31284,6 +31304,9 @@ async fn read_project_awareness_shared(
             active_claims,
             workspace: session.workspace.clone(),
             visibility: session.visibility.clone(),
+            topic_claim: session.topic_claim.clone(),
+            scope_claims: session.scope_claims.clone(),
+            task_id: session.task_id.clone(),
             focus: session.focus.clone(),
             pressure: session.pressure.clone(),
             next_recovery: session.next_recovery.clone(),
@@ -31546,6 +31569,14 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
                 .as_ref()
                 .and_then(|value| value.visibility.clone())
                 .or(runtime.visibility),
+            topic_claim: heartbeat
+                .as_ref()
+                .and_then(|value| value.topic_claim.clone()),
+            scope_claims: heartbeat
+                .as_ref()
+                .map(|value| value.scope_claims.clone())
+                .unwrap_or_default(),
+            task_id: heartbeat.as_ref().and_then(|value| value.task_id.clone()),
             focus: heartbeat
                 .as_ref()
                 .and_then(|value| value.focus.clone())
@@ -32398,16 +32429,24 @@ fn render_awareness_entry_line(
         .last_updated
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| "unknown".to_string());
-    let work = awareness_work_quickview(entry);
+    let work = entry
+        .topic_claim
+        .as_deref()
+        .map(|value| compact_inline(value, 56))
+        .unwrap_or_else(|| awareness_work_quickview(entry));
     let next = entry
         .next_recovery
         .as_deref()
         .and_then(simplify_awareness_work_text)
         .map(|value| compact_inline(&value, 56))
         .unwrap_or_else(|| "none".to_string());
-    let touches = awareness_touch_quickview(entry);
+    let touches = if entry.scope_claims.is_empty() {
+        awareness_touch_quickview(entry)
+    } else {
+        compact_inline(&entry.scope_claims.join(","), 56)
+    };
     format!(
-        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} branch={} worktree={} base_url={} workspace={} visibility={} work=\"{}\" touches={} next=\"{}\" focus=\"{}\" pressure=\"{}\"",
+        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} branch={} worktree={} base_url={} workspace={} visibility={} task={} work=\"{}\" touches={} next=\"{}\" focus=\"{}\" pressure=\"{}\"",
         entry.project.as_deref().unwrap_or("unknown"),
         role,
         entry.presence,
@@ -32436,6 +32475,7 @@ fn render_awareness_entry_line(
         entry.base_url.as_deref().unwrap_or("none"),
         entry.workspace.as_deref().unwrap_or("none"),
         entry.visibility.as_deref().unwrap_or("all"),
+        entry.task_id.as_deref().unwrap_or("none"),
         work,
         touches,
         next,
@@ -32523,6 +32563,81 @@ fn push_unique_touch_point(touches: &mut Vec<String>, value: &str) {
         return;
     }
     touches.push(trimmed.to_string());
+}
+
+fn derive_hive_topic_claim(
+    focus: Option<&str>,
+    next_recovery: Option<&str>,
+    pressure: Option<&str>,
+) -> Option<String> {
+    for candidate in [focus, next_recovery] {
+        if let Some(value) = candidate.and_then(simplify_awareness_work_text) {
+            return Some(compact_inline(&value, 120));
+        }
+    }
+    let touches = [pressure]
+        .into_iter()
+        .flatten()
+        .flat_map(|value| {
+            let mut out = Vec::new();
+            append_awareness_touch_points(value, &mut out);
+            out
+        })
+        .collect::<Vec<_>>();
+    if let Some(first) = touches.first() {
+        return Some(if touches.len() == 1 {
+            format!("editing {first}")
+        } else {
+            format!("editing {first} +{}", touches.len() - 1)
+        });
+    }
+    None
+}
+
+fn derive_hive_scope_claims(
+    claims_state: Option<&SessionClaimsState>,
+    focus: Option<&str>,
+    pressure: Option<&str>,
+    next_recovery: Option<&str>,
+) -> Vec<String> {
+    let mut scopes = claims_state
+        .map(|state| {
+            state
+                .claims
+                .iter()
+                .filter(|claim| claim.expires_at > Utc::now())
+                .map(|claim| claim.scope.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for candidate in [pressure, focus, next_recovery] {
+        let Some(value) = candidate else {
+            continue;
+        };
+        append_awareness_touch_points(value, &mut scopes);
+    }
+    scopes.truncate(8);
+    scopes
+}
+
+fn derive_hive_task_id(scope_claims: &[String], topic_claim: Option<&str>) -> Option<String> {
+    for scope in scope_claims {
+        if let Some(task_id) = scope.strip_prefix("task:") {
+            let task_id = task_id.trim();
+            if !task_id.is_empty() {
+                return Some(task_id.to_string());
+            }
+        }
+    }
+    if let Some(topic) = topic_claim {
+        if let Some(task_id) = topic.strip_prefix("task:") {
+            let task_id = task_id.trim();
+            if !task_id.is_empty() {
+                return Some(task_id.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn simplify_awareness_work_text(value: &str) -> Option<String> {
@@ -36588,6 +36703,9 @@ struct ProjectAwarenessEntry {
     active_claims: usize,
     workspace: Option<String>,
     visibility: Option<String>,
+    topic_claim: Option<String>,
+    scope_claims: Vec<String>,
+    task_id: Option<String>,
     focus: Option<String>,
     pressure: Option<String>,
     next_recovery: Option<String>,
@@ -36654,6 +36772,12 @@ struct BundleHeartbeatState {
     host: Option<String>,
     #[serde(default)]
     pid: Option<u32>,
+    #[serde(default)]
+    topic_claim: Option<String>,
+    #[serde(default)]
+    scope_claims: Vec<String>,
+    #[serde(default)]
+    task_id: Option<String>,
     #[serde(default)]
     focus: Option<String>,
     #[serde(default)]
@@ -37946,6 +38070,9 @@ mod tests {
             base_url_healthy: req.base_url_healthy,
             host: req.host,
             pid: req.pid,
+            topic_claim: req.topic_claim,
+            scope_claims: req.scope_claims,
+            task_id: req.task_id,
             focus: req.focus,
             pressure: req.pressure,
             next_recovery: req.next_recovery,
@@ -41693,6 +41820,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -41761,6 +41891,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("research".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
                 pressure: Some("Repair the shared lane before the next resume".to_string()),
                 next_recovery: None,
@@ -41814,6 +41947,9 @@ mod tests {
                     active_claims: 1,
                     workspace: Some("a".to_string()),
                     visibility: Some("workspace".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -41845,6 +41981,9 @@ mod tests {
                     active_claims: 1,
                     workspace: Some("b".to_string()),
                     visibility: Some("workspace".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -41890,6 +42029,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -41921,6 +42063,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -41971,6 +42116,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42002,6 +42150,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42049,6 +42200,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42080,6 +42234,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42129,6 +42286,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42160,6 +42320,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42209,6 +42372,9 @@ mod tests {
                     active_claims: 1,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42240,6 +42406,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42271,6 +42440,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42302,6 +42474,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42333,6 +42508,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42364,6 +42542,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42415,6 +42596,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: Some("Finish the lane isolation fix".to_string()),
                     pressure: None,
                     next_recovery: None,
@@ -42446,6 +42630,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: Some("Old stale local bundle".to_string()),
                     pressure: None,
                     next_recovery: None,
@@ -42492,6 +42679,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("Finish the queen-bee quickview summary".to_string()),
                 pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness | Avoid overlap in worker lane routing".to_string()),
                 next_recovery: Some("publish overlap-safe hive quickview".to_string()),
@@ -42541,6 +42731,9 @@ mod tests {
                     active_claims: 1,
                     workspace: Some("shared".to_string()),
                     visibility: Some("workspace".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: Some("Refine hive overlap awareness".to_string()),
                     pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness".to_string()),
                     next_recovery: None,
@@ -42572,6 +42765,9 @@ mod tests {
                     active_claims: 1,
                     workspace: Some("shared".to_string()),
                     visibility: Some("workspace".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: Some("Finish peer awareness lane".to_string()),
                     pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:peer-quickview".to_string()),
                     next_recovery: None,
@@ -42584,6 +42780,120 @@ mod tests {
         assert!(summary.contains(
             "! possible_work_overlap touches=crates/memd-client/src/main.rs sessions=session-current,session-peer"
         ));
+    }
+
+    #[test]
+    fn render_awareness_entry_line_prefers_first_class_topic_scope_and_task_fields() {
+        let now = Utc::now();
+        let entry = ProjectAwarenessEntry {
+            project_dir: "/tmp/projects/current".to_string(),
+            bundle_root: "/tmp/projects/current/.memd".to_string(),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: Some("/tmp/projects/current".to_string()),
+            branch: Some("feature/queen".to_string()),
+            base_branch: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-live".to_string()),
+            tab_id: None,
+            effective_agent: Some("codex@session-live".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capabilities: vec!["memory".to_string()],
+            hive_groups: vec!["project:memd".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            presence: "active".to_string(),
+            host: None,
+            pid: None,
+            active_claims: 1,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            topic_claim: Some("Refine hive overlap awareness".to_string()),
+            scope_claims: vec![
+                "task:queen-bee-awareness".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+            task_id: Some("queen-bee-awareness".to_string()),
+            focus: Some("stale focus fallback".to_string()),
+            pressure: Some("stale pressure fallback".to_string()),
+            next_recovery: None,
+            last_updated: Some(now),
+        };
+
+        let line = render_awareness_entry_line(&entry, "current", &entry.bundle_root);
+        assert!(line.contains("task=queen-bee-awareness"));
+        assert!(line.contains("work=\"Refine hive overlap awareness\""));
+        assert!(line.contains("touches=task:queen-bee-awareness,crates/memd-client/src/main.rs"));
+    }
+
+    #[test]
+    fn build_hive_heartbeat_derives_first_class_intent_fields() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-heartbeat-intent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("state")).expect("create temp dir");
+        std::fs::write(
+            dir.join("state/claims.json"),
+            serde_json::to_string_pretty(&SessionClaimsState {
+                claims: vec![SessionClaim {
+                    scope: "task:queen-bee-awareness".to_string(),
+                    session: Some("session-live".to_string()),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-live".to_string()),
+                    project: Some("memd".to_string()),
+                    workspace: Some("shared".to_string()),
+                    host: None,
+                    pid: None,
+                    acquired_at: Utc::now(),
+                    expires_at: Utc::now() + chrono::TimeDelta::minutes(15),
+                }],
+            })
+            .expect("serialize claims"),
+        )
+        .expect("write claims");
+
+        let snapshot = BundleResumeState {
+            focus: Some("Refine hive overlap awareness".to_string()),
+            pressure: Some(
+                "file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness"
+                    .to_string(),
+            ),
+            next_recovery: Some("publish overlap-safe hive quickview".to_string()),
+            lane: None,
+            working_records: 0,
+            inbox_items: 0,
+            rehydration_items: 0,
+            recorded_at: Utc::now(),
+        };
+        std::fs::write(
+            dir.join("state/last-resume.json"),
+            serde_json::to_string_pretty(&snapshot).expect("serialize resume"),
+        )
+        .expect("write resume");
+
+        let heartbeat = build_hive_heartbeat(&dir, None).expect("build heartbeat");
+        assert_eq!(
+            heartbeat.topic_claim.as_deref(),
+            Some("Refine hive overlap awareness")
+        );
+        assert!(
+            heartbeat
+                .scope_claims
+                .iter()
+                .any(|scope| scope == "task:queen-bee-awareness")
+        );
+        assert!(
+            heartbeat
+                .scope_claims
+                .iter()
+                .any(|scope| scope == "crates/memd-client/src/main.rs")
+        );
+        assert_eq!(heartbeat.task_id.as_deref(), Some("queen-bee-awareness"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
     #[test]
@@ -42620,6 +42930,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42651,6 +42964,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42682,6 +42998,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: Some("all".to_string()),
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -42726,6 +43045,9 @@ mod tests {
                 active_claims: 1,
                 workspace: Some("memd".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("Ship the hive fix".to_string()),
                 pressure: Some("Repair awareness".to_string()),
                 next_recovery: None,
@@ -42757,6 +43079,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("memd".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42800,6 +43125,9 @@ mod tests {
                 active_claims: 1,
                 workspace: Some("memd".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42831,6 +43159,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("memd".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42880,6 +43211,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42911,6 +43245,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42956,6 +43293,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -42987,6 +43327,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -43043,6 +43386,9 @@ mod tests {
             base_url_healthy: Some(true),
             host: Some("workstation".to_string()),
             pid: Some(4242),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: Some("Finish the live heartbeat lane".to_string()),
             pressure: Some("Avoid memory drift".to_string()),
             next_recovery: None,
@@ -43154,6 +43500,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(4242),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("Handle the delegated task".to_string()),
                 pressure: None,
                 next_recovery: None,
@@ -43226,6 +43575,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(1111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -43331,6 +43683,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(1111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -43387,6 +43742,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(2222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -43622,6 +43980,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -44306,6 +44667,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(4242),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -44384,6 +44748,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(4242),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -44419,6 +44786,9 @@ mod tests {
                 active_claims: 0,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -45643,6 +46013,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(2222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("resume delegated workspace".to_string()),
                 pressure: None,
                 next_recovery: None,
@@ -47231,6 +47604,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -47860,6 +48236,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(4242),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("Handle coordination backlog".to_string()),
                 pressure: Some("Keep the hive lane clean".to_string()),
                 next_recovery: None,
@@ -47944,6 +48323,9 @@ mod tests {
             active_claims: 0,
             workspace: Some("shared".to_string()),
             visibility: Some("workspace".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: None,
             pressure: None,
             next_recovery: None,
@@ -47975,6 +48357,9 @@ mod tests {
             active_claims: 0,
             workspace: Some("shared".to_string()),
             visibility: Some("workspace".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: None,
             pressure: None,
             next_recovery: None,
@@ -48006,6 +48391,9 @@ mod tests {
             active_claims: 0,
             workspace: Some("shared".to_string()),
             visibility: Some("workspace".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: None,
             pressure: None,
             next_recovery: None,
@@ -48575,6 +48963,9 @@ mod tests {
             active_claims: 0,
             workspace: Some("shared".to_string()),
             visibility: Some("workspace".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: Some("repair runtime dependencies".to_string()),
             pressure: None,
             next_recovery: None,
@@ -48823,6 +49214,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: None,
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -48854,6 +49248,9 @@ mod tests {
                     active_claims: 0,
                     workspace: None,
                     visibility: None,
+                    topic_claim: None,
+                    scope_claims: Vec::new(),
+                    task_id: None,
                     focus: None,
                     pressure: None,
                     next_recovery: None,
@@ -48929,6 +49326,9 @@ mod tests {
                 active_claims: 0,
                 workspace: None,
                 visibility: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -49344,6 +49744,9 @@ mod tests {
                         active_claims: 0,
                         workspace: Some("shared".to_string()),
                         visibility: Some("workspace".to_string()),
+                        topic_claim: None,
+                        scope_claims: Vec::new(),
+                        task_id: None,
                         focus: None,
                         pressure: None,
                         next_recovery: None,
@@ -49804,6 +50207,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -49914,6 +50320,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -50023,6 +50432,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -50131,6 +50543,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: None,
                 pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -51258,6 +51673,9 @@ mod tests {
             base_url_healthy: None,
             host: Some("workstation".to_string()),
             pid: Some(4242),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
             focus: Some("Keep the shared hive healthy".to_string()),
             pressure: Some("Avoid claim collisions".to_string()),
             next_recovery: None,

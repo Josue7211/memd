@@ -2233,6 +2233,25 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
             pid: request.pid,
+            topic_claim: request
+                .topic_claim
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            scope_claims: request
+                .scope_claims
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            task_id: request
+                .task_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             focus: request
                 .focus
                 .as_deref()
@@ -4317,6 +4336,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("laptop-a".to_string()),
                 pid: Some(101),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("work a".to_string()),
                 pressure: None,
                 next_recovery: None,
@@ -4348,6 +4370,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("laptop-b".to_string()),
                 pid: Some(202),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("work b".to_string()),
                 pressure: None,
                 next_recovery: None,
@@ -4424,6 +4449,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4455,6 +4483,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4532,6 +4563,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("repair runtime dependency".to_string()),
                 pressure: None,
                 next_recovery: None,
@@ -4599,6 +4633,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4630,6 +4667,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4711,6 +4751,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4743,6 +4786,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("vm-b".to_string()),
                 pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
@@ -4775,6 +4821,9 @@ mod tests {
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,

@@ -760,6 +760,10 @@ pub struct HiveSessionRecord {
     pub base_url_healthy: Option<bool>,
     pub host: Option<String>,
     pub pid: Option<u32>,
+    pub topic_claim: Option<String>,
+    #[serde(default)]
+    pub scope_claims: Vec<String>,
+    pub task_id: Option<String>,
     pub focus: Option<String>,
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
@@ -794,6 +798,10 @@ pub struct HiveSessionUpsertRequest {
     pub base_url_healthy: Option<bool>,
     pub host: Option<String>,
     pub pid: Option<u32>,
+    pub topic_claim: Option<String>,
+    #[serde(default)]
+    pub scope_claims: Vec<String>,
+    pub task_id: Option<String>,
     pub focus: Option<String>,
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
