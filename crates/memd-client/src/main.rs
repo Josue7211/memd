@@ -9373,6 +9373,13 @@ fn read_loop_entries(output: &Path) -> anyhow::Result<Vec<LoopEntry>> {
         if !is_json {
             continue;
         }
+        if path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value == "loops.summary.json")
+        {
+            continue;
+        }
 
         let raw = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
         let record: LoopRecord =
@@ -9897,6 +9904,7 @@ fn print_autoresearch_manifest() {
     println!("Autoresearch manifest ({} loops)", AUTORESEARCH_LOOPS.len());
     for descriptor in AUTORESEARCH_LOOPS.iter() {
         println!("- {} ({})", descriptor.name, descriptor.slug);
+        println!("  description: {}", descriptor.description);
         println!("  target: {}", descriptor.target);
         println!("  metric: {}", descriptor.metric);
         println!("  stop: {}", descriptor.stop_condition);
@@ -9904,7 +9912,7 @@ fn print_autoresearch_manifest() {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 async fn run_prompt_surface_loop(
     output: &Path,
     base_url: &str,
@@ -10366,7 +10374,6 @@ async fn run_live_truth_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 async fn run_event_spine_loop(
     output: &Path,
     base_url: &str,
@@ -10452,7 +10459,6 @@ async fn run_event_spine_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 async fn run_correction_learning_loop(
     output: &Path,
     base_url: &str,
@@ -10526,7 +10532,6 @@ async fn run_repair_rate_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 async fn run_long_context_loop(
     output: &Path,
     base_url: &str,
@@ -10641,7 +10646,6 @@ async fn run_docs_spec_drift_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 async fn run_capability_contract_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
@@ -11023,7 +11027,6 @@ async fn run_self_evolution_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 async fn run_default_loop(
     _output: &Path,
     descriptor: &AutoresearchLoop,
@@ -11048,7 +11051,6 @@ async fn run_default_loop(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 fn build_autoresearch_record(
     descriptor: &AutoresearchLoop,
     iteration: usize,
@@ -11237,7 +11239,6 @@ fn autoresearch_resume_args(output: &Path) -> ResumeArgs {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 fn autoresearch_long_context_resume_args(output: &Path) -> ResumeArgs {
     autoresearch_resume_args_with_limits(output, 0, 0, false)
 }
@@ -11280,7 +11281,6 @@ struct AutoresearchLoop {
     slug: &'static str,
     normalized_slug: &'static str,
     name: &'static str,
-    #[allow(dead_code)]
     description: &'static str,
     target: &'static str,
     metric: &'static str,
@@ -27508,7 +27508,6 @@ impl ResumeSnapshot {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     fn core_prompt_chars(&self) -> usize {
         let header_chars = self.project.as_deref().map_or(0, str::len)
             + self.namespace.as_deref().map_or(0, str::len)
@@ -27532,7 +27531,6 @@ impl ResumeSnapshot {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     fn core_prompt_tokens(&self) -> usize {
         self.core_prompt_chars().div_ceil(4)
     }
@@ -37330,6 +37328,37 @@ mod tests {
         assert!(slugs.contains(&"branch-review-quality"));
         assert!(slugs.contains(&"docs-spec-drift"));
         assert!(loop_success_requires_second_signal(true, true, true, true));
+    }
+
+    #[test]
+    fn autoresearch_emits_ten_loop_records() {
+        let output =
+            std::env::temp_dir().join(format!("memd-10-loop-records-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create output");
+
+        for (index, descriptor) in AUTORESEARCH_LOOPS.iter().enumerate() {
+            let record = build_autoresearch_record(
+                descriptor,
+                index + 1,
+                100.0,
+                descriptor.base_tokens,
+                format!("{} recorded", descriptor.slug),
+                vec![descriptor.slug.to_string()],
+                serde_json::json!({
+                    "evidence": [format!("slug={}", descriptor.slug)],
+                    "warning_reasons": [],
+                }),
+            );
+            persist_loop_record(&output, &record).expect("persist loop record");
+        }
+
+        let outputs = read_loop_entries(&output).expect("read loop entries");
+        assert_eq!(outputs.len(), 10);
+        assert!(outputs.iter().any(|record| record.slug == "hive-health"));
+        assert!(outputs.iter().any(|record| record.slug == "docs-spec-drift"));
+        assert!(outputs.iter().all(|record| record.record.status.is_some()));
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
     }
 
     #[tokio::test]
