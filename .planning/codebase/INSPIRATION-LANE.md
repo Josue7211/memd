@@ -22,6 +22,7 @@ Related docs:
 | [opendatalab/MinerU](https://github.com/opendatalab/MinerU) | ingestion and document extraction engine | OCR + structured extraction, CLI/API/Docker shape, env templating, offline deployment |
 | [HKUDS/LightRAG](https://github.com/HKUDS/LightRAG) | semantic backend contract | API-first split, `.env`-driven config, workspace isolation, server/UI separation |
 | [louislva/claude-peers-mcp](https://github.com/louislva/claude-peers-mcp) | live peer coordination layer | broker daemon, peer discovery, heartbeat, summary propagation, push messages |
+| [anthropics/claude-code](https://github.com/anthropics/claude-code) / source build | full terminal-first assistant runtime | session continuity, memory compaction, IDE integration, worktrees, bridge sessions, tool catalogs, background consolidation |
 | [supermemoryai/supermemory](https://github.com/supermemoryai/supermemory) | full-context memory product and plugin distribution layer | one API for memory + RAG + profiles, per-harness plugins, auto-recall, auto-capture, container tags, multi-modal extractors |
 | [VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md) | inspiration MD library | portable `DESIGN.md`, preview artifacts, curated reference structure |
 | [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace) | memory palace model | verbatim storage, wing/room/drawer taxonomy, MCP search/write, local-first recall |
@@ -84,6 +85,30 @@ Related docs:
   - single-client coupling
 - Memd fit:
   - use for live coordination, peer awareness, and session-to-session context handoff
+
+### Claude Code source build
+
+- Source:
+  - [anthropics/claude-code](https://github.com/anthropics/claude-code) as reconstructed in `/home/josue/Documents/projects/claude-code-source-build`
+- What to copy:
+  - session continuity as a first-class runtime concern
+  - managed session memory and compaction loops
+  - worktree-aware isolation for parallel work
+  - bridge / remote-control session lifecycle
+  - IDE integration as part of live context
+  - explicit tool, command, and skill catalogs
+  - background consolidation and auto-maintenance
+  - task taxonomy that distinguishes local, remote, teammate, and maintenance flows
+- What to avoid:
+  - treating agent teams as the whole product
+  - letting session state and truth get mixed without explicit roles
+  - hidden side effects that are hard to inspect or recover
+  - feature-flag sprawl without clear product boundaries
+- Memd fit:
+  - use as the source for `memd`'s continuity + truth + coordination vision
+  - use as the model for visible capability catalogs and lifecycle operations
+  - use as the model for background maintenance loops that improve memory over time
+  - use as the model for editor-aware, worktree-aware, session-aware memory state
 
 ### supermemory
 
@@ -202,6 +227,7 @@ If a repo does not produce all five, it is not fully extracted yet.
 - `MinerU` gives memd the extraction spine.
 - `LightRAG` gives memd the backend contract.
 - `claude-peers-mcp` gives memd live coordination.
+- `claude-code` gives memd the broader terminal-runtime pattern: continuity, compaction, worktrees, IDE, bridge, and task taxonomy.
 - `awesome-design-md` gives memd design inspiration as portable markdown.
 - `mempalace` gives memd the memory-palace mental model and raw retention bias.
 - Karpathy says keep a raw ingest area, compile a wiki, and let the model evolve it.
