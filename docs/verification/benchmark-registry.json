@@ -32,6 +32,11 @@
       "description": "capture and compaction continuity surfaces"
     },
     {
+      "id": "coordination-hive",
+      "pillar": "memory-continuity",
+      "description": "shared hive coordination surfaces"
+    },
+    {
       "id": "drift-prevention",
       "pillar": "memory-continuity",
       "description": "continuity drift controls"
@@ -204,6 +209,34 @@
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "drift_risks": ["continuity-drift", "memory-drift"],
       "failure_modes": ["important records evicted first"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.messages",
+      "name": "Hive Messages",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "messages deliver handoff intent across live hive sessions and preserve acknowledgment state",
+      "source_contract_refs": [],
+      "commands": [
+        "memd messages --send",
+        "memd messages --inbox",
+        "memd messages --ack"
+      ],
+      "routes": [
+        "POST /coordination/messages/send",
+        "GET /coordination/messages/inbox",
+        "POST /coordination/messages/ack"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-messages.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["handoff messages fail to reach the intended hive session"],
       "coverage_status": "auditing",
       "last_verified_at": null
     }
@@ -390,6 +423,25 @@
       "guardrails": ["budget reporting must remain truthful"],
       "stop_condition": "three consecutive passes",
       "artifacts_written": [".memd/loops/working-memory-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-messages.correctness",
+      "name": "Hive Messages Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.messages"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "send a hive message, read it from the target inbox, and acknowledge it",
+      "adversarial_probe": "resolve a target session from a shared hive fixture and confirm ack state remains visible",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "delivery_count", "ack_latency_ms"],
+      "guardrails": ["message delivery and acknowledgement must remain attributable to the target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-messages-correctness.json"],
       "status": "active"
     },
     {
@@ -614,6 +666,49 @@
         "run_resume_without_memd",
         "run_resume_with_memd",
         "assert_with_memd_not_less_correct"
+      ]
+    },
+    {
+      "id": "verifier.feature.hive.messages-send-ack",
+      "name": "Hive messages send and ack",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.messages"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up the parser refactor\""
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --inbox"
+        },
+        {
+          "kind": "helper",
+          "name": "capture_message_id"
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --ack {{message_id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_message_acknowledged"
+        }
+      ],
+      "metrics": ["delivery_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "capture_message_id",
+        "assert_message_acknowledged"
       ]
     }
   ],
