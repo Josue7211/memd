@@ -41,19 +41,19 @@ use memd_schema::{
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
-    HiveBoardResponse, HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
-    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveHandoffPacket, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveRosterResponse,
-    HiveSessionAutoRetireRequest, HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest,
-    HiveTasksRequest, MaintainReport, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode, MemoryScope,
-    MemoryStage, MemoryStatus, PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent,
-    RetrievalRoute, SearchMemoryRequest, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyActivationRecord,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SourceMemoryRequest, StoreMemoryRequest, VerifierRecord, VerifyMemoryRequest,
-    WorkingMemoryRequest,
+    HiveBoardRequest, HiveBoardResponse, HiveClaimRecoverRequest, HiveClaimsRequest,
+    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveHandoffPacket,
+    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
+    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveTaskAssignRequest, HiveTaskRecord,
+    HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport, MemoryConsolidationRequest,
+    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
+    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
+    SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifierRecord,
+    VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -16064,6 +16064,16 @@ async fn run_hive_board_command(
     )
     .await;
 
+    if let Some(board) = timeout_ok(client.hive_board(&HiveBoardRequest {
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+    }))
+    .await
+    {
+        return Ok(board);
+    }
+
     let roster = run_hive_roster_command(&HiveRosterArgs {
         output: args.output.clone(),
         json: false,
@@ -16996,6 +17006,7 @@ async fn join_hive_bundle(
     })
 }
 
+#[cfg(test)]
 fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
     let rebased = response
         .rebased_from_session
@@ -26820,7 +26831,7 @@ struct BenchmarkRegistryDocsReport {
     _repo_root: PathBuf,
     _registry_path: PathBuf,
     _registry: BenchmarkRegistry,
-    comparative_report: Option<NoMemdDeltaReport>,
+    _comparative_report: Option<NoMemdDeltaReport>,
     benchmarks_markdown: String,
     loops_markdown: String,
     coverage_markdown: String,
@@ -26890,7 +26901,7 @@ fn build_benchmark_registry_docs_report(
         _repo_root: repo_root.to_path_buf(),
         _registry_path: registry_path,
         _registry: registry.clone(),
-        comparative_report,
+        _comparative_report: comparative_report,
         benchmarks_markdown,
         loops_markdown,
         coverage_markdown,
@@ -26937,7 +26948,7 @@ fn write_benchmark_registry_docs(
 
 #[derive(Debug)]
 struct MaterializedFixture {
-    fixture_id: String,
+    _fixture_id: String,
     _root: TempDir,
     bundle_root: PathBuf,
 }
@@ -27000,7 +27011,7 @@ fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFi
         .with_context(|| format!("write {}", bundle_root.join("env.ps1").display()))?;
 
     Ok(MaterializedFixture {
-        fixture_id: fixture.id.clone(),
+        _fixture_id: fixture.id.clone(),
         _root: root,
         bundle_root,
     })
@@ -54739,7 +54750,7 @@ mod tests {
         let fixture = test_continuity_fixture_record();
         let env = materialize_fixture(&fixture).expect("materialize fixture");
         assert!(env.bundle_root.join("config.json").exists());
-        assert_eq!(env.fixture_id, "fixture.continuity_bundle");
+        assert_eq!(env._fixture_id, "fixture.continuity_bundle");
     }
 
     #[tokio::test]
@@ -55030,7 +55041,7 @@ mod tests {
         assert!(report.coverage_markdown.contains("Coverage Summary"));
         assert!(report.coverage_markdown.contains("Benchmark Gaps"));
         assert!(report.scores_markdown.contains("# memd benchmark scores"));
-        assert!(report.comparative_report.is_some());
+        assert!(report._comparative_report.is_some());
         assert!(report.scores_markdown.contains("Comparative Evidence"));
 
         write_benchmark_registry_docs(&repo_root, &registry, &benchmark)
