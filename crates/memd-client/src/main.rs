@@ -3179,10 +3179,7 @@ async fn main() -> anyhow::Result<()> {
                     init_args.agent,
                 );
             } else {
-                println!(
-                    "Initialized memd bundle at {}",
-                    init_args.output.display()
-                );
+                println!("Initialized memd bundle at {}", init_args.output.display());
             }
         }
         Commands::Doctor(args) => {
@@ -3194,7 +3191,8 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(false);
             if args.repair && !setup_ready {
                 let project_root = args.project_root.clone().or(detect_current_project_root()?);
-                let setup_args = doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
+                let setup_args =
+                    doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
                 write_init_bundle(&setup_args_to_init_args(&setup_args))?;
                 status = read_bundle_status(&bundle_root, &base_url).await?;
             }
@@ -5879,10 +5877,7 @@ fn resolve_doctor_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf
 
 fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
     let project_root = args.project_root.clone();
-    let output = args
-        .output
-        .clone()
-        .unwrap_or_else(default_init_output_path);
+    let output = args.output.clone().unwrap_or_else(default_init_output_path);
     let project_root_ref = project_root.as_deref();
     let agent = args
         .agent
@@ -6021,7 +6016,9 @@ fn render_bundle_config_snapshot(
         visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
         hive_system: runtime.as_ref().and_then(|value| value.hive_system.clone()),
         hive_role: runtime.as_ref().and_then(|value| value.hive_role.clone()),
-        hive_group_goal: runtime.as_ref().and_then(|value| value.hive_group_goal.clone()),
+        hive_group_goal: runtime
+            .as_ref()
+            .and_then(|value| value.hive_group_goal.clone()),
         authority: runtime.as_ref().and_then(|value| value.authority.clone()),
     }
 }
@@ -6051,7 +6048,11 @@ fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {
     markdown.push_str(&format!("- ready: `{}`\n", config.setup_ready));
     markdown.push_str(&format!(
         "- runtime: `{}`\n",
-        if config.runtime_present { "present" } else { "missing" }
+        if config.runtime_present {
+            "present"
+        } else {
+            "missing"
+        }
     ));
     markdown.push_str(&format!(
         "- project: `{}`\n",
@@ -6119,10 +6120,7 @@ fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value)
         if !missing.is_empty() {
             markdown.push_str("\n## Missing\n");
             for item in missing {
-                markdown.push_str(&format!(
-                    "- {}\n",
-                    item.as_str().unwrap_or("unknown")
-                ));
+                markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
             }
         }
     }
@@ -33157,7 +33155,12 @@ mod tests {
                 .iter()
                 .any(|value| value == "coordination")
         );
-        assert!(profile.hive_groups.iter().any(|value| value == "project:memd"));
+        assert!(
+            profile
+                .hive_groups
+                .iter()
+                .any(|value| value == "project:memd")
+        );
     }
 
     #[test]

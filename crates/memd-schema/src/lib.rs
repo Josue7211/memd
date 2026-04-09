@@ -1524,12 +1524,20 @@ mod tests {
     fn effective_peer_groups_include_the_project_group_once() {
         let groups = effective_peer_groups(
             Some("demo"),
-            &vec!["runtime-core".to_string(), "demo".to_string(), "".to_string()],
+            &vec![
+                "runtime-core".to_string(),
+                "demo".to_string(),
+                "".to_string(),
+            ],
         );
 
         assert_eq!(
             groups,
-            vec!["demo".to_string(), "project:demo".to_string(), "runtime-core".to_string()]
+            vec![
+                "demo".to_string(),
+                "project:demo".to_string(),
+                "runtime-core".to_string()
+            ]
         );
     }
 

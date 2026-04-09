@@ -4094,10 +4094,12 @@ mod tests {
             .expect("query project sessions");
 
         assert_eq!(project_sessions.sessions.len(), 1);
-        assert!(project_sessions.sessions[0]
-            .hive_groups
-            .iter()
-            .any(|value| value == "project:repo-a"));
+        assert!(
+            project_sessions.sessions[0]
+                .hive_groups
+                .iter()
+                .any(|value| value == "project:repo-a")
+        );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
