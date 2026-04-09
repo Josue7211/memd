@@ -914,6 +914,21 @@ pub struct HiveSessionAutoRetireResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveHandoffPacket {
+    pub from_session: String,
+    pub from_worker: Option<String>,
+    pub to_session: String,
+    pub to_worker: Option<String>,
+    pub task_id: Option<String>,
+    pub topic_claim: Option<String>,
+    pub scope_claims: Vec<String>,
+    pub next_action: Option<String>,
+    pub blocker: Option<String>,
+    pub note: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTaskRecord {
     pub task_id: String,
     pub title: String,

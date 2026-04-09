@@ -43,16 +43,17 @@ use memd_schema::{
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
     HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageRecord, HiveMessageSendRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
-    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
-    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryPolicyResponse, MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus,
-    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
-    SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifierRecord,
-    VerifyMemoryRequest, WorkingMemoryRequest,
+    HiveCoordinationReceiptsRequest, HiveHandoffPacket, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveRosterResponse,
+    HiveSessionAutoRetireRequest, HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest,
+    HiveTasksRequest, MaintainReport, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode, MemoryScope,
+    MemoryStage, MemoryStatus, PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyActivationRecord,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SourceMemoryRequest, StoreMemoryRequest, VerifierRecord, VerifyMemoryRequest,
+    WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1868,6 +1869,7 @@ struct HiveArgs {
 enum HiveSubcommand {
     Roster(HiveRosterArgs),
     Follow(HiveFollowArgs),
+    Handoff(HiveHandoffArgs),
     Queen(HiveQueenArgs),
 }
 
@@ -1893,6 +1895,42 @@ struct HiveFollowArgs {
 
     #[arg(long)]
     worker: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HiveHandoffArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    to_session: Option<String>,
+
+    #[arg(long)]
+    to_worker: Option<String>,
+
+    #[arg(long)]
+    task_id: Option<String>,
+
+    #[arg(long)]
+    topic: Option<String>,
+
+    #[arg(long, value_delimiter = ',')]
+    scope: Vec<String>,
+
+    #[arg(long)]
+    next_action: Option<String>,
+
+    #[arg(long)]
+    blocker: Option<String>,
+
+    #[arg(long)]
+    note: Option<String>,
 
     #[arg(long)]
     json: bool,
@@ -2999,6 +3037,14 @@ async fn main() -> anyhow::Result<()> {
                     print_json(&response)?;
                 } else {
                     println!("{}", render_hive_follow_summary(&response));
+                }
+            }
+            Some(HiveSubcommand::Handoff(handoff_args)) => {
+                let response = run_hive_handoff_command(handoff_args, &default_base_url()).await?;
+                if handoff_args.json {
+                    print_json(&response)?;
+                } else {
+                    println!("{}", render_hive_handoff_summary(&response));
                 }
             }
             Some(HiveSubcommand::Queen(queen_args)) => {
@@ -15494,6 +15540,15 @@ struct HiveQueenResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct HiveHandoffResponse {
+    packet: HiveHandoffPacket,
+    receipt_kind: String,
+    receipt_summary: String,
+    message_id: Option<String>,
+    recommended_follow: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct HiveBoardResponse {
     queen_session: Option<String>,
     active_bees: Vec<memd_schema::HiveSessionRecord>,
@@ -15783,6 +15838,179 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
     })
 }
 
+async fn run_hive_handoff_command(
+    args: &HiveHandoffArgs,
+    base_url: &str,
+) -> anyhow::Result<HiveHandoffResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    ensure_shared_authority_write_allowed(runtime.as_ref(), "hive handoff")?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty())
+        .context("hive handoff requires a configured bundle session")?;
+    let current_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let project = runtime.as_ref().and_then(|config| config.project.clone());
+    let namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = project_awareness_visible_entries(&awareness);
+    let current_entry = visible_entries
+        .iter()
+        .copied()
+        .find(|entry| entry.session.as_deref() == Some(current_session.as_str()));
+    let target_entry = resolve_hive_target_entry(
+        &visible_entries,
+        args.to_session.as_deref(),
+        args.to_worker.as_deref(),
+        "hive handoff",
+    )?;
+    let target_session = target_entry
+        .session
+        .clone()
+        .context("hive handoff target is missing a session id")?;
+    if target_session == current_session {
+        anyhow::bail!("hive handoff target must be another bee");
+    }
+
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref())
+            .or(target_entry.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let current_session_record = if let Some(entry) = current_entry {
+        Some(project_awareness_entry_to_hive_session(entry))
+    } else {
+        timeout_ok(client.hive_sessions(&memd_schema::HiveSessionsRequest {
+            session: Some(current_session.clone()),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(1),
+        }))
+        .await
+        .and_then(|response| response.sessions.into_iter().next())
+    };
+
+    let packet = HiveHandoffPacket {
+        from_session: current_session.clone(),
+        from_worker: current_session_record
+            .as_ref()
+            .and_then(|record| record.worker_name.clone())
+            .or_else(|| current_entry.and_then(derive_awareness_worker_name))
+            .or_else(|| {
+                current_agent
+                    .as_deref()
+                    .and_then(|value| value.split('@').next())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            }),
+        to_session: target_session.clone(),
+        to_worker: derive_awareness_worker_name(target_entry),
+        task_id: args
+            .task_id
+            .clone()
+            .or_else(|| {
+                current_session_record
+                    .as_ref()
+                    .and_then(|record| record.task_id.clone())
+            })
+            .or_else(|| current_entry.and_then(|entry| entry.task_id.clone())),
+        topic_claim: args
+            .topic
+            .clone()
+            .or_else(|| {
+                current_session_record
+                    .as_ref()
+                    .and_then(|record| record.topic_claim.clone())
+            })
+            .or_else(|| current_entry.and_then(|entry| entry.topic_claim.clone())),
+        scope_claims: if args.scope.is_empty() {
+            current_session_record
+                .as_ref()
+                .map(|record| record.scope_claims.clone())
+                .or_else(|| current_entry.map(|entry| entry.scope_claims.clone()))
+                .unwrap_or_default()
+        } else {
+            args.scope.clone()
+        },
+        next_action: args.next_action.clone().or_else(|| {
+            current_session_record
+                .as_ref()
+                .and_then(|record| record.next_action.clone())
+                .or_else(|| {
+                    current_entry
+                        .and_then(|entry| entry.next_recovery.as_deref())
+                        .and_then(simplify_awareness_work_text)
+                        .map(|value| value.to_string())
+                })
+        }),
+        blocker: args.blocker.clone(),
+        note: args.note.clone(),
+        created_at: Utc::now(),
+    };
+
+    let receipt_summary = format_hive_handoff_receipt_summary(&packet);
+    let message = client
+        .send_hive_message(&HiveMessageSendRequest {
+            kind: "handoff".to_string(),
+            from_session: current_session.clone(),
+            from_agent: current_agent.clone(),
+            to_session: target_session.clone(),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            content: format_hive_handoff_message(&packet),
+        })
+        .await?;
+    emit_coordination_receipt(
+        &client,
+        "queen_handoff",
+        &current_session,
+        current_agent,
+        Some(target_session.clone()),
+        packet.task_id.clone(),
+        packet.scope_claims.first().cloned(),
+        project,
+        namespace,
+        workspace,
+        receipt_summary.clone(),
+    )
+    .await?;
+
+    Ok(HiveHandoffResponse {
+        packet,
+        receipt_kind: "queen_handoff".to_string(),
+        receipt_summary,
+        message_id: message.messages.first().map(|entry| entry.id.clone()),
+        recommended_follow: format!("memd hive follow --session {} --summary", target_session),
+    })
+}
+
 async fn run_hive_queen_command(
     args: &HiveQueenArgs,
     base_url: &str,
@@ -15943,38 +16171,95 @@ fn resolve_hive_follow_target<'a>(
     visible_entries: &[&'a ProjectAwarenessEntry],
     args: &HiveFollowArgs,
 ) -> anyhow::Result<&'a ProjectAwarenessEntry> {
-    if let Some(session) = args
-        .session
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    resolve_hive_target_entry(
+        visible_entries,
+        args.session.as_deref(),
+        args.worker.as_deref(),
+        "hive follow",
+    )
+}
+
+fn resolve_hive_target_entry<'a>(
+    visible_entries: &[&'a ProjectAwarenessEntry],
+    session: Option<&str>,
+    worker: Option<&str>,
+    command: &str,
+) -> anyhow::Result<&'a ProjectAwarenessEntry> {
+    if let Some(session) = session.map(str::trim).filter(|value| !value.is_empty()) {
         return visible_entries
             .iter()
             .copied()
             .find(|entry| entry.session.as_deref() == Some(session))
-            .context("hive follow session not found in awareness");
+            .with_context(|| format!("{command} session not found in awareness"));
     }
 
-    if let Some(worker) = args
-        .worker
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let worker_lower = worker.to_ascii_lowercase();
+    if let Some(worker) = worker.map(str::trim).filter(|value| !value.is_empty()) {
         return visible_entries
             .iter()
             .copied()
             .find(|entry| {
-                derive_awareness_worker_name(entry).is_some_and(|name| {
-                    name.eq_ignore_ascii_case(&worker_lower) || name.eq_ignore_ascii_case(worker)
-                })
+                derive_awareness_worker_name(entry)
+                    .is_some_and(|name| name.eq_ignore_ascii_case(worker))
             })
-            .context("hive follow worker not found in awareness");
+            .with_context(|| format!("{command} worker not found in awareness"));
     }
 
-    anyhow::bail!("hive follow requires --session or --worker");
+    anyhow::bail!("{command} requires --session or --worker");
+}
+
+fn format_hive_handoff_message(packet: &HiveHandoffPacket) -> String {
+    let mut lines = vec!["handoff_packet".to_string()];
+    lines.push(format!(
+        "from={}",
+        packet.from_worker.as_deref().unwrap_or("unknown")
+    ));
+    lines.push(format!("session={}", packet.from_session));
+    if let Some(task_id) = packet.task_id.as_deref() {
+        lines.push(format!("task={task_id}"));
+    }
+    if let Some(topic_claim) = packet.topic_claim.as_deref() {
+        lines.push(format!("topic={topic_claim}"));
+    }
+    if !packet.scope_claims.is_empty() {
+        lines.push(format!("scopes={}", packet.scope_claims.join(",")));
+    }
+    if let Some(next_action) = packet.next_action.as_deref() {
+        lines.push(format!("next={next_action}"));
+    }
+    if let Some(blocker) = packet.blocker.as_deref() {
+        lines.push(format!("blocker={blocker}"));
+    }
+    if let Some(note) = packet.note.as_deref() {
+        lines.push(format!("note={note}"));
+    }
+    lines.join("\n")
+}
+
+fn format_hive_handoff_receipt_summary(packet: &HiveHandoffPacket) -> String {
+    let mut parts = vec![format!(
+        "Handoff to {} ({})",
+        packet.to_worker.as_deref().unwrap_or("unknown"),
+        packet.to_session
+    )];
+    if let Some(task_id) = packet.task_id.as_deref() {
+        parts.push(format!("task={task_id}"));
+    }
+    if let Some(topic_claim) = packet.topic_claim.as_deref() {
+        parts.push(format!("topic=\"{}\"", compact_inline(topic_claim, 72)));
+    }
+    if !packet.scope_claims.is_empty() {
+        parts.push(format!(
+            "scopes={}",
+            compact_inline(&packet.scope_claims.join(","), 72)
+        ));
+    }
+    if let Some(next_action) = packet.next_action.as_deref() {
+        parts.push(format!("next=\"{}\"", compact_inline(next_action, 72)));
+    }
+    if let Some(blocker) = packet.blocker.as_deref() {
+        parts.push(format!("blocker=\"{}\"", compact_inline(blocker, 72)));
+    }
+    parts.join(" ")
 }
 
 fn hive_follow_overlap_risk(
@@ -16912,6 +17197,36 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
         }
     }
 
+    lines.join("\n")
+}
+
+fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
+    let lines = vec![
+        format!(
+            "hive_handoff from={} ({}) to={} ({}) task={} message_id={}",
+            response.packet.from_worker.as_deref().unwrap_or("unknown"),
+            response.packet.from_session,
+            response.packet.to_worker.as_deref().unwrap_or("unknown"),
+            response.packet.to_session,
+            response.packet.task_id.as_deref().unwrap_or("none"),
+            response.message_id.as_deref().unwrap_or("none"),
+        ),
+        format!(
+            "topic=\"{}\" scopes={} next=\"{}\" blocker=\"{}\" note=\"{}\" receipt_kind={} follow=\"{}\"",
+            response.packet.topic_claim.as_deref().unwrap_or("none"),
+            if response.packet.scope_claims.is_empty() {
+                "none".to_string()
+            } else {
+                response.packet.scope_claims.join(",")
+            },
+            response.packet.next_action.as_deref().unwrap_or("none"),
+            response.packet.blocker.as_deref().unwrap_or("none"),
+            response.packet.note.as_deref().unwrap_or("none"),
+            response.receipt_kind,
+            response.recommended_follow,
+        ),
+        format!("receipt_summary=\"{}\"", response.receipt_summary),
+    ];
     lines.join("\n")
 }
 
@@ -39402,6 +39717,7 @@ mod tests {
         session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
         session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
         session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
+        messages: Arc<Mutex<Vec<HiveMessageRecord>>>,
         receipts: Arc<Mutex<Vec<HiveCoordinationReceiptRecord>>>,
         task_records: Arc<Mutex<Vec<HiveTaskRecord>>>,
         search_count: Arc<Mutex<usize>>,
@@ -39639,6 +39955,33 @@ mod tests {
             .push(receipt.clone());
         Json(HiveCoordinationReceiptsResponse {
             receipts: vec![receipt],
+        })
+    }
+
+    async fn mock_runtime_send_hive_message(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveMessageSendRequest>,
+    ) -> Json<HiveMessagesResponse> {
+        let message = HiveMessageRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: req.kind,
+            from_session: req.from_session,
+            from_agent: req.from_agent,
+            to_session: req.to_session,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            content: req.content,
+            created_at: Utc::now(),
+            acknowledged_at: None,
+        };
+        state
+            .messages
+            .lock()
+            .expect("lock runtime messages")
+            .push(message.clone());
+        Json(HiveMessagesResponse {
+            messages: vec![message],
         })
     }
 
@@ -40439,6 +40782,10 @@ mod tests {
             .route("/memory/store", post(mock_store_memory))
             .route("/memory/repair", post(mock_repair_memory))
             .route("/coordination/inbox", get(mock_hive_coordination_inbox))
+            .route(
+                "/coordination/messages/send",
+                post(mock_runtime_send_hive_message),
+            )
             .route("/coordination/tasks", get(mock_hive_tasks))
             .route("/coordination/claims", get(mock_runtime_claims))
             .route("/coordination/sessions/upsert", hive_route)
@@ -45213,6 +45560,82 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_hive_handoff_subcommand() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "hive",
+            "handoff",
+            "--output",
+            ".memd",
+            "--to-worker",
+            "Avicenna",
+            "--task-id",
+            "parser-refactor",
+            "--scope",
+            "crates/memd-client/src/main.rs,task:parser-refactor",
+            "--summary",
+        ])
+        .expect("hive handoff command should parse");
+
+        match cli.command {
+            Commands::Hive(args) => match args.command {
+                Some(HiveSubcommand::Handoff(handoff)) => {
+                    assert_eq!(handoff.output, PathBuf::from(".memd"));
+                    assert_eq!(handoff.to_worker.as_deref(), Some("Avicenna"));
+                    assert_eq!(handoff.task_id.as_deref(), Some("parser-refactor"));
+                    assert_eq!(
+                        handoff.scope,
+                        vec![
+                            "crates/memd-client/src/main.rs".to_string(),
+                            "task:parser-refactor".to_string()
+                        ]
+                    );
+                    assert!(handoff.summary);
+                }
+                other => panic!("expected hive handoff subcommand, got {other:?}"),
+            },
+            other => panic!("expected hive command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_hive_handoff_summary_surfaces_packet_fields() {
+        let response = HiveHandoffResponse {
+            packet: HiveHandoffPacket {
+                from_session: "session-anscombe".to_string(),
+                from_worker: Some("Anscombe".to_string()),
+                to_session: "session-avicenna".to_string(),
+                to_worker: Some("Avicenna".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                topic_claim: Some("Parser overlap cleanup".to_string()),
+                scope_claims: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                next_action: Some("Finish overlap guard cleanup".to_string()),
+                blocker: Some("render lane is about to converge".to_string()),
+                note: Some("Keep render.rs out of scope".to_string()),
+                created_at: Utc::now(),
+            },
+            receipt_kind: "queen_handoff".to_string(),
+            receipt_summary: "Handoff to Avicenna (session-avicenna) task=parser-refactor"
+                .to_string(),
+            message_id: Some("msg-1".to_string()),
+            recommended_follow: "memd hive follow --session session-avicenna --summary".to_string(),
+        };
+
+        let summary = render_hive_handoff_summary(&response);
+        assert!(summary.contains("hive_handoff from=Anscombe (session-anscombe)"));
+        assert!(summary.contains("to=Avicenna (session-avicenna)"));
+        assert!(summary.contains("task=parser-refactor"));
+        assert!(summary.contains("scopes=task:parser-refactor,crates/memd-client/src/main.rs"));
+        assert!(summary.contains("receipt_kind=queen_handoff"));
+        assert!(
+            summary.contains("follow=\"memd hive follow --session session-avicenna --summary\"")
+        );
+    }
+
+    #[test]
     fn render_hive_follow_summary_surfaces_messages_receipts_and_overlap_risk() {
         let response = HiveFollowResponse {
             bundle_root: "/tmp/projects/current/.memd".to_string(),
@@ -45443,6 +45866,182 @@ mod tests {
         assert!(summary.contains("## Review Queue"));
         assert!(summary.contains("## Recommended Actions"));
         assert!(summary.contains("Lorentz (session-lorentz)"));
+    }
+
+    #[tokio::test]
+    async fn run_hive_handoff_command_emits_message_and_receipt_for_target_worker() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-handoff-{}", uuid::Uuid::new_v4()));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&output, &base_url);
+        fs::write(
+            output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-anscombe",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite bundle config");
+
+        {
+            let mut sessions = state.session_records.lock().expect("lock session records");
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-anscombe".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Anscombe@session-anscombe".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("Anscombe".to_string()),
+                display_name: None,
+                role: Some("queen".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-queen".to_string()),
+                hive_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/queen".to_string()),
+                branch: Some("queen".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Parser overlap cleanup".to_string()),
+                scope_claims: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                task_id: Some("parser-refactor".to_string()),
+                focus: Some("handoff parser lane".to_string()),
+                pressure: None,
+                next_recovery: Some("finish overlap guard cleanup".to_string()),
+                next_action: Some("finish overlap guard cleanup".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-avicenna".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Avicenna@session-avicenna".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["refactor".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-parser".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/parser".to_string()),
+                branch: Some("feature/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Receive parser handoff".to_string()),
+                scope_claims: vec!["task:parser-refactor".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+        }
+
+        let response = run_hive_handoff_command(
+            &HiveHandoffArgs {
+                output: output.clone(),
+                to_session: None,
+                to_worker: Some("Avicenna".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                topic: Some("Parser overlap cleanup".to_string()),
+                scope: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                next_action: Some("Finish overlap guard cleanup".to_string()),
+                blocker: Some("render lane is converging".to_string()),
+                note: Some("Keep render.rs out of scope".to_string()),
+                json: false,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run hive handoff");
+
+        assert_eq!(response.packet.to_session, "session-avicenna");
+        assert_eq!(response.packet.to_worker.as_deref(), Some("Avicenna"));
+        assert_eq!(response.packet.task_id.as_deref(), Some("parser-refactor"));
+        assert_eq!(
+            response.packet.scope_claims,
+            vec![
+                "task:parser-refactor".to_string(),
+                "crates/memd-client/src/main.rs".to_string()
+            ]
+        );
+        assert!(response.message_id.is_some());
+
+        let messages = state.messages.lock().expect("lock runtime messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].kind, "handoff");
+        assert_eq!(messages[0].to_session, "session-avicenna");
+        assert!(messages[0].content.contains("handoff_packet"));
+        assert!(messages[0].content.contains("task=parser-refactor"));
+
+        let receipts = state.receipts.lock().expect("lock runtime receipts");
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].kind, "queen_handoff");
+        assert_eq!(
+            receipts[0].target_session.as_deref(),
+            Some("session-avicenna")
+        );
+        assert_eq!(receipts[0].task_id.as_deref(), Some("parser-refactor"));
+
+        fs::remove_dir_all(&dir).expect("cleanup handoff temp dir");
     }
 
     #[tokio::test]
