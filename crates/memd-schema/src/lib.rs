@@ -878,6 +878,25 @@ pub struct HiveRosterResponse {
     pub bees: Vec<HiveSessionRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveBoardRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveBoardResponse {
+    pub queen_session: Option<String>,
+    pub active_bees: Vec<HiveSessionRecord>,
+    pub blocked_bees: Vec<String>,
+    pub stale_bees: Vec<String>,
+    pub review_queue: Vec<String>,
+    pub overlap_risks: Vec<String>,
+    pub lane_faults: Vec<String>,
+    pub recommended_actions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveSessionRetireRequest {
     pub session: String,

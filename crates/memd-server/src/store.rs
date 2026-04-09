@@ -4,22 +4,23 @@ use std::sync::Arc;
 use anyhow::Context;
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchHit, EntitySearchRequest, HiveClaimAcquireRequest, HiveClaimRecord,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireResponse,
-    HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
-    MaintainReportRequest, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
-    MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
-    MemoryMaintenanceReportRequest, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyActivationEntry, SkillPolicyApplyReceipt,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
+    HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
+    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
+    HiveSessionAutoRetireResponse, HiveSessionRecord, HiveSessionRetireRequest,
+    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
+    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest,
+    HiveTasksResponse, MaintainReport, MaintainReportRequest, MemoryAgentProfile,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyActivationEntry, SkillPolicyApplyReceipt, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -2546,6 +2547,120 @@ impl SqliteStore {
         }
 
         Ok(HiveSessionsResponse { sessions })
+    }
+
+    pub fn hive_board(&self, request: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
+        let sessions = self
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(256),
+            })?
+            .sessions;
+        let tasks = self
+            .hive_tasks(&HiveTasksRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                active_only: Some(true),
+                limit: Some(256),
+            })?
+            .tasks;
+        let receipts = self
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                limit: Some(256),
+            })?
+            .receipts;
+
+        let queen_session = sessions
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                ) || matches!(
+                    session.authority.as_deref(),
+                    Some("coordinator" | "canonical")
+                )
+            })
+            .map(|session| session.session.clone());
+
+        let active_bees = sessions
+            .iter()
+            .filter(|session| session.status == "active")
+            .cloned()
+            .collect::<Vec<_>>();
+        let stale_bees = sessions
+            .iter()
+            .filter(|session| session.status != "active")
+            .map(|session| session.session.clone())
+            .collect::<Vec<_>>();
+        let review_queue = tasks
+            .iter()
+            .filter(|task| task.review_requested || task.coordination_mode == "shared_review")
+            .map(|task| {
+                format!(
+                    "{} -> {}",
+                    task.task_id,
+                    task.session.as_deref().unwrap_or("unassigned")
+                )
+            })
+            .collect::<Vec<_>>();
+        let lane_faults = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let overlap_risks = receipts
+            .iter()
+            .filter(|receipt| {
+                receipt.kind.contains("overlap")
+                    || receipt.summary.contains("overlap")
+                    || receipt.summary.contains("scope")
+            })
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let blocked_bees = receipts
+            .iter()
+            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let mut recommended_actions = Vec::new();
+        for session in &stale_bees {
+            recommended_actions.push(format!("retire {}", session));
+        }
+        for receipt in receipts
+            .iter()
+            .filter(|receipt| receipt.kind == "queen_deny")
+        {
+            recommended_actions.push(format!("reroute {}", receipt.summary));
+        }
+
+        Ok(HiveBoardResponse {
+            queen_session,
+            active_bees,
+            blocked_bees,
+            stale_bees,
+            review_queue,
+            overlap_risks,
+            lane_faults,
+            recommended_actions,
+        })
     }
 
     pub fn retire_hive_session(

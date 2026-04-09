@@ -5,10 +5,10 @@ use memd_schema::{
     CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
     HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
@@ -368,6 +368,10 @@ impl MemdClient {
     ) -> anyhow::Result<HiveSessionsResponse> {
         self.get_json_with_query("/coordination/sessions", req)
             .await
+    }
+
+    pub async fn hive_board(&self, req: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
+        self.get_json_with_query("/hive/board", req).await
     }
 
     pub async fn retire_hive_session(

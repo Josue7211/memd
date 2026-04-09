@@ -25,10 +25,10 @@ use memd_schema::{
     ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
     HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
@@ -363,6 +363,7 @@ async fn main() {
             post(post_hive_session_auto_retire),
         )
         .route("/coordination/sessions", get(get_hive_sessions))
+        .route("/hive/board", get(get_hive_board))
         .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
         .route("/coordination/tasks/assign", post(post_hive_task_assign))
         .route("/coordination/tasks", get(get_hive_tasks))
@@ -1160,6 +1161,14 @@ async fn get_hive_sessions(
     Query(req): Query<HiveSessionsRequest>,
 ) -> Result<Json<HiveSessionsResponse>, (StatusCode, String)> {
     let response = state.store.hive_sessions(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_hive_board(
+    State(state): State<AppState>,
+    Query(req): Query<HiveBoardRequest>,
+) -> Result<Json<HiveBoardResponse>, (StatusCode, String)> {
+    let response = state.store.hive_board(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

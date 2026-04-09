@@ -41,7 +41,7 @@ use memd_schema::{
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
-    HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
+    HiveBoardResponse, HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
     HiveCoordinationReceiptsRequest, HiveHandoffPacket, HiveMessageAckRequest,
     HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveRosterResponse,
@@ -15546,18 +15546,6 @@ struct HiveHandoffResponse {
     receipt_summary: String,
     message_id: Option<String>,
     recommended_follow: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct HiveBoardResponse {
-    queen_session: Option<String>,
-    active_bees: Vec<memd_schema::HiveSessionRecord>,
-    blocked_bees: Vec<String>,
-    stale_bees: Vec<String>,
-    review_queue: Vec<String>,
-    overlap_risks: Vec<String>,
-    lane_faults: Vec<String>,
-    recommended_actions: Vec<String>,
 }
 
 fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
@@ -45866,6 +45854,68 @@ mod tests {
         assert!(summary.contains("## Review Queue"));
         assert!(summary.contains("## Recommended Actions"));
         assert!(summary.contains("Lorentz (session-lorentz)"));
+    }
+
+    #[test]
+    fn hive_board_response_includes_dashboard_panels() {
+        let response = HiveBoardResponse {
+            queen_session: Some("session-queen".to_string()),
+            active_bees: vec![memd_schema::HiveSessionRecord {
+                session: "session-lorentz".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            }],
+            blocked_bees: vec!["Avicenna overlap".to_string()],
+            stale_bees: vec!["session-old".to_string()],
+            review_queue: vec!["review-parser -> Lorentz".to_string()],
+            overlap_risks: vec!["Lorentz vs Avicenna".to_string()],
+            lane_faults: vec!["lane_fault session-avicenna".to_string()],
+            recommended_actions: vec!["reroute Avicenna".to_string()],
+        };
+
+        let json = serde_json::to_value(&response).expect("serialize board");
+        assert!(json.get("active_bees").is_some());
+        assert!(json.get("review_queue").is_some());
+        assert!(json.get("lane_faults").is_some());
+        assert!(json.get("recommended_actions").is_some());
     }
 
     #[tokio::test]
