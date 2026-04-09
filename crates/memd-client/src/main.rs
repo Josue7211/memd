@@ -19415,6 +19415,29 @@ fn read_latest_maintain_report(output: &Path) -> anyhow::Result<Option<MaintainR
     Ok(Some(report))
 }
 
+fn read_previous_maintain_report(output: &Path) -> anyhow::Result<Option<MaintainReport>> {
+    let dir = maintain_reports_dir(output);
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let mut candidates = fs::read_dir(&dir)
+        .with_context(|| format!("read {}", dir.display()))?
+        .filter_map(|entry| entry.ok().map(|value| value.path()))
+        .filter(|path| {
+            path.extension().and_then(|value| value.to_str()) == Some("json")
+                && path.file_name().and_then(|value| value.to_str()) != Some("latest.json")
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    let Some(path) = candidates.into_iter().next_back() else {
+        return Ok(None);
+    };
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let report = serde_json::from_str::<MaintainReport>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(report))
+}
+
 fn write_maintain_artifacts(output: &Path, response: &MaintainReport) -> anyhow::Result<()> {
     let maintain_dir = maintain_reports_dir(output);
     fs::create_dir_all(&maintain_dir)
@@ -25845,18 +25868,35 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     } else {
         None
     };
-    let maintenance_surface = read_latest_maintain_report(output)?
-        .map(|report| {
-            serde_json::json!({
+    let maintenance_surface = match (
+        read_latest_maintain_report(output)?,
+        read_previous_maintain_report(output)?,
+    ) {
+        (Some(report), previous) => {
+            let total = report.compacted_items + report.refreshed_items + report.repaired_items;
+            let previous_total = previous
+                .as_ref()
+                .map(|value| value.compacted_items + value.refreshed_items + value.repaired_items)
+                .unwrap_or(0);
+            let delta_total = total as i64 - previous_total as i64;
+            let auto_mode = report.mode == "auto";
+            Some(serde_json::json!({
                 "mode": report.mode,
+                "auto_mode": auto_mode,
                 "receipt": report.receipt_id,
                 "compacted": report.compacted_items,
                 "refreshed": report.refreshed_items,
                 "repaired": report.repaired_items,
                 "findings": report.findings.len(),
+                "total_actions": total,
+                "delta_total_actions": delta_total,
+                "trend": if delta_total > 0 { "up" } else if delta_total < 0 { "down" } else { "flat" },
+                "previous_mode": previous.as_ref().map(|value| value.mode.clone()),
                 "generated_at": report.generated_at,
-            })
-        });
+            }))
+        }
+        _ => None,
+    };
     let rag_config = read_bundle_rag_config(output)?;
     let rag = match rag_config {
         Some(config) if config.enabled => {
@@ -37635,6 +37675,69 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
+    }
+
+    #[test]
+    fn read_previous_maintain_report_uses_latest_timestamped_report() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-maintain-history-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        let maintain_dir = dir.join("maintenance");
+        fs::create_dir_all(&maintain_dir).expect("create maintenance dir");
+        fs::write(
+            maintain_dir.join("20260409T120000Z.json"),
+            serde_json::to_string_pretty(&MaintainReport {
+                mode: "compact".to_string(),
+                receipt_id: Some("receipt-older".to_string()),
+                compacted_items: 1,
+                refreshed_items: 0,
+                repaired_items: 0,
+                findings: vec!["older".to_string()],
+                generated_at: Utc::now(),
+            })
+            .expect("serialize older"),
+        )
+        .expect("write older report");
+        fs::write(
+            maintain_dir.join("20260409T130000Z.json"),
+            serde_json::to_string_pretty(&MaintainReport {
+                mode: "auto".to_string(),
+                receipt_id: Some("receipt-newer".to_string()),
+                compacted_items: 4,
+                refreshed_items: 1,
+                repaired_items: 1,
+                findings: vec!["newer".to_string()],
+                generated_at: Utc::now(),
+            })
+            .expect("serialize newer"),
+        )
+        .expect("write newer report");
+        fs::write(
+            maintain_dir.join("latest.json"),
+            serde_json::to_string_pretty(&MaintainReport {
+                mode: "auto".to_string(),
+                receipt_id: Some("receipt-latest-link".to_string()),
+                compacted_items: 4,
+                refreshed_items: 1,
+                repaired_items: 1,
+                findings: vec!["latest".to_string()],
+                generated_at: Utc::now(),
+            })
+            .expect("serialize latest"),
+        )
+        .expect("write latest report");
+
+        let report = read_previous_maintain_report(&dir)
+            .expect("read previous maintain report")
+            .expect("expected previous maintain report");
+
+        assert_eq!(report.receipt_id.as_deref(), Some("receipt-newer"));
+        assert_eq!(report.mode, "auto");
+        assert_eq!(report.compacted_items, 4);
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[tokio::test]

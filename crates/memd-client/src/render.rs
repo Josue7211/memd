@@ -818,11 +818,20 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         .and_then(|value| if value.is_null() { None } else { Some(value) })
     {
         output.push_str(&format!(
-            " maintain_mode={} maintain_receipt={} compacted={} refreshed={} repaired={} findings={}",
+            " maintain_mode={} auto={} maintain_receipt={} compacted={} refreshed={} repaired={} findings={} maintain_total={} maintain_delta={} maintain_trend={}",
             maintenance
                 .get("mode")
                 .and_then(Value::as_str)
                 .unwrap_or("none"),
+            if maintenance
+                .get("auto_mode")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "yes"
+            } else {
+                "no"
+            },
             maintenance
                 .get("receipt")
                 .and_then(Value::as_str)
@@ -843,6 +852,18 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
                 .get("findings")
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
+            maintenance
+                .get("total_actions")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            maintenance
+                .get("delta_total_actions")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            maintenance
+                .get("trend")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
         ));
     }
 
@@ -3100,21 +3121,29 @@ mod tests {
             },
             "resume_preview": null,
             "maintenance_surface": {
-                "mode": "compact",
+                "mode": "auto",
+                "auto_mode": true,
                 "receipt": "r-123",
                 "compacted": 3,
                 "refreshed": 1,
                 "repaired": 0,
-                "findings": 2
+                "findings": 2,
+                "total_actions": 4,
+                "delta_total_actions": 2,
+                "trend": "up"
             }
         });
 
         let summary = render_bundle_status_summary(&status);
-        assert!(summary.contains("maintain_mode=compact"));
+        assert!(summary.contains("maintain_mode=auto"));
+        assert!(summary.contains("auto=yes"));
         assert!(summary.contains("maintain_receipt=r-123"));
         assert!(summary.contains("compacted=3"));
         assert!(summary.contains("refreshed=1"));
         assert!(summary.contains("repaired=0"));
         assert!(summary.contains("findings=2"));
+        assert!(summary.contains("maintain_total=4"));
+        assert!(summary.contains("maintain_delta=2"));
+        assert!(summary.contains("maintain_trend=up"));
     }
 }
