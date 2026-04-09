@@ -7,6 +7,7 @@ mod render;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    future::Future,
     io::{self, Read},
     path::{Path, PathBuf},
     process::Command,
@@ -16904,24 +16905,25 @@ async fn retire_superseded_hive_sessions(
     else {
         return Ok(0);
     };
-    let sessions = client
-        .hive_sessions(&memd_schema::HiveSessionsRequest {
-            session: None,
-            project: state.project.clone(),
-            namespace: state.namespace.clone(),
-            repo_root: state.repo_root.clone(),
-            worktree_root: state.worktree_root.clone(),
-            branch: state.branch.clone(),
-            workspace: state.workspace.clone(),
-            hive_system: None,
-            hive_role: None,
-            host: None,
-            hive_group: None,
-            active_only: Some(false),
-            limit: Some(512),
-        })
-        .await?
-        .sessions;
+    let sessions_request = memd_schema::HiveSessionsRequest {
+        session: None,
+        project: state.project.clone(),
+        namespace: state.namespace.clone(),
+        repo_root: state.repo_root.clone(),
+        worktree_root: state.worktree_root.clone(),
+        branch: state.branch.clone(),
+        workspace: state.workspace.clone(),
+        hive_system: None,
+        hive_role: None,
+        host: None,
+        hive_group: None,
+        active_only: Some(false),
+        limit: Some(512),
+    };
+    let sessions = timeout_ok(client.hive_sessions(&sessions_request))
+        .await
+        .map(|response| response.sessions)
+        .unwrap_or_default();
     let mut retired = 0usize;
     for session in sessions {
         if session.session == current_session {
@@ -16930,13 +16932,14 @@ async fn retire_superseded_hive_sessions(
         if !is_superseded_hive_session_record(&session, state) {
             continue;
         }
-        retired += client
-            .retire_hive_session(&build_hive_session_retire_request_from_record(
-                &session,
-                format!("superseded by live session {current_session}"),
-            ))
-            .await?
-            .retired;
+        let retire_request = build_hive_session_retire_request_from_record(
+            &session,
+            format!("superseded by live session {current_session}"),
+        );
+        retired += timeout_ok(client.retire_hive_session(&retire_request))
+            .await
+            .map(|response| response.retired)
+            .unwrap_or(0);
     }
     Ok(retired)
 }
@@ -18784,6 +18787,7 @@ async fn run_coordination_command(
             .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
     });
     let client = MemdClient::new(&current_base_url)?;
+    let server_reachable = timeout_ok(client.healthz()).await.is_some();
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
         root: None,
@@ -18794,36 +18798,61 @@ async fn run_coordination_command(
     let current_project = runtime.as_ref().and_then(|config| config.project.clone());
     let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
-    let lane_fault = detect_bundle_lane_collision(&args.output, Some(current_session.as_str()))
-        .await?
-        .and_then(|conflict| {
-            build_lane_fault_surface(&args.output, Some(current_session.as_str()), &conflict)
-        });
-    let claims = client
-        .hive_claims(&HiveClaimsRequest {
-            session: None,
-            project: current_project.clone(),
-            namespace: current_namespace.clone(),
-            workspace: current_workspace.clone(),
-            active_only: Some(true),
-            limit: Some(512),
-        })
-        .await?
-        .claims
-        .into_iter()
-        .map(session_claim_from_record)
-        .collect::<Vec<_>>();
-    let tasks = client
-        .hive_tasks(&HiveTasksRequest {
-            session: None,
-            project: current_project.clone(),
-            namespace: current_namespace.clone(),
-            workspace: current_workspace.clone(),
-            active_only: Some(true),
-            limit: Some(512),
-        })
-        .await?
-        .tasks;
+    let lane_fault = detect_lane_collision_from_awareness_entries(
+        &args.output,
+        Some(current_session.as_str()),
+        &awareness.entries,
+    )
+    .and_then(|conflict| {
+        build_lane_fault_surface(&args.output, Some(current_session.as_str()), &conflict)
+    });
+    let mutating_request = args.recover_session.is_some()
+        || args.retire_session.is_some()
+        || args.to_session.is_some()
+        || args.deny_session.is_some()
+        || args.reroute_session.is_some()
+        || args.handoff_scope.is_some();
+    if !server_reachable && mutating_request {
+        anyhow::bail!(
+            "coordination backend unreachable at {}; queen actions require a live memd server",
+            current_base_url
+        );
+    }
+    let initial_claims_request = HiveClaimsRequest {
+        session: None,
+        project: current_project.clone(),
+        namespace: current_namespace.clone(),
+        workspace: current_workspace.clone(),
+        active_only: Some(true),
+        limit: Some(512),
+    };
+    let claims = if server_reachable {
+        timeout_ok(client.hive_claims(&initial_claims_request))
+            .await
+            .map(|response| response.claims)
+            .unwrap_or_default()
+            .into_iter()
+            .map(session_claim_from_record)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let initial_tasks_request = HiveTasksRequest {
+        session: None,
+        project: current_project.clone(),
+        namespace: current_namespace.clone(),
+        workspace: current_workspace.clone(),
+        active_only: Some(true),
+        limit: Some(512),
+    };
+    let tasks = if server_reachable {
+        timeout_ok(client.hive_tasks(&initial_tasks_request))
+            .await
+            .map(|response| response.tasks)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let stale_hives = awareness
         .entries
@@ -19082,50 +19111,80 @@ async fn run_coordination_command(
         .await?;
     }
 
-    let response = client
-        .hive_coordination_inbox(&HiveCoordinationInboxRequest {
-            session: current_session.clone(),
-            project: current_project.clone(),
-            namespace: current_namespace.clone(),
-            workspace: current_workspace.clone(),
-            limit: Some(128),
-        })
-        .await?;
-    let claims = client
-        .hive_claims(&HiveClaimsRequest {
-            session: None,
-            project: current_project,
-            namespace: current_namespace,
-            workspace: current_workspace,
-            active_only: Some(true),
-            limit: Some(512),
-        })
-        .await?
-        .claims
-        .into_iter()
-        .map(session_claim_from_record)
-        .collect::<Vec<_>>();
-    let tasks = client
-        .hive_tasks(&HiveTasksRequest {
-            session: None,
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
-            active_only: Some(true),
-            limit: Some(512),
-        })
-        .await?
-        .tasks;
-    let receipts = client
-        .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
-            session: None,
-            project: runtime.as_ref().and_then(|config| config.project.clone()),
-            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
-            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
-            limit: Some(32),
-        })
-        .await?
-        .receipts;
+    let inbox_request = HiveCoordinationInboxRequest {
+        session: current_session.clone(),
+        project: current_project.clone(),
+        namespace: current_namespace.clone(),
+        workspace: current_workspace.clone(),
+        limit: Some(128),
+    };
+    let response = if server_reachable {
+        timeout_ok(client.hive_coordination_inbox(&inbox_request))
+            .await
+            .unwrap_or(HiveCoordinationInboxResponse {
+                messages: Vec::new(),
+                owned_tasks: Vec::new(),
+                help_tasks: Vec::new(),
+                review_tasks: Vec::new(),
+            })
+    } else {
+        HiveCoordinationInboxResponse {
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+        }
+    };
+    let claims_request = HiveClaimsRequest {
+        session: None,
+        project: current_project,
+        namespace: current_namespace,
+        workspace: current_workspace,
+        active_only: Some(true),
+        limit: Some(512),
+    };
+    let claims = if server_reachable {
+        timeout_ok(client.hive_claims(&claims_request))
+            .await
+            .map(|response| response.claims)
+            .unwrap_or_default()
+            .into_iter()
+            .map(session_claim_from_record)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let tasks_request = HiveTasksRequest {
+        session: None,
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+        active_only: Some(true),
+        limit: Some(512),
+    };
+    let tasks = if server_reachable {
+        timeout_ok(client.hive_tasks(&tasks_request))
+            .await
+            .map(|response| response.tasks)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let receipts_request = HiveCoordinationReceiptsRequest {
+        session: None,
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+        limit: Some(32),
+    };
+    let receipts = if server_reachable {
+        timeout_ok(client.hive_coordination_receipts(&receipts_request))
+            .await
+            .map(|response| response.receipts)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let lane_receipts = receipts
         .iter()
         .filter(|receipt| receipt.kind.starts_with("lane_") || receipt.kind.starts_with("queen_"))
@@ -28134,10 +28193,10 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         .and_then(|config| config.session.as_deref())
         .is_some()
     {
-        let _ = refresh_bundle_heartbeat(output, None, false).await;
+        let _ = timeout_ok(refresh_bundle_heartbeat(output, None, false)).await;
     }
     let client = MemdClient::new(&resolved_base_url)?;
-    let health = client.healthz().await.ok();
+    let health = timeout_ok(client.healthz()).await;
     let heartbeat = read_bundle_heartbeat(output)?.map(|mut state| {
         if state.project.is_none() {
             state.project = runtime.as_ref().and_then(|config| config.project.clone());
@@ -28197,7 +28256,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         missing.push("agents/");
     }
     let resume_preview = if output.join("config.json").exists() && health.is_some() {
-        let preview = read_bundle_resume(
+        let preview = timeout_ok(read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,
@@ -28214,9 +28273,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 summary: false,
             },
             &resolved_base_url,
-        )
-        .await
-        .ok();
+        ))
+        .await;
         preview.map(|snapshot| {
             serde_json::json!({
                 "project": snapshot.project,
@@ -28250,7 +28308,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         None
     };
     let truth_summary = if output.join("config.json").exists() && health.is_some() {
-        let snapshot = read_bundle_resume(
+        let snapshot = timeout_ok(read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,
@@ -28267,9 +28325,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 summary: false,
             },
             &resolved_base_url,
-        )
-        .await
-        .ok();
+        ))
+        .await;
         snapshot.map(|snapshot| {
             serde_json::to_value(build_truth_summary(&snapshot)).unwrap_or(JsonValue::Null)
         })
@@ -28281,27 +28338,23 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
     let current_session = runtime.as_ref().and_then(|config| config.session.clone());
     let cowork_surface = if health.is_some() {
-        let inbox = client
-            .hive_coordination_inbox(&HiveCoordinationInboxRequest {
-                session: current_session.clone().unwrap_or_default(),
-                project: current_project.clone(),
-                namespace: current_namespace.clone(),
-                workspace: current_workspace.clone(),
-                limit: Some(128),
-            })
-            .await
-            .ok();
-        let tasks = client
-            .hive_tasks(&HiveTasksRequest {
-                session: None,
-                project: current_project.clone(),
-                namespace: current_namespace.clone(),
-                workspace: current_workspace.clone(),
-                active_only: Some(false),
-                limit: Some(256),
-            })
-            .await
-            .ok();
+        let inbox_request = HiveCoordinationInboxRequest {
+            session: current_session.clone().unwrap_or_default(),
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
+            limit: Some(128),
+        };
+        let inbox = timeout_ok(client.hive_coordination_inbox(&inbox_request)).await;
+        let tasks_request = HiveTasksRequest {
+            session: None,
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
+            active_only: Some(false),
+            limit: Some(256),
+        };
+        let tasks = timeout_ok(client.hive_tasks(&tasks_request)).await;
         match (inbox, tasks) {
             (Some(inbox), Some(tasks)) => {
                 let exclusive = tasks
@@ -28344,16 +28397,15 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         None
     };
     let lane_receipts = if health.is_some() {
-        client
-            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
-                session: None,
-                project: current_project.clone(),
-                namespace: current_namespace.clone(),
-                workspace: current_workspace.clone(),
-                limit: Some(64),
-            })
+        let receipts_request = HiveCoordinationReceiptsRequest {
+            session: None,
+            project: current_project.clone(),
+            namespace: current_namespace.clone(),
+            workspace: current_workspace.clone(),
+            limit: Some(64),
+        };
+        timeout_ok(client.hive_coordination_receipts(&receipts_request))
             .await
-            .ok()
             .map(|response| {
                 let receipts = response
                     .receipts
@@ -29186,6 +29238,18 @@ fn resolve_bundle_command_base_url(requested: &str, runtime_base_url: Option<&st
         .unwrap_or_else(|| requested.to_string())
 }
 
+const LIVE_RPC_TIMEOUT: Duration = Duration::from_secs(2);
+
+async fn timeout_ok<T, E, F>(future: F) -> Option<T>
+where
+    F: Future<Output = Result<T, E>>,
+{
+    tokio::time::timeout(LIVE_RPC_TIMEOUT, future)
+        .await
+        .ok()
+        .and_then(Result::ok)
+}
+
 fn bundle_auto_short_term_capture_enabled(output: &Path) -> anyhow::Result<bool> {
     if let Ok(value) = std::env::var("MEMD_AUTO_SHORT_TERM_CAPTURE") {
         let value = value.trim().to_ascii_lowercase();
@@ -29233,7 +29297,7 @@ async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectA
         .and_then(|config| config.session.as_deref())
         .is_some()
     {
-        let _ = refresh_bundle_heartbeat(&current_bundle, None, false).await;
+        let _ = timeout_ok(refresh_bundle_heartbeat(&current_bundle, None, false)).await;
     }
     let include_current = args.include_current
         || runtime
@@ -29428,40 +29492,38 @@ async fn read_project_awareness_shared(
     let workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
     let (shared_project, shared_namespace) = shared_awareness_scope(runtime.as_ref());
 
-    let sessions = match client
-        .hive_sessions(&memd_schema::HiveSessionsRequest {
-            session: None,
-            project: shared_project.clone(),
-            namespace: shared_namespace.clone(),
-            repo_root: None,
-            worktree_root: None,
-            branch: None,
-            workspace: workspace.clone(),
-            hive_system: None,
-            hive_role: None,
-            host: None,
-            hive_group: None,
-            active_only: Some(false),
-            limit: Some(512),
-        })
-        .await
-    {
-        Ok(response) => response.sessions,
-        Err(_) => return Ok(None),
+    let sessions_request = memd_schema::HiveSessionsRequest {
+        session: None,
+        project: shared_project.clone(),
+        namespace: shared_namespace.clone(),
+        repo_root: None,
+        worktree_root: None,
+        branch: None,
+        workspace: workspace.clone(),
+        hive_system: None,
+        hive_role: None,
+        host: None,
+        hive_group: None,
+        active_only: Some(false),
+        limit: Some(512),
+    };
+    let sessions = match timeout_ok(client.hive_sessions(&sessions_request)).await {
+        Some(response) => response.sessions,
+        None => return Ok(None),
     };
     if sessions.is_empty() {
         return Ok(None);
     }
 
-    let claims = client
-        .hive_claims(&HiveClaimsRequest {
-            session: None,
-            project: shared_project,
-            namespace: shared_namespace,
-            workspace,
-            active_only: Some(true),
-            limit: Some(512),
-        })
+    let claims_request = HiveClaimsRequest {
+        session: None,
+        project: shared_project,
+        namespace: shared_namespace,
+        workspace,
+        active_only: Some(true),
+        limit: Some(512),
+    };
+    let claims = timeout_ok(client.hive_claims(&claims_request))
         .await
         .map(|response| response.claims)
         .unwrap_or_default();
@@ -30154,14 +30216,23 @@ fn awareness_entry_has_same_lane(
         .is_some_and(|(repo_root, branch)| repo_root == lane.repo_root && branch == lane.branch)
 }
 
+fn detect_lane_collision_from_awareness_entries(
+    output: &Path,
+    current_session: Option<&str>,
+    awareness_entries: &[ProjectAwarenessEntry],
+) -> Option<ProjectAwarenessEntry> {
+    let lane = detect_bundle_lane_identity(output)?;
+    let current_bundle = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    awareness_entries
+        .iter()
+        .find(|entry| awareness_entry_has_same_lane(entry, &lane, &current_bundle, current_session))
+        .cloned()
+}
+
 async fn detect_bundle_lane_collision(
     output: &Path,
     current_session: Option<&str>,
 ) -> anyhow::Result<Option<ProjectAwarenessEntry>> {
-    let Some(lane) = detect_bundle_lane_identity(output) else {
-        return Ok(None);
-    };
-    let current_bundle = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
     let awareness = read_project_awareness(&AwarenessArgs {
         output: output.to_path_buf(),
         root: None,
@@ -30169,10 +30240,11 @@ async fn detect_bundle_lane_collision(
         summary: false,
     })
     .await?;
-
-    Ok(awareness.entries.into_iter().find(|entry| {
-        awareness_entry_has_same_lane(entry, &lane, &current_bundle, current_session)
-    }))
+    Ok(detect_lane_collision_from_awareness_entries(
+        output,
+        current_session,
+        &awareness.entries,
+    ))
 }
 
 fn render_hive_lane_collision(entry: &ProjectAwarenessEntry) -> String {
@@ -44599,6 +44671,110 @@ mod tests {
                 .lane_receipts
                 .iter()
                 .any(|receipt| receipt.kind == "queen_handoff")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn run_coordination_command_falls_back_to_local_truth_when_backend_unreachable() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-coordination-offline-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(dir.join("state")).expect("create temp dir");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "queen-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:9",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+
+        let response = run_coordination_command(
+            &CoordinationArgs {
+                output: dir.clone(),
+                view: Some("overview".to_string()),
+                changes_only: false,
+                watch: false,
+                interval_secs: 30,
+                recover_session: None,
+                retire_session: None,
+                to_session: None,
+                deny_session: None,
+                reroute_session: None,
+                handoff_scope: None,
+                summary: false,
+            },
+            "http://127.0.0.1:9",
+        )
+        .await
+        .expect("offline coordination response");
+
+        assert_eq!(response.current_session, "queen-a");
+        assert!(response.inbox.messages.is_empty());
+        assert!(response.inbox.owned_tasks.is_empty());
+        assert!(response.receipts.is_empty());
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn run_coordination_command_fails_fast_for_mutations_when_backend_unreachable() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-coordination-offline-mutation-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(dir.join("state")).expect("create temp dir");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "queen-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:9",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+
+        let err = run_coordination_command(
+            &CoordinationArgs {
+                output: dir.clone(),
+                view: Some("overview".to_string()),
+                changes_only: false,
+                watch: false,
+                interval_secs: 30,
+                recover_session: None,
+                retire_session: None,
+                to_session: None,
+                deny_session: Some("bee-b".to_string()),
+                reroute_session: None,
+                handoff_scope: None,
+                summary: false,
+            },
+            "http://127.0.0.1:9",
+        )
+        .await
+        .expect_err("offline mutation should fail fast");
+
+        assert!(
+            err.to_string().contains("coordination backend unreachable"),
+            "{err}"
         );
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
