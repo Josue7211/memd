@@ -1864,6 +1864,7 @@ struct HiveArgs {
 enum HiveSubcommand {
     Roster(HiveRosterArgs),
     Follow(HiveFollowArgs),
+    Queen(HiveQueenArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1888,6 +1889,39 @@ struct HiveFollowArgs {
 
     #[arg(long)]
     worker: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HiveQueenArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    view: Option<String>,
+
+    #[arg(long)]
+    recover_session: Option<String>,
+
+    #[arg(long)]
+    retire_session: Option<String>,
+
+    #[arg(long)]
+    to_session: Option<String>,
+
+    #[arg(long)]
+    deny_session: Option<String>,
+
+    #[arg(long)]
+    reroute_session: Option<String>,
+
+    #[arg(long)]
+    handoff_scope: Option<String>,
 
     #[arg(long)]
     json: bool,
@@ -2855,6 +2889,14 @@ async fn main() -> anyhow::Result<()> {
                     print_json(&response)?;
                 } else {
                     println!("{}", render_hive_follow_summary(&response));
+                }
+            }
+            Some(HiveSubcommand::Queen(queen_args)) => {
+                let response = run_hive_queen_command(queen_args, &default_base_url()).await?;
+                if queen_args.json {
+                    print_json(&response)?;
+                } else {
+                    println!("{}", render_hive_queen_summary(&response));
                 }
             }
             None => {
@@ -15267,6 +15309,13 @@ struct HiveFollowResponse {
     recommended_action: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct HiveQueenResponse {
+    queen_session: String,
+    suggested_actions: Vec<String>,
+    recent_receipts: Vec<String>,
+}
+
 fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
     entry
         .effective_agent
@@ -15542,6 +15591,50 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
         recent_receipts,
         overlap_risk,
         recommended_action,
+    })
+}
+
+async fn run_hive_queen_command(
+    args: &HiveQueenArgs,
+    base_url: &str,
+) -> anyhow::Result<HiveQueenResponse> {
+    let coordination = run_coordination_command(
+        &CoordinationArgs {
+            output: args.output.clone(),
+            view: args.view.clone(),
+            changes_only: false,
+            watch: false,
+            interval_secs: 30,
+            recover_session: args.recover_session.clone(),
+            retire_session: args.retire_session.clone(),
+            to_session: args.to_session.clone(),
+            deny_session: args.deny_session.clone(),
+            reroute_session: args.reroute_session.clone(),
+            handoff_scope: args.handoff_scope.clone(),
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+
+    Ok(HiveQueenResponse {
+        queen_session: coordination.current_session,
+        suggested_actions: coordination
+            .suggestions
+            .into_iter()
+            .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
+            .collect(),
+        recent_receipts: coordination
+            .receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("queen_"))
+            .map(|receipt| {
+                format!(
+                    "{} {} {}",
+                    receipt.kind, receipt.actor_session, receipt.summary
+                )
+            })
+            .collect(),
     })
 }
 
@@ -16515,6 +16608,28 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
                 receipt.target_session.as_deref().unwrap_or("none"),
                 compact_inline(&receipt.summary, 96),
             ));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
+    let mut lines = vec![format!("hive_queen queen={}", response.queen_session)];
+
+    if !response.suggested_actions.is_empty() {
+        lines.push(String::new());
+        lines.push("## Suggested Actions".to_string());
+        for action in &response.suggested_actions {
+            lines.push(format!("- {}", action));
+        }
+    }
+
+    if !response.recent_receipts.is_empty() {
+        lines.push(String::new());
+        lines.push("## Recent Receipts".to_string());
+        for receipt in &response.recent_receipts {
+            lines.push(format!("- {}", receipt));
         }
     }
 
@@ -44134,6 +44249,53 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_hive_queen_subcommand() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "hive",
+            "queen",
+            "--output",
+            ".memd",
+            "--deny-session",
+            "session-avicenna",
+            "--summary",
+        ])
+        .expect("hive queen command should parse");
+
+        match cli.command {
+            Commands::Hive(args) => match args.command {
+                Some(HiveSubcommand::Queen(queen)) => {
+                    assert_eq!(queen.output, PathBuf::from(".memd"));
+                    assert_eq!(queen.deny_session.as_deref(), Some("session-avicenna"));
+                    assert!(queen.summary);
+                }
+                other => panic!("expected hive queen subcommand, got {other:?}"),
+            },
+            other => panic!("expected hive command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_hive_queen_summary_surfaces_explicit_actions() {
+        let response = HiveQueenResponse {
+            queen_session: "session-queen".to_string(),
+            suggested_actions: vec![
+                "reroute Lorentz off crates/memd-client/src/main.rs".to_string(),
+                "retire stale bee session-old".to_string(),
+            ],
+            recent_receipts: vec![
+                "queen_assign session-lorentz review-parser".to_string(),
+                "queen_deny session-avicenna overlap-main-rs".to_string(),
+            ],
+        };
+
+        let summary = render_hive_queen_summary(&response);
+        assert!(summary.contains("queen=session-queen"));
+        assert!(summary.contains("reroute Lorentz"));
+        assert!(summary.contains("queen_deny session-avicenna"));
+    }
+
+    #[test]
     fn build_hive_heartbeat_derives_first_class_intent_fields() {
         let dir =
             std::env::temp_dir().join(format!("memd-heartbeat-intent-{}", uuid::Uuid::new_v4()));
@@ -52811,42 +52973,27 @@ mod tests {
 
     #[test]
     fn build_benchmark_gap_candidates_surfaces_unbenchmarked_continuity_feature() {
-        let registry = BenchmarkRegistry {
-            version: "v1".to_string(),
-            app_goal: "demo".to_string(),
-            quality_dimensions: Vec::new(),
-            tiers: Vec::new(),
-            pillars: Vec::new(),
-            families: Vec::new(),
-            features: vec![BenchmarkFeatureRecord {
-                id: "feature.bundle.resume".to_string(),
-                name: "Resume".to_string(),
-                pillar: "memory-continuity".to_string(),
-                family: "bundle-runtime".to_string(),
-                tier: "tier-0-continuity-critical".to_string(),
-                continuity_critical: true,
-                user_contract: "resume restores continuity".to_string(),
-                source_contract_refs: Vec::new(),
-                commands: vec!["memd resume".to_string()],
-                routes: Vec::new(),
-                files: vec!["crates/memd-client/src/main.rs".to_string()],
-                journey_ids: Vec::new(),
-                loop_ids: Vec::new(),
-                quality_dimensions: vec!["continuity".to_string()],
-                drift_risks: vec!["continuity-drift".to_string()],
-                failure_modes: vec!["resume misses task state".to_string()],
-                coverage_status: "unbenchmarked".to_string(),
-                last_verified_at: None,
-            }],
-            journeys: Vec::new(),
-            loops: Vec::new(),
-            scorecards: Vec::new(),
-            evidence: Vec::new(),
-            gates: Vec::new(),
-            baseline_modes: Vec::new(),
-            runtime_policies: Vec::new(),
-            generated_at: None,
-        };
+        let mut registry = test_benchmark_registry();
+        registry.features = vec![BenchmarkFeatureRecord {
+            id: "feature.bundle.resume".to_string(),
+            name: "Resume".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            tier: "tier-0-continuity-critical".to_string(),
+            continuity_critical: true,
+            user_contract: "resume restores continuity".to_string(),
+            source_contract_refs: Vec::new(),
+            commands: vec!["memd resume".to_string()],
+            routes: Vec::new(),
+            files: vec!["crates/memd-client/src/main.rs".to_string()],
+            journey_ids: Vec::new(),
+            loop_ids: Vec::new(),
+            quality_dimensions: vec!["continuity".to_string()],
+            drift_risks: vec!["continuity-drift".to_string()],
+            failure_modes: vec!["resume misses task state".to_string()],
+            coverage_status: "unbenchmarked".to_string(),
+            last_verified_at: None,
+        }];
 
         let gaps = build_benchmark_gap_candidates(&registry);
         assert!(
