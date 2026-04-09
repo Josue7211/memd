@@ -20799,9 +20799,35 @@ fn write_bundle_command_catalog_files(output: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn render_authority_warning_markdown(output: &Path) -> String {
+    let authority_warning = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| authority_warning_lines(Some(&runtime)))
+        .unwrap_or_default();
+    if authority_warning.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "## Session Start Warning\n\n{}\n\n",
+        authority_warning
+            .iter()
+            .map(|line| format!("- {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
+    let authority_warning = render_authority_warning_markdown(output);
+    let markdown = if authority_warning.is_empty() {
+        markdown.to_string()
+    } else {
+        format!("{authority_warning}{markdown}")
+    };
     let root_memory = output.join("MEMD_MEMORY.md");
-    fs::write(&root_memory, markdown)
+    fs::write(&root_memory, &markdown)
         .with_context(|| format!("write {}", root_memory.display()))?;
 
     let agents_dir = output.join("agents");
@@ -20818,14 +20844,20 @@ fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
         "HERMES_MEMORY.md",
     ] {
         let path = agents_dir.join(file_name);
-        fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
+        fs::write(&path, &markdown).with_context(|| format!("write {}", path.display()))?;
     }
     Ok(())
 }
 
 fn write_wakeup_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<()> {
+    let authority_warning = render_authority_warning_markdown(output);
+    let markdown = if authority_warning.is_empty() {
+        markdown.to_string()
+    } else {
+        format!("{authority_warning}{markdown}")
+    };
     let root_wakeup = output.join("MEMD_WAKEUP.md");
-    fs::write(&root_wakeup, markdown)
+    fs::write(&root_wakeup, &markdown)
         .with_context(|| format!("write {}", root_wakeup.display()))?;
 
     let agents_dir = output.join("agents");
@@ -20842,7 +20874,7 @@ fn write_wakeup_markdown_files(output: &Path, markdown: &str) -> anyhow::Result<
         "HERMES_WAKEUP.md",
     ] {
         let path = agents_dir.join(file_name);
-        fs::write(&path, markdown).with_context(|| format!("write {}", path.display()))?;
+        fs::write(&path, &markdown).with_context(|| format!("write {}", path.display()))?;
     }
     Ok(())
 }
@@ -25031,7 +25063,19 @@ struct BenchmarkRegistryDocsReport {
     loops_markdown: String,
     coverage_markdown: String,
     scores_markdown: String,
+    morning_markdown: String,
     continuity_journey_report: Option<ContinuityJourneyReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MorningOperatorSummary {
+    current_benchmark_score: u8,
+    current_benchmark_max_score: u8,
+    top_continuity_failures: Vec<String>,
+    top_drift_risks: Vec<String>,
+    top_token_regressions: Vec<String>,
+    top_no_memd_losses: Vec<String>,
+    proposed_next_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25070,6 +25114,13 @@ fn build_benchmark_registry_docs_report(
         continuity_journey_report.as_ref(),
         comparative_report.as_ref(),
     );
+    let morning_summary = build_morning_operator_summary(
+        registry,
+        benchmark,
+        comparative_report.as_ref(),
+        continuity_journey_report.as_ref(),
+    );
+    let morning_markdown = render_morning_operator_summary(&morning_summary);
 
     BenchmarkRegistryDocsReport {
         _repo_root: repo_root.to_path_buf(),
@@ -25080,6 +25131,7 @@ fn build_benchmark_registry_docs_report(
         loops_markdown,
         coverage_markdown,
         scores_markdown,
+        morning_markdown,
         continuity_journey_report,
     }
 }
@@ -25107,6 +25159,9 @@ fn write_benchmark_registry_docs(
         .with_context(|| format!("write {}", coverage_path.display()))?;
     fs::write(&scores_path, &report.scores_markdown)
         .with_context(|| format!("write {}", scores_path.display()))?;
+    let morning_path = benchmark_registry_markdown_path(repo_root, "MORNING.md");
+    fs::write(&morning_path, &report.morning_markdown)
+        .with_context(|| format!("write {}", morning_path.display()))?;
     if let Some(continuity_journey_report) = report.continuity_journey_report.as_ref() {
         write_continuity_journey_artifacts(
             Path::new(&benchmark.bundle_root),
@@ -25359,6 +25414,146 @@ fn render_benchmark_registry_scores_markdown(
                 markdown.push_str(&format!("  - {}\n", reason));
             }
         }
+    }
+    markdown.push('\n');
+    markdown
+}
+
+fn build_morning_operator_summary(
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+    comparative_report: Option<&NoMemdDeltaReport>,
+    continuity_journey_report: Option<&ContinuityJourneyReport>,
+) -> MorningOperatorSummary {
+    let mut top_continuity_failures = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical && feature.coverage_status != "verified")
+        .map(|feature| {
+            format!(
+                "{} [{}] coverage={} drift={}",
+                feature.id,
+                feature.family,
+                feature.coverage_status,
+                feature.drift_risks.join("|")
+            )
+        })
+        .collect::<Vec<_>>();
+    if top_continuity_failures.is_empty() {
+        if let Some(journey) = continuity_journey_report {
+            top_continuity_failures.push(format!(
+                "{} gate={} score={}",
+                journey.journey_id,
+                journey.gate_decision.gate,
+                journey.gate_decision.resolved_score
+            ));
+        } else {
+            top_continuity_failures
+                .push("no continuity-critical benchmark gaps detected".to_string());
+        }
+    }
+    top_continuity_failures.truncate(5);
+
+    let mut top_drift_risks = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical)
+        .flat_map(|feature| feature.drift_risks.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if top_drift_risks.is_empty() {
+        top_drift_risks.push("no drift risks surfaced yet".to_string());
+    }
+    top_drift_risks.truncate(5);
+
+    let mut top_token_regressions = Vec::new();
+    if let Some(report) = comparative_report {
+        top_token_regressions.push(format!(
+            "no-memd prompt tokens={} with-memd prompt tokens={} delta={}",
+            report.no_memd.prompt_tokens, report.with_memd.prompt_tokens, report.token_delta
+        ));
+        top_token_regressions.push(format!(
+            "no-memd rereads={} with-memd rereads={} delta={}",
+            report.no_memd.reread_count, report.with_memd.reread_count, report.reread_delta
+        ));
+    } else {
+        top_token_regressions.push("no comparative token baseline available yet".to_string());
+    }
+    if let Some(area) = benchmark.areas.iter().find(|area| area.status != "pass") {
+        top_token_regressions.push(format!(
+            "{} scored {}/{} and still needs tightening",
+            area.name, area.score, area.max_score
+        ));
+    }
+    top_token_regressions.truncate(5);
+
+    let mut top_no_memd_losses = Vec::new();
+    if let Some(report) = comparative_report {
+        if report.with_memd_better {
+            top_no_memd_losses.push(format!(
+                "with memd beats no memd by {} tokens, {} rereads, and {} reconstruction steps",
+                report.token_delta, report.reread_delta, report.reconstruction_delta
+            ));
+        } else {
+            top_no_memd_losses.push(format!(
+                "with memd is not yet better than no memd: token_delta={} reread_delta={} reconstruction_delta={}",
+                report.token_delta, report.reread_delta, report.reconstruction_delta
+            ));
+        }
+    } else {
+        top_no_memd_losses.push("no-memd comparison not available yet".to_string());
+    }
+    top_no_memd_losses.truncate(5);
+
+    let mut proposed_next_actions = benchmark
+        .recommendations
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if proposed_next_actions.is_empty() {
+        proposed_next_actions
+            .push("benchmark the remaining continuity-critical features".to_string());
+    }
+    proposed_next_actions.truncate(5);
+
+    MorningOperatorSummary {
+        current_benchmark_score: benchmark.score,
+        current_benchmark_max_score: benchmark.max_score,
+        top_continuity_failures,
+        top_drift_risks,
+        top_token_regressions,
+        top_no_memd_losses,
+        proposed_next_actions,
+    }
+}
+
+fn render_morning_operator_summary(summary: &MorningOperatorSummary) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd morning summary\n\n");
+    markdown.push_str(&format!(
+        "- Current benchmark score: `{}/{}`\n",
+        summary.current_benchmark_score, summary.current_benchmark_max_score
+    ));
+    markdown.push_str("\n## Continuity Failures\n");
+    for item in &summary.top_continuity_failures {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## Drift Risks\n");
+    for item in &summary.top_drift_risks {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## Token Regressions\n");
+    for item in &summary.top_token_regressions {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## With memd vs No memd\n");
+    for item in &summary.top_no_memd_losses {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## Next Actions\n");
+    for item in &summary.proposed_next_actions {
+        markdown.push_str(&format!("- {}\n", item));
     }
     markdown.push('\n');
     markdown
@@ -37827,6 +38022,56 @@ mod tests {
     }
 
     #[test]
+    fn fallback_memory_and_wakeup_surfaces_include_authority_warning() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-authority-markdown-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task",
+  "authority_policy": {{
+    "shared_primary": true,
+    "localhost_fallback_policy": "allow_read_only"
+  }},
+  "authority_state": {{
+    "mode": "localhost_read_only",
+    "degraded": true,
+    "shared_base_url": "{}",
+    "fallback_base_url": "http://127.0.0.1:8787",
+    "reason": "tailscale is unavailable"
+  }}
+}}
+"#,
+                SHARED_MEMD_BASE_URL, SHARED_MEMD_BASE_URL
+            ),
+        )
+        .expect("write config");
+
+        write_memory_markdown_files(&dir, "# memd memory\n\nbody\n").expect("write memory");
+        write_wakeup_markdown_files(&dir, "# memd wake-up\n\nbody\n").expect("write wakeup");
+
+        let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
+        let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
+        assert!(memory.contains("## Session Start Warning"));
+        assert!(memory.contains("shared authority unavailable"));
+        assert!(wakeup.contains("## Session Start Warning"));
+        assert!(wakeup.contains("localhost fallback is lower trust"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
     fn copies_hook_assets_with_live_capture_scripts() {
         let dir = std::env::temp_dir().join(format!("memd-hook-assets-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create hook temp dir");
@@ -49542,6 +49787,7 @@ mod tests {
         assert!(benchmark_registry_markdown_path(&loaded_root, "LOOPS.md").exists());
         assert!(benchmark_registry_markdown_path(&loaded_root, "COVERAGE.md").exists());
         assert!(benchmark_registry_markdown_path(&loaded_root, "SCORES.md").exists());
+        assert!(benchmark_registry_markdown_path(&loaded_root, "MORNING.md").exists());
         assert!(
             benchmark_telemetry_dir(&output)
                 .join("latest.json")
@@ -49609,6 +49855,7 @@ mod tests {
         assert!(benchmark_registry_markdown_path(&repo_root, "LOOPS.md").exists());
         assert!(benchmark_registry_markdown_path(&repo_root, "COVERAGE.md").exists());
         assert!(benchmark_registry_markdown_path(&repo_root, "SCORES.md").exists());
+        assert!(benchmark_registry_markdown_path(&repo_root, "MORNING.md").exists());
         assert!(
             benchmark_telemetry_dir(Path::new(&benchmark.bundle_root))
                 .join("latest.json")
@@ -49626,8 +49873,31 @@ mod tests {
         ))
         .expect("read benchmarks md");
         assert!(benchmarks_md.contains("Current benchmark score"));
+        let morning_md =
+            fs::read_to_string(benchmark_registry_markdown_path(&repo_root, "MORNING.md"))
+                .expect("read morning md");
+        assert!(morning_md.contains("# memd morning summary"));
+        assert!(morning_md.contains("Continuity Failures"));
 
         fs::remove_dir_all(dir).expect("cleanup benchmark registry docs dir");
+    }
+
+    #[test]
+    fn render_morning_operator_summary_surfaces_top_regressions() {
+        let summary = render_morning_operator_summary(&MorningOperatorSummary {
+            current_benchmark_score: 88,
+            current_benchmark_max_score: 100,
+            top_continuity_failures: vec!["resume continuity drift".to_string()],
+            top_drift_risks: vec!["surface drift in MEMD_MEMORY.md".to_string()],
+            top_token_regressions: vec!["handoff packet +420 tokens".to_string()],
+            top_no_memd_losses: vec!["resume still loses to no-memd baseline".to_string()],
+            proposed_next_actions: vec!["fix resume journey before expanding registry".to_string()],
+        });
+
+        assert!(summary.contains("resume continuity drift"));
+        assert!(summary.contains("handoff packet +420 tokens"));
+        assert!(summary.contains("fix resume journey before expanding registry"));
+        assert!(summary.contains("# memd morning summary"));
     }
 
     #[test]
