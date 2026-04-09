@@ -1718,6 +1718,15 @@ struct CoordinationArgs {
     to_session: Option<String>,
 
     #[arg(long)]
+    deny_session: Option<String>,
+
+    #[arg(long)]
+    reroute_session: Option<String>,
+
+    #[arg(long)]
+    handoff_scope: Option<String>,
+
+    #[arg(long)]
     summary: bool,
 }
 
@@ -18760,6 +18769,11 @@ async fn run_coordination_command(
     let current_project = runtime.as_ref().and_then(|config| config.project.clone());
     let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+    let lane_fault = detect_bundle_lane_collision(&args.output, Some(current_session.as_str()))
+        .await?
+        .and_then(|conflict| {
+            build_lane_fault_surface(&args.output, Some(current_session.as_str()), &conflict)
+        });
     let claims = client
         .hive_claims(&HiveClaimsRequest {
             session: None,
@@ -18842,6 +18856,78 @@ async fn run_coordination_command(
                 "Retired {} session record(s) for {} session {}.",
                 retired_sessions, stale_entry.presence, retire_session
             ),
+        )
+        .await?;
+    }
+
+    if let Some(deny_session) = args
+        .deny_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        emit_coordination_receipt(
+            &client,
+            "queen_deny",
+            &current_session,
+            current_effective_agent.clone(),
+            Some(deny_session.to_string()),
+            None,
+            None,
+            runtime.as_ref().and_then(|config| config.project.clone()),
+            runtime.as_ref().and_then(|config| config.namespace.clone()),
+            runtime.as_ref().and_then(|config| config.workspace.clone()),
+            format!("Queen denied overlapping lane or scope work for session {deny_session}."),
+        )
+        .await?;
+    }
+
+    if let Some(reroute_session) = args
+        .reroute_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        emit_coordination_receipt(
+            &client,
+            "queen_reroute",
+            &current_session,
+            current_effective_agent.clone(),
+            Some(reroute_session.to_string()),
+            None,
+            None,
+            runtime.as_ref().and_then(|config| config.project.clone()),
+            runtime.as_ref().and_then(|config| config.namespace.clone()),
+            runtime.as_ref().and_then(|config| config.workspace.clone()),
+            format!("Queen ordered session {reroute_session} onto a new isolated lane."),
+        )
+        .await?;
+    }
+
+    if let Some(handoff_scope) = args
+        .handoff_scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let target_session = args
+            .to_session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .context("coordination --handoff-scope requires --to-session")?;
+        emit_coordination_receipt(
+            &client,
+            "queen_handoff",
+            &current_session,
+            current_effective_agent.clone(),
+            Some(target_session.to_string()),
+            None,
+            Some(handoff_scope.to_string()),
+            runtime.as_ref().and_then(|config| config.project.clone()),
+            runtime.as_ref().and_then(|config| config.namespace.clone()),
+            runtime.as_ref().and_then(|config| config.workspace.clone()),
+            format!("Queen handed off scope {handoff_scope} to session {target_session}."),
         )
         .await?;
     }
@@ -19015,6 +19101,11 @@ async fn run_coordination_command(
         })
         .await?
         .receipts;
+    let lane_receipts = receipts
+        .iter()
+        .filter(|receipt| receipt.kind.starts_with("lane_") || receipt.kind.starts_with("queen_"))
+        .cloned()
+        .collect::<Vec<_>>();
     let policy_conflicts = tasks
         .iter()
         .filter(|task| task.coordination_mode == "exclusive_write")
@@ -19063,6 +19154,8 @@ async fn run_coordination_command(
         &tasks,
         &current_session,
         &policy_conflicts,
+        lane_fault.as_ref(),
+        &lane_receipts,
     );
     Ok(CoordinationResponse {
         bundle_root: args.output.display().to_string(),
@@ -19104,6 +19197,8 @@ async fn run_coordination_command(
                 .cloned()
                 .collect(),
         },
+        lane_fault,
+        lane_receipts,
         policy_conflicts,
         suggestions,
         boundary_recommendations: suggest_boundary_recommendations(
@@ -19146,11 +19241,17 @@ fn render_coordination_summary(response: &CoordinationResponse, view: Option<&st
             response.recovery.retireable_sessions.len(),
         ),
         format!(
-            "policy conflicts={} recommendations={} suggestions={} receipts={}",
+            "policy conflicts={} recommendations={} suggestions={} receipts={} lane_fault={} lane_receipts={}",
             response.policy_conflicts.len(),
             response.boundary_recommendations.len(),
             response.suggestions.len(),
             response.receipts.len(),
+            if response.lane_fault.is_some() {
+                "yes"
+            } else {
+                "no"
+            },
+            response.lane_receipts.len(),
         ),
     ];
     if matches!(view, "all" | "overview" | "inbox") {
@@ -19169,6 +19270,8 @@ fn suggest_coordination_actions(
     tasks: &[HiveTaskRecord],
     current_session: &str,
     policy_conflicts: &[String],
+    lane_fault: Option<&JsonValue>,
+    lane_receipts: &[HiveCoordinationReceiptRecord],
 ) -> Vec<CoordinationSuggestion> {
     let mut suggestions = Vec::new();
     let mut emitted = Vec::<(
@@ -19240,6 +19343,78 @@ fn suggest_coordination_actions(
                 stale_session: None,
             };
             push_unique(suggestion, &mut emitted, &mut suggestions);
+        }
+    }
+
+    if let Some(lane_fault) = lane_fault {
+        let target_session = lane_fault
+            .get("session")
+            .and_then(JsonValue::as_str)
+            .map(str::to_string);
+        if let Some(target_session) = target_session.clone() {
+            push_unique(
+                CoordinationSuggestion {
+                    action: "deny_lane".to_string(),
+                    priority: "high".to_string(),
+                    target_session: Some(target_session.clone()),
+                    task_id: None,
+                    scope: None,
+                    message_id: None,
+                    reason: format!(
+                        "Queen should deny unsafe lane overlap with {}.",
+                        lane_fault
+                            .get("kind")
+                            .and_then(JsonValue::as_str)
+                            .unwrap_or("unknown")
+                    ),
+                    stale_session: None,
+                },
+                &mut emitted,
+                &mut suggestions,
+            );
+            push_unique(
+                CoordinationSuggestion {
+                    action: "reroute_lane".to_string(),
+                    priority: "high".to_string(),
+                    target_session: Some(target_session),
+                    task_id: None,
+                    scope: None,
+                    message_id: None,
+                    reason:
+                        "Queen should reroute the conflicting session onto a fresh worker lane."
+                            .to_string(),
+                    stale_session: None,
+                },
+                &mut emitted,
+                &mut suggestions,
+            );
+        }
+    }
+
+    if lane_receipts
+        .iter()
+        .any(|receipt| receipt.kind == "lane_fault")
+    {
+        for task in inbox.owned_tasks.iter().take(2) {
+            if let Some(scope) = task.claim_scopes.first() {
+                push_unique(
+                    CoordinationSuggestion {
+                        action: "handoff_scope".to_string(),
+                        priority: "medium".to_string(),
+                        target_session: None,
+                        task_id: Some(task.task_id.clone()),
+                        scope: Some(scope.clone()),
+                        message_id: None,
+                        reason: format!(
+                            "Queen should resolve lane conflict by explicit handoff for scope {}.",
+                            scope
+                        ),
+                        stale_session: None,
+                    },
+                    &mut emitted,
+                    &mut suggestions,
+                );
+            }
         }
     }
 
@@ -19455,6 +19630,7 @@ fn append_coordination_sections(
     let show_inbox = show_all || view == "inbox";
     let show_requests = show_all || view == "requests";
     let show_recovery = show_all || view == "recovery";
+    let show_lanes = show_all || view == "lanes";
     let show_policy = show_all || view == "policy";
     let show_suggestions = show_all || view == "suggestions";
     let show_history = show_all || view == "history";
@@ -19545,6 +19721,38 @@ fn append_coordination_sections(
                     .as_deref()
                     .or(task.session.as_deref())
                     .unwrap_or("none")
+            ));
+        }
+    }
+    if show_lanes && (response.lane_fault.is_some() || !response.lane_receipts.is_empty()) {
+        lines.push("".to_string());
+        lines.push("## Lanes".to_string());
+        if let Some(lane_fault) = response.lane_fault.as_ref() {
+            lines.push(format!(
+                "- fault {} session={} branch={} worktree={}",
+                lane_fault
+                    .get("kind")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("none"),
+                lane_fault
+                    .get("session")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("none"),
+                lane_fault
+                    .get("branch")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("none"),
+                lane_fault
+                    .get("worktree_root")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("none"),
+            ));
+        }
+        for receipt in response.lane_receipts.iter().take(6) {
+            lines.push(format!(
+                "- lane [{}] {}",
+                receipt.kind,
+                compact_inline(&receipt.summary, 96)
             ));
         }
     }
@@ -19885,6 +20093,8 @@ fn build_coordination_alert_snapshot(response: &CoordinationResponse) -> Coordin
         owned_count: response.inbox.owned_tasks.len(),
         help_count: response.inbox.help_tasks.len(),
         review_count: response.inbox.review_tasks.len(),
+        lane_fault_count: usize::from(response.lane_fault.is_some()),
+        lane_receipt_count: response.lane_receipts.len(),
         stale_hive_count: response.recovery.stale_hives.len(),
         reclaimable_claim_count: response.recovery.reclaimable_claims.len(),
         stalled_task_count: response.recovery.stalled_tasks.len(),
@@ -19941,6 +20151,18 @@ fn render_coordination_snapshot_alerts(
             current.reclaimable_claim_count,
             previous.stalled_task_count,
             current.stalled_task_count
+        ));
+    }
+    if (show_all || view == "lanes")
+        && (previous.lane_fault_count != current.lane_fault_count
+            || previous.lane_receipt_count != current.lane_receipt_count)
+    {
+        alerts.push(format!(
+            "alert lanes faults {}->{} receipts {}->{}",
+            previous.lane_fault_count,
+            current.lane_fault_count,
+            previous.lane_receipt_count,
+            current.lane_receipt_count
         ));
     }
     if (show_all || view == "policy")
@@ -20009,11 +20231,13 @@ fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> 
             response.bundle_root, response.current_session, response.view, response.changed
         ),
         format!(
-            "snapshot messages={} owned={} help={} review={} stale={} reclaimable={} stalled={} conflicts={} recommendations={} suggestions={} latest_receipt={}",
+            "snapshot messages={} owned={} help={} review={} lane_faults={} lane_receipts={} stale={} reclaimable={} stalled={} conflicts={} recommendations={} suggestions={} latest_receipt={}",
             response.snapshot.message_count,
             response.snapshot.owned_count,
             response.snapshot.help_count,
             response.snapshot.review_count,
+            response.snapshot.lane_fault_count,
+            response.snapshot.lane_receipt_count,
             response.snapshot.stale_hive_count,
             response.snapshot.reclaimable_claim_count,
             response.snapshot.stalled_task_count,
@@ -20876,6 +21100,9 @@ async fn apply_improvement_action(
                     recover_session: action.target_session.clone(),
                     retire_session: None,
                     to_session: None,
+                    deny_session: None,
+                    reroute_session: None,
+                    handoff_scope: None,
                     summary: false,
                 },
                 base_url,
@@ -20901,6 +21128,9 @@ async fn apply_improvement_action(
                     recover_session: None,
                     retire_session: Some(target_session.clone()),
                     to_session: None,
+                    deny_session: None,
+                    reroute_session: None,
+                    handoff_scope: None,
                     summary: false,
                 },
                 base_url,
@@ -21763,6 +21993,9 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
                 recover_session: None,
                 retire_session: None,
                 to_session: None,
+                deny_session: None,
+                reroute_session: None,
+                handoff_scope: None,
                 summary: false,
             },
             &base_url,
@@ -21885,6 +22118,9 @@ async fn run_improvement_loop(
                     recover_session: None,
                     retire_session: None,
                     to_session: None,
+                    deny_session: None,
+                    reroute_session: None,
+                    handoff_scope: None,
                     summary: false,
                 },
                 base_url,
@@ -22131,6 +22367,9 @@ async fn run_scenario_command(
                 recover_session: None,
                 retire_session: None,
                 to_session: None,
+                deny_session: None,
+                reroute_session: None,
+                handoff_scope: None,
                 summary: false,
             },
             base_url,
@@ -22733,6 +22972,9 @@ async fn run_composite_command(
                 recover_session: None,
                 retire_session: None,
                 to_session: None,
+                deny_session: None,
+                reroute_session: None,
+                handoff_scope: None,
                 summary: false,
             },
             base_url,
@@ -33747,6 +33989,8 @@ struct CoordinationResponse {
     current_session: String,
     inbox: HiveCoordinationInboxResponse,
     recovery: CoordinationRecoverySummary,
+    lane_fault: Option<JsonValue>,
+    lane_receipts: Vec<HiveCoordinationReceiptRecord>,
     policy_conflicts: Vec<String>,
     suggestions: Vec<CoordinationSuggestion>,
     boundary_recommendations: Vec<String>,
@@ -33786,6 +34030,8 @@ struct CoordinationAlertSnapshot {
     owned_count: usize,
     help_count: usize,
     review_count: usize,
+    lane_fault_count: usize,
+    lane_receipt_count: usize,
     stale_hive_count: usize,
     reclaimable_claim_count: usize,
     stalled_task_count: usize,
@@ -34320,6 +34566,43 @@ mod tests {
         Json(HiveCoordinationReceiptsResponse {
             receipts: vec![receipt],
         })
+    }
+
+    async fn mock_runtime_receipts(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<HiveCoordinationReceiptsRequest>,
+    ) -> Json<HiveCoordinationReceiptsResponse> {
+        let receipts = state
+            .receipts
+            .lock()
+            .expect("lock runtime receipts")
+            .iter()
+            .filter(|receipt| {
+                req.session
+                    .as_ref()
+                    .is_none_or(|value| receipt.actor_session == *value)
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|value| receipt.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| receipt.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| receipt.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(HiveCoordinationReceiptsResponse { receipts })
+    }
+
+    async fn mock_runtime_claims(
+        Query(_req): Query<HiveClaimsRequest>,
+    ) -> Json<HiveClaimsResponse> {
+        Json(HiveClaimsResponse { claims: Vec::new() })
     }
 
     async fn mock_record_skill_policy_apply(
@@ -35022,12 +35305,14 @@ mod tests {
             .route("/memory/repair", post(mock_repair_memory))
             .route("/coordination/inbox", get(mock_hive_coordination_inbox))
             .route("/coordination/tasks", get(mock_hive_tasks))
+            .route("/coordination/claims", get(mock_runtime_claims))
             .route("/coordination/sessions/upsert", hive_route)
             .route("/coordination/sessions", get(mock_hive_sessions))
             .route(
                 "/coordination/receipts/record",
                 post(mock_runtime_record_receipt),
             )
+            .route("/coordination/receipts", get(mock_runtime_receipts))
             .route(
                 "/coordination/sessions/retire",
                 post(mock_hive_session_retire),
@@ -43597,6 +43882,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_coordination_command_records_queen_decisions() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-coordination-queen-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("state")).expect("create temp dir");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "queen-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+
+        let response = run_coordination_command(
+            &CoordinationArgs {
+                output: dir.clone(),
+                view: Some("lanes".to_string()),
+                changes_only: false,
+                watch: false,
+                interval_secs: 30,
+                recover_session: None,
+                retire_session: None,
+                to_session: Some("bee-b".to_string()),
+                deny_session: Some("bee-b".to_string()),
+                reroute_session: Some("bee-c".to_string()),
+                handoff_scope: Some("file:src/main.rs".to_string()),
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("coordination response");
+
+        assert!(
+            response
+                .lane_receipts
+                .iter()
+                .any(|receipt| receipt.kind == "queen_deny")
+        );
+        assert!(
+            response
+                .lane_receipts
+                .iter()
+                .any(|receipt| receipt.kind == "queen_reroute")
+        );
+        assert!(
+            response
+                .lane_receipts
+                .iter()
+                .any(|receipt| receipt.kind == "queen_handoff")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
     async fn read_bundle_status_reports_live_session_rebind() {
         let _home_lock = lock_home_mutation();
         let temp_root =
@@ -44684,6 +45038,8 @@ mod tests {
             &tasks,
             "codex",
             &policy_conflicts,
+            None,
+            &[],
         );
 
         assert_eq!(
@@ -44725,6 +45081,8 @@ mod tests {
             &[],
             &[],
             "codex",
+            &[],
+            None,
             &[],
         );
 
@@ -45206,6 +45564,8 @@ mod tests {
                 stalled_tasks: Vec::new(),
                 retireable_sessions: Vec::new(),
             },
+            lane_fault: None,
+            lane_receipts: Vec::new(),
             policy_conflicts: Vec::new(),
             suggestions: (0..10)
                 .map(|index| CoordinationSuggestion {
@@ -45278,6 +45638,8 @@ mod tests {
                 stalled_tasks: Vec::new(),
                 retireable_sessions: Vec::new(),
             },
+            lane_fault: None,
+            lane_receipts: Vec::new(),
             policy_conflicts: Vec::new(),
             suggestions: vec![CoordinationSuggestion {
                 action: "retire_session".to_string(),
@@ -45348,6 +45710,26 @@ mod tests {
                         last_updated: Some(Utc::now()),
                     }],
                 },
+                lane_fault: Some(serde_json::json!({
+                    "kind": "unsafe_same_branch",
+                    "session": "claude-b",
+                    "branch": "feature/hive-shared",
+                    "worktree_root": "/tmp/worktree"
+                })),
+                lane_receipts: vec![HiveCoordinationReceiptRecord {
+                    id: "lane-1".to_string(),
+                    kind: "queen_deny".to_string(),
+                    actor_session: "queen".to_string(),
+                    actor_agent: Some("codex@queen".to_string()),
+                    target_session: Some("claude-b".to_string()),
+                    task_id: None,
+                    scope: None,
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    summary: "Queen denied overlap".to_string(),
+                    created_at: Utc::now(),
+                }],
                 policy_conflicts: Vec::new(),
                 suggestions: Vec::new(),
                 boundary_recommendations: Vec::new(),
@@ -45357,6 +45739,8 @@ mod tests {
         );
 
         assert!(summary.contains("retireable_sessions=1"));
+        assert!(summary.contains("lane_fault=yes"));
+        assert!(summary.contains("lane_receipts=1"));
     }
 
     #[test]
