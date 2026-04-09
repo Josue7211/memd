@@ -23319,7 +23319,8 @@ fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
             entry.status = "blocked_no_base".to_string();
             continue;
         };
-        if git_worktree_conflicts_with_branch(root, &base_branch, &entry.branch) {
+        let worktree_dirty = git_worktree_dirty(root);
+        if worktree_dirty && git_worktree_conflicts_with_branch(root, &base_branch, &entry.branch) {
             entry.status = "blocked_dirty_worktree".to_string();
             continue;
         }
@@ -23337,7 +23338,11 @@ fn process_evolution_merge_queue(output: &Path) -> anyhow::Result<()> {
             "merge_ready".to_string()
         };
         if evaluated_status == "merge_ready" {
-            entry.status = execute_evolution_merge(output, root, entry, &base_branch)?;
+            entry.status = if worktree_dirty {
+                execute_evolution_merge_in_isolated_worktree(output, root, entry, &base_branch)?
+            } else {
+                execute_evolution_merge(output, root, entry, &base_branch)?
+            };
         } else {
             entry.status = evaluated_status;
         }
@@ -23454,6 +23459,83 @@ fn execute_evolution_merge(
     append_evolution_durability_transition(output, entry, "merged", false)?;
     append_evolution_authority_transition(output, entry, "merged", false)?;
     Ok("merged".to_string())
+}
+
+fn execute_evolution_merge_in_isolated_worktree(
+    output: &Path,
+    root: &Path,
+    entry: &EvolutionMergeQueueEntry,
+    base_branch: &str,
+) -> anyhow::Result<String> {
+    let base_sha = match git_stdout(root, &["rev-parse", base_branch]) {
+        Some(value) => value,
+        None => return Ok("blocked_no_base".to_string()),
+    };
+    let tempdir =
+        std::env::temp_dir().join(format!("memd-evolution-merge-{}", uuid::Uuid::new_v4()));
+    let add_status = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("worktree")
+        .arg("add")
+        .arg("--detach")
+        .arg(&tempdir)
+        .arg(&base_sha)
+        .status();
+    let Ok(add_status) = add_status else {
+        return Ok("merge_error".to_string());
+    };
+    if !add_status.success() {
+        return Ok("merge_error".to_string());
+    }
+
+    let result = (|| -> anyhow::Result<String> {
+        let merge_status = Command::new("git")
+            .arg("-C")
+            .arg(&tempdir)
+            .arg("merge")
+            .arg("--ff-only")
+            .arg(&entry.branch)
+            .status()
+            .context("run isolated ff merge")?;
+        if !merge_status.success() {
+            return Ok("merge_conflict".to_string());
+        }
+
+        let Some(merged_sha) = git_stdout(&tempdir, &["rev-parse", "HEAD"]) else {
+            return Ok("merge_error".to_string());
+        };
+        let update_status = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("update-ref")
+            .arg(format!("refs/heads/{base_branch}"))
+            .arg(&merged_sha)
+            .arg(&base_sha)
+            .status()
+            .context("update branch ref after isolated merge")?;
+        if !update_status.success() {
+            return Ok("merge_error".to_string());
+        }
+
+        let due_at = Some(Utc::now() + chrono::TimeDelta::hours(1));
+        transition_evolution_proposal_state(output, &entry.proposal_id, "merged", false, due_at)?;
+        transition_evolution_branch_state(output, &entry.proposal_id, "merged", false)?;
+        append_evolution_durability_transition(output, entry, "merged", false)?;
+        append_evolution_authority_transition(output, entry, "merged", false)?;
+        Ok("merged".to_string())
+    })();
+
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("worktree")
+        .arg("remove")
+        .arg("--force")
+        .arg(&tempdir)
+        .status();
+
+    result
 }
 
 fn transition_evolution_proposal_state(
@@ -26870,9 +26952,30 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 .unwrap_or(0);
             let delta_total = total as i64 - previous_total as i64;
             let auto_mode = report.mode == "auto";
+            let auto_reason = if auto_mode {
+                "none".to_string()
+            } else if delta_total < 0 {
+                "trend_down".to_string()
+            } else if delta_total == 0 {
+                "trend_flat".to_string()
+            } else if !report.findings.is_empty() {
+                "findings_present".to_string()
+            } else {
+                "none".to_string()
+            };
+            let auto_recommended = auto_reason != "none";
             let history_modes = history
                 .iter()
                 .map(|value| value.mode.clone())
+                .collect::<Vec<_>>();
+            let history_receipts = history
+                .iter()
+                .map(|value| {
+                    value
+                        .receipt_id
+                        .clone()
+                        .unwrap_or_else(|| "none".to_string())
+                })
                 .collect::<Vec<_>>();
             let history_totals = history
                 .iter()
@@ -26881,6 +26984,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             Some(serde_json::json!({
                 "mode": report.mode,
                 "auto_mode": auto_mode,
+                "auto_recommended": auto_recommended,
+                "auto_reason": auto_reason,
                 "receipt": report.receipt_id,
                 "compacted": report.compacted_items,
                 "refreshed": report.refreshed_items,
@@ -26891,6 +26996,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "trend": if delta_total > 0 { "up" } else if delta_total < 0 { "down" } else { "flat" },
                 "previous_mode": previous.as_ref().map(|value| value.mode.clone()),
                 "history_modes": history_modes,
+                "history_receipts": history_receipts,
                 "history_totals": history_totals,
                 "history_count": history.len(),
                 "generated_at": report.generated_at,
@@ -46082,8 +46188,17 @@ mod tests {
         .expect("parse latest branch");
         assert_eq!(latest_branch.status, "merged");
 
-        let readme = fs::read_to_string(root.join("README.md")).expect("read merged readme");
-        assert!(readme.contains("merged change"));
+        let base_head = git_stdout(
+            &root,
+            &[
+                "rev-parse",
+                branch_manifest.base_branch.as_deref().unwrap_or("master"),
+            ],
+        )
+        .expect("read base head");
+        let proposal_head =
+            git_stdout(&root, &["rev-parse", &proposal.branch]).expect("read proposal head");
+        assert_eq!(base_head, proposal_head);
 
         fs::remove_dir_all(root).expect("cleanup temp root");
     }

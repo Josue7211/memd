@@ -833,7 +833,7 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         .and_then(|value| if value.is_null() { None } else { Some(value) })
     {
         output.push_str(&format!(
-            " maintain_mode={} auto={} maintain_receipt={} compacted={} refreshed={} repaired={} findings={} maintain_total={} maintain_delta={} maintain_trend={}",
+            " maintain_mode={} auto={} auto_recommended={} auto_reason={} maintain_receipt={} compacted={} refreshed={} repaired={} findings={} maintain_total={} maintain_delta={} maintain_trend={} history={}",
             maintenance
                 .get("mode")
                 .and_then(Value::as_str)
@@ -847,6 +847,19 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             } else {
                 "no"
             },
+            if maintenance
+                .get("auto_recommended")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "yes"
+            } else {
+                "no"
+            },
+            maintenance
+                .get("auto_reason")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
             maintenance
                 .get("receipt")
                 .and_then(Value::as_str)
@@ -879,6 +892,10 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
                 .get("trend")
                 .and_then(Value::as_str)
                 .unwrap_or("none"),
+            maintenance
+                .get("history_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
         ));
     }
 
@@ -3250,6 +3267,8 @@ mod tests {
             "maintenance_surface": {
                 "mode": "auto",
                 "auto_mode": true,
+                "auto_recommended": false,
+                "auto_reason": "none",
                 "receipt": "r-123",
                 "compacted": 3,
                 "refreshed": 1,
@@ -3257,13 +3276,16 @@ mod tests {
                 "findings": 2,
                 "total_actions": 4,
                 "delta_total_actions": 2,
-                "trend": "up"
+                "trend": "up",
+                "history_count": 2
             }
         });
 
         let summary = render_bundle_status_summary(&status);
         assert!(summary.contains("maintain_mode=auto"));
         assert!(summary.contains("auto=yes"));
+        assert!(summary.contains("auto_recommended=no"));
+        assert!(summary.contains("auto_reason=none"));
         assert!(summary.contains("maintain_receipt=r-123"));
         assert!(summary.contains("compacted=3"));
         assert!(summary.contains("refreshed=1"));
@@ -3272,6 +3294,7 @@ mod tests {
         assert!(summary.contains("maintain_total=4"));
         assert!(summary.contains("maintain_delta=2"));
         assert!(summary.contains("maintain_trend=up"));
+        assert!(summary.contains("history=2"));
     }
 
     #[test]
