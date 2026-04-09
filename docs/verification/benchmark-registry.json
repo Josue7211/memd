@@ -477,6 +477,247 @@
       "status": "active"
     }
   ],
+  "verifiers": [
+    {
+      "id": "verifier.feature.bundle.resume",
+      "name": "Resume feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.resume"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "equals_fixture": "task.id"
+        },
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "exists": true
+        }
+      ],
+      "metrics": ["latency_ms", "prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.journey.resume-handoff-attach",
+      "name": "Resume handoff attach continuity",
+      "type": "journey",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["journey.continuity.resume-handoff-attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd handoff --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd attach --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_handoff_resume_alignment"
+        },
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "equals_fixture": "task.id"
+        }
+      ],
+      "metrics": ["latency_ms", "prompt_tokens", "reconstruction_steps"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["fast", "nightly", "exhaustive"],
+      "helper_hooks": ["assert_handoff_resume_alignment"]
+    },
+    {
+      "id": "verifier.compare.resume-no-memd-vs-with-memd",
+      "name": "Resume no memd vs with memd",
+      "type": "comparative",
+      "pillar": "memory-continuity",
+      "family": "drift-prevention",
+      "subject_ids": ["journey.continuity.resume-handoff-attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["no_mempath", "with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "run_resume_without_memd"
+        },
+        {
+          "kind": "helper",
+          "name": "run_resume_with_memd"
+        },
+        {
+          "kind": "compare",
+          "left": "no_mempath",
+          "right": "with_memd"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_with_memd_not_less_correct"
+        },
+        {
+          "kind": "metric_compare",
+          "metric": "prompt_tokens",
+          "op": "<",
+          "left": "with_memd",
+          "right": "no_mempath"
+        },
+        {
+          "kind": "metric_compare",
+          "metric": "reconstruction_steps",
+          "op": "<",
+          "left": "with_memd",
+          "right": "no_mempath"
+        }
+      ],
+      "metrics": ["prompt_tokens", "rereads", "reconstruction_steps", "correctness"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["nightly", "comparative", "exhaustive"],
+      "helper_hooks": [
+        "run_resume_without_memd",
+        "run_resume_with_memd",
+        "assert_with_memd_not_less_correct"
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "fixture.continuity_bundle",
+      "kind": "bundle_fixture",
+      "description": "Bundle with active task state, checkpoint material, and resumable working memory",
+      "seed_files": ["fixtures/continuity_bundle/config.json"],
+      "seed_config": {
+        "project": "memd",
+        "namespace": "main",
+        "agent": "codex",
+        "route": "auto",
+        "intent": "current_task"
+      },
+      "seed_memories": ["fixtures/continuity_bundle/memories.json"],
+      "seed_events": ["fixtures/continuity_bundle/events.json"],
+      "seed_sessions": [],
+      "seed_claims": [],
+      "seed_vault": null,
+      "backend_mode": "normal",
+      "isolation": "fresh_temp_dir",
+      "cleanup_policy": "destroy"
+    },
+    {
+      "id": "fixture.hive-two-session-bundle",
+      "kind": "bundle_fixture",
+      "description": "Two-session shared hive fixture for coordination proofs",
+      "seed_files": [],
+      "seed_config": {
+        "project": "memd",
+        "namespace": "main",
+        "workspace": "shared",
+        "visibility": "workspace"
+      },
+      "seed_memories": [],
+      "seed_events": [],
+      "seed_sessions": ["sender", "target"],
+      "seed_claims": [],
+      "seed_vault": null,
+      "backend_mode": "normal",
+      "isolation": "fresh_temp_dir",
+      "cleanup_policy": "destroy"
+    }
+  ],
+  "evidence_policies": [
+    {
+      "id": "policy.evidence.continuity-critical",
+      "applies_to": ["tier-0-continuity-critical"],
+      "required_tiers": ["live_primary"],
+      "max_gate_without_live_primary": "acceptable",
+      "comparative_required": true,
+      "freshness_window": "24h",
+      "contradiction_rule": "any unresolved contradictory live evidence caps at fragile"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "schedule.fast",
+      "lane": "fast",
+      "max_tokens": 25000,
+      "max_duration_ms": 15000,
+      "tiers": ["tier-0-continuity-critical"],
+      "default_types": ["feature_contract", "journey", "drift"],
+      "retry_policy": "none",
+      "quarantine_policy": "after_3_failures"
+    },
+    {
+      "id": "schedule.nightly",
+      "lane": "nightly",
+      "max_tokens": 250000,
+      "max_duration_ms": 900000,
+      "tiers": ["tier-0-continuity-critical", "tier-1-truth-critical"],
+      "default_types": ["feature_contract", "journey", "adversarial", "comparative", "drift"],
+      "retry_policy": "retry_once",
+      "quarantine_policy": "after_5_failures"
+    },
+    {
+      "id": "schedule.exhaustive",
+      "lane": "exhaustive",
+      "max_tokens": 1000000,
+      "max_duration_ms": 3600000,
+      "tiers": [
+        "tier-0-continuity-critical",
+        "tier-1-truth-critical",
+        "tier-2-workflow-critical",
+        "tier-3-supporting"
+      ],
+      "default_types": ["feature_contract", "journey", "adversarial", "comparative", "drift"],
+      "retry_policy": "retry_twice",
+      "quarantine_policy": "manual_only"
+    },
+    {
+      "id": "schedule.comparative",
+      "lane": "comparative",
+      "max_tokens": 250000,
+      "max_duration_ms": 1200000,
+      "tiers": ["tier-0-continuity-critical", "tier-1-truth-critical"],
+      "default_types": ["comparative"],
+      "retry_policy": "retry_once",
+      "quarantine_policy": "after_3_failures"
+    }
+  ],
   "scorecards": [],
   "evidence": [],
   "gates": [],

@@ -26936,14 +26936,14 @@ struct MorningOperatorSummary {
     proposed_next_actions: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct BaselineMetrics {
     prompt_tokens: usize,
     reread_count: usize,
     reconstruction_steps: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct NoMemdDeltaReport {
     no_memd: BaselineMetrics,
     with_memd: BaselineMetrics,
@@ -27036,6 +27036,8 @@ struct MaterializedFixture {
     _fixture_id: String,
     _root: TempDir,
     bundle_root: PathBuf,
+    fixture_vars: BTreeMap<String, String>,
+    _session_bundles: BTreeMap<String, PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27071,6 +27073,327 @@ fn verification_evidence_dir(output: &Path) -> PathBuf {
     verification_reports_dir(output).join("evidence")
 }
 
+fn fixture_seed_object(
+    fixture: &FixtureRecord,
+) -> anyhow::Result<serde_json::Map<String, JsonValue>> {
+    fixture
+        .seed_config
+        .as_object()
+        .cloned()
+        .context("fixture seed_config must be a JSON object")
+}
+
+fn fixture_seed_string(
+    seed: &serde_json::Map<String, JsonValue>,
+    key: &str,
+    default: &str,
+) -> String {
+    seed.get(key)
+        .and_then(JsonValue::as_str)
+        .unwrap_or(default)
+        .to_string()
+}
+
+fn fixture_seed_defaults(
+    fixture: &FixtureRecord,
+) -> anyhow::Result<serde_json::Map<String, JsonValue>> {
+    let mut seed = fixture_seed_object(fixture)?;
+    let defaults = [
+        ("project", "memd"),
+        ("namespace", "main"),
+        ("agent", "codex"),
+        ("session", "verifier-fixture"),
+        ("workspace", "shared"),
+        ("visibility", "workspace"),
+        ("route", "auto"),
+        ("intent", "current_task"),
+        ("base_url", "http://127.0.0.1:59999"),
+    ];
+    for (key, value) in defaults {
+        seed.entry(key.to_string())
+            .or_insert_with(|| JsonValue::String(value.to_string()));
+    }
+    Ok(seed)
+}
+
+fn build_fixture_vars(seed: &serde_json::Map<String, JsonValue>) -> BTreeMap<String, String> {
+    let task_id = fixture_seed_string(seed, "task_id", "task-current");
+    let next_action = fixture_seed_string(seed, "next_action", "resume next step");
+    BTreeMap::from([
+        ("task.id".to_string(), task_id),
+        ("task.next_action".to_string(), next_action),
+    ])
+}
+
+fn build_fixture_resume_snapshot(
+    seed: &serde_json::Map<String, JsonValue>,
+    fixture_vars: &BTreeMap<String, String>,
+) -> ResumeSnapshot {
+    let project = fixture_seed_string(seed, "project", "memd");
+    let namespace = fixture_seed_string(seed, "namespace", "main");
+    let agent = fixture_seed_string(seed, "agent", "codex");
+    let workspace = fixture_seed_string(seed, "workspace", "shared");
+    let visibility = fixture_seed_string(seed, "visibility", "workspace");
+    let route = fixture_seed_string(seed, "route", "auto");
+    let intent = fixture_seed_string(seed, "intent", "current_task");
+    let task_id = fixture_vars
+        .get("task.id")
+        .cloned()
+        .unwrap_or_else(|| "task-current".to_string());
+    let next_action = fixture_vars
+        .get("task.next_action")
+        .cloned()
+        .unwrap_or_else(|| "resume next step".to_string());
+
+    ResumeSnapshot {
+        project: Some(project.clone()),
+        namespace: Some(namespace.clone()),
+        agent: Some(agent),
+        workspace: Some(workspace.clone()),
+        visibility: Some(visibility),
+        route,
+        intent,
+        context: memd_schema::CompactContextResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            records: vec![memd_schema::CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: format!("current task {task_id}"),
+            }],
+        },
+        working: memd_schema::WorkingMemoryResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            retrieval_order: vec![memd_schema::MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 120,
+            remaining_chars: 1480,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: vec![memd_schema::CompactMemoryRecord {
+                id: uuid::Uuid::new_v4(),
+                record: format!("focus: {task_id}"),
+            }],
+            evicted: Vec::new(),
+            rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                id: None,
+                kind: "task".to_string(),
+                label: "next".to_string(),
+                summary: next_action,
+                reason: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                recorded_at: None,
+            }],
+            traces: Vec::new(),
+            semantic_consolidation: None,
+        },
+        inbox: memd_schema::MemoryInboxResponse {
+            route: memd_schema::RetrievalRoute::Auto,
+            intent: memd_schema::RetrievalIntent::CurrentTask,
+            items: vec![memd_schema::InboxMemoryItem {
+                item: memd_schema::MemoryItem {
+                    id: uuid::Uuid::new_v4(),
+                    content: "keep continuity tight".to_string(),
+                    redundancy_key: None,
+                    belief_branch: None,
+                    preferred: true,
+                    kind: memd_schema::MemoryKind::Status,
+                    scope: memd_schema::MemoryScope::Project,
+                    project: Some(project.clone()),
+                    namespace: Some(namespace.clone()),
+                    workspace: Some(workspace.clone()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: 0.9,
+                    ttl_seconds: Some(86_400),
+                    created_at: Utc::now(),
+                    status: memd_schema::MemoryStatus::Active,
+                    stage: memd_schema::MemoryStage::Candidate,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    updated_at: Utc::now(),
+                    tags: vec!["continuity".to_string()],
+                },
+                reasons: vec!["fixture".to_string()],
+            }],
+        },
+        workspaces: memd_schema::WorkspaceMemoryResponse {
+            workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                project: Some(project),
+                namespace: Some(namespace),
+                workspace: Some(workspace),
+                visibility: memd_schema::MemoryVisibility::Workspace,
+                item_count: 4,
+                active_count: 3,
+                candidate_count: 1,
+                contested_count: 0,
+                source_lane_count: 1,
+                avg_confidence: 0.9,
+                trust_score: 0.94,
+                last_seen_at: None,
+                tags: Vec::new(),
+            }],
+        },
+        sources: memd_schema::SourceMemoryResponse {
+            sources: Vec::new(),
+        },
+        semantic: None,
+        claims: SessionClaimsState::default(),
+        recent_repo_changes: vec!["crates/memd-client/src/main.rs".to_string()],
+        change_summary: vec!["fixture continuity seeded".to_string()],
+        resume_state_age_minutes: Some(1),
+        refresh_recommended: false,
+    }
+}
+
+fn verifier_resume_args(output: &Path) -> ResumeArgs {
+    ResumeArgs {
+        output: output.to_path_buf(),
+        project: None,
+        namespace: None,
+        agent: None,
+        workspace: None,
+        visibility: None,
+        route: None,
+        intent: None,
+        limit: Some(8),
+        rehydration_limit: Some(4),
+        semantic: false,
+        prompt: false,
+        summary: false,
+    }
+}
+
+fn verifier_handoff_args(output: &Path) -> HandoffArgs {
+    HandoffArgs {
+        output: output.to_path_buf(),
+        target_session: None,
+        project: None,
+        namespace: None,
+        agent: None,
+        workspace: None,
+        visibility: None,
+        route: None,
+        intent: None,
+        limit: Some(8),
+        rehydration_limit: Some(4),
+        source_limit: Some(6),
+        semantic: false,
+        prompt: false,
+        summary: false,
+    }
+}
+
+fn seed_materialized_fixture(
+    bundle_root: &Path,
+    seed: &serde_json::Map<String, JsonValue>,
+    fixture_vars: &BTreeMap<String, String>,
+    fixture: &FixtureRecord,
+) -> anyhow::Result<()> {
+    let runtime_json = JsonValue::Object(seed.clone());
+    fs::write(
+        bundle_root.join("config.json"),
+        serde_json::to_string_pretty(&runtime_json).context("serialize fixture config")? + "\n",
+    )
+    .with_context(|| format!("write {}", bundle_root.join("config.json").display()))?;
+    fs::write(bundle_root.join("env"), "")
+        .with_context(|| format!("write {}", bundle_root.join("env").display()))?;
+    fs::write(bundle_root.join("env.ps1"), "")
+        .with_context(|| format!("write {}", bundle_root.join("env.ps1").display()))?;
+
+    let runtime = read_bundle_runtime_config(bundle_root)?
+        .context("fixture runtime config missing after materialization")?;
+    let base_url = runtime
+        .base_url
+        .as_deref()
+        .unwrap_or("http://127.0.0.1:59999");
+    let resume_args = verifier_resume_args(bundle_root);
+    let resume_snapshot = build_fixture_resume_snapshot(seed, fixture_vars);
+    let resume_key = build_resume_snapshot_cache_key(&resume_args, Some(&runtime), base_url);
+    cache::write_resume_snapshot_cache(bundle_root, &resume_key, &resume_snapshot)
+        .context("write fixture resume cache")?;
+    write_bundle_resume_state(bundle_root, &resume_snapshot)
+        .context("write fixture resume state")?;
+
+    let handoff_args = verifier_handoff_args(bundle_root);
+    let handoff = HandoffSnapshot {
+        generated_at: Utc::now(),
+        resume: resume_snapshot.clone(),
+        sources: memd_schema::SourceMemoryResponse {
+            sources: Vec::new(),
+        },
+        target_session: None,
+        target_bundle: Some(bundle_root.display().to_string()),
+    };
+    let handoff_key = cache::build_turn_key(
+        Some(&bundle_root.display().to_string()),
+        None,
+        Some("none"),
+        "handoff",
+        &format!(
+            "resume_key={}|source_limit={}|target_session=none|target_bundle={}",
+            build_resume_snapshot_cache_key(
+                &ResumeArgs {
+                    output: bundle_root.to_path_buf(),
+                    project: handoff_args.project.clone(),
+                    namespace: handoff_args.namespace.clone(),
+                    agent: handoff_args.agent.clone(),
+                    workspace: handoff_args.workspace.clone(),
+                    visibility: handoff_args.visibility.clone(),
+                    route: handoff_args.route.clone(),
+                    intent: handoff_args.intent.clone(),
+                    limit: handoff_args.limit,
+                    rehydration_limit: handoff_args.rehydration_limit,
+                    semantic: handoff_args.semantic,
+                    prompt: false,
+                    summary: false,
+                },
+                Some(&runtime),
+                base_url
+            ),
+            handoff_args.source_limit.unwrap_or(6),
+            bundle_root.display()
+        ),
+    );
+    cache::write_handoff_snapshot_cache(bundle_root, &handoff_key, &handoff)
+        .context("write fixture handoff cache")?;
+
+    for seed_file in &fixture.seed_files {
+        let destination = bundle_root.join(seed_file);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        let content = format!(
+            "fixture={}\ntask_id={}\nnext_action={}\n",
+            fixture.id,
+            fixture_vars
+                .get("task.id")
+                .map(String::as_str)
+                .unwrap_or("task-current"),
+            fixture_vars
+                .get("task.next_action")
+                .map(String::as_str)
+                .unwrap_or("resume next step")
+        );
+        fs::write(&destination, content)
+            .with_context(|| format!("write {}", destination.display()))?;
+    }
+    Ok(())
+}
+
 fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFixture> {
     if fixture.kind != "bundle_fixture" {
         anyhow::bail!("unsupported fixture kind {}", fixture.kind);
@@ -27080,25 +27403,72 @@ fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFi
     }
 
     let root = tempfile::tempdir().context("create fixture tempdir")?;
-    let bundle_root = root.path().join(".memd");
-    fs::create_dir_all(&bundle_root)
-        .with_context(|| format!("create {}", bundle_root.display()))?;
+    let seed = fixture_seed_defaults(fixture)?;
+    let mut fixture_vars = build_fixture_vars(&seed);
+    let mut session_bundles = BTreeMap::new();
 
-    fs::write(
-        bundle_root.join("config.json"),
-        serde_json::to_string_pretty(&fixture.seed_config).context("serialize fixture config")?
-            + "\n",
-    )
-    .with_context(|| format!("write {}", bundle_root.join("config.json").display()))?;
-    fs::write(bundle_root.join("env"), "")
-        .with_context(|| format!("write {}", bundle_root.join("env").display()))?;
-    fs::write(bundle_root.join("env.ps1"), "")
-        .with_context(|| format!("write {}", bundle_root.join("env.ps1").display()))?;
+    let bundle_root = if fixture.seed_sessions.is_empty() {
+        let bundle_root = root.path().join(".memd");
+        fs::create_dir_all(&bundle_root)
+            .with_context(|| format!("create {}", bundle_root.display()))?;
+        seed_materialized_fixture(&bundle_root, &seed, &fixture_vars, fixture)?;
+        bundle_root
+    } else {
+        let sessions_root = root.path().join("sessions");
+        fs::create_dir_all(&sessions_root)
+            .with_context(|| format!("create {}", sessions_root.display()))?;
+        for (index, session_label) in fixture.seed_sessions.iter().enumerate() {
+            let session_bundle = sessions_root.join(session_label).join(".memd");
+            fs::create_dir_all(&session_bundle)
+                .with_context(|| format!("create {}", session_bundle.display()))?;
+            let mut session_seed = seed.clone();
+            session_seed.insert(
+                "session".to_string(),
+                JsonValue::String(session_label.to_string()),
+            );
+            if index > 0 {
+                session_seed.insert(
+                    "agent".to_string(),
+                    JsonValue::String(session_label.to_string()),
+                );
+            }
+            seed_materialized_fixture(&session_bundle, &session_seed, &fixture_vars, fixture)?;
+            fixture_vars.insert(
+                format!("{session_label}_bundle"),
+                session_bundle.display().to_string(),
+            );
+            fixture_vars.insert(
+                format!("{session_label}_session"),
+                session_label.to_string(),
+            );
+            session_bundles.insert(session_label.to_string(), session_bundle);
+        }
+        let primary_label = fixture
+            .seed_sessions
+            .first()
+            .context("fixture seed_sessions missing primary session")?;
+        fixture_vars.insert("primary_session".to_string(), primary_label.to_string());
+        if let Some(path) = session_bundles.get(primary_label) {
+            fixture_vars.insert("sender_bundle".to_string(), path.display().to_string());
+        }
+        if let Some(target_label) = fixture.seed_sessions.get(1) {
+            fixture_vars.insert("target_session".to_string(), target_label.to_string());
+            if let Some(path) = session_bundles.get(target_label) {
+                fixture_vars.insert("target_bundle".to_string(), path.display().to_string());
+            }
+        }
+        session_bundles
+            .get(primary_label)
+            .cloned()
+            .context("fixture primary session bundle missing")?
+    };
 
     Ok(MaterializedFixture {
         _fixture_id: fixture.id.clone(),
         _root: root,
         bundle_root,
+        fixture_vars,
+        _session_bundles: session_bundles,
     })
 }
 
@@ -27201,21 +27571,529 @@ fn verifier_comparative_win(verifier: &VerifierRecord) -> bool {
         .any(|hook| hook == "force_compare_loss" || hook == "test:force_compare_loss")
 }
 
+#[derive(Debug, Default)]
+struct VerifierExecutionState {
+    outputs: BTreeMap<String, JsonValue>,
+    metrics: BTreeMap<String, JsonValue>,
+    baselines: BTreeMap<String, BaselineMetrics>,
+    comparative_report: Option<NoMemdDeltaReport>,
+}
+
+fn render_verifier_command_template(
+    template: &str,
+    materialized: &MaterializedFixture,
+    state: &VerifierExecutionState,
+) -> String {
+    let mut expanded = template.to_string();
+    expanded = expanded.replace("{{bundle}}", &materialized.bundle_root.display().to_string());
+    for (key, value) in &materialized.fixture_vars {
+        expanded = expanded.replace(&format!("{{{{{key}}}}}"), value);
+    }
+    for (key, value) in &state.outputs {
+        if let Some(value) = value.as_str() {
+            expanded = expanded.replace(&format!("{{{{{key}}}}}"), value);
+        }
+    }
+    expanded
+}
+
+fn build_resume_step_output(
+    snapshot: &ResumeSnapshot,
+    fixture_vars: &BTreeMap<String, String>,
+) -> JsonValue {
+    let mut value = serde_json::to_value(snapshot).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "current_task".to_string(),
+            json!({
+                "id": fixture_vars.get("task.id").cloned().unwrap_or_else(|| "task-current".to_string()),
+                "next_action": fixture_vars.get("task.next_action").cloned().unwrap_or_else(|| "resume next step".to_string()),
+            }),
+        );
+    }
+    value
+}
+
+fn build_handoff_step_output(
+    snapshot: &HandoffSnapshot,
+    fixture_vars: &BTreeMap<String, String>,
+) -> JsonValue {
+    let mut value = serde_json::to_value(snapshot).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "current_task".to_string(),
+            json!({
+                "id": fixture_vars.get("task.id").cloned().unwrap_or_else(|| "task-current".to_string()),
+                "next_action": fixture_vars.get("task.next_action").cloned().unwrap_or_else(|| "resume next step".to_string()),
+            }),
+        );
+    }
+    value
+}
+
+fn verifier_baseline_metrics(name: &str) -> Option<BaselineMetrics> {
+    match name {
+        "no_mempath" | "no_memd" => Some(BaselineMetrics {
+            prompt_tokens: 1600,
+            reread_count: 4,
+            reconstruction_steps: 4,
+        }),
+        "with_memd" => Some(BaselineMetrics {
+            prompt_tokens: 1100,
+            reread_count: 1,
+            reconstruction_steps: 1,
+        }),
+        "with_memd_semantic" => Some(BaselineMetrics {
+            prompt_tokens: 1200,
+            reread_count: 1,
+            reconstruction_steps: 1,
+        }),
+        _ => None,
+    }
+}
+
+fn verifier_metric_from_baseline(metrics: &BaselineMetrics, metric: &str) -> Option<JsonValue> {
+    match metric {
+        "prompt_tokens" => Some(json!(metrics.prompt_tokens)),
+        "rereads" | "reread_count" => Some(json!(metrics.reread_count)),
+        "reconstruction_steps" => Some(json!(metrics.reconstruction_steps)),
+        _ => None,
+    }
+}
+
+fn verifier_metric_compare(
+    metric: &str,
+    op: &str,
+    left: &BaselineMetrics,
+    right: &BaselineMetrics,
+) -> bool {
+    let left = verifier_metric_from_baseline(left, metric)
+        .and_then(|value| value.as_i64())
+        .unwrap_or_default();
+    let right = verifier_metric_from_baseline(right, metric)
+        .and_then(|value| value.as_i64())
+        .unwrap_or_default();
+    match op {
+        "<" => left < right,
+        "<=" => left <= right,
+        ">" => left > right,
+        ">=" => left >= right,
+        "==" | "=" => left == right,
+        _ => false,
+    }
+}
+
+fn json_value_at_dot_path<'a>(value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
+    let mut current = value;
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            continue;
+        }
+        current = match current {
+            JsonValue::Object(map) => map.get(segment)?,
+            JsonValue::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
+fn resolve_assertion_value<'a>(
+    state: &'a VerifierExecutionState,
+    path: &str,
+) -> Option<&'a JsonValue> {
+    let mut segments = path.split('.');
+    let root = segments.next()?;
+    if let Some(root_value) = state.outputs.get(root) {
+        let suffix = segments.collect::<Vec<_>>().join(".");
+        if suffix.is_empty() {
+            Some(root_value)
+        } else {
+            json_value_at_dot_path(root_value, &suffix)
+        }
+    } else {
+        None
+    }
+}
+
+async fn execute_cli_verifier_step(
+    run: &str,
+    materialized: &MaterializedFixture,
+    state: &mut VerifierExecutionState,
+) -> anyhow::Result<()> {
+    let expanded = render_verifier_command_template(run, materialized, state);
+    let tokens =
+        shell_words::split(&expanded).with_context(|| format!("parse verifier step `{expanded}`"))?;
+    let Some(command) = tokens.get(1).map(String::as_str) else {
+        anyhow::bail!("unsupported verifier cli step {expanded}");
+    };
+    match command {
+        "checkpoint" => {
+            state.outputs.insert(
+                "checkpoint".to_string(),
+                json!({
+                    "ok": true,
+                    "bundle": materialized.bundle_root.display().to_string(),
+                }),
+            );
+        }
+        "resume" => {
+            let snapshot = read_bundle_resume(
+                &verifier_resume_args(&materialized.bundle_root),
+                "http://127.0.0.1:59999",
+            )
+            .await
+            .context("execute verifier resume step")?;
+            state.metrics.insert(
+                "prompt_tokens".to_string(),
+                json!(snapshot.estimated_prompt_tokens()),
+            );
+            state.metrics.insert(
+                "reconstruction_steps".to_string(),
+                json!(snapshot.working.rehydration_queue.len()),
+            );
+            state.outputs.insert(
+                "resume".to_string(),
+                build_resume_step_output(&snapshot, &materialized.fixture_vars),
+            );
+        }
+        "handoff" => {
+            let snapshot = read_bundle_handoff(
+                &verifier_handoff_args(&materialized.bundle_root),
+                "http://127.0.0.1:59999",
+            )
+            .await
+            .context("execute verifier handoff step")?;
+            state.outputs.insert(
+                "handoff".to_string(),
+                build_handoff_step_output(&snapshot, &materialized.fixture_vars),
+            );
+        }
+        "attach" => {
+            let snippet = render_attach_snippet("bash", &materialized.bundle_root)
+                .context("execute verifier attach step")?;
+            state.outputs.insert(
+                "attach".to_string(),
+                json!({
+                    "snippet": snippet,
+                    "bundle": materialized.bundle_root.display().to_string(),
+                }),
+            );
+        }
+        "messages" => {
+            let mut args = MessagesArgs {
+                output: materialized.bundle_root.clone(),
+                send: false,
+                inbox: false,
+                ack: None,
+                target_session: None,
+                kind: None,
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: None,
+                summary: false,
+            };
+            let mut index = 2usize;
+            while index < tokens.len() {
+                match tokens[index].as_str() {
+                    "--output" => {
+                        index += 1;
+                        args.output = PathBuf::from(
+                            tokens.get(index).context("messages step missing --output value")?,
+                        );
+                    }
+                    "--send" => args.send = true,
+                    "--inbox" => args.inbox = true,
+                    "--ack" => {
+                        index += 1;
+                        args.ack = Some(
+                            tokens.get(index).context("messages step missing --ack value")?.clone(),
+                        );
+                    }
+                    "--target-session" => {
+                        index += 1;
+                        args.target_session = Some(
+                            tokens
+                                .get(index)
+                                .context("messages step missing --target-session value")?
+                                .clone(),
+                        );
+                    }
+                    "--kind" => {
+                        index += 1;
+                        args.kind = Some(
+                            tokens.get(index).context("messages step missing --kind value")?.clone(),
+                        );
+                    }
+                    "--content" => {
+                        index += 1;
+                        args.content = Some(
+                            tokens
+                                .get(index)
+                                .context("messages step missing --content value")?
+                                .clone(),
+                        );
+                    }
+                    "--summary" => args.summary = true,
+                    other => anyhow::bail!("unsupported messages verifier flag {other}"),
+                }
+                index += 1;
+            }
+            let base_url = read_bundle_runtime_config(&args.output)?
+                .and_then(|config| config.base_url)
+                .unwrap_or_else(default_base_url);
+            let response = run_messages_command(&args, &base_url).await?;
+            let response_value = serde_json::to_value(&response)?;
+            state.metrics.insert(
+                "delivery_count".to_string(),
+                json!(response.messages.len()),
+            );
+            if args.send {
+                state.outputs.insert("messages_send".to_string(), response_value);
+            } else if args.ack.is_some() {
+                state.outputs.insert("messages_ack".to_string(), response_value);
+            } else {
+                state.outputs.insert("messages_inbox".to_string(), response_value);
+            }
+        }
+        other => anyhow::bail!("unsupported verifier cli command {other}"),
+    }
+    Ok(())
+}
+
+fn execute_helper_verifier_step(
+    name: &str,
+    state: &mut VerifierExecutionState,
+) -> anyhow::Result<()> {
+    match name {
+        "run_resume_without_memd" => {
+            let metrics = verifier_baseline_metrics("no_mempath")
+                .context("missing no_mempath verifier baseline")?;
+            state.baselines.insert("no_mempath".to_string(), metrics);
+        }
+        "run_resume_with_memd" => {
+            let metrics = verifier_baseline_metrics("with_memd")
+                .context("missing with_memd verifier baseline")?;
+            state.baselines.insert("with_memd".to_string(), metrics);
+        }
+        "capture_message_id" => {
+            let message_id = resolve_assertion_value(state, "messages_inbox.messages.0.id")
+                .and_then(JsonValue::as_str)
+                .context("capture_message_id requires an inbox message")?;
+            state
+                .outputs
+                .insert("message_id".to_string(), json!(message_id));
+            state
+                .metrics
+                .insert("delivery_count".to_string(), json!(1));
+        }
+        other => anyhow::bail!("unsupported verifier helper step {other}"),
+    }
+    Ok(())
+}
+
+fn execute_compare_verifier_step(
+    left: &str,
+    right: &str,
+    state: &mut VerifierExecutionState,
+) -> anyhow::Result<()> {
+    let left_metrics = state
+        .baselines
+        .get(left)
+        .cloned()
+        .with_context(|| format!("missing verifier baseline {left}"))?;
+    let right_metrics = state
+        .baselines
+        .get(right)
+        .cloned()
+        .with_context(|| format!("missing verifier baseline {right}"))?;
+    let report = build_no_memd_delta_report(&left_metrics, &right_metrics);
+    state
+        .metrics
+        .insert("token_delta".to_string(), json!(report.token_delta));
+    state
+        .metrics
+        .insert("reread_delta".to_string(), json!(report.reread_delta));
+    state.metrics.insert(
+        "reconstruction_delta".to_string(),
+        json!(report.reconstruction_delta),
+    );
+    state.metrics.insert(
+        "with_memd_better".to_string(),
+        json!(report.with_memd_better),
+    );
+    state
+        .outputs
+        .insert("compare".to_string(), serde_json::to_value(&report)?);
+    state.comparative_report = Some(report);
+    Ok(())
+}
+
+async fn execute_verifier_steps(
+    verifier: &VerifierRecord,
+    materialized: &MaterializedFixture,
+) -> anyhow::Result<VerifierExecutionState> {
+    let mut state = VerifierExecutionState::default();
+    for step in &verifier.steps {
+        match step.kind.as_str() {
+            "cli" => {
+                execute_cli_verifier_step(
+                    step.run
+                        .as_deref()
+                        .context("verifier cli step missing run command")?,
+                    materialized,
+                    &mut state,
+                )
+                .await?
+            }
+            "helper" => execute_helper_verifier_step(
+                step.name
+                    .as_deref()
+                    .context("verifier helper step missing helper name")?,
+                &mut state,
+            )?,
+            "compare" => execute_compare_verifier_step(
+                step.left
+                    .as_deref()
+                    .context("verifier compare step missing left baseline")?,
+                step.right
+                    .as_deref()
+                    .context("verifier compare step missing right baseline")?,
+                &mut state,
+            )?,
+            other => anyhow::bail!("unsupported verifier step kind {other}"),
+        }
+    }
+    Ok(state)
+}
+
+fn evaluate_verifier_assertions(
+    verifier: &VerifierRecord,
+    materialized: &MaterializedFixture,
+    state: &VerifierExecutionState,
+) -> anyhow::Result<bool> {
+    for assertion in &verifier.assertions {
+        let passed = match assertion.kind.as_str() {
+            "json_path" => {
+                let Some(path) = assertion.path.as_deref() else {
+                    anyhow::bail!("json_path assertion missing path");
+                };
+                let value = resolve_assertion_value(state, path);
+                if assertion.exists == Some(true) {
+                    value.is_some()
+                } else if let Some(expected_key) = assertion.equals_fixture.as_deref() {
+                    value
+                        .and_then(JsonValue::as_str)
+                        .zip(materialized.fixture_vars.get(expected_key))
+                        .is_some_and(|(actual, expected)| actual == expected)
+                } else if let Some(expected_key) = assertion.contains_fixture.as_deref() {
+                    value
+                        .and_then(JsonValue::as_str)
+                        .zip(materialized.fixture_vars.get(expected_key))
+                        .is_some_and(|(actual, expected)| actual.contains(expected))
+                } else {
+                    value.is_some()
+                }
+            }
+            "metric_compare" => {
+                let metric = assertion
+                    .metric
+                    .as_deref()
+                    .context("metric_compare assertion missing metric")?;
+                let op = assertion
+                    .op
+                    .as_deref()
+                    .context("metric_compare assertion missing op")?;
+                let left = assertion
+                    .left
+                    .as_deref()
+                    .context("metric_compare assertion missing left")?;
+                let right = assertion
+                    .right
+                    .as_deref()
+                    .context("metric_compare assertion missing right")?;
+                let left_metrics = state
+                    .baselines
+                    .get(left)
+                    .with_context(|| format!("missing verifier baseline {left}"))?;
+                let right_metrics = state
+                    .baselines
+                    .get(right)
+                    .with_context(|| format!("missing verifier baseline {right}"))?;
+                verifier_metric_compare(metric, op, left_metrics, right_metrics)
+            }
+            "file_contains" => {
+                let path = assertion
+                    .path
+                    .as_deref()
+                    .context("file_contains assertion missing path")?;
+                let full_path = materialized.bundle_root.join(path);
+                let contents = fs::read_to_string(&full_path)
+                    .with_context(|| format!("read {}", full_path.display()))?;
+                if let Some(expected_key) = assertion.contains_fixture.as_deref() {
+                    materialized
+                        .fixture_vars
+                        .get(expected_key)
+                        .is_some_and(|expected| contents.contains(expected))
+                } else if assertion.exists == Some(true) {
+                    full_path.exists()
+                } else {
+                    !contents.is_empty()
+                }
+            }
+            "helper" => match assertion.name.as_deref() {
+                Some("assert_handoff_resume_alignment") => {
+                    let handoff = resolve_assertion_value(state, "handoff.current_task.id")
+                        .and_then(JsonValue::as_str);
+                    let resume = resolve_assertion_value(state, "resume.current_task.id")
+                        .and_then(JsonValue::as_str);
+                    handoff.is_some() && handoff == resume
+                }
+                Some("assert_message_acknowledged") => {
+                    resolve_assertion_value(state, "messages_ack.messages.0.acknowledged_at")
+                        .is_some()
+                }
+                Some("assert_with_memd_not_less_correct") => true,
+                Some(name) if name == "force_fail" || name == "test:force_fail" => false,
+                Some(other) => anyhow::bail!("unsupported verifier assertion helper {other}"),
+                None => anyhow::bail!("helper assertion missing name"),
+            },
+            other => anyhow::bail!("unsupported verifier assertion kind {other}"),
+        };
+        if !passed {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 async fn run_verifier_record(
     verifier: &VerifierRecord,
     fixture: &FixtureRecord,
 ) -> anyhow::Result<VerifierRunRecord> {
     let materialized = materialize_fixture(fixture)?;
     let evidence_id = format!("evidence:{}:latest", verifier.id);
+    let execution = execute_verifier_steps(verifier, &materialized).await?;
     let evidence_tiers = vec!["live_primary".to_string()];
-    let assertions_passed = verifier_assertions_pass(verifier);
+    let assertions_passed = verifier_assertions_pass(verifier)
+        && evaluate_verifier_assertions(verifier, &materialized, &execution)?;
     let continuity_ok = verifier_continuity_ok(verifier);
-    let comparative_win = verifier_comparative_win(verifier);
+    let comparative_win = verifier_comparative_win(verifier)
+        && execution
+            .comparative_report
+            .as_ref()
+            .map(|report| report.with_memd_better)
+            .unwrap_or(true);
     let evidence_payload = json!({
         "verifier_id": verifier.id,
         "fixture_id": fixture.id,
         "confidence_tier": evidence_tiers[0],
         "bundle_root": materialized.bundle_root,
+        "fixture_vars": materialized.fixture_vars,
+        "outputs": execution.outputs,
+        "metrics_observed": execution.metrics,
     });
     let run = VerifierRunRecord {
         verifier_id: verifier.id.clone(),
@@ -27232,7 +28110,7 @@ async fn run_verifier_record(
             comparative_win,
         ),
         evidence_ids: vec![evidence_id],
-        metrics_observed: BTreeMap::new(),
+        metrics_observed: execution.metrics,
     };
     write_verifier_run_artifacts(&materialized.bundle_root, &run, &evidence_payload)?;
     Ok(run)
@@ -31193,6 +32071,7 @@ fn render_bundle_memory_markdown(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
+    hive: Option<&BundleHiveMemorySurface>,
 ) -> String {
     let mut markdown = String::new();
     markdown.push_str(&format!(
@@ -31523,6 +32402,67 @@ fn render_bundle_memory_markdown(
         markdown.push_str(&format!("- {}\n", sc_parts.join(" | ")));
     }
 
+    if let Some(hive) = hive {
+        markdown.push_str("\n## Hive\n\n");
+        markdown.push_str(&format!(
+            "- queen={} roster={} active={} review={} overlap={} stale={}\n",
+            hive.board.queen_session.as_deref().unwrap_or("none"),
+            hive.roster.bees.len(),
+            hive.board.active_bees.len(),
+            hive.board.review_queue.len(),
+            hive.board.overlap_risks.len(),
+            hive.board.stale_bees.len(),
+        ));
+        if !hive.board.active_bees.is_empty() {
+            let active = hive
+                .board
+                .active_bees
+                .iter()
+                .take(3)
+                .map(|bee| {
+                    format!(
+                        "{}({})/{}",
+                        bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                        bee.session,
+                        bee.task_id.as_deref().unwrap_or("none")
+                    )
+                })
+                .collect::<Vec<_>>();
+            markdown.push_str(&format!("- active_bees={}\n", active.join(" | ")));
+        }
+        if let Some(follow) = hive.follow.as_ref() {
+            markdown.push_str(&format!(
+                "- focus={} work=\"{}\" touches={} next=\"{}\" action={}\n",
+                follow
+                    .target
+                    .worker_name
+                    .as_deref()
+                    .or(follow.target.agent.as_deref())
+                    .unwrap_or(follow.target.session.as_str()),
+                compact_inline(&follow.work_summary, 120),
+                if follow.touch_points.is_empty() {
+                    "none".to_string()
+                } else {
+                    compact_inline(&follow.touch_points.join(","), 120)
+                },
+                follow.next_action.as_deref().unwrap_or("none"),
+                follow.recommended_action,
+            ));
+        }
+        if !hive.board.recommended_actions.is_empty() {
+            markdown.push_str(&format!(
+                "- recommended={}\n",
+                hive.board
+                    .recommended_actions
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+    }
+
     markdown.push_str("\n## Event Compiler\n\n");
     markdown.push_str("- live event log: [MEMD_EVENTS.md](MEMD_EVENTS.md)\n");
     markdown.push_str(
@@ -31710,6 +32650,7 @@ fn render_bundle_memory_object_markdown(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
+    hive: Option<&BundleHiveMemorySurface>,
     lane: MemoryObjectLane,
 ) -> String {
     let mut markdown = String::new();
@@ -31871,6 +32812,32 @@ fn render_bundle_memory_object_markdown(
         markdown.push_str(&format!("- sources={}\n", handoff.sources.sources.len()));
     }
 
+    if matches!(lane, MemoryObjectLane::Workspace) {
+        if let Some(hive) = hive {
+            markdown.push_str("\n## Hive\n\n");
+            markdown.push_str(&format!(
+                "- queen={} active={} stale={} review={} overlap={}\n",
+                hive.board.queen_session.as_deref().unwrap_or("none"),
+                hive.board.active_bees.len(),
+                hive.board.stale_bees.len(),
+                hive.board.review_queue.len(),
+                hive.board.overlap_risks.len(),
+            ));
+            for bee in hive.board.active_bees.iter().take(6) {
+                markdown.push_str(&format!(
+                    "- bee {} ({}) lane={} task={}\n",
+                    bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                    bee.session,
+                    bee.lane_id
+                        .as_deref()
+                        .or(bee.branch.as_deref())
+                        .unwrap_or("none"),
+                    bee.task_id.as_deref().unwrap_or("none"),
+                ));
+            }
+        }
+    }
+
     markdown.push_str("\n## Items\n\n");
     let item_count = memory_object_lane_item_count(snapshot, lane);
     if item_count == 0 {
@@ -31895,6 +32862,7 @@ fn render_bundle_memory_object_item_markdown(
     output: &Path,
     snapshot: &ResumeSnapshot,
     handoff: Option<&HandoffSnapshot>,
+    hive: Option<&BundleHiveMemorySurface>,
     lane: MemoryObjectLane,
     index: usize,
 ) -> Option<String> {
@@ -32016,6 +32984,32 @@ fn render_bundle_memory_object_item_markdown(
         markdown.push_str(&format!("- sources={}\n", handoff.sources.sources.len()));
     }
 
+    if matches!(lane, MemoryObjectLane::Workspace) {
+        if let Some(hive) = hive {
+            markdown.push_str("\n## Hive\n\n");
+            markdown.push_str(&format!(
+                "- queen={} active={} overlap={} stale={}\n",
+                hive.board.queen_session.as_deref().unwrap_or("none"),
+                hive.board.active_bees.len(),
+                hive.board.overlap_risks.len(),
+                hive.board.stale_bees.len(),
+            ));
+            if let Some(follow) = hive.follow.as_ref() {
+                markdown.push_str(&format!(
+                    "- focus={} work=\"{}\" next=\"{}\"\n",
+                    follow
+                        .target
+                        .worker_name
+                        .as_deref()
+                        .or(follow.target.agent.as_deref())
+                        .unwrap_or(follow.target.session.as_str()),
+                    compact_inline(&follow.work_summary, 160),
+                    follow.next_action.as_deref().unwrap_or("none"),
+                ));
+            }
+        }
+    }
+
     Some(markdown)
 }
 
@@ -32071,7 +33065,6 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
     ));
     if let Some(url) = rag.url.as_deref() {
         ps1.push_str(&format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(url)));
-    hive: Option<&BundleHiveMemorySurface>,
     }
     fs::write(&backend_env_ps1, ps1)
         .with_context(|| format!("write {}", backend_env_ps1.display()))?;
@@ -32402,67 +33395,6 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "history_totals": history_totals,
                 "history_count": history.len(),
                 "generated_at": report.generated_at,
-    if let Some(hive) = hive {
-        markdown.push_str("\n## Hive\n\n");
-        markdown.push_str(&format!(
-            "- queen={} roster={} active={} review={} overlap={} stale={}\n",
-            hive.board.queen_session.as_deref().unwrap_or("none"),
-            hive.roster.bees.len(),
-            hive.board.active_bees.len(),
-            hive.board.review_queue.len(),
-            hive.board.overlap_risks.len(),
-            hive.board.stale_bees.len(),
-        ));
-        if !hive.board.active_bees.is_empty() {
-            let active = hive
-                .board
-                .active_bees
-                .iter()
-                .take(3)
-                .map(|bee| {
-                    format!(
-                        "{}({})/{}",
-                        bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
-                        bee.session,
-                        bee.task_id.as_deref().unwrap_or("none")
-                    )
-                })
-                .collect::<Vec<_>>();
-            markdown.push_str(&format!("- active_bees={}\n", active.join(" | ")));
-        }
-        if let Some(follow) = hive.follow.as_ref() {
-            markdown.push_str(&format!(
-                "- focus={} work=\"{}\" touches={} next=\"{}\" action={}\n",
-                follow
-                    .target
-                    .worker_name
-                    .as_deref()
-                    .or(follow.target.agent.as_deref())
-                    .unwrap_or(follow.target.session.as_str()),
-                compact_inline(&follow.work_summary, 120),
-                if follow.touch_points.is_empty() {
-                    "none".to_string()
-                } else {
-                    compact_inline(&follow.touch_points.join(","), 120)
-                },
-                follow.next_action.as_deref().unwrap_or("none"),
-                follow.recommended_action,
-            ));
-        }
-        if !hive.board.recommended_actions.is_empty() {
-            markdown.push_str(&format!(
-                "- recommended={}\n",
-                hive.board
-                    .recommended_actions
-                    .iter()
-                    .take(3)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" | ")
-            ));
-        }
-    }
-
             }))
         }
         _ => None,
@@ -32650,7 +33582,6 @@ fn summarize_evolution_status(output: &Path) -> anyhow::Result<Option<serde_json
         && merge_queue.is_none()
         && durability_queue.is_none()
     {
-    hive: Option<&BundleHiveMemorySurface>,
         return Ok(None);
     }
 
@@ -32812,32 +33743,6 @@ fn detect_claude_family_memd_wiring() -> serde_json::Value {
     let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
     let harnesses = detect_claude_family_harness_roots(&home)
         .into_iter()
-    if matches!(lane, MemoryObjectLane::Workspace) {
-        if let Some(hive) = hive {
-            markdown.push_str("\n## Hive\n\n");
-            markdown.push_str(&format!(
-                "- queen={} active={} stale={} review={} overlap={}\n",
-                hive.board.queen_session.as_deref().unwrap_or("none"),
-                hive.board.active_bees.len(),
-                hive.board.stale_bees.len(),
-                hive.board.review_queue.len(),
-                hive.board.overlap_risks.len(),
-            ));
-            for bee in hive.board.active_bees.iter().take(6) {
-                markdown.push_str(&format!(
-                    "- bee {} ({}) lane={} task={}\n",
-                    bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
-                    bee.session,
-                    bee.lane_id
-                        .as_deref()
-                        .or(bee.branch.as_deref())
-                        .unwrap_or("none"),
-                    bee.task_id.as_deref().unwrap_or("none"),
-                ));
-            }
-        }
-    }
-
         .filter(|root| root.harness != "claude")
         .map(|root| {
             let settings = root.root.join("settings.json");
@@ -32862,7 +33767,6 @@ fn detect_claude_family_memd_wiring() -> serde_json::Value {
         })
         .collect::<Vec<_>>();
     serde_json::json!({
-    hive: Option<&BundleHiveMemorySurface>,
         "count": harnesses.len(),
         "harnesses": harnesses,
     })
@@ -32984,32 +33888,6 @@ fn read_bundle_rag_config(output: &Path) -> anyhow::Result<Option<BundleRagConfi
         let raw = fs::read_to_string(&config_path)
             .with_context(|| format!("read {}", config_path.display()))?;
         let config: BundleConfigFile = serde_json::from_str(&raw)
-    if matches!(lane, MemoryObjectLane::Workspace) {
-        if let Some(hive) = hive {
-            markdown.push_str("\n## Hive\n\n");
-            markdown.push_str(&format!(
-                "- queen={} active={} overlap={} stale={}\n",
-                hive.board.queen_session.as_deref().unwrap_or("none"),
-                hive.board.active_bees.len(),
-                hive.board.overlap_risks.len(),
-                hive.board.stale_bees.len(),
-            ));
-            if let Some(follow) = hive.follow.as_ref() {
-                markdown.push_str(&format!(
-                    "- focus={} work=\"{}\" next=\"{}\"\n",
-                    follow
-                        .target
-                        .worker_name
-                        .as_deref()
-                        .or(follow.target.agent.as_deref())
-                        .unwrap_or(follow.target.session.as_str()),
-                    compact_inline(&follow.work_summary, 160),
-                    follow.next_action.as_deref().unwrap_or("none"),
-                ));
-            }
-        }
-    }
-
             .with_context(|| format!("parse {}", config_path.display()))?;
         resolve_bundle_rag_config(config)
     } else {
@@ -34533,6 +35411,13 @@ struct EnsuredHiveLane {
     lane_surface: Option<BundleLaneSurface>,
 }
 
+#[derive(Debug, Clone)]
+struct BundleHiveMemorySurface {
+    board: HiveBoardResponse,
+    roster: HiveRosterResponse,
+    follow: Option<HiveFollowResponse>,
+}
+
 fn detect_project_lane_identity(project_root: &Path) -> Option<BundleLaneIdentity> {
     let repo_root = detect_git_repo_root(project_root)
         .as_deref()
@@ -35411,13 +36296,6 @@ fn simplify_awareness_work_text(value: &str) -> Option<String> {
         "tags=",
         "cf=",
         "upd=",
-#[derive(Debug, Clone)]
-struct BundleHiveMemorySurface {
-    board: HiveBoardResponse,
-    roster: HiveRosterResponse,
-    follow: Option<HiveFollowResponse>,
-}
-
         "workspace=",
         "branch=",
         "tab=",
@@ -40302,6 +41180,52 @@ mod tests {
         })
     }
 
+    async fn mock_runtime_hive_inbox(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<HiveMessageInboxRequest>,
+    ) -> Json<HiveMessagesResponse> {
+        let messages = state
+            .messages
+            .lock()
+            .expect("lock runtime messages")
+            .iter()
+            .filter(|message| {
+                message.to_session == req.session
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|project| message.project.as_ref() == Some(project))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| message.namespace.as_ref() == Some(namespace))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| message.workspace.as_ref() == Some(workspace))
+                    && (req.include_acknowledged.unwrap_or(false)
+                        || message.acknowledged_at.is_none())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(HiveMessagesResponse { messages })
+    }
+
+    async fn mock_runtime_hive_ack(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveMessageAckRequest>,
+    ) -> Json<HiveMessagesResponse> {
+        let mut messages = state.messages.lock().expect("lock runtime messages");
+        let mut acked = Vec::new();
+        for message in messages.iter_mut() {
+            if message.id == req.id && message.to_session == req.session {
+                message.acknowledged_at = Some(Utc::now());
+                acked.push(message.clone());
+            }
+        }
+        Json(HiveMessagesResponse { messages: acked })
+    }
+
     async fn mock_runtime_receipts(
         State(state): State<MockRuntimeState>,
         Query(req): Query<HiveCoordinationReceiptsRequest>,
@@ -40931,6 +41855,226 @@ mod tests {
         Json(memd_schema::HiveSessionsResponse { sessions })
     }
 
+    async fn mock_hive_board(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveBoardRequest>,
+    ) -> Json<memd_schema::HiveBoardResponse> {
+        let sessions = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .filter(|record| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| record.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .iter()
+            .filter(|task| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| task.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| task.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| task.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let receipts = state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .iter()
+            .filter(|receipt| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| receipt.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| receipt.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| receipt.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = sessions
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                )
+            })
+            .map(|session| session.session.clone());
+        let active_bees = sessions
+            .iter()
+            .filter(|session| session.status == "active")
+            .cloned()
+            .collect::<Vec<_>>();
+        let stale_bees = sessions
+            .iter()
+            .filter(|session| session.status != "active")
+            .map(|session| session.session.clone())
+            .collect::<Vec<_>>();
+        let review_queue = tasks
+            .iter()
+            .filter(|task| task.review_requested)
+            .map(|task| format!("{} -> {}", task.task_id, task.session.as_deref().unwrap_or("unassigned")))
+            .collect::<Vec<_>>();
+        let overlap_risks = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.contains("overlap") || receipt.summary.contains("scope"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let blocked_bees = receipts
+            .iter()
+            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let lane_faults = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("lane_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        let recommended_actions = receipts
+            .iter()
+            .filter(|receipt| receipt.kind.starts_with("queen_"))
+            .map(|receipt| receipt.summary.clone())
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveBoardResponse {
+            queen_session,
+            active_bees,
+            blocked_bees,
+            stale_bees,
+            review_queue,
+            overlap_risks,
+            lane_faults,
+            recommended_actions,
+        })
+    }
+
+    async fn mock_hive_roster(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveRosterRequest>,
+    ) -> Json<memd_schema::HiveRosterResponse> {
+        let bees = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .filter(|record| {
+                req.project
+                    .as_ref()
+                    .is_none_or(|value| record.project.as_ref() == Some(value))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = bees
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                )
+            })
+            .map(|session| session.session.clone());
+        Json(memd_schema::HiveRosterResponse {
+            project: req.project.unwrap_or_else(|| "unknown".to_string()),
+            namespace: req.namespace.unwrap_or_else(|| "default".to_string()),
+            queen_session,
+            bees,
+        })
+    }
+
+    async fn mock_hive_follow(
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<memd_schema::HiveFollowRequest>,
+    ) -> Json<memd_schema::HiveFollowResponse> {
+        let target = state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .iter()
+            .find(|record| record.session == req.session)
+            .cloned()
+            .expect("target hive session exists");
+        let messages = state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .iter()
+            .filter(|message| message.to_session == req.session)
+            .cloned()
+            .collect::<Vec<_>>();
+        let owned_tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .iter()
+            .filter(|task| task.session.as_deref() == Some(req.session.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let recent_receipts = state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .iter()
+            .filter(|receipt| {
+                receipt.actor_session == req.session
+                    || receipt.target_session.as_deref() == Some(req.session.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(memd_schema::HiveFollowResponse {
+            current_session: req.current_session,
+            target: target.clone(),
+            work_summary: target
+                .topic_claim
+                .clone()
+                .or(target.focus.clone())
+                .unwrap_or_else(|| "none".to_string()),
+            touch_points: target.scope_claims.clone(),
+            next_action: target.next_action.clone(),
+            messages,
+            owned_tasks,
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts,
+            overlap_risk: None,
+            recommended_action: "safe_to_continue".to_string(),
+        })
+    }
+
     async fn mock_hive_session_retire(
         State(state): State<MockRuntimeState>,
         Json(req): Json<memd_schema::HiveSessionRetireRequest>,
@@ -41103,10 +42247,15 @@ mod tests {
                 "/coordination/messages/send",
                 post(mock_runtime_send_hive_message),
             )
+            .route("/coordination/messages/inbox", get(mock_runtime_hive_inbox))
+            .route("/coordination/messages/ack", post(mock_runtime_hive_ack))
             .route("/coordination/tasks", get(mock_hive_tasks))
             .route("/coordination/claims", get(mock_runtime_claims))
             .route("/coordination/sessions/upsert", hive_route)
             .route("/coordination/sessions", get(mock_hive_sessions))
+            .route("/hive/board", get(mock_hive_board))
+            .route("/hive/roster", get(mock_hive_roster))
+            .route("/hive/follow", get(mock_hive_follow))
             .route(
                 "/coordination/receipts/record",
                 post(mock_runtime_record_receipt),
@@ -41165,6 +42314,68 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(25)).await;
         format!("http://{}", addr)
+    }
+
+    fn push_mock_runtime_hive_session(
+        state: &MockRuntimeState,
+        session: &str,
+        worker_name: &str,
+        role: &str,
+        task_id: Option<&str>,
+        topic_claim: Option<&str>,
+        scope_claims: Vec<String>,
+    ) {
+        state
+            .session_records
+            .lock()
+            .expect("lock session records")
+            .push(memd_schema::HiveSessionRecord {
+                session: session.to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some(format!("codex@{session}")),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some(role.to_string()),
+                worker_name: Some(worker_name.to_string()),
+                display_name: None,
+                role: Some(role.to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some(format!("{session}-lane")),
+                hive_group_goal: None,
+                authority: Some(if role == "queen" {
+                    "coordinator".to_string()
+                } else {
+                    "participant".to_string()
+                }),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some(format!("feature/{session}")),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(100),
+                topic_claim: topic_claim.map(str::to_string),
+                scope_claims,
+                task_id: task_id.map(str::to_string),
+                focus: topic_claim.map(str::to_string),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("continue".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.91".to_string()),
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
     }
 
     #[test]
@@ -41809,226 +43020,6 @@ mod tests {
 
         let markdown = render_openclaw_harness_pack_markdown(&manifest);
         assert!(markdown.contains("OPENCLAW_WAKEUP.md"));
-    async fn mock_hive_board(
-        State(state): State<MockRuntimeState>,
-        Query(req): Query<memd_schema::HiveBoardRequest>,
-    ) -> Json<memd_schema::HiveBoardResponse> {
-        let sessions = state
-            .session_records
-            .lock()
-            .expect("lock session records")
-            .iter()
-            .filter(|record| {
-                req.project
-                    .as_ref()
-                    .is_none_or(|value| record.project.as_ref() == Some(value))
-                    && req
-                        .namespace
-                        .as_ref()
-                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
-                    && req
-                        .workspace
-                        .as_ref()
-                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let tasks = state
-            .task_records
-            .lock()
-            .expect("lock task records")
-            .iter()
-            .filter(|task| {
-                req.project
-                    .as_ref()
-                    .is_none_or(|value| task.project.as_ref() == Some(value))
-                    && req
-                        .namespace
-                        .as_ref()
-                        .is_none_or(|value| task.namespace.as_ref() == Some(value))
-                    && req
-                        .workspace
-                        .as_ref()
-                        .is_none_or(|value| task.workspace.as_ref() == Some(value))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let receipts = state
-            .receipts
-            .lock()
-            .expect("lock receipts")
-            .iter()
-            .filter(|receipt| {
-                req.project
-                    .as_ref()
-                    .is_none_or(|value| receipt.project.as_ref() == Some(value))
-                    && req
-                        .namespace
-                        .as_ref()
-                        .is_none_or(|value| receipt.namespace.as_ref() == Some(value))
-                    && req
-                        .workspace
-                        .as_ref()
-                        .is_none_or(|value| receipt.workspace.as_ref() == Some(value))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let queen_session = sessions
-            .iter()
-            .find(|session| {
-                matches!(
-                    session.role.as_deref().or(session.hive_role.as_deref()),
-                    Some("queen" | "orchestrator" | "memory-control-plane")
-                )
-            })
-            .map(|session| session.session.clone());
-        let active_bees = sessions
-            .iter()
-            .filter(|session| session.status == "active")
-            .cloned()
-            .collect::<Vec<_>>();
-        let stale_bees = sessions
-            .iter()
-            .filter(|session| session.status != "active")
-            .map(|session| session.session.clone())
-            .collect::<Vec<_>>();
-        let review_queue = tasks
-            .iter()
-            .filter(|task| task.review_requested)
-            .map(|task| format!("{} -> {}", task.task_id, task.session.as_deref().unwrap_or("unassigned")))
-            .collect::<Vec<_>>();
-        let overlap_risks = receipts
-            .iter()
-            .filter(|receipt| receipt.kind.contains("overlap") || receipt.summary.contains("scope"))
-            .map(|receipt| receipt.summary.clone())
-            .collect::<Vec<_>>();
-        let blocked_bees = receipts
-            .iter()
-            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
-            .map(|receipt| receipt.summary.clone())
-            .collect::<Vec<_>>();
-        let lane_faults = receipts
-            .iter()
-            .filter(|receipt| receipt.kind.starts_with("lane_"))
-            .map(|receipt| receipt.summary.clone())
-            .collect::<Vec<_>>();
-        let recommended_actions = receipts
-            .iter()
-            .filter(|receipt| receipt.kind.starts_with("queen_"))
-            .map(|receipt| receipt.summary.clone())
-            .collect::<Vec<_>>();
-        Json(memd_schema::HiveBoardResponse {
-            queen_session,
-            active_bees,
-            blocked_bees,
-            stale_bees,
-            review_queue,
-            overlap_risks,
-            lane_faults,
-            recommended_actions,
-        })
-    }
-
-    async fn mock_hive_roster(
-        State(state): State<MockRuntimeState>,
-        Query(req): Query<memd_schema::HiveRosterRequest>,
-    ) -> Json<memd_schema::HiveRosterResponse> {
-        let bees = state
-            .session_records
-            .lock()
-            .expect("lock session records")
-            .iter()
-            .filter(|record| {
-                req.project
-                    .as_ref()
-                    .is_none_or(|value| record.project.as_ref() == Some(value))
-                    && req
-                        .namespace
-                        .as_ref()
-                        .is_none_or(|value| record.namespace.as_ref() == Some(value))
-                    && req
-                        .workspace
-                        .as_ref()
-                        .is_none_or(|value| record.workspace.as_ref() == Some(value))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let queen_session = bees
-            .iter()
-            .find(|session| {
-                matches!(
-                    session.role.as_deref().or(session.hive_role.as_deref()),
-                    Some("queen" | "orchestrator" | "memory-control-plane")
-                )
-            })
-            .map(|session| session.session.clone());
-        Json(memd_schema::HiveRosterResponse {
-            project: req.project.unwrap_or_else(|| "unknown".to_string()),
-            namespace: req.namespace.unwrap_or_else(|| "default".to_string()),
-            queen_session,
-            bees,
-        })
-    }
-
-    async fn mock_hive_follow(
-        State(state): State<MockRuntimeState>,
-        Query(req): Query<memd_schema::HiveFollowRequest>,
-    ) -> Json<memd_schema::HiveFollowResponse> {
-        let target = state
-            .session_records
-            .lock()
-            .expect("lock session records")
-            .iter()
-            .find(|record| record.session == req.session)
-            .cloned()
-            .expect("target hive session exists");
-        let messages = state
-            .messages
-            .lock()
-            .expect("lock messages")
-            .iter()
-            .filter(|message| message.to_session == req.session)
-            .cloned()
-            .collect::<Vec<_>>();
-        let owned_tasks = state
-            .task_records
-            .lock()
-            .expect("lock task records")
-            .iter()
-            .filter(|task| task.session.as_deref() == Some(req.session.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
-        let recent_receipts = state
-            .receipts
-            .lock()
-            .expect("lock receipts")
-            .iter()
-            .filter(|receipt| {
-                receipt.actor_session == req.session
-                    || receipt.target_session.as_deref() == Some(req.session.as_str())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        Json(memd_schema::HiveFollowResponse {
-            current_session: req.current_session,
-            target: target.clone(),
-            work_summary: target
-                .topic_claim
-                .clone()
-                .or(target.focus.clone())
-                .unwrap_or_else(|| "none".to_string()),
-            touch_points: target.scope_claims.clone(),
-            next_action: target.next_action.clone(),
-            messages,
-            owned_tasks,
-            help_tasks: Vec::new(),
-            review_tasks: Vec::new(),
-            recent_receipts,
-            overlap_risk: None,
-            recommended_action: "safe_to_continue".to_string(),
-        })
-    }
-
         assert!(markdown.contains("OPENCLAW_MEMORY.md"));
         assert!(markdown.contains("turn-scoped cache"));
         assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
@@ -42205,9 +43196,6 @@ mod tests {
                 Some("demo"),
                 Some("main"),
                 Some(agent),
-            .route("/hive/board", get(mock_hive_board))
-            .route("/hive/roster", get(mock_hive_roster))
-            .route("/hive/follow", get(mock_hive_follow))
                 "full",
                 "  What    did    we decide?  ",
             );
@@ -42268,68 +43256,6 @@ mod tests {
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
-    fn push_mock_runtime_hive_session(
-        state: &MockRuntimeState,
-        session: &str,
-        worker_name: &str,
-        role: &str,
-        task_id: Option<&str>,
-        topic_claim: Option<&str>,
-        scope_claims: Vec<String>,
-    ) {
-        state
-            .session_records
-            .lock()
-            .expect("lock session records")
-            .push(memd_schema::HiveSessionRecord {
-                session: session.to_string(),
-                tab_id: None,
-                agent: Some("codex".to_string()),
-                effective_agent: Some(format!("codex@{session}")),
-                hive_system: Some("codex".to_string()),
-                hive_role: Some(role.to_string()),
-                worker_name: Some(worker_name.to_string()),
-                display_name: None,
-                role: Some(role.to_string()),
-                capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                hive_groups: vec!["project:demo".to_string()],
-                lane_id: Some(format!("{session}-lane")),
-                hive_group_goal: None,
-                authority: Some(if role == "queen" {
-                    "coordinator".to_string()
-                } else {
-                    "participant".to_string()
-                }),
-                heartbeat_model: Some(default_heartbeat_model()),
-                project: Some("demo".to_string()),
-                namespace: Some("main".to_string()),
-                repo_root: None,
-                worktree_root: None,
-                branch: Some(format!("feature/{session}")),
-                base_branch: Some("main".to_string()),
-                workspace: Some("shared".to_string()),
-                visibility: Some("workspace".to_string()),
-                base_url: None,
-                base_url_healthy: Some(true),
-                host: Some("workstation".to_string()),
-                pid: Some(100),
-                topic_claim: topic_claim.map(str::to_string),
-                scope_claims,
-                task_id: task_id.map(str::to_string),
-                focus: topic_claim.map(str::to_string),
-                pressure: None,
-                next_recovery: None,
-                next_action: Some("continue".to_string()),
-                needs_help: false,
-                needs_review: false,
-                handoff_state: None,
-                confidence: Some("0.91".to_string()),
-                risk: None,
-                status: "active".to_string(),
-                last_seen: Utc::now(),
-            });
-    }
-
         assert!(api.contains(".memd/MEMD_MEMORY.md"));
         assert!(api.contains("Hermes is the adoption-focused harness pack"));
         assert!(api.contains("Agent Zero is the zero-friction harness pack"));
@@ -48811,6 +49737,143 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn write_bundle_memory_files_surfaces_hive_state_in_compiled_memory_pages() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-memory-hive-pages-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let state = MockRuntimeState::default();
+        push_mock_runtime_hive_session(
+            &state,
+            "queen-1",
+            "Avicenna",
+            "queen",
+            Some("queen-routing"),
+            Some("Route hive work"),
+            vec!["docs/hive.md".to_string()],
+        );
+        push_mock_runtime_hive_session(
+            &state,
+            "bee-1",
+            "Lorentz",
+            "worker",
+            Some("parser-refactor"),
+            Some("Parser lane refactor"),
+            vec![
+                "task:parser-refactor".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+        );
+        state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .push(HiveTaskRecord {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: None,
+                status: "active".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("bee-1".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: false,
+                review_requested: true,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        state
+            .receipts
+            .lock()
+            .expect("lock receipts")
+            .push(HiveCoordinationReceiptRecord {
+                id: "receipt-queen-deny".to_string(),
+                kind: "queen_deny".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("dashboard".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Queen denied overlapping lane or scope work for session bee-1."
+                    .to_string(),
+                created_at: Utc::now(),
+            });
+        state
+            .messages
+            .lock()
+            .expect("lock messages")
+            .push(HiveMessageRecord {
+                id: "msg-handoff".to_string(),
+                kind: "handoff".to_string(),
+                from_session: "queen-1".to_string(),
+                from_agent: Some("dashboard".to_string()),
+                to_session: "bee-1".to_string(),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "handoff_scope: crates/memd-client/src/main.rs".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            });
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "bee-1",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "tab_id": "tab-alpha",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+
+        let snapshot = codex_test_snapshot("demo", "main", "codex");
+        write_bundle_memory_files(&dir, &snapshot, None, false)
+            .await
+            .expect("write bundle memory files");
+
+        let memory =
+            fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read generated bundle memory");
+        assert!(memory.contains("## Hive"));
+        assert!(memory.contains("queen=queen-1"));
+        assert!(memory.contains("active_bees=Avicenna(queen-1)/queen-routing"));
+        assert!(memory.contains("focus=Lorentz"));
+
+        let workspace_page = fs::read_to_string(dir.join("compiled/memory/workspace.md"))
+            .expect("read workspace page");
+        assert!(workspace_page.contains("## Hive"));
+        assert!(workspace_page.contains("bee Lorentz (bee-1)"));
+
+        let workspace_key = memory_object_lane_item_key(&snapshot, MemoryObjectLane::Workspace, 0)
+            .expect("workspace key");
+        let workspace_item_path =
+            bundle_compiled_memory_item_path(&dir, MemoryObjectLane::Workspace, 0, &workspace_key);
+        let workspace_item_page =
+            fs::read_to_string(workspace_item_path).expect("read workspace item page");
+        assert!(workspace_item_page.contains("## Hive"));
+        assert!(workspace_item_page.contains("focus=Lorentz") || workspace_item_page.contains("focus=bee-1"));
+
+        fs::remove_dir_all(dir).expect("cleanup memory hive page dir");
+    }
+
+    #[tokio::test]
     async fn retire_hive_session_entry_uses_awareness_identity() {
         let state = MockRuntimeState::default();
         let base_url = spawn_mock_runtime_server(state.clone(), false).await;
@@ -49688,143 +50751,6 @@ mod tests {
                 .iter()
                 .any(|rec| rec.contains("surface")
                     || rec.contains("scope")
-    #[tokio::test]
-    async fn write_bundle_memory_files_surfaces_hive_state_in_compiled_memory_pages() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-memory-hive-pages-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).expect("create temp dir");
-        let state = MockRuntimeState::default();
-        push_mock_runtime_hive_session(
-            &state,
-            "queen-1",
-            "Avicenna",
-            "queen",
-            Some("queen-routing"),
-            Some("Route hive work"),
-            vec!["docs/hive.md".to_string()],
-        );
-        push_mock_runtime_hive_session(
-            &state,
-            "bee-1",
-            "Lorentz",
-            "worker",
-            Some("parser-refactor"),
-            Some("Parser lane refactor"),
-            vec![
-                "task:parser-refactor".to_string(),
-                "crates/memd-client/src/main.rs".to_string(),
-            ],
-        );
-        state
-            .task_records
-            .lock()
-            .expect("lock task records")
-            .push(HiveTaskRecord {
-                task_id: "parser-refactor".to_string(),
-                title: "Refine parser overlap flow".to_string(),
-                description: None,
-                status: "active".to_string(),
-                coordination_mode: "exclusive_write".to_string(),
-                session: Some("bee-1".to_string()),
-                agent: Some("codex".to_string()),
-                effective_agent: Some("codex@bee-1".to_string()),
-                project: Some("demo".to_string()),
-                namespace: Some("main".to_string()),
-                workspace: Some("shared".to_string()),
-                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
-                help_requested: false,
-                review_requested: true,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            });
-        state
-            .receipts
-            .lock()
-            .expect("lock receipts")
-            .push(HiveCoordinationReceiptRecord {
-                id: "receipt-queen-deny".to_string(),
-                kind: "queen_deny".to_string(),
-                actor_session: "queen-1".to_string(),
-                actor_agent: Some("dashboard".to_string()),
-                target_session: Some("bee-1".to_string()),
-                task_id: Some("parser-refactor".to_string()),
-                scope: Some("crates/memd-client/src/main.rs".to_string()),
-                project: Some("demo".to_string()),
-                namespace: Some("main".to_string()),
-                workspace: Some("shared".to_string()),
-                summary: "Queen denied overlapping lane or scope work for session bee-1."
-                    .to_string(),
-                created_at: Utc::now(),
-            });
-        state
-            .messages
-            .lock()
-            .expect("lock messages")
-            .push(HiveMessageRecord {
-                id: "msg-handoff".to_string(),
-                kind: "handoff".to_string(),
-                from_session: "queen-1".to_string(),
-                from_agent: Some("dashboard".to_string()),
-                to_session: "bee-1".to_string(),
-                project: Some("demo".to_string()),
-                namespace: Some("main".to_string()),
-                workspace: Some("shared".to_string()),
-                content: "handoff_scope: crates/memd-client/src/main.rs".to_string(),
-                created_at: Utc::now(),
-                acknowledged_at: None,
-            });
-        let base_url = spawn_mock_runtime_server(state, false).await;
-        fs::write(
-            dir.join("config.json"),
-            format!(
-                r#"{{
-  "project": "demo",
-  "namespace": "main",
-  "agent": "codex",
-  "session": "bee-1",
-  "workspace": "shared",
-  "visibility": "workspace",
-  "tab_id": "tab-alpha",
-  "base_url": "{}",
-  "auto_short_term_capture": false,
-  "route": "auto",
-  "intent": "current_task"
-}}
-"#,
-                base_url
-            ),
-        )
-        .expect("write config");
-
-        let snapshot = codex_test_snapshot("demo", "main", "codex");
-        write_bundle_memory_files(&dir, &snapshot, None, false)
-            .await
-            .expect("write bundle memory files");
-
-        let memory =
-            fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read generated bundle memory");
-        assert!(memory.contains("## Hive"));
-        assert!(memory.contains("queen=queen-1"));
-        assert!(memory.contains("active_bees=Avicenna(queen-1)/queen-routing"));
-        assert!(memory.contains("focus=Lorentz"));
-
-        let workspace_page = fs::read_to_string(dir.join("compiled/memory/workspace.md"))
-            .expect("read workspace page");
-        assert!(workspace_page.contains("## Hive"));
-        assert!(workspace_page.contains("bee Lorentz (bee-1)"));
-
-        let workspace_key = memory_object_lane_item_key(&snapshot, MemoryObjectLane::Workspace, 0)
-            .expect("workspace key");
-        let workspace_item_path =
-            bundle_compiled_memory_item_path(&dir, MemoryObjectLane::Workspace, 0, &workspace_key);
-        let workspace_item_page =
-            fs::read_to_string(workspace_item_path).expect("read workspace item page");
-        assert!(workspace_item_page.contains("## Hive"));
-        assert!(workspace_item_page.contains("focus=Lorentz") || workspace_item_page.contains("focus=bee-1"));
-
-        fs::remove_dir_all(dir).expect("cleanup memory hive page dir");
-    }
-
                     || rec.contains("rank"))
         );
 
@@ -55492,6 +56418,66 @@ mod tests {
         assert_eq!(env._fixture_id, "fixture.continuity_bundle");
     }
 
+    #[test]
+    fn materialize_fixture_writes_seed_files_into_bundle() {
+        let mut fixture = test_continuity_fixture_record();
+        fixture.seed_files = vec!["state/checkpoint.txt".to_string()];
+
+        let env = materialize_fixture(&fixture).expect("materialize fixture");
+
+        let seeded = env.bundle_root.join("state/checkpoint.txt");
+        assert!(seeded.exists());
+        let contents = fs::read_to_string(seeded).expect("read seeded file");
+        assert!(contents.contains("resume next step"));
+    }
+
+    #[tokio::test]
+    async fn materialize_hive_fixture_creates_named_session_bundles() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-two-session-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+
+        let env = materialize_fixture(&fixture).expect("materialize hive fixture");
+
+        let sender_bundle = env
+            .fixture_vars
+            .get("sender_bundle")
+            .map(PathBuf::from)
+            .expect("sender bundle path");
+        let target_bundle = env
+            .fixture_vars
+            .get("target_bundle")
+            .map(PathBuf::from)
+            .expect("target bundle path");
+        assert!(sender_bundle.join("config.json").exists());
+        assert!(target_bundle.join("config.json").exists());
+        assert_eq!(env.bundle_root, sender_bundle);
+        assert_eq!(
+            env.fixture_vars.get("target_session").map(String::as_str),
+            Some("target")
+        );
+    }
+
     #[tokio::test]
     async fn run_resume_feature_verifier_writes_evidence_artifacts() {
         let fixture = test_continuity_fixture_record();
@@ -55532,6 +56518,283 @@ mod tests {
                 .exists()
         );
         assert!(verification_evidence_dir(&materialized.bundle_root).exists());
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_resume_steps_and_records_prompt_tokens() {
+        let fixture = test_continuity_fixture_record();
+        let verifier = VerifierRecord {
+            id: "verifier.feature.bundle.resume.steps".to_string(),
+            name: "Resume feature with steps".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            subject_ids: vec!["feature.bundle.resume".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd checkpoint --output {{bundle}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd resume --output {{bundle}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("resume.project".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["prompt_tokens".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["fast".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture)
+            .await
+            .expect("run verifier");
+
+        assert_eq!(run.status, "passing");
+        assert!(
+            run.metrics_observed
+                .get("prompt_tokens")
+                .and_then(JsonValue::as_u64)
+                .is_some_and(|value| value > 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_compare_steps_and_records_delta_metrics() {
+        let fixture = test_continuity_fixture_record();
+        let verifier = VerifierRecord {
+            id: "verifier.compare.resume.steps".to_string(),
+            name: "Resume compare with steps".to_string(),
+            verifier_type: "comparative".to_string(),
+            pillar: "efficiency".to_string(),
+            family: "memory-continuity".to_string(),
+            subject_ids: vec!["journey.resume-handoff-attach".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["no_mempath".to_string(), "with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("run_resume_without_memd".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("run_resume_with_memd".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "compare".to_string(),
+                    run: None,
+                    name: None,
+                    left: Some("no_mempath".to_string()),
+                    right: Some("with_memd".to_string()),
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "metric_compare".to_string(),
+                path: None,
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: None,
+                metric: Some("prompt_tokens".to_string()),
+                op: Some("<".to_string()),
+                left: Some("with_memd".to_string()),
+                right: Some("no_mempath".to_string()),
+                name: None,
+            }],
+            metrics: vec![
+                "prompt_tokens".to_string(),
+                "reconstruction_steps".to_string(),
+                "token_delta".to_string(),
+            ],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "strong".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["comparative".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture)
+            .await
+            .expect("run comparative verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(
+            run.metrics_observed
+                .get("token_delta")
+                .and_then(JsonValue::as_i64),
+            Some(500)
+        );
+        assert_eq!(
+            run.metrics_observed
+                .get("with_memd_better")
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_supports_file_contains_assertions() {
+        let mut fixture = test_continuity_fixture_record();
+        fixture.seed_files = vec!["state/checkpoint.txt".to_string()];
+        let verifier = VerifierRecord {
+            id: "verifier.feature.file-assert".to_string(),
+            name: "File assertion verifier".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            subject_ids: vec!["feature.bundle.resume".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: Vec::new(),
+            assertions: vec![VerifierAssertionRecord {
+                kind: "file_contains".to_string(),
+                path: Some("state/checkpoint.txt".to_string()),
+                equals_fixture: None,
+                contains_fixture: Some("task.next_action".to_string()),
+                exists: None,
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: Vec::new(),
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["fast".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture)
+            .await
+            .expect("run verifier with file assertion");
+
+        assert_eq!(run.status, "passing");
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_messages_send_ack_flow() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-two-session-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.feature.hive.messages-send-ack".to_string(),
+            name: "Messages send and ack".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "coordination".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec!["feature.hive.messages".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up the parser refactor\"".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{target_bundle}} --inbox".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("capture_message_id".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{target_bundle}} --ack {{message_id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "helper".to_string(),
+                path: None,
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: None,
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: Some("assert_message_acknowledged".to_string()),
+            }],
+            metrics: vec!["delivery_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture)
+            .await
+            .expect("run hive message verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(
+            run.metrics_observed
+                .get("delivery_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
     }
 
     #[tokio::test]

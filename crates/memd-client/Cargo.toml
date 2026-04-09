@@ -23,6 +23,8 @@ walkdir = "2"
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 notify = "6"
+tempfile = "3"
+shell-words = "1"
 
 [dev-dependencies]
 axum = "0.8"

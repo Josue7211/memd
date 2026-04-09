@@ -1,21 +1,21 @@
 # memd benchmark registry
 
-- Root: `repo root`
+- Root: ``
 - Registry: `docs/verification/benchmark-registry.json`
 - Version: `v1`
 - App goal: memd as a seamless memory control plane with near-perfect continuity
-- Current benchmark score: pending live benchmark run
+- Current benchmark score: `94/100`
 - Quality dimensions: `5`
 - Pillars: `1`
 - Families: `3`
 - Features: `8`
 - Journeys: `1`
-- Loops: `9`
+- Loops: `11`
 - Scorecards: `0`
 - Evidence records: `0`
 - Gates: `0`
 - Baseline modes: `2`
-- Runtime policies: `1`
+- Runtime policies: `4`
 
 ## Pillars
 - `memory-continuity`: 3 family surfaces, 8 features
@@ -36,3 +36,4 @@
 - `reliability` weight `15`
 - `drift_resistance` weight `15`
 - `token_efficiency` weight `10`
+

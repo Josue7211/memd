@@ -12,6 +12,10 @@
     "features",
     "journeys",
     "loops",
+    "verifiers",
+    "fixtures",
+    "evidence_policies",
+    "schedules",
     "scorecards",
     "evidence",
     "gates",
@@ -64,6 +68,18 @@
       "type": "array"
     },
     "loops": {
+      "type": "array"
+    },
+    "verifiers": {
+      "type": "array"
+    },
+    "fixtures": {
+      "type": "array"
+    },
+    "evidence_policies": {
+      "type": "array"
+    },
+    "schedules": {
       "type": "array"
     },
     "scorecards": {
