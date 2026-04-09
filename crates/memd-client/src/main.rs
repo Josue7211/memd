@@ -15014,15 +15014,26 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         .unwrap_or_else(|| "codex".to_string());
     let init_args = hive_args_to_init_args(args, inferred_agent);
     let project_root = detect_init_project_root(&init_args)?;
-    let output = resolve_hive_output_path(args, project_root.as_deref());
+    let mut output = resolve_hive_output_path(args, project_root.as_deref());
     let mut action = "updated".to_string();
     let defaults = default_hive_profile(&init_args.agent);
+    let mut initial_lane_surface = None;
 
     if read_bundle_runtime_config(&output)?.is_none() {
-        write_init_bundle(&InitArgs {
-            output: output.clone(),
-            ..init_args.clone()
-        })?;
+        if maybe_explicit_hive_output(args).is_none()
+            && let Some(project_root) = project_root.as_deref()
+            && let Some(created_lane) =
+                auto_create_worker_hive_lane(project_root, &output, &init_args)?
+        {
+            output = created_lane.output;
+            initial_lane_surface = created_lane.lane_surface;
+        }
+        if read_bundle_runtime_config(&output)?.is_none() {
+            write_init_bundle(&InitArgs {
+                output: output.clone(),
+                ..init_args.clone()
+            })?;
+        }
         action = "initialized".to_string();
     } else {
         if let Some(value) = args.project.as_deref() {
@@ -15083,6 +15094,7 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         .context("hive wiring requires a readable bundle runtime config")?;
     let lane = ensure_isolated_hive_bundle_lane(&output, &runtime).await?;
     let output = lane.output;
+    let lane_surface = lane.lane_surface.or(initial_lane_surface);
     let runtime_before_overlay = read_bundle_runtime_config_raw(&output)?;
     let runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive lane isolation")?;
@@ -15101,35 +15113,14 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
         _ => None,
     };
-    if let Some(surface) = lane.lane_surface.as_ref()
+    if let Some(surface) = lane_surface.as_ref()
         && let Some(session) = runtime
             .session
             .as_deref()
             .filter(|value| !value.trim().is_empty())
     {
         let client = MemdClient::new(&resolved_base_url)?;
-        emit_coordination_receipt(
-            &client,
-            "lane_reroute",
-            session,
-            runtime
-                .agent
-                .as_deref()
-                .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
-            surface.conflict_session.clone(),
-            None,
-            surface.current_branch.clone(),
-            runtime.project.clone(),
-            runtime.namespace.clone(),
-            runtime.workspace.clone(),
-            format!(
-                "Auto-rerouted hive lane from {} to {} after collision with {}.",
-                surface.previous_branch.as_deref().unwrap_or("none"),
-                surface.current_branch.as_deref().unwrap_or("none"),
-                surface.conflict_session.as_deref().unwrap_or("unknown"),
-            ),
-        )
-        .await?;
+        emit_lane_surface_receipt(&client, surface, &runtime, session).await?;
     }
     propagate_hive_metadata_to_active_project_bundles(&output, &runtime, args.publish_heartbeat)
         .await?;
@@ -15156,10 +15147,11 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         hive_groups: runtime.hive_groups,
         hive_group_goal: runtime.hive_group_goal,
         authority: runtime.authority,
-        lane_rerouted: lane.lane_surface.is_some(),
-        lane_created: lane.lane_surface.is_some(),
-        lane_surface: lane
-            .lane_surface
+        lane_rerouted: lane_surface
+            .as_ref()
+            .is_some_and(|surface| surface.action == "auto_reroute"),
+        lane_created: lane_surface.is_some(),
+        lane_surface: lane_surface
             .as_ref()
             .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null)),
         heartbeat,
@@ -15516,28 +15508,7 @@ async fn join_hive_bundle(
             .filter(|value| !value.trim().is_empty())
     {
         let client = MemdClient::new(&join_base_url)?;
-        emit_coordination_receipt(
-            &client,
-            "lane_reroute",
-            session,
-            joined_runtime
-                .agent
-                .as_deref()
-                .map(|agent| compose_agent_identity(agent, joined_runtime.session.as_deref())),
-            surface.conflict_session.clone(),
-            None,
-            surface.current_branch.clone(),
-            joined_runtime.project.clone(),
-            joined_runtime.namespace.clone(),
-            joined_runtime.workspace.clone(),
-            format!(
-                "Auto-rerouted hive lane from {} to {} after collision with {}.",
-                surface.previous_branch.as_deref().unwrap_or("none"),
-                surface.current_branch.as_deref().unwrap_or("none"),
-                surface.conflict_session.as_deref().unwrap_or("unknown"),
-            ),
-        )
-        .await?;
+        emit_lane_surface_receipt(&client, surface, &joined_runtime, session).await?;
     }
 
     Ok(HiveJoinBundleResponse {
@@ -15553,7 +15524,10 @@ async fn join_hive_bundle(
         hive_groups: joined_runtime.hive_groups,
         hive_group_goal: joined_runtime.hive_group_goal,
         authority: joined_runtime.authority,
-        lane_rerouted: lane.lane_surface.is_some(),
+        lane_rerouted: lane
+            .lane_surface
+            .as_ref()
+            .is_some_and(|surface| surface.action == "auto_reroute"),
         lane_created: lane.lane_surface.is_some(),
         lane_surface: lane
             .lane_surface
@@ -17550,7 +17524,24 @@ async fn run_messages_command(
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
-        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
+        let source_client = MemdClient::new(&current_base_url)?;
+        if let Err(error) =
+            ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)
+        {
+            emit_lane_fault_receipt(
+                &source_client,
+                from_session,
+                current_agent.clone(),
+                &target,
+                None,
+                args.assign_scope.clone().or(args.scope.clone()),
+                current_project.clone(),
+                current_namespace.clone(),
+                current_workspace.clone(),
+            )
+            .await;
+            return Err(error);
+        }
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
             .as_ref()
@@ -17912,7 +17903,23 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
-        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
+        if let Err(error) =
+            ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)
+        {
+            emit_lane_fault_receipt(
+                &client,
+                session,
+                current_effective_agent.clone(),
+                &target,
+                Some(task_id.to_string()),
+                None,
+                current_project.clone(),
+                current_namespace.clone(),
+                current_workspace.clone(),
+            )
+            .await;
+            return Err(error);
+        }
 
         let existing = client
             .hive_tasks(&HiveTasksRequest {
@@ -18002,7 +18009,23 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
-        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
+        if let Err(error) =
+            ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)
+        {
+            emit_lane_fault_receipt(
+                &client,
+                from_session,
+                current_effective_agent.clone(),
+                &target,
+                Some(task_id.to_string()),
+                args.scope.first().cloned(),
+                current_project.clone(),
+                current_namespace.clone(),
+                current_workspace.clone(),
+            )
+            .await;
+            return Err(error);
+        }
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
             .as_ref()
@@ -21413,6 +21436,81 @@ async fn search_live_truth_record(
             max_chars_per_item: Some(800),
         })
         .await
+}
+
+async fn emit_lane_surface_receipt(
+    client: &MemdClient,
+    surface: &BundleLaneSurface,
+    runtime: &BundleRuntimeConfig,
+    actor_session: &str,
+) -> anyhow::Result<()> {
+    let (kind, summary) = if surface.action == "auto_create" {
+        (
+            "lane_create",
+            format!(
+                "Auto-created isolated hive lane from {} to {}.",
+                surface.previous_branch.as_deref().unwrap_or("none"),
+                surface.current_branch.as_deref().unwrap_or("none"),
+            ),
+        )
+    } else {
+        (
+            "lane_reroute",
+            format!(
+                "Auto-rerouted hive lane from {} to {} after collision with {}.",
+                surface.previous_branch.as_deref().unwrap_or("none"),
+                surface.current_branch.as_deref().unwrap_or("none"),
+                surface.conflict_session.as_deref().unwrap_or("unknown"),
+            ),
+        )
+    };
+    emit_coordination_receipt(
+        client,
+        kind,
+        actor_session,
+        runtime
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
+        surface.conflict_session.clone(),
+        None,
+        surface.current_branch.clone(),
+        runtime.project.clone(),
+        runtime.namespace.clone(),
+        runtime.workspace.clone(),
+        summary,
+    )
+    .await
+}
+
+async fn emit_lane_fault_receipt(
+    client: &MemdClient,
+    actor_session: &str,
+    actor_agent: Option<String>,
+    target: &ProjectAwarenessEntry,
+    task_id: Option<String>,
+    scope: Option<String>,
+    project: Option<String>,
+    namespace: Option<String>,
+    workspace: Option<String>,
+) {
+    let _ = emit_coordination_receipt(
+        client,
+        "lane_fault",
+        actor_session,
+        actor_agent,
+        target.session.clone(),
+        task_id,
+        scope,
+        project,
+        namespace,
+        workspace,
+        format!(
+            "Queen denied unsafe shared lane target: {}.",
+            render_hive_lane_collision(target)
+        ),
+    )
+    .await;
 }
 
 async fn store_live_truth_record(
@@ -27385,6 +27483,44 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     } else {
         None
     };
+    let lane_receipts = if health.is_some() {
+        client
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: current_project.clone(),
+                namespace: current_namespace.clone(),
+                workspace: current_workspace.clone(),
+                limit: Some(64),
+            })
+            .await
+            .ok()
+            .map(|response| {
+                let receipts = response
+                    .receipts
+                    .into_iter()
+                    .filter(|receipt| receipt.kind.starts_with("lane_"))
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "count": receipts.len(),
+                    "latest_kind": receipts.first().map(|receipt| receipt.kind.clone()),
+                    "latest_summary": receipts.first().map(|receipt| receipt.summary.clone()),
+                    "recent": receipts
+                        .into_iter()
+                        .take(8)
+                        .map(|receipt| serde_json::json!({
+                            "kind": receipt.kind,
+                            "actor_session": receipt.actor_session,
+                            "target_session": receipt.target_session,
+                            "scope": receipt.scope,
+                            "summary": receipt.summary,
+                            "created_at": receipt.created_at,
+                        }))
+                        .collect::<Vec<_>>(),
+                })
+            })
+    } else {
+        None
+    };
     let maintenance_surface = match (
         read_latest_maintain_report(output)?,
         read_previous_maintain_report(output)?,
@@ -27538,6 +27674,11 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     });
     let lane_surface = read_bundle_lane_surface(output)?
         .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null));
+    let lane_fault = detect_bundle_lane_collision(output, current_session.as_deref())
+        .await?
+        .and_then(|conflict| {
+            build_lane_fault_surface(output, current_session.as_deref(), &conflict)
+        });
     let bridge_ready = harness_bridge.all_wired;
     let setup_ready = output.exists()
         && missing.is_empty()
@@ -27622,6 +27763,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "evolution": evolution,
         "cowork_surface": cowork_surface,
         "lane_surface": lane_surface,
+        "lane_fault": lane_fault,
+        "lane_receipts": lane_receipts,
         "maintenance_surface": maintenance_surface,
         "capability_surface": capability_surface,
         "server": health,
@@ -29093,21 +29236,25 @@ struct EnsuredHiveLane {
     lane_surface: Option<BundleLaneSurface>,
 }
 
-fn detect_bundle_lane_identity(output: &Path) -> Option<BundleLaneIdentity> {
-    let project_root = infer_bundle_project_root(output)?;
-    let repo_root = detect_git_repo_root(&project_root)
+fn detect_project_lane_identity(project_root: &Path) -> Option<BundleLaneIdentity> {
+    let repo_root = detect_git_repo_root(project_root)
         .as_deref()
         .map(display_path_nonempty)?;
-    let worktree_root = detect_git_worktree_root(&project_root)
+    let worktree_root = detect_git_worktree_root(project_root)
         .as_deref()
         .map(display_path_nonempty)?;
-    let branch = git_stdout(&project_root, &["branch", "--show-current"])?;
+    let branch = git_stdout(project_root, &["branch", "--show-current"])?;
     Some(BundleLaneIdentity {
-        project_root,
+        project_root: project_root.to_path_buf(),
         repo_root,
         worktree_root,
         branch,
     })
+}
+
+fn detect_bundle_lane_identity(output: &Path) -> Option<BundleLaneIdentity> {
+    let project_root = infer_bundle_project_root(output)?;
+    detect_project_lane_identity(&project_root)
 }
 
 fn awareness_entry_has_same_lane(
@@ -29183,6 +29330,34 @@ fn render_hive_lane_collision(entry: &ProjectAwarenessEntry) -> String {
     )
 }
 
+fn build_lane_fault_surface(
+    output: &Path,
+    current_session: Option<&str>,
+    conflict: &ProjectAwarenessEntry,
+) -> Option<JsonValue> {
+    let lane = detect_bundle_lane_identity(output)?;
+    let fault_kind = if conflict
+        .worktree_root
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value == lane.worktree_root)
+    {
+        "unsafe_same_worktree"
+    } else {
+        "unsafe_same_branch"
+    };
+    Some(serde_json::json!({
+        "kind": fault_kind,
+        "session": conflict.session,
+        "branch": conflict.branch,
+        "worktree_root": conflict.worktree_root,
+        "repo_root": conflict.repo_root,
+        "current_session": current_session,
+        "current_branch": lane.branch,
+        "current_worktree": lane.worktree_root,
+    }))
+}
+
 fn write_bundle_lane_surface(output: &Path, surface: &BundleLaneSurface) -> anyhow::Result<()> {
     let path = bundle_lane_surface_path(output);
     if let Some(parent) = path.parent() {
@@ -29225,12 +29400,10 @@ fn sanitize_lane_segment(value: &str) -> String {
     }
 }
 
-fn allocate_isolated_hive_lane(
-    output: &Path,
-    runtime: &BundleRuntimeConfig,
-) -> anyhow::Result<PathBuf> {
-    let lane = detect_bundle_lane_identity(output)
-        .context("hive cowork isolation requires a git worktree and branch")?;
+fn create_isolated_hive_worktree(
+    lane: &BundleLaneIdentity,
+    session_seed: &str,
+) -> anyhow::Result<(PathBuf, String)> {
     let worktree_parent = lane
         .project_root
         .parent()
@@ -29243,11 +29416,6 @@ fn allocate_isolated_hive_lane(
         .map(sanitize_lane_segment)
         .unwrap_or_else(|| "worker".to_string());
     let branch_seed = sanitize_lane_segment(&lane.branch);
-    let session_seed = runtime
-        .session
-        .as_deref()
-        .map(sanitize_lane_segment)
-        .unwrap_or_else(|| "worker".to_string());
     let branch_prefix = format!("{branch_seed}-bee-{session_seed}");
 
     for attempt in 0..16 {
@@ -29282,45 +29450,126 @@ fn allocate_isolated_hive_lane(
             continue;
         }
 
-        let new_output = worktree_root.join(".memd");
-        let new_session = runtime.session.as_deref().map(|value| {
-            format!(
-                "{}-{}",
-                sanitize_lane_segment(value),
-                &uuid::Uuid::new_v4().simple().to_string()[..4]
-            )
-        });
-        write_init_bundle(&InitArgs {
-            project: runtime.project.clone(),
-            namespace: runtime.namespace.clone(),
-            global: false,
-            project_root: Some(worktree_root.clone()),
-            seed_existing: false,
-            agent: runtime.agent.clone().unwrap_or_else(|| "codex".to_string()),
-            session: new_session,
-            tab_id: runtime.tab_id.clone(),
-            hive_system: runtime.hive_system.clone(),
-            hive_role: runtime.hive_role.clone(),
-            capability: runtime.capabilities.clone(),
-            hive_group: runtime.hive_groups.clone(),
-            hive_group_goal: runtime.hive_group_goal.clone(),
-            authority: runtime.authority.clone(),
-            output: new_output.clone(),
-            base_url: runtime.base_url.clone().unwrap_or_else(default_base_url),
-            rag_url: None,
-            route: runtime.route.clone().unwrap_or_else(|| "auto".to_string()),
-            intent: runtime
-                .intent
-                .clone()
-                .unwrap_or_else(|| "current_task".to_string()),
-            workspace: runtime.workspace.clone(),
-            visibility: runtime.visibility.clone(),
-            force: true,
-        })?;
-        return Ok(new_output);
+        return Ok((worktree_root, branch_name));
     }
 
     anyhow::bail!("failed to allocate an isolated hive lane after multiple attempts");
+}
+
+fn hive_role_requires_isolated_lane(hive_role: Option<&str>, authority: Option<&str>) -> bool {
+    let coordinator_role = matches!(
+        hive_role.map(str::trim),
+        Some("orchestrator" | "memory-control-plane")
+    );
+    let coordinator_authority =
+        matches!(authority.map(str::trim), Some("coordinator" | "canonical"));
+    !(coordinator_role || coordinator_authority)
+}
+
+fn allocate_isolated_hive_lane(
+    output: &Path,
+    runtime: &BundleRuntimeConfig,
+) -> anyhow::Result<PathBuf> {
+    let lane = detect_bundle_lane_identity(output)
+        .context("hive cowork isolation requires a git worktree and branch")?;
+    let session_seed = runtime
+        .session
+        .as_deref()
+        .map(sanitize_lane_segment)
+        .unwrap_or_else(|| "worker".to_string());
+    let (worktree_root, _) = create_isolated_hive_worktree(&lane, &session_seed)?;
+
+    let new_output = worktree_root.join(".memd");
+    let new_session = runtime.session.as_deref().map(|value| {
+        format!(
+            "{}-{}",
+            sanitize_lane_segment(value),
+            &uuid::Uuid::new_v4().simple().to_string()[..4]
+        )
+    });
+    write_init_bundle(&InitArgs {
+        project: runtime.project.clone(),
+        namespace: runtime.namespace.clone(),
+        global: false,
+        project_root: Some(worktree_root.clone()),
+        seed_existing: false,
+        agent: runtime.agent.clone().unwrap_or_else(|| "codex".to_string()),
+        session: new_session,
+        tab_id: runtime.tab_id.clone(),
+        hive_system: runtime.hive_system.clone(),
+        hive_role: runtime.hive_role.clone(),
+        capability: runtime.capabilities.clone(),
+        hive_group: runtime.hive_groups.clone(),
+        hive_group_goal: runtime.hive_group_goal.clone(),
+        authority: runtime.authority.clone(),
+        output: new_output.clone(),
+        base_url: runtime.base_url.clone().unwrap_or_else(default_base_url),
+        rag_url: None,
+        route: runtime.route.clone().unwrap_or_else(|| "auto".to_string()),
+        intent: runtime
+            .intent
+            .clone()
+            .unwrap_or_else(|| "current_task".to_string()),
+        workspace: runtime.workspace.clone(),
+        visibility: runtime.visibility.clone(),
+        force: true,
+    })?;
+    Ok(new_output)
+}
+
+fn auto_create_worker_hive_lane(
+    project_root: &Path,
+    requested_output: &Path,
+    init_args: &InitArgs,
+) -> anyhow::Result<Option<EnsuredHiveLane>> {
+    if !hive_role_requires_isolated_lane(
+        init_args.hive_role.as_deref(),
+        init_args.authority.as_deref(),
+    ) {
+        return Ok(None);
+    }
+    let Some(lane) = detect_project_lane_identity(project_root) else {
+        return Ok(None);
+    };
+    let session_seed = init_args
+        .session
+        .as_deref()
+        .map(sanitize_lane_segment)
+        .unwrap_or_else(|| sanitize_lane_segment(&init_args.agent));
+    let (worktree_root, branch_name) = create_isolated_hive_worktree(&lane, &session_seed)?;
+    let new_output = worktree_root.join(".memd");
+    let new_session = init_args.session.as_deref().map(|value| {
+        format!(
+            "{}-{}",
+            sanitize_lane_segment(value),
+            &uuid::Uuid::new_v4().simple().to_string()[..4]
+        )
+    });
+    write_init_bundle(&InitArgs {
+        project_root: Some(worktree_root.clone()),
+        output: new_output.clone(),
+        session: new_session,
+        force: true,
+        ..init_args.clone()
+    })?;
+    let surface = BundleLaneSurface {
+        action: "auto_create".to_string(),
+        previous_bundle: requested_output.display().to_string(),
+        current_bundle: new_output.display().to_string(),
+        previous_branch: Some(lane.branch),
+        current_branch: Some(branch_name),
+        previous_worktree: Some(lane.worktree_root),
+        current_worktree: Some(display_path_nonempty(&worktree_root)),
+        conflict_session: None,
+        conflict_branch: None,
+        conflict_worktree: None,
+        created_at: Utc::now(),
+    };
+    write_bundle_lane_surface(&new_output, &surface)?;
+    Ok(Some(EnsuredHiveLane {
+        output: new_output,
+        lane_surface: Some(surface),
+    }))
 }
 
 async fn ensure_isolated_hive_bundle_lane(
@@ -43287,6 +43536,64 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("cleanup hive reroute root");
+    }
+
+    #[tokio::test]
+    async fn run_hive_command_auto_creates_isolated_worker_lane_for_new_bundle() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-auto-create-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let response = run_hive_command(&HiveArgs {
+            agent: Some("codex".to_string()),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: Some(current_project.clone()),
+            seed_existing: false,
+            session: Some("codex-a".to_string()),
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: Vec::new(),
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: default_init_output_path(),
+            base_url: base_url.clone(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            publish_heartbeat: false,
+            force: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive command");
+
+        assert!(!response.lane_rerouted);
+        assert!(response.lane_created);
+        let lane = response.lane_surface.expect("lane surface");
+        assert_eq!(
+            lane.get("action").and_then(JsonValue::as_str),
+            Some("auto_create")
+        );
+        let output = PathBuf::from(&response.output);
+        assert_ne!(output, current_project.join(".memd"));
+        assert!(output.join("config.json").exists());
+
+        let receipts = state.receipts.lock().expect("lock receipts");
+        assert!(receipts.iter().any(|receipt| receipt.kind == "lane_create"));
+
+        fs::remove_dir_all(root).expect("cleanup hive auto create root");
     }
 
     #[tokio::test]

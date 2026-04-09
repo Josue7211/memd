@@ -594,6 +594,38 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
                 .unwrap_or("none"),
         ));
     }
+    if let Some(lane_fault) = status
+        .get("lane_fault")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_fault={} lane_fault_session={}",
+            lane_fault
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane_fault
+                .get("session")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+    }
+    if let Some(lane_receipts) = status
+        .get("lane_receipts")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_receipts={} lane_latest_receipt={}",
+            lane_receipts
+                .get("count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            lane_receipts
+                .get("latest_kind")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+    }
 
     if let Some(resume) = resume {
         let pressure = resume
@@ -3348,6 +3380,14 @@ mod tests {
                 "previous_branch": "feature/hive-shared",
                 "current_branch": "workerbee/codex-a",
                 "conflict_session": "claude-b"
+            },
+            "lane_fault": {
+                "kind": "unsafe_same_branch",
+                "session": "claude-b"
+            },
+            "lane_receipts": {
+                "count": 3,
+                "latest_kind": "lane_fault"
             }
         });
 
@@ -3356,6 +3396,10 @@ mod tests {
         assert!(summary.contains("lane_previous_branch=feature/hive-shared"));
         assert!(summary.contains("lane_current_branch=workerbee/codex-a"));
         assert!(summary.contains("lane_conflict_session=claude-b"));
+        assert!(summary.contains("lane_fault=unsafe_same_branch"));
+        assert!(summary.contains("lane_fault_session=claude-b"));
+        assert!(summary.contains("lane_receipts=3"));
+        assert!(summary.contains("lane_latest_receipt=lane_fault"));
     }
 
     #[test]
