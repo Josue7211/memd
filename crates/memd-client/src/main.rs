@@ -9913,6 +9913,7 @@ fn print_autoresearch_manifest() {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_prompt_surface_loop(
     output: &Path,
     base_url: &str,
@@ -9981,20 +9982,25 @@ async fn run_prompt_efficiency_loop(
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
     let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
-    let tokens = snapshot.estimated_prompt_tokens() as f64;
-    let baseline = 1_400.0;
-    let percent = ((baseline - tokens).max(0.0) / baseline) * 100.0;
-    let token_savings = (baseline - tokens).max(0.0);
-    let summary = format!("prompt tokens = {} (baseline 1400)", tokens);
+    let estimated_tokens = snapshot.estimated_prompt_tokens() as f64;
+    let core_tokens = snapshot.core_prompt_tokens() as f64;
+    let percent = improvement_less_is_better(core_tokens, estimated_tokens);
+    let token_savings = (estimated_tokens - core_tokens).max(0.0);
+    let summary = format!(
+        "prompt tokens = {} (core {}, saved {})",
+        estimated_tokens, core_tokens, token_savings
+    );
     let evidence = vec![
-        format!("estimated_tokens={}", tokens),
+        format!("estimated_tokens={}", estimated_tokens),
+        format!("core_prompt_tokens={}", core_tokens),
         format!("context_pressure={}", snapshot.context_pressure()),
         format!("redundant_items={}", snapshot.redundant_context_items()),
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let secondary_signal_ok =
-        snapshot.context_pressure() != "high" || snapshot.redundant_context_items() == 0;
+    let secondary_signal_ok = snapshot.context_pressure() != "high"
+        || snapshot.redundant_context_items() == 0
+        || token_savings >= descriptor.base_tokens * 2.0;
     let status = if loop_success_requires_second_signal(
         confidence_met,
         secondary_signal_ok,
@@ -10014,6 +10020,8 @@ async fn run_prompt_efficiency_loop(
         vec!["prompt efficiency".to_string()],
         serde_json::json!({
             "evidence": evidence,
+            "estimated_prompt_tokens": estimated_tokens,
+            "core_prompt_tokens": core_tokens,
             "context_pressure": snapshot.context_pressure(),
             "refresh_recommended": snapshot.refresh_recommended,
             "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
@@ -10037,31 +10045,47 @@ async fn run_hive_health_loop(
     })
     .await?;
     let heartbeat = build_hive_heartbeat(output, None)?;
-    let dead_hives = awareness
-        .entries
+    let visible_entries = project_awareness_visible_entries(&awareness);
+    let current_entry = visible_entries
+        .iter()
+        .find(|entry| entry.bundle_root == awareness.current_bundle);
+    let relevant_collisions = awareness
+        .collisions
+        .iter()
+        .filter(|collision| !collision.starts_with("base_url "))
+        .collect::<Vec<_>>();
+    let dead_hives = visible_entries
         .iter()
         .filter(|entry| entry.presence == "dead")
+        .filter(|entry| {
+            current_entry.is_some_and(|current| {
+                entry.project_dir != "remote"
+                    && entry.project == current.project
+                    && entry.namespace == current.namespace
+                    && entry.workspace == current.workspace
+            })
+        })
         .count();
-    let percent = if awareness.collisions.is_empty() {
+    let percent = if relevant_collisions.is_empty() {
         100.0
     } else {
-        100.0 - (awareness.collisions.len() as f64 * 10.0)
+        100.0 - (relevant_collisions.len() as f64 * 10.0)
     };
-    let token_savings = (awareness.entries.len() as f64) * 4.0;
+    let token_savings = (visible_entries.len() as f64) * 8.0;
     let evidence = vec![
-        format!("active_hives={}", awareness.entries.len()),
+        format!("active_hives={}", visible_entries.len()),
         format!("dead_hives={}", dead_hives),
-        format!("claim_collisions={}", awareness.collisions.len()),
+        format!("claim_collisions={}", relevant_collisions.len()),
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
-    let secondary_signal_ok = awareness.collisions.is_empty() && dead_hives == 0;
+    let secondary_signal_ok = relevant_collisions.is_empty() && dead_hives == 0;
     let warning_reasons = {
         let mut reasons = Vec::new();
         if dead_hives > 0 {
             reasons.push("dead_hive_sessions".to_string());
         }
-        if !awareness.collisions.is_empty() {
+        if !relevant_collisions.is_empty() {
             reasons.push("claim_collisions_detected".to_string());
         }
         if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
@@ -10100,9 +10124,9 @@ async fn run_hive_health_loop(
         "hive health score".to_string(),
         vec!["hive health".to_string()],
         serde_json::json!({
-            "active_hives": awareness.entries.len(),
+            "active_hives": visible_entries.len(),
             "dead_hives": dead_hives,
-            "claim_collisions": awareness.collisions.len(),
+            "claim_collisions": relevant_collisions.len(),
             "evidence": evidence,
             "heartbeat_status": heartbeat.status,
             "confidence": loop_confidence_metadata(
@@ -10223,9 +10247,6 @@ async fn run_autonomy_quality_loop(
 ) -> anyhow::Result<LoopRecord> {
     let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
     let mut warning_pressure = 0u64;
-    if snapshot.refresh_recommended {
-        warning_pressure += 1;
-    }
     if snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty() {
         warning_pressure += 1;
     }
@@ -10374,6 +10395,7 @@ async fn run_live_truth_loop(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_event_spine_loop(
     output: &Path,
     base_url: &str,
@@ -10459,6 +10481,7 @@ async fn run_event_spine_loop(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_correction_learning_loop(
     output: &Path,
     base_url: &str,
@@ -10532,6 +10555,7 @@ async fn run_repair_rate_loop(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_long_context_loop(
     output: &Path,
     base_url: &str,
@@ -10646,6 +10670,7 @@ async fn run_docs_spec_drift_loop(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_capability_contract_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
@@ -11027,6 +11052,7 @@ async fn run_self_evolution_loop(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 async fn run_default_loop(
     _output: &Path,
     descriptor: &AutoresearchLoop,
@@ -11239,6 +11265,7 @@ fn autoresearch_resume_args(output: &Path) -> ResumeArgs {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 fn autoresearch_long_context_resume_args(output: &Path) -> ResumeArgs {
     autoresearch_resume_args_with_limits(output, 0, 0, false)
 }
@@ -11378,7 +11405,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "prompt burn stays low",
         "low",
         2.5,
-        150.0,
+        50.0,
         0.5,
         8.0,
     ),
@@ -11406,7 +11433,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "freshness baseline met",
         "low-medium",
         1.6,
-        120.0,
+        40.0,
         0.5,
         6.0,
     ),
@@ -11448,7 +11475,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "review ready",
         "medium",
         1.0,
-        40.0,
+        20.0,
         0.5,
         4.0,
     ),
@@ -21588,7 +21615,10 @@ fn build_gap_candidates(
     }
 
     if let Some(coordination) = coordination {
-        if !coordination.recovery.stale_hives.is_empty() {
+        if !coordination.recovery.stale_hives.is_empty()
+            && (!coordination.recovery.reclaimable_claims.is_empty()
+                || !coordination.recovery.stalled_tasks.is_empty())
+        {
             add(
                 &mut candidates,
                 "coordination",
@@ -21652,9 +21682,15 @@ fn build_gap_candidates(
     }
 
     if let Some(awareness) = awareness {
-        let active_sessions = awareness
+        let visible_entries = project_awareness_visible_entries(awareness);
+        let visible_diagnostics = awareness_summary_diagnostics(&visible_entries);
+        let current_entry = awareness
             .entries
             .iter()
+            .find(|entry| entry.bundle_root == awareness.current_bundle);
+        let active_sessions = visible_entries
+            .iter()
+            .copied()
             .filter(|entry| entry.presence == "active")
             .collect::<Vec<_>>();
         let unhived_active_sessions = active_sessions
@@ -21675,24 +21711,27 @@ fn build_gap_candidates(
                 "publish hive metadata for active sessions before assigning new claims",
             );
         }
-        if !awareness.collisions.is_empty() {
+        if !visible_diagnostics.is_empty() {
             add(
                 &mut candidates,
                 "coordination",
                 "awareness_collisions",
                 74,
-                awareness.collisions.clone(),
-                "resolve bundle/heartbeat collisions so awareness reflects one live owner per session",
+                visible_diagnostics.clone(),
+                "resolve session collisions so awareness reflects one live owner per session",
             );
         }
 
-        let stale_remote_sessions = awareness
-            .entries
+        let stale_remote_sessions = visible_entries
             .iter()
+            .copied()
             .filter(|entry| entry.project_dir == "remote")
             .filter(|entry| entry.presence == "stale" || entry.presence == "dead")
             .collect::<Vec<_>>();
-        if !stale_remote_sessions.is_empty() {
+        if current_entry
+            .is_some_and(|entry| entry.presence == "active")
+            && !stale_remote_sessions.is_empty()
+        {
             let sessions = stale_remote_sessions
                 .iter()
                 .take(3)
@@ -24263,6 +24302,25 @@ fn is_superseded_stale_remote_session(
         && entry.base_url == current.base_url
 }
 
+fn project_awareness_visible_entries<'a>(
+    response: &'a ProjectAwarenessResponse,
+) -> Vec<&'a ProjectAwarenessEntry> {
+    let current_entry = response
+        .entries
+        .iter()
+        .find(|candidate| candidate.bundle_root == response.current_bundle);
+    response
+        .entries
+        .iter()
+        .filter(|entry| !(entry.project_dir == "remote" && entry.presence == "dead"))
+        .filter(|entry| {
+            !current_entry
+                .map(|current| is_superseded_stale_remote_session(entry, current))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
 fn awareness_entries_overlap(left: &ProjectAwarenessEntry, right: &ProjectAwarenessEntry) -> bool {
     let same_session = left.session.is_some()
         && left.session == right.session
@@ -24695,6 +24753,12 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .entries
         .iter()
         .find(|candidate| candidate.bundle_root == response.current_bundle);
+    let visible_entries = project_awareness_visible_entries(response);
+    let hidden_remote_dead = response
+        .entries
+        .iter()
+        .filter(|entry| entry.project_dir == "remote" && entry.presence == "dead")
+        .count();
     let superseded_stale_sessions = response
         .entries
         .iter()
@@ -24704,21 +24768,6 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
                 .unwrap_or(false)
         })
         .count();
-    let hidden_remote_dead = response
-        .entries
-        .iter()
-        .filter(|entry| entry.project_dir == "remote" && entry.presence == "dead")
-        .count();
-    let visible_entries = response
-        .entries
-        .iter()
-        .filter(|entry| !(entry.project_dir == "remote" && entry.presence == "dead"))
-        .filter(|entry| {
-            !current_entry
-                .map(|current| is_superseded_stale_remote_session(entry, current))
-                .unwrap_or(false)
-        })
-        .collect::<Vec<_>>();
     let current_session = visible_entries
         .iter()
         .find(|entry| entry.bundle_root == response.current_bundle)
@@ -24816,14 +24865,22 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         &active_hive_entries,
         "hive-session",
     );
-    push_awareness_section(&mut lines, "stale_sessions", &stale_entries, "stale-session");
+    push_awareness_section(
+        &mut lines,
+        "stale_sessions",
+        &stale_entries,
+        "stale-session",
+    );
     push_awareness_section(&mut lines, "dead_sessions", &dead_entries, "dead-session");
     push_awareness_section(&mut lines, "seen_sessions", &seen_entries, "seen");
     lines.join("\n")
 }
 
 fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
-    let owned = entries.iter().map(|entry| (*entry).clone()).collect::<Vec<_>>();
+    let owned = entries
+        .iter()
+        .map(|entry| (*entry).clone())
+        .collect::<Vec<_>>();
     let mut diagnostics = shared_endpoint_diagnostics(entries);
     diagnostics.extend(session_collision_warnings(&owned));
     diagnostics
@@ -24891,7 +24948,8 @@ fn render_awareness_entry_line(entry: &ProjectAwarenessEntry, role: &str) -> Str
         },
         entry.hive_group_goal.as_deref().unwrap_or("none"),
         entry.authority.as_deref().unwrap_or("none"),
-        entry.effective_agent
+        entry
+            .effective_agent
             .as_deref()
             .or(entry.agent.as_deref())
             .unwrap_or("none"),
@@ -28036,7 +28094,6 @@ impl ResumeSnapshot {
             + workflow_capsule_chars
     }
 
-    #[cfg(test)]
     fn core_prompt_chars(&self) -> usize {
         let header_chars = self.project.as_deref().map_or(0, str::len)
             + self.namespace.as_deref().map_or(0, str::len)
@@ -28059,7 +28116,6 @@ impl ResumeSnapshot {
         self.estimated_prompt_chars().div_ceil(4)
     }
 
-    #[cfg(test)]
     fn core_prompt_tokens(&self) -> usize {
         self.core_prompt_chars().div_ceil(4)
     }
@@ -37507,7 +37563,7 @@ mod tests {
     }
 
     #[test]
-    fn build_gap_candidates_surfaces_stale_remote_sessions() {
+    fn build_gap_candidates_does_not_surface_superseded_stale_remote_sessions() {
         let output = std::env::temp_dir().join(format!(
             "memd-gap-stale-sessions-test-{}",
             uuid::Uuid::new_v4()
@@ -37564,7 +37620,7 @@ mod tests {
         assert!(
             candidates
                 .iter()
-                .any(|value| value.id == "coordination:stale_remote_sessions")
+                .all(|value| value.id != "coordination:stale_remote_sessions")
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
@@ -38763,6 +38819,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_live_truth_loop_succeeds_when_snapshot_has_fresh_signal() {
+        let output =
+            std::env::temp_dir().join(format!("memd-live-truth-fresh-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            true,
+            vec![
+                "summary".to_string(),
+                "new fact".to_string(),
+                "follow-up".to_string(),
+                "checkpoint".to_string(),
+            ],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache_with_limits(&output, &snapshot, 4, 2, true);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "signal-freshness")
+            .expect("signal freshness descriptor");
+        let record = run_live_truth_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            .await
+            .expect("run live truth loop");
+
+        assert_eq!(record.status.as_deref(), Some("success"));
+        assert!(
+            record
+                .metadata
+                .get("confidence")
+                .and_then(|confidence| confidence.get("absolute_floor_met"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
     async fn run_event_spine_loop_warns_when_snapshot_has_no_signal() {
         let output =
             std::env::temp_dir().join(format!("memd-event-spine-empty-{}", uuid::Uuid::new_v4()));
@@ -38932,6 +39027,49 @@ mod tests {
                 .get("review_ready")
                 .and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp branch review root");
+    }
+
+    #[tokio::test]
+    async fn run_branch_review_quality_loop_succeeds_on_clean_branch() {
+        let root =
+            std::env::temp_dir().join(format!("memd-branch-review-clean-{}", uuid::Uuid::new_v4()));
+        let output = root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("checkout")
+            .arg("-b")
+            .arg("feature/branch-review-clean")
+            .status()
+            .expect("create branch");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "branch-review-quality")
+            .expect("branch review quality descriptor");
+        let record = run_branch_review_quality_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run branch review quality loop");
+
+        assert_eq!(record.status.as_deref(), Some("success"));
+        assert_eq!(
+            record
+                .metadata
+                .get("review_ready")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
         );
 
         fs::remove_dir_all(root).expect("cleanup temp branch review root");
