@@ -15647,7 +15647,10 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
         summary: false,
     })
     .await?;
-    let visible_entries = project_awareness_visible_entries(&awareness);
+    let visible_entries = filter_project_awareness_entries_for_hive_scope(
+        &project_awareness_visible_entries(&awareness),
+        runtime.as_ref(),
+    );
     let queen_session = visible_entries
         .iter()
         .find(|entry| {
@@ -15868,8 +15871,6 @@ async fn run_hive_handoff_command(
     });
     let project = runtime.as_ref().and_then(|config| config.project.clone());
     let namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
-    let workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
-
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
         root: None,
@@ -15877,7 +15878,10 @@ async fn run_hive_handoff_command(
         summary: false,
     })
     .await?;
-    let visible_entries = project_awareness_visible_entries(&awareness);
+    let visible_entries = filter_project_awareness_entries_for_hive_scope(
+        &project_awareness_visible_entries(&awareness),
+        runtime.as_ref(),
+    );
     let current_entry = visible_entries
         .iter()
         .copied()
@@ -15888,6 +15892,10 @@ async fn run_hive_handoff_command(
         args.to_worker.as_deref(),
         "hive handoff",
     )?;
+    let workspace = runtime
+        .as_ref()
+        .and_then(|config| config.workspace.clone())
+        .or_else(|| target_entry.workspace.clone());
     let target_session = target_entry
         .session
         .clone()
@@ -16215,6 +16223,44 @@ fn resolve_hive_follow_target<'a>(
     )
 }
 
+fn filter_project_awareness_entries_for_hive_scope<'a>(
+    entries: &[&'a ProjectAwarenessEntry],
+    runtime: Option<&BundleRuntimeConfig>,
+) -> Vec<&'a ProjectAwarenessEntry> {
+    let Some(runtime) = runtime else {
+        return entries.to_vec();
+    };
+    let project = runtime.project.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let namespace = runtime
+        .namespace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let workspace = runtime
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let filtered = entries
+        .iter()
+        .copied()
+        .filter(|entry| {
+            project.is_none_or(|value| entry.project.as_deref().map(str::trim) == Some(value))
+                && namespace.is_none_or(|value| {
+                    entry.namespace.as_deref().map(str::trim) == Some(value)
+                })
+                && workspace.is_none_or(|value| {
+                    entry.workspace.as_deref().map(str::trim) == Some(value)
+                })
+        })
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        entries.to_vec()
+    } else {
+        filtered
+    }
+}
+
 fn resolve_hive_target_entry<'a>(
     visible_entries: &[&'a ProjectAwarenessEntry],
     session: Option<&str>,
@@ -16233,9 +16279,21 @@ fn resolve_hive_target_entry<'a>(
         return visible_entries
             .iter()
             .copied()
-            .find(|entry| {
+            .filter(|entry| {
                 derive_awareness_worker_name(entry)
                     .is_some_and(|name| name.eq_ignore_ascii_case(worker))
+            })
+            .max_by_key(|entry| {
+                let presence_rank = match entry.presence.as_str() {
+                    "active" => 4,
+                    "fresh" => 3,
+                    "seen" => 2,
+                    "stale" => 1,
+                    _ => 0,
+                };
+                let task_rank = usize::from(entry.task_id.is_some());
+                let scope_rank = entry.scope_claims.len();
+                (presence_rank, task_rank, scope_rank)
             })
             .with_context(|| format!("{command} worker not found in awareness"));
     }
@@ -27096,6 +27154,7 @@ fn fixture_seed_string(
 
 fn fixture_seed_defaults(
     fixture: &FixtureRecord,
+    base_url_override: Option<&str>,
 ) -> anyhow::Result<serde_json::Map<String, JsonValue>> {
     let mut seed = fixture_seed_object(fixture)?;
     let defaults = [
@@ -27112,6 +27171,12 @@ fn fixture_seed_defaults(
     for (key, value) in defaults {
         seed.entry(key.to_string())
             .or_insert_with(|| JsonValue::String(value.to_string()));
+    }
+    if let Some(base_url) = base_url_override.filter(|value| !value.trim().is_empty()) {
+        seed.insert(
+            "base_url".to_string(),
+            JsonValue::String(base_url.to_string()),
+        );
     }
     Ok(seed)
 }
@@ -27394,7 +27459,10 @@ fn seed_materialized_fixture(
     Ok(())
 }
 
-fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFixture> {
+fn materialize_fixture(
+    fixture: &FixtureRecord,
+    base_url_override: Option<&str>,
+) -> anyhow::Result<MaterializedFixture> {
     if fixture.kind != "bundle_fixture" {
         anyhow::bail!("unsupported fixture kind {}", fixture.kind);
     }
@@ -27403,7 +27471,7 @@ fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFi
     }
 
     let root = tempfile::tempdir().context("create fixture tempdir")?;
-    let seed = fixture_seed_defaults(fixture)?;
+    let seed = fixture_seed_defaults(fixture, base_url_override)?;
     let mut fixture_vars = build_fixture_vars(&seed);
     let mut session_bundles = BTreeMap::new();
 
@@ -28072,8 +28140,9 @@ fn evaluate_verifier_assertions(
 async fn run_verifier_record(
     verifier: &VerifierRecord,
     fixture: &FixtureRecord,
+    base_url_override: Option<&str>,
 ) -> anyhow::Result<VerifierRunRecord> {
-    let materialized = materialize_fixture(fixture)?;
+    let materialized = materialize_fixture(fixture, base_url_override)?;
     let evidence_id = format!("evidence:{}:latest", verifier.id);
     let execution = execute_verifier_steps(verifier, &materialized).await?;
     let evidence_tiers = vec!["live_primary".to_string()];
@@ -28305,7 +28374,13 @@ async fn execute_named_verifier_command(
         .iter()
         .find(|fixture| fixture.id == verifier.fixture_id)
         .with_context(|| format!("missing fixture {}", verifier.fixture_id))?;
-    let run = run_verifier_record(verifier, fixture).await?;
+    let runtime = read_bundle_runtime_config(output)?;
+    let run = run_verifier_record(
+        verifier,
+        fixture,
+        runtime.as_ref().and_then(|config| config.base_url.as_deref()),
+    )
+    .await?;
     let evidence_payload = json!({
         "verifier_id": verifier.id,
         "fixture_id": fixture.id,
@@ -28411,6 +28486,8 @@ async fn execute_verify_sweep(
     registry: &BenchmarkRegistry,
     lane: &str,
 ) -> anyhow::Result<VerifySweepReport> {
+    let runtime = read_bundle_runtime_config(output)?;
+    let base_url_override = runtime.as_ref().and_then(|config| config.base_url.as_deref());
     let selected = registry
         .verifiers
         .iter()
@@ -28426,7 +28503,7 @@ async fn execute_verify_sweep(
             .iter()
             .find(|fixture| fixture.id == verifier.fixture_id)
             .with_context(|| format!("missing fixture {}", verifier.fixture_id))?;
-        let run = run_verifier_record(verifier, fixture).await?;
+        let run = run_verifier_record(verifier, fixture, base_url_override).await?;
         if run.status != "passing" {
             let failure = if verifier_is_tier_zero(verifier, registry) {
                 format!("tier-0 failure {}", verifier.id)
@@ -36163,6 +36240,19 @@ fn confirmed_hive_overlap_reason(
     topic_claim: Option<&str>,
     scope_claims: &[String],
 ) -> Option<String> {
+    let current_scopes = scope_claims
+        .iter()
+        .map(|scope| scope.trim())
+        .filter(|scope| !scope.is_empty())
+        .filter(|scope| !is_generic_overlap_touch(scope))
+        .collect::<Vec<_>>();
+    let target_scopes = target
+        .scope_claims
+        .iter()
+        .map(|scope| scope.trim())
+        .filter(|scope| !scope.is_empty())
+        .filter(|scope| !is_generic_overlap_touch(scope))
+        .collect::<Vec<_>>();
     let task_id = task_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -36181,22 +36271,10 @@ fn confirmed_hive_overlap_reason(
             .filter(|value| !value.is_empty()),
     ) && current_task != target_task
     {
-        let target_scopes = target
-            .scope_claims
-            .iter()
-            .map(|scope| scope.trim())
-            .filter(|scope| !scope.is_empty())
-            .collect::<Vec<_>>();
         if !target_scopes.is_empty()
-            && scope_claims
+            && current_scopes
                 .iter()
-                .map(|scope| scope.trim())
-                .filter(|scope| !scope.is_empty())
-                .any(|scope| {
-                    target_scopes
-                        .iter()
-                        .any(|target_scope| target_scope == &scope)
-                })
+                .any(|scope| target_scopes.iter().any(|target_scope| target_scope == scope))
         {
             return Some(format!(
                 "confirmed hive overlap: target session {} already owns scope(s) for task {}",
@@ -36206,17 +36284,10 @@ fn confirmed_hive_overlap_reason(
         }
     }
 
-    let shared_scopes = scope_claims
+    let shared_scopes = current_scopes
         .iter()
-        .map(|scope| scope.trim())
-        .filter(|scope| !scope.is_empty())
-        .filter(|scope| {
-            target
-                .scope_claims
-                .iter()
-                .any(|target_scope| target_scope.trim() == *scope)
-        })
-        .map(str::to_string)
+        .filter(|scope| target_scopes.iter().any(|target_scope| target_scope == *scope))
+        .map(|scope| (*scope).to_string())
         .collect::<Vec<_>>();
     if !shared_scopes.is_empty() {
         return Some(format!(
@@ -47474,7 +47545,7 @@ mod tests {
   "namespace": "main",
   "agent": "codex",
   "session": "session-anscombe",
-  "workspace": "shared",
+  "workspace": null,
   "visibility": "workspace",
   "base_url": "{}",
   "auto_short_term_capture": false,
@@ -47618,6 +47689,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, "handoff");
         assert_eq!(messages[0].to_session, "session-avicenna");
+        assert_eq!(messages[0].workspace.as_deref(), Some("shared"));
         assert!(messages[0].content.contains("handoff_packet"));
         assert!(messages[0].content.contains("task=parser-refactor"));
 
@@ -55093,6 +55165,54 @@ mod tests {
         assert!(topic_conflict.contains("already owns topic"));
     }
 
+    #[test]
+    fn confirmed_hive_overlap_reason_ignores_generic_project_scope() {
+        let target = ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: "remote:http://127.0.0.1:8787:peer".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: Some("/tmp/peer".to_string()),
+            branch: Some("feature/peer".to_string()),
+            base_branch: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("peer".to_string()),
+            tab_id: None,
+            effective_agent: Some("Peer@peer".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("worker".to_string()),
+            capabilities: vec!["coordination".to_string()],
+            hive_groups: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            presence: "active".to_string(),
+            host: Some("workstation".to_string()),
+            pid: Some(3),
+            active_claims: 1,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            topic_claim: Some("Review parser handoff".to_string()),
+            scope_claims: vec!["project".to_string()],
+            task_id: Some("peer-review".to_string()),
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now()),
+        };
+
+        assert!(
+            confirmed_hive_overlap_reason(
+                &target,
+                Some("current-task"),
+                Some("Different topic"),
+                &["project".to_string()],
+            )
+            .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn enrich_hive_heartbeat_with_runtime_intent_prefers_owned_task_state() {
         let state = MockRuntimeState::default();
@@ -56413,7 +56533,7 @@ mod tests {
     #[test]
     fn materialize_continuity_fixture_creates_temp_bundle() {
         let fixture = test_continuity_fixture_record();
-        let env = materialize_fixture(&fixture).expect("materialize fixture");
+        let env = materialize_fixture(&fixture, None).expect("materialize fixture");
         assert!(env.bundle_root.join("config.json").exists());
         assert_eq!(env._fixture_id, "fixture.continuity_bundle");
     }
@@ -56423,7 +56543,7 @@ mod tests {
         let mut fixture = test_continuity_fixture_record();
         fixture.seed_files = vec!["state/checkpoint.txt".to_string()];
 
-        let env = materialize_fixture(&fixture).expect("materialize fixture");
+        let env = materialize_fixture(&fixture, None).expect("materialize fixture");
 
         let seeded = env.bundle_root.join("state/checkpoint.txt");
         assert!(seeded.exists());
@@ -56457,7 +56577,7 @@ mod tests {
             cleanup_policy: "destroy".to_string(),
         };
 
-        let env = materialize_fixture(&fixture).expect("materialize hive fixture");
+        let env = materialize_fixture(&fixture, None).expect("materialize hive fixture");
 
         let sender_bundle = env
             .fixture_vars
@@ -56500,12 +56620,13 @@ mod tests {
             helper_hooks: Vec::new(),
         };
 
-        let run = run_verifier_record(&verifier, &fixture)
+        let run = run_verifier_record(&verifier, &fixture, None)
             .await
             .expect("run verifier");
         assert_eq!(run.verifier_id, "verifier.feature.bundle.resume");
         assert!(!run.evidence_ids.is_empty());
-        let materialized = materialize_fixture(&fixture).expect("materialize fixture again");
+        let materialized =
+            materialize_fixture(&fixture, None).expect("materialize fixture again");
         write_verifier_run_artifacts(
             &materialized.bundle_root,
             &run,
@@ -56568,7 +56689,7 @@ mod tests {
             helper_hooks: Vec::new(),
         };
 
-        let run = run_verifier_record(&verifier, &fixture)
+        let run = run_verifier_record(&verifier, &fixture, None)
             .await
             .expect("run verifier");
 
@@ -56640,7 +56761,7 @@ mod tests {
             helper_hooks: Vec::new(),
         };
 
-        let run = run_verifier_record(&verifier, &fixture)
+        let run = run_verifier_record(&verifier, &fixture, None)
             .await
             .expect("run comparative verifier");
 
@@ -56693,7 +56814,7 @@ mod tests {
             helper_hooks: Vec::new(),
         };
 
-        let run = run_verifier_record(&verifier, &fixture)
+        let run = run_verifier_record(&verifier, &fixture, None)
             .await
             .expect("run verifier with file assertion");
 
@@ -56784,7 +56905,7 @@ mod tests {
             helper_hooks: Vec::new(),
         };
 
-        let run = run_verifier_record(&verifier, &fixture)
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
             .await
             .expect("run hive message verifier");
 
@@ -57205,9 +57326,9 @@ mod tests {
         let coverage = build_telemetry_benchmark_coverage(&output)
             .expect("build telemetry coverage")
             .expect("telemetry coverage");
-        assert_eq!(coverage.continuity_critical_total, 8);
+        assert_eq!(coverage.continuity_critical_total, 9);
         assert_eq!(coverage.continuity_critical_benchmarked, 0);
-        assert_eq!(coverage.missing_loop_count, 8);
+        assert_eq!(coverage.missing_loop_count, 9);
         assert!(
             coverage
                 .gap_candidates
