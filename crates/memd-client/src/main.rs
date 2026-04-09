@@ -21685,6 +21685,43 @@ fn build_gap_candidates(
                 "resolve bundle/heartbeat collisions so awareness reflects one live owner per session",
             );
         }
+
+        let stale_remote_peers = awareness
+            .entries
+            .iter()
+            .filter(|entry| entry.project_dir == "remote")
+            .filter(|entry| entry.presence == "stale" || entry.presence == "dead")
+            .collect::<Vec<_>>();
+        if !stale_remote_peers.is_empty() {
+            let sessions = stale_remote_peers
+                .iter()
+                .take(3)
+                .filter_map(|entry| entry.session.as_deref())
+                .collect::<Vec<_>>();
+            let recovery_hint = sessions
+                .first()
+                .map(|session| format!("memd coordination --recover-session {session}"))
+                .unwrap_or_else(|| "memd coordination --recover-session <session>".to_string());
+            add(
+                &mut candidates,
+                "coordination",
+                "stale_remote_peers",
+                87,
+                vec![
+                    format!("stale remote peers={}", stale_remote_peers.len()),
+                    format!(
+                        "sessions={}",
+                        if sessions.is_empty() {
+                            "unknown".to_string()
+                        } else {
+                            sessions.join(",")
+                        }
+                    ),
+                    format!("recovery={recovery_hint}"),
+                ],
+                "recover the stale remote peers or re-hive them before adding new claims",
+            );
+        }
     }
 
     if let Some(doc_count) = research_loops_doc_count {
@@ -23937,6 +23974,56 @@ fn resolve_project_bundle_overlay(
     read_bundle_runtime_config_raw(&local_bundle)
 }
 
+fn resolve_live_session_overlay(
+    output: &Path,
+    current_dir: &Path,
+    global_root: &Path,
+) -> anyhow::Result<Option<BundleRuntimeConfig>> {
+    let output = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    let global_root = fs::canonicalize(global_root).unwrap_or_else(|_| global_root.to_path_buf());
+    if output == global_root {
+        return Ok(None);
+    }
+
+    let local_bundle = current_dir.join(".memd");
+    let local_bundle = fs::canonicalize(&local_bundle).unwrap_or(local_bundle);
+    if local_bundle != output {
+        return Ok(None);
+    }
+
+    let Some(global_runtime) = read_bundle_runtime_config_raw(&global_root)? else {
+        return Ok(None);
+    };
+
+    if global_runtime.session.is_none() && global_runtime.tab_id.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(BundleRuntimeConfig {
+        project: None,
+        namespace: None,
+        agent: None,
+        session: global_runtime.session,
+        tab_id: global_runtime.tab_id,
+        hive_system: None,
+        hive_role: None,
+        capabilities: Vec::new(),
+        hive_groups: Vec::new(),
+        hive_group_goal: None,
+        authority: None,
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
+        base_url: None,
+        route: None,
+        intent: None,
+        workspace: None,
+        visibility: None,
+        heartbeat_model: None,
+        auto_short_term_capture: false,
+    }))
+}
+
 fn merge_bundle_runtime_config(
     mut runtime: BundleRuntimeConfig,
     overlay: BundleRuntimeConfig,
@@ -23952,6 +24039,9 @@ fn merge_bundle_runtime_config(
     }
     if overlay.visibility.is_some() {
         runtime.visibility = overlay.visibility;
+    }
+    if overlay.session.is_some() {
+        runtime.session = overlay.session;
     }
     if overlay.route.is_some() {
         runtime.route = overlay.route;
@@ -23998,6 +24088,11 @@ fn read_bundle_runtime_config(output: &Path) -> anyhow::Result<Option<BundleRunt
     let current_dir = std::env::current_dir().context("read current directory")?;
     if let Some(overlay) =
         resolve_project_bundle_overlay(output, &current_dir, &default_global_bundle_root())?
+    {
+        runtime = merge_bundle_runtime_config(runtime, overlay);
+    }
+    if let Some(overlay) =
+        resolve_live_session_overlay(output, &current_dir, &default_global_bundle_root())?
     {
         runtime = merge_bundle_runtime_config(runtime, overlay);
     }
@@ -32752,9 +32847,11 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains(
-            "awareness root=/tmp/projects bundles=1 collisions=0 hidden_remote_dead=0"
-        ));
+        assert!(
+            summary.contains(
+                "awareness root=/tmp/projects bundles=1 collisions=0 hidden_remote_dead=0"
+            )
+        );
         assert!(summary.contains(
             "sibling | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
         ));
@@ -36073,6 +36170,7 @@ mod tests {
         let merged = merge_bundle_runtime_config(runtime, overlay);
         assert_eq!(merged.project.as_deref(), Some("memd"));
         assert_eq!(merged.namespace.as_deref(), Some("main"));
+        assert_eq!(merged.session.as_deref(), Some("codex-a"));
         assert_eq!(merged.hive_system.as_deref(), Some("claw-control"));
         assert_eq!(merged.hive_role.as_deref(), Some("orchestrator"));
         assert_eq!(merged.route.as_deref(), Some("lexical"));
@@ -36276,6 +36374,70 @@ mod tests {
         assert_eq!(overlay.intent.as_deref(), Some("current_task"));
 
         fs::remove_dir_all(temp_root).expect("cleanup overlay temp");
+    }
+
+    #[test]
+    fn resolve_live_session_overlay_uses_global_session_for_current_project_bundle() {
+        let _home_lock = lock_home_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-live-overlay-{}", uuid::Uuid::new_v4()));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(&global_root).expect("create global bundle");
+        fs::create_dir_all(&local_bundle).expect("create local bundle");
+        fs::write(
+            global_root.join("config.json"),
+            r#"{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "http://100.104.154.24:8787"
+}
+"#,
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "base_url": "http://100.104.154.24:8787"
+}
+"#,
+        )
+        .expect("write local config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let overlay =
+            resolve_live_session_overlay(&local_bundle, &repo_root, &default_global_bundle_root())
+                .expect("resolve live overlay")
+                .expect("overlay present");
+        assert_eq!(overlay.session.as_deref(), Some("codex-fresh"));
+        assert_eq!(overlay.tab_id.as_deref(), Some("tab-alpha"));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup live overlay temp");
     }
 
     #[test]
@@ -37030,6 +37192,70 @@ mod tests {
             candidates
                 .iter()
                 .any(|value| value.id == "coordination:awareness_collisions")
+        );
+
+        fs::remove_dir_all(&output).expect("cleanup temp output");
+    }
+
+    #[test]
+    fn build_gap_candidates_surfaces_stale_remote_peers() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-gap-stale-peers-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create temp output");
+
+        let awareness = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: output.display().to_string(),
+            collisions: Vec::new(),
+            entries: vec![ProjectAwarenessEntry {
+                project_dir: "remote".to_string(),
+                bundle_root: "remote:http://127.0.0.1:8787:session-dead".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-dead".to_string()),
+                tab_id: None,
+                effective_agent: Some("codex@session-dead".to_string()),
+                hive_system: None,
+                hive_role: None,
+                capabilities: vec!["memory".to_string()],
+                hive_groups: Vec::new(),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "stale".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: None,
+                visibility: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: Some(Utc::now()),
+            }],
+        };
+
+        let mut evidence = Vec::new();
+        let candidates = build_gap_candidates(
+            &output,
+            &None,
+            &None,
+            None,
+            None,
+            None,
+            Some(&awareness),
+            None,
+            &[],
+            &mut evidence,
+        );
+
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "coordination:stale_remote_peers")
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
