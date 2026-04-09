@@ -278,6 +278,9 @@ impl SqliteStore {
               project TEXT,
               namespace TEXT,
               workspace TEXT,
+              repo_root TEXT,
+              worktree_root TEXT,
+              branch TEXT,
               hive_system TEXT,
               hive_role TEXT,
               host TEXT,
@@ -2116,6 +2119,24 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let repo_root = request
+            .repo_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let worktree_root = request
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let branch = request
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let record = HiveSessionRecord {
             session: session.clone(),
             tab_id: request
@@ -2183,6 +2204,15 @@ impl SqliteStore {
             project: project.clone(),
             namespace: namespace.clone(),
             workspace: workspace.clone(),
+            repo_root: repo_root.clone(),
+            worktree_root: worktree_root.clone(),
+            branch: branch.clone(),
+            base_branch: request
+                .base_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             visibility: request
                 .visibility
                 .as_deref()
@@ -2237,6 +2267,9 @@ impl SqliteStore {
                 project: project.as_deref(),
                 namespace: namespace.as_deref(),
                 workspace: workspace.as_deref(),
+                repo_root: repo_root.as_deref(),
+                worktree_root: worktree_root.as_deref(),
+                branch: branch.as_deref(),
                 agent: record.agent.as_deref(),
                 effective_agent: record.effective_agent.as_deref(),
                 hive_system: record.hive_system.as_deref(),
@@ -2252,13 +2285,16 @@ impl SqliteStore {
         tx.execute(
             r#"
             INSERT INTO hive_sessions (
-              session_key, session, project, namespace, workspace, hive_system, hive_role, host, status, last_seen, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+              session_key, session, project, namespace, workspace, repo_root, worktree_root, branch, hive_system, hive_role, host, status, last_seen, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
               namespace = excluded.namespace,
               workspace = excluded.workspace,
+              repo_root = excluded.repo_root,
+              worktree_root = excluded.worktree_root,
+              branch = excluded.branch,
               hive_system = excluded.hive_system,
               hive_role = excluded.hive_role,
               host = excluded.host,
@@ -2272,6 +2308,9 @@ impl SqliteStore {
                 &record.project,
                 &record.namespace,
                 &record.workspace,
+                &record.repo_root,
+                &record.worktree_root,
+                &record.branch,
                 &record.hive_system,
                 &record.hive_role,
                 &record.host,
@@ -2312,6 +2351,24 @@ impl SqliteStore {
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
+        let repo_root = request
+            .repo_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let worktree_root = request
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let branch = request
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let hive_system = request
             .hive_system
             .as_deref()
@@ -2368,20 +2425,23 @@ impl SqliteStore {
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
                   AND (?4 IS NULL OR workspace = ?4)
-                  AND (?5 = 0 OR last_seen >= ?6)
-                  AND (?7 IS NULL OR hive_system = ?7)
-                  AND (?8 IS NULL OR hive_role = ?8)
-                  AND (?9 IS NULL OR host = ?9)
+                  AND (?5 IS NULL OR repo_root = ?5)
+                  AND (?6 IS NULL OR worktree_root = ?6)
+                  AND (?7 IS NULL OR branch = ?7)
+                  AND (?8 = 0 OR last_seen >= ?9)
+                  AND (?10 IS NULL OR hive_system = ?10)
+                  AND (?11 IS NULL OR hive_role = ?11)
+                  AND (?12 IS NULL OR host = ?12)
                   AND (
-                    ?10 IS NULL OR EXISTS (
+                    ?13 IS NULL OR EXISTS (
                       SELECT 1
                       FROM hive_session_groups
                       WHERE hive_session_groups.session_key = hive_sessions.session_key
-                        AND hive_session_groups.hive_group = ?10
+                        AND hive_session_groups.hive_group = ?13
                     )
                   )
                 ORDER BY last_seen DESC
-                LIMIT ?11
+                LIMIT ?14
                 "#,
             )
             .context("prepare hive sessions query")?;
@@ -2392,6 +2452,9 @@ impl SqliteStore {
                     project_filter,
                     namespace_filter,
                     workspace_filter,
+                    repo_root,
+                    worktree_root,
+                    branch,
                     if active_only { 1 } else { 0 },
                     active_cutoff,
                     hive_system,
@@ -2438,6 +2501,21 @@ impl SqliteStore {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let repo_root = request
+            .repo_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let worktree_root = request
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let branch = request
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let agent = request
             .agent
             .as_deref()
@@ -2473,11 +2551,14 @@ impl SqliteStore {
               AND (?2 IS NULL OR project = ?2)
               AND (?3 IS NULL OR namespace = ?3)
               AND (?4 IS NULL OR workspace = ?4)
-              AND (?5 IS NULL OR json_extract(payload_json, '$.agent') = ?5)
-              AND (?6 IS NULL OR json_extract(payload_json, '$.effective_agent') = ?6)
-              AND (?7 IS NULL OR hive_system = ?7)
-              AND (?8 IS NULL OR hive_role = ?8)
-              AND (?9 IS NULL OR host = ?9)
+              AND (?5 IS NULL OR repo_root = ?5)
+              AND (?6 IS NULL OR worktree_root = ?6)
+              AND (?7 IS NULL OR branch = ?7)
+              AND (?8 IS NULL OR json_extract(payload_json, '$.agent') = ?8)
+              AND (?9 IS NULL OR json_extract(payload_json, '$.effective_agent') = ?9)
+              AND (?10 IS NULL OR hive_system = ?10)
+              AND (?11 IS NULL OR hive_role = ?11)
+              AND (?12 IS NULL OR host = ?12)
             "#,
         )?;
         let rows = stmt.query_map(
@@ -2486,6 +2567,9 @@ impl SqliteStore {
                 project,
                 namespace,
                 workspace,
+                repo_root,
+                worktree_root,
+                branch,
                 agent,
                 effective_agent,
                 hive_system,
@@ -3233,6 +3317,9 @@ struct HiveSessionKeyArgs<'a> {
     project: Option<&'a str>,
     namespace: Option<&'a str>,
     workspace: Option<&'a str>,
+    repo_root: Option<&'a str>,
+    worktree_root: Option<&'a str>,
+    branch: Option<&'a str>,
     agent: Option<&'a str>,
     effective_agent: Option<&'a str>,
     hive_system: Option<&'a str>,
@@ -3242,11 +3329,14 @@ struct HiveSessionKeyArgs<'a> {
 
 fn hive_session_key(session: &str, args: HiveSessionKeyArgs<'_>) -> String {
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         session.trim(),
         args.project.unwrap_or("").trim(),
         args.namespace.unwrap_or("").trim(),
         args.workspace.unwrap_or("").trim(),
+        args.repo_root.unwrap_or("").trim(),
+        args.worktree_root.unwrap_or("").trim(),
+        args.branch.unwrap_or("").trim(),
         args.agent.unwrap_or("").trim(),
         args.effective_agent.unwrap_or("").trim(),
         args.hive_system.unwrap_or("").trim(),
@@ -3765,6 +3855,9 @@ fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
     let has_hive_system = columns.iter().any(|value| value == "hive_system");
     let has_hive_role = columns.iter().any(|value| value == "hive_role");
     let has_host = columns.iter().any(|value| value == "host");
+    let has_repo_root = columns.iter().any(|value| value == "repo_root");
+    let has_worktree_root = columns.iter().any(|value| value == "worktree_root");
+    let has_branch = columns.iter().any(|value| value == "branch");
 
     if !has_hive_system {
         conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN hive_system TEXT;")?;
@@ -3774,6 +3867,15 @@ fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
     }
     if !has_host {
         conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN host TEXT;")?;
+    }
+    if !has_repo_root {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN repo_root TEXT;")?;
+    }
+    if !has_worktree_root {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN worktree_root TEXT;")?;
+    }
+    if !has_branch {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN branch TEXT;")?;
     }
 
     let has_hive_session_groups = conn
@@ -3806,7 +3908,14 @@ fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
         .optional()?
         .is_none();
 
-    if !has_hive_system || !has_hive_role || !has_host || hive_session_groups_empty {
+    if !has_hive_system
+        || !has_hive_role
+        || !has_host
+        || !has_repo_root
+        || !has_worktree_root
+        || !has_branch
+        || hive_session_groups_empty
+    {
         let tx = conn
             .transaction()
             .context("begin hive session migration backfill")?;
@@ -3818,9 +3927,15 @@ fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
 
-            let mut update = if !has_hive_system || !has_hive_role || !has_host {
+            let mut update = if !has_hive_system
+                || !has_hive_role
+                || !has_host
+                || !has_repo_root
+                || !has_worktree_root
+                || !has_branch
+            {
                 Some(tx.prepare(
-                    "UPDATE hive_sessions SET hive_system = ?1, hive_role = ?2, host = ?3 WHERE session_key = ?4",
+                    "UPDATE hive_sessions SET hive_system = ?1, hive_role = ?2, host = ?3, repo_root = ?4, worktree_root = ?5, branch = ?6 WHERE session_key = ?7",
                 )?)
             } else {
                 None
@@ -3846,6 +3961,9 @@ fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Resu
                         record.hive_system,
                         record.hive_role,
                         record.host,
+                        record.repo_root,
+                        record.worktree_root,
+                        record.branch,
                         session_key
                     ])?;
                 }
@@ -3872,6 +3990,12 @@ fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()>
           ON hive_sessions(hive_role);
         CREATE INDEX IF NOT EXISTS idx_hive_sessions_host
           ON hive_sessions(host);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_repo_root
+          ON hive_sessions(repo_root);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_worktree_root_identity
+          ON hive_sessions(worktree_root);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_branch_identity
+          ON hive_sessions(branch);
         "#,
     )
     .context("create hive session identity indexes")?;
@@ -4183,6 +4307,10 @@ mod tests {
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
@@ -4210,6 +4338,10 @@ mod tests {
                 tab_id: None,
                 project: Some("repo-b".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
@@ -4228,6 +4360,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: None,
                 namespace: None,
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4259,6 +4394,111 @@ mod tests {
     }
 
     #[test]
+    fn hive_sessions_keep_same_named_sessions_separate_across_branches() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-branches-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo-a".to_string()),
+                branch: Some("feature/a".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(111),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert branch a session");
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo-b".to_string()),
+                branch: Some("feature/b".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(222),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert branch b session");
+
+        let sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions");
+
+        assert_eq!(sessions.sessions.len(), 2);
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.branch.as_deref() == Some("feature/a"))
+        );
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.branch.as_deref() == Some("feature/b"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn hive_sessions_preserve_service_hive_metadata() {
         let dir = std::env::temp_dir().join(format!("memd-hive-service-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
@@ -4283,6 +4523,10 @@ mod tests {
                 tab_id: None,
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("stack-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
@@ -4301,6 +4545,9 @@ mod tests {
                 session: Some("shell-a".to_string()),
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("stack-alpha".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4343,6 +4590,10 @@ mod tests {
                 tab_id: Some("tab-a".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
@@ -4370,6 +4621,10 @@ mod tests {
                 tab_id: Some("tab-b".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
@@ -4388,6 +4643,9 @@ mod tests {
                 session: "shared-session".to_string(),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
@@ -4405,6 +4663,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4441,6 +4702,10 @@ mod tests {
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
@@ -4469,6 +4734,10 @@ mod tests {
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
@@ -4497,6 +4766,10 @@ mod tests {
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9898".to_string()),
@@ -4515,6 +4788,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: None,
@@ -4531,6 +4807,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
@@ -4556,6 +4835,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4578,6 +4860,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,

@@ -16719,6 +16719,9 @@ fn build_hive_session_retire_request_from_entry(
         session: session.to_string(),
         project: entry.project.clone(),
         namespace: entry.namespace.clone(),
+        repo_root: entry.repo_root.clone(),
+        worktree_root: entry.worktree_root.clone(),
+        branch: entry.branch.clone(),
         workspace: entry.workspace.clone(),
         agent: entry.agent.clone(),
         effective_agent: entry.effective_agent.clone(),
@@ -16737,6 +16740,9 @@ fn build_hive_session_retire_request_from_record(
         session: record.session.clone(),
         project: record.project.clone(),
         namespace: record.namespace.clone(),
+        repo_root: record.repo_root.clone(),
+        worktree_root: record.worktree_root.clone(),
+        branch: record.branch.clone(),
         workspace: record.workspace.clone(),
         agent: record.agent.clone(),
         effective_agent: record.effective_agent.clone(),
@@ -16792,6 +16798,9 @@ async fn retire_superseded_hive_sessions(
             session: None,
             project: state.project.clone(),
             namespace: state.namespace.clone(),
+            repo_root: state.repo_root.clone(),
+            worktree_root: state.worktree_root.clone(),
+            branch: state.branch.clone(),
             workspace: state.workspace.clone(),
             hive_system: None,
             hive_role: None,
@@ -16850,6 +16859,20 @@ fn build_hive_heartbeat(
     });
     let session = runtime.session.clone();
     let agent = runtime.agent.clone();
+    let project_root = infer_bundle_project_root(output);
+    let worktree_root = project_root
+        .as_deref()
+        .and_then(detect_git_worktree_root)
+        .as_deref()
+        .map(display_path_nonempty);
+    let repo_root = project_root
+        .as_deref()
+        .and_then(detect_git_repo_root)
+        .as_deref()
+        .map(display_path_nonempty);
+    let branch = project_root
+        .as_deref()
+        .and_then(|root| git_stdout(root, &["branch", "--show-current"]));
     let effective_agent = agent
         .as_deref()
         .map(|value| compose_agent_identity(value, session.as_deref()));
@@ -16921,6 +16944,10 @@ fn build_hive_heartbeat(
         workspace: snapshot
             .and_then(|value| value.workspace.clone())
             .or(runtime.workspace),
+        repo_root,
+        worktree_root,
+        branch,
+        base_branch: None,
         visibility: snapshot
             .and_then(|value| value.visibility.clone())
             .or(runtime.visibility),
@@ -17017,6 +17044,10 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         project: state.project.clone(),
         namespace: state.namespace.clone(),
         workspace: state.workspace.clone(),
+        repo_root: state.repo_root.clone(),
+        worktree_root: state.worktree_root.clone(),
+        branch: state.branch.clone(),
+        base_branch: state.base_branch.clone(),
         visibility: state.visibility.clone(),
         base_url: state.base_url.clone(),
         base_url_healthy: state.base_url_healthy,
@@ -24120,6 +24151,24 @@ fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn detect_git_worktree_root(root: &Path) -> Option<PathBuf> {
+    git_stdout(root, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+}
+
+fn detect_git_repo_root(root: &Path) -> Option<PathBuf> {
+    let common_dir = git_stdout(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .map(PathBuf::from)?;
+    if common_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value == ".git")
+    {
+        common_dir.parent().map(Path::to_path_buf)
+    } else {
+        detect_git_worktree_root(root)
+    }
+}
+
 fn git_worktree_dirty(root: &Path) -> bool {
     git_dirty_paths(root).is_some_and(|paths| !paths.is_empty())
 }
@@ -28186,7 +28235,9 @@ fn awareness_entries_overlap(left: &ProjectAwarenessEntry, right: &ProjectAwaren
         && left.session == right.session
         && left.project == right.project
         && left.namespace == right.namespace
-        && left.workspace == right.workspace;
+        && left.workspace == right.workspace
+        && left.branch == right.branch
+        && left.worktree_root == right.worktree_root;
     if same_session {
         return left.tab_id == right.tab_id || left.tab_id.is_none() || right.tab_id.is_none();
     }
@@ -28267,6 +28318,9 @@ async fn read_project_awareness_shared(
             session: None,
             project: shared_project.clone(),
             namespace: shared_namespace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
             workspace: workspace.clone(),
             hive_system: None,
             hive_role: None,
@@ -28316,6 +28370,10 @@ async fn read_project_awareness_shared(
             bundle_root: format!("remote:{}:{}", base_url, session.session),
             project: session.project.clone(),
             namespace: session.namespace.clone(),
+            repo_root: session.repo_root.clone(),
+            worktree_root: session.worktree_root.clone(),
+            branch: session.branch.clone(),
+            base_branch: session.base_branch.clone(),
             agent: session.agent.clone(),
             session: Some(session.session.clone()),
             tab_id: session.tab_id.clone(),
@@ -28512,6 +28570,15 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             bundle_root: bundle_root.display().to_string(),
             project: runtime.project,
             namespace: runtime.namespace,
+            repo_root: heartbeat
+                .as_ref()
+                .and_then(|value| value.repo_root.clone()),
+            worktree_root: heartbeat
+                .as_ref()
+                .and_then(|value| value.worktree_root.clone())
+                .or_else(|| Some(project_dir.display().to_string())),
+            branch: heartbeat.as_ref().and_then(|value| value.branch.clone()),
+            base_branch: heartbeat.as_ref().and_then(|value| value.base_branch.clone()),
             tab_id: heartbeat
                 .as_ref()
                 .and_then(|value| value.tab_id.clone())
@@ -28789,6 +28856,7 @@ fn awareness_summary_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<Stri
         .collect::<Vec<_>>();
     let mut diagnostics = shared_endpoint_diagnostics(entries);
     diagnostics.extend(session_collision_warnings(&owned));
+    diagnostics.extend(branch_collision_warnings(&owned));
     diagnostics
 }
 
@@ -28810,6 +28878,70 @@ fn shared_endpoint_diagnostics(entries: &[&ProjectAwarenessEntry]) -> Vec<String
         .filter(|(_, count)| *count > 1)
         .map(|(url, count)| format!("shared_hive_endpoint {} sessions={}", url, count))
         .collect()
+}
+
+fn branch_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> {
+    let mut same_branch = std::collections::BTreeMap::<(String, String), Vec<String>>::new();
+    let mut same_worktree = std::collections::BTreeMap::<String, Vec<String>>::new();
+
+    for entry in entries {
+        let lane = entry
+            .session
+            .clone()
+            .or_else(|| entry.effective_agent.clone())
+            .or_else(|| entry.agent.clone())
+            .unwrap_or_else(|| entry.bundle_root.clone());
+
+        if let (Some(repo_root), Some(branch)) = (
+            entry.repo_root.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+            entry.branch.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+        ) {
+            same_branch
+                .entry((repo_root.to_string(), branch.to_string()))
+                .or_default()
+                .push(lane.clone());
+        }
+
+        if let Some(worktree_root) = entry
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            same_worktree
+                .entry(worktree_root.to_string())
+                .or_default()
+                .push(lane);
+        }
+    }
+
+    let mut warnings = Vec::new();
+    warnings.extend(
+        same_branch
+            .into_iter()
+            .filter(|(_, lanes)| lanes.len() > 1)
+            .map(|((repo_root, branch), lanes)| {
+                format!(
+                    "unsafe_same_branch repo={} branch={} sessions={}",
+                    repo_root,
+                    branch,
+                    lanes.join(",")
+                )
+            }),
+    );
+    warnings.extend(
+        same_worktree
+            .into_iter()
+            .filter(|(_, lanes)| lanes.len() > 1)
+            .map(|(worktree_root, lanes)| {
+                format!(
+                    "unsafe_same_worktree worktree={} sessions={}",
+                    worktree_root,
+                    lanes.join(",")
+                )
+            }),
+    );
+    warnings
 }
 
 fn push_awareness_section(
@@ -28873,7 +29005,7 @@ fn render_awareness_entry_line(
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| "unknown".to_string());
     format!(
-        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+        "- {} [{}] | presence={} truth={} updated={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} branch={} worktree={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
         entry.project.as_deref().unwrap_or("unknown"),
         role,
         entry.presence,
@@ -28897,6 +29029,8 @@ fn render_awareness_entry_line(
             .unwrap_or("none"),
         entry.session.as_deref().unwrap_or("none"),
         entry.tab_id.as_deref().unwrap_or("none"),
+        entry.branch.as_deref().unwrap_or("none"),
+        entry.worktree_root.as_deref().unwrap_or("none"),
         entry.base_url.as_deref().unwrap_or("none"),
         entry.workspace.as_deref().unwrap_or("none"),
         entry.visibility.as_deref().unwrap_or("all"),
@@ -32704,6 +32838,10 @@ struct ProjectAwarenessEntry {
     bundle_root: String,
     project: Option<String>,
     namespace: Option<String>,
+    repo_root: Option<String>,
+    worktree_root: Option<String>,
+    branch: Option<String>,
+    base_branch: Option<String>,
     agent: Option<String>,
     session: Option<String>,
     tab_id: Option<String>,
@@ -32765,6 +32903,14 @@ struct BundleHeartbeatState {
     namespace: Option<String>,
     #[serde(default)]
     workspace: Option<String>,
+    #[serde(default)]
+    repo_root: Option<String>,
+    #[serde(default)]
+    worktree_root: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    base_branch: Option<String>,
     #[serde(default)]
     visibility: Option<String>,
     #[serde(default)]
@@ -33982,6 +34128,10 @@ mod tests {
             heartbeat_model: req.heartbeat_model,
             project: req.project,
             namespace: req.namespace,
+            repo_root: req.repo_root,
+            worktree_root: req.worktree_root,
+            branch: req.branch,
+            base_branch: req.base_branch,
             workspace: req.workspace,
             visibility: req.visibility,
             base_url: req.base_url,
@@ -37613,6 +37763,10 @@ mod tests {
                 bundle_root: "/tmp/projects/sibling/.memd".to_string(),
                 project: Some("sibling".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("claude-code".to_string()),
                 session: Some("claude-a".to_string()),
                 tab_id: Some("tab-a".to_string()),
@@ -37662,6 +37816,10 @@ mod tests {
                     bundle_root: "/tmp/projects/a/.memd".to_string(),
                     project: Some("a".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("codex-a".to_string()),
                     tab_id: Some("tab-a".to_string()),
@@ -37689,6 +37847,10 @@ mod tests {
                     bundle_root: "/tmp/projects/b/.memd".to_string(),
                     project: Some("b".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("claude-code".to_string()),
                     session: Some("claude-b".to_string()),
                     tab_id: Some("tab-b".to_string()),
@@ -37730,6 +37892,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-live".to_string()),
                     tab_id: Some("tab-alpha".to_string()),
@@ -37757,6 +37923,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-dead".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-dead".to_string()),
                     tab_id: None,
@@ -37803,6 +37973,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-live".to_string()),
                     tab_id: Some("tab-alpha".to_string()),
@@ -37830,6 +38004,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("claude-code".to_string()),
                     session: Some("session-stale".to_string()),
                     tab_id: None,
@@ -37873,6 +38051,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-current".to_string()),
                     tab_id: Some("tab-alpha".to_string()),
@@ -37900,6 +38082,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-other".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-other".to_string()),
                     tab_id: Some("tab-beta".to_string()),
@@ -37945,6 +38131,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-fresh".to_string()),
                     tab_id: Some("tab-alpha".to_string()),
@@ -37972,6 +38162,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-stale".to_string()),
                     tab_id: None,
@@ -38017,6 +38211,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-current".to_string()),
                     tab_id: Some("tab-current".to_string()),
@@ -38044,6 +38242,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-active".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-active".to_string()),
                     tab_id: Some("tab-active".to_string()),
@@ -38071,6 +38273,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-stale".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-stale".to_string()),
                     tab_id: None,
@@ -38098,6 +38304,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-stale-visible".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("claude-code".to_string()),
                     session: Some("session-stale-visible".to_string()),
                     tab_id: None,
@@ -38125,6 +38335,10 @@ mod tests {
                     bundle_root: "/tmp/projects/seen/.memd".to_string(),
                     project: Some("seen".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-seen".to_string()),
                     tab_id: None,
@@ -38152,6 +38366,10 @@ mod tests {
                     bundle_root: "/tmp/projects/dead/.memd".to_string(),
                     project: Some("dead".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-dead".to_string()),
                     tab_id: None,
@@ -38199,6 +38417,10 @@ mod tests {
                     bundle_root: "/tmp/projects/current/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-fresh".to_string()),
                     tab_id: Some("tab-alpha".to_string()),
@@ -38226,6 +38448,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-aging".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-aging".to_string()),
                     tab_id: Some("tab-beta".to_string()),
@@ -38253,6 +38479,10 @@ mod tests {
                     bundle_root: "remote:http://127.0.0.1:8787:session-superseded".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-superseded".to_string()),
                     tab_id: None,
@@ -38293,6 +38523,10 @@ mod tests {
                 bundle_root: "/tmp/projects/current/.memd".to_string(),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("session-2c2c883c".to_string()),
                 tab_id: Some("tab-alpha".to_string()),
@@ -38320,6 +38554,10 @@ mod tests {
                 bundle_root: "remote:http://127.0.0.1:8787:session-2c2c883c".to_string(),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("session-2c2c883c".to_string()),
                 tab_id: Some("tab-alpha".to_string()),
@@ -38359,6 +38597,10 @@ mod tests {
                 bundle_root: "/tmp/projects/current/.memd".to_string(),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("session-2c2c883c".to_string()),
                 tab_id: Some("tab-alpha".to_string()),
@@ -38386,6 +38628,10 @@ mod tests {
                 bundle_root: "remote:http://127.0.0.1:8787:session-6d422e56".to_string(),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("session-6d422e56".to_string()),
                 tab_id: Some("tab-beta".to_string()),
@@ -38431,6 +38677,10 @@ mod tests {
                 bundle_root: "/tmp/projects/a/.memd".to_string(),
                 project: Some("a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("shared-session".to_string()),
                 tab_id: Some("tab-a".to_string()),
@@ -38458,6 +38708,10 @@ mod tests {
                 bundle_root: "/tmp/projects/b/.memd".to_string(),
                 project: Some("b".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("claude-code".to_string()),
                 session: Some("shared-session".to_string()),
                 tab_id: Some("tab-a".to_string()),
@@ -38492,6 +38746,85 @@ mod tests {
     }
 
     #[test]
+    fn branch_collision_warnings_surface_same_branch_and_worktree_faults() {
+        let warnings = branch_collision_warnings(&[
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/a".to_string(),
+                bundle_root: "/tmp/projects/a/.memd".to_string(),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo".to_string()),
+                branch: Some("feature/hive-a".to_string()),
+                base_branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                session: Some("session-a".to_string()),
+                tab_id: Some("tab-a".to_string()),
+                effective_agent: Some("codex@session-a".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: None,
+            },
+            ProjectAwarenessEntry {
+                project_dir: "/tmp/projects/b".to_string(),
+                bundle_root: "/tmp/projects/b/.memd".to_string(),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo".to_string()),
+                branch: Some("feature/hive-a".to_string()),
+                base_branch: Some("main".to_string()),
+                agent: Some("claude-code".to_string()),
+                session: Some("session-b".to_string()),
+                tab_id: Some("tab-b".to_string()),
+                effective_agent: Some("claude-code@session-b".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                base_url: Some("http://127.0.0.1:9797".to_string()),
+                presence: "active".to_string(),
+                host: None,
+                pid: None,
+                active_claims: 0,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                last_updated: None,
+            },
+        ]);
+
+        assert!(
+            warnings
+                .iter()
+                .any(|value| value.contains("unsafe_same_branch repo=/tmp/repo branch=feature/hive-a"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|value| value.contains("unsafe_same_worktree worktree=/tmp/repo"))
+        );
+    }
+
+    #[test]
     fn heartbeat_presence_labels_age_bands() {
         assert_eq!(heartbeat_presence_label(Utc::now()), "active");
         assert_eq!(
@@ -38521,6 +38854,10 @@ mod tests {
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
             workspace: Some("team-alpha".to_string()),
+            repo_root: Some("/tmp/demo".to_string()),
+            worktree_root: Some("/tmp/demo".to_string()),
+            branch: Some("feature/test-bee".to_string()),
+            base_branch: Some("main".to_string()),
             visibility: Some("workspace".to_string()),
             base_url: Some("http://127.0.0.1:8787".to_string()),
             base_url_healthy: Some(true),
@@ -38623,6 +38960,10 @@ mod tests {
                 project: Some("target".to_string()),
                 namespace: None,
                 workspace: Some("research".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(target_project.display().to_string()),
+                branch: Some("feature/claude-b".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
                 base_url_healthy: Some(true),
@@ -38689,6 +39030,10 @@ mod tests {
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
+                repo_root: Some(dir.display().to_string()),
+                worktree_root: Some(dir.display().to_string()),
+                branch: Some("feature/codex-a".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
                 base_url_healthy: Some(true),
@@ -38788,6 +39133,10 @@ mod tests {
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(current_project.display().to_string()),
+                branch: Some("feature/codex-a".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
                 base_url_healthy: Some(true),
@@ -38838,6 +39187,10 @@ mod tests {
                 project: Some("demo".to_string()),
                 namespace: None,
                 workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(target_project.display().to_string()),
+                branch: Some("feature/claude-b".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
                 base_url_healthy: Some(true),
@@ -39491,6 +39844,10 @@ mod tests {
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
@@ -39565,6 +39922,10 @@ mod tests {
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
@@ -39585,6 +39946,10 @@ mod tests {
                 bundle_root: format!("remote:{base_url}:codex-stale"),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("codex-stale".to_string()),
                 tab_id: Some("tab-alpha".to_string()),
@@ -40817,6 +41182,10 @@ mod tests {
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(target_project.display().to_string()),
+                branch: Some("feature/claude-b".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(base_url.clone()),
                 base_url_healthy: Some(true),
@@ -42497,6 +42866,10 @@ mod tests {
                 project: Some("memd-helper".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
+                repo_root: Some(repo_root.display().to_string()),
+                worktree_root: Some(sibling_root.display().to_string()),
+                branch: Some("feature/claude-live".to_string()),
+                base_branch: Some("main".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
                 base_url_healthy: Some(true),
@@ -42563,6 +42936,10 @@ mod tests {
             bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-stale"),
             project: Some("memd".to_string()),
             namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
             agent: Some("claude-code".to_string()),
             session: Some("session-stale".to_string()),
             tab_id: None,
@@ -42590,6 +42967,10 @@ mod tests {
             bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-dead"),
             project: Some("memd".to_string()),
             namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
             agent: Some("codex".to_string()),
             session: Some("session-dead".to_string()),
             tab_id: None,
@@ -42617,6 +42998,10 @@ mod tests {
             bundle_root: format!("remote:{SHARED_MEMD_BASE_URL}:session-superseded"),
             project: Some("memd".to_string()),
             namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
             agent: Some("codex".to_string()),
             session: Some("session-superseded".to_string()),
             tab_id: None,
@@ -43180,6 +43565,10 @@ mod tests {
             bundle_root: "remote:http://127.0.0.1:8787:hive-helper".to_string(),
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
             agent: Some("agent-shell".to_string()),
             session: Some("hive-helper".to_string()),
             tab_id: Some("tab-helper".to_string()),
@@ -43419,6 +43808,10 @@ mod tests {
                     bundle_root: output.display().to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-a".to_string()),
                     tab_id: Some("tab-a".to_string()),
@@ -43446,6 +43839,10 @@ mod tests {
                     bundle_root: "/tmp/other/.memd".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
                     agent: Some("codex".to_string()),
                     session: Some("session-b".to_string()),
                     tab_id: None,
@@ -43516,6 +43913,10 @@ mod tests {
                 bundle_root: "remote:http://127.0.0.1:8787:session-dead".to_string(),
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 agent: Some("codex".to_string()),
                 session: Some("session-dead".to_string()),
                 tab_id: None,
@@ -43921,6 +44322,10 @@ mod tests {
                         bundle_root: "remote:http://127.0.0.1:8787:stale".to_string(),
                         project: Some("demo".to_string()),
                         namespace: Some("main".to_string()),
+                        repo_root: None,
+                        worktree_root: None,
+                        branch: None,
+                        base_branch: None,
                         agent: Some("codex".to_string()),
                         session: Some("stale".to_string()),
                         tab_id: None,
@@ -44748,6 +45153,10 @@ mod tests {
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
             workspace: Some("shared".to_string()),
+            repo_root: Some("/tmp/memd".to_string()),
+            worktree_root: Some("/tmp/memd".to_string()),
+            branch: Some("feature/test-bee".to_string()),
+            base_branch: Some("main".to_string()),
             visibility: Some("workspace".to_string()),
             base_url: None,
             base_url_healthy: None,
