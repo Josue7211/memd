@@ -2813,10 +2813,10 @@ mod tests {
         MemoryPolicyLiveTruth, MemoryPolicyMemoryCompilation, MemoryPolicyPromotion,
         MemoryPolicyResponse, MemoryPolicyRouteDefault, MemoryPolicyRuntime,
         MemoryPolicySemanticFallback, MemoryPolicySkillGating, MemoryPolicyWorkingMemory,
-        MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, RetrievalIntent, RetrievalRoute,
-        SourceQuality, VisibleMemoryArtifact, VisibleMemoryGraphEdge, VisibleMemoryGraphNode,
-        VisibleMemoryHome, VisibleMemoryKnowledgeMap, VisibleMemoryProvenance,
-        VisibleMemorySnapshotResponse, VisibleMemoryStatus,
+        MemoryScope, MemoryVisibility, RetrievalIntent, RetrievalRoute, VisibleMemoryArtifact,
+        VisibleMemoryGraphEdge, VisibleMemoryGraphNode, VisibleMemoryHome,
+        VisibleMemoryKnowledgeMap, VisibleMemoryProvenance, VisibleMemorySnapshotResponse,
+        VisibleMemoryStatus,
     };
     use serde_json::json;
 

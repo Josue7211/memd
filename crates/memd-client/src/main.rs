@@ -67,8 +67,8 @@ use render::{
     render_recall_summary, render_repair_summary, render_resume_prompt, render_scenario_markdown,
     render_scenario_summary, render_skill_catalog_markdown, render_skill_catalog_match_markdown,
     render_skill_catalog_match_summary, render_skill_catalog_summary, render_skill_policy_summary,
-    render_source_summary, render_timeline_summary, render_visible_memory_home, render_working_summary,
-    render_workspace_summary, short_uuid,
+    render_source_summary, render_timeline_summary, render_visible_memory_home,
+    render_working_summary, render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -1480,6 +1480,21 @@ struct CapabilitiesArgs {
     output: PathBuf,
 
     #[arg(long)]
+    harness: Option<String>,
+
+    #[arg(long)]
+    kind: Option<String>,
+
+    #[arg(long)]
+    portability: Option<String>,
+
+    #[arg(long)]
+    query: Option<String>,
+
+    #[arg(long, default_value_t = 12)]
+    limit: usize,
+
+    #[arg(long)]
     summary: bool,
 
     #[arg(long)]
@@ -1640,6 +1655,9 @@ struct TasksArgs {
 
     #[arg(long)]
     all: bool,
+
+    #[arg(long)]
+    view: Option<String>,
 
     #[arg(long)]
     summary: bool,
@@ -3359,18 +3377,19 @@ async fn main() -> anyhow::Result<()> {
             let use_runtime_summary = !args.quality
                 && !args.list
                 && compiled_memory_target(&args).is_none()
-                && args.query.is_none()
-                && !args.json;
+                && args.query.is_none();
             if use_runtime_summary {
                 match read_memory_surface(&bundle_root, &base_url).await {
+                    Ok(response) if args.json => print_json(&response)?,
                     Ok(response) => println!("{}", render_memory_surface_summary(&response)),
-                    Err(_) => {
+                    Err(_) if !args.json => {
                         let page =
                             bundle_compiled_memory_path(&bundle_root, MemoryObjectLane::Working);
                         let content = fs::read_to_string(&page)
                             .with_context(|| format!("read {}", page.display()))?;
                         println!("{}", render_compiled_memory_page_summary(&page, &content));
                     }
+                    Err(err) => return Err(err),
                 }
             } else if args.quality {
                 let report = build_compiled_memory_quality_report(&bundle_root)?;
@@ -11382,9 +11401,42 @@ async fn run_self_evolution_loop(
             .as_ref()
             .map(|value| value.state.as_str())
             .unwrap_or("none");
+        let scope_class = proposal
+            .as_ref()
+            .map(|value| value.scope_class.as_str())
+            .unwrap_or("none");
         let scope_gate = proposal
             .as_ref()
             .map(|value| value.scope_gate.as_str())
+            .unwrap_or("none");
+        let authority_tier = proposal
+            .as_ref()
+            .map(|value| value.authority_tier.as_str())
+            .or_else(|| {
+                authority
+                    .as_ref()
+                    .and_then(|ledger| ledger.entries.last())
+                    .map(|entry| entry.authority_tier.as_str())
+            })
+            .unwrap_or("none");
+        let merge_status = merge_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.as_str())
+            .unwrap_or("none");
+        let durability_status = durability_queue
+            .as_ref()
+            .and_then(|queue| queue.entries.last())
+            .map(|entry| entry.status.as_str())
+            .unwrap_or("none");
+        let branch = proposal
+            .as_ref()
+            .map(|value| value.branch.as_str())
+            .or_else(|| {
+                branch_manifest
+                    .as_ref()
+                    .map(|manifest| manifest.branch.as_str())
+            })
             .unwrap_or("none");
         let durable_truth = proposal.as_ref().is_some_and(|value| value.durable_truth)
             || durability
@@ -11500,7 +11552,12 @@ async fn run_self_evolution_loop(
             "fresh": fresh,
             "usable": usable,
             "proposal_state": proposal_state,
+            "scope_class": scope_class,
             "scope_gate": scope_gate,
+            "authority_tier": authority_tier,
+            "merge_status": merge_status,
+            "durability_status": durability_status,
+            "branch": branch,
             "durable_truth": durable_truth,
             "composite_score": report.composite.score,
             "composite_max": report.composite.max_score,
@@ -17855,10 +17912,42 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             limit: Some(256),
         })
         .await?;
+    let mut tasks = response.tasks;
+    if let Some(view) = args.view.as_deref() {
+        tasks = match view {
+            "owned" => tasks
+                .into_iter()
+                .filter(|task| task.session.as_deref() == current_session.as_deref())
+                .collect(),
+            "help" => tasks
+                .into_iter()
+                .filter(|task| task.help_requested)
+                .collect(),
+            "review" => tasks
+                .into_iter()
+                .filter(|task| task.review_requested)
+                .collect(),
+            "exclusive" => tasks
+                .into_iter()
+                .filter(|task| task.coordination_mode == "exclusive_write")
+                .collect(),
+            "shared" => tasks
+                .into_iter()
+                .filter(|task| task.coordination_mode != "exclusive_write")
+                .collect(),
+            "open" => tasks
+                .into_iter()
+                .filter(|task| task.status != "done" && task.status != "closed")
+                .collect(),
+            "all" => tasks,
+            _ => anyhow::bail!("unsupported tasks --view value: {view}"),
+        };
+    }
+
     Ok(TasksResponse {
         bundle_root: args.output.display().to_string(),
         current_session,
-        tasks: response.tasks,
+        tasks,
     })
 }
 
@@ -17987,8 +18076,57 @@ fn run_capabilities_command(args: &CapabilitiesArgs) -> anyhow::Result<Capabilit
     let project_root = infer_bundle_project_root(&args.output);
     let registry = build_bundle_capability_registry(project_root.as_deref());
     let bridges = detect_capability_bridges();
+    let query = args.query.as_deref().map(str::to_ascii_lowercase);
+    let mut filtered = registry
+        .capabilities
+        .iter()
+        .filter(|capability| {
+            args.harness
+                .as_deref()
+                .is_none_or(|value| capability.harness == value)
+        })
+        .filter(|capability| {
+            args.kind
+                .as_deref()
+                .is_none_or(|value| capability.kind == value)
+        })
+        .filter(|capability| {
+            args.portability
+                .as_deref()
+                .is_none_or(|value| capability.portability_class == value)
+        })
+        .filter(|capability| {
+            query.as_ref().is_none_or(|needle| {
+                capability.name.to_ascii_lowercase().contains(needle)
+                    || capability.harness.to_ascii_lowercase().contains(needle)
+                    || capability.kind.to_ascii_lowercase().contains(needle)
+                    || capability
+                        .portability_class
+                        .to_ascii_lowercase()
+                        .contains(needle)
+                    || capability
+                        .bridge_hint
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(needle)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    filtered.sort_by(|left, right| {
+        left.harness
+            .cmp(&right.harness)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    let bridge_harnesses = bridges
+        .actions
+        .iter()
+        .map(|action| action.harness.clone())
+        .collect::<BTreeSet<_>>();
     let mut harnesses = BTreeMap::<String, CapabilityHarnessSummary>::new();
-    for capability in &registry.capabilities {
+    for capability in &filtered {
         let entry = harnesses
             .entry(capability.harness.clone())
             .or_insert_with(|| CapabilityHarnessSummary {
@@ -18003,6 +18141,13 @@ fn run_capabilities_command(args: &CapabilitiesArgs) -> anyhow::Result<Capabilit
         }
     }
     for action in &bridges.actions {
+        if args
+            .harness
+            .as_deref()
+            .is_some_and(|value| action.harness != value)
+        {
+            continue;
+        }
         let entry =
             harnesses
                 .entry(action.harness.clone())
@@ -18018,30 +18163,30 @@ fn run_capabilities_command(args: &CapabilitiesArgs) -> anyhow::Result<Capabilit
     Ok(CapabilitiesResponse {
         bundle_root: args.output.display().to_string(),
         generated_at: registry.generated_at,
-        discovered: registry.capabilities.len(),
-        universal: registry
-            .capabilities
+        discovered: filtered.len(),
+        universal: filtered
             .iter()
             .filter(|record| is_universal_class(&record.portability_class))
             .count(),
-        bridgeable: registry
-            .capabilities
+        bridgeable: filtered
             .iter()
             .filter(|record| is_bridgeable_class(&record.portability_class))
             .count(),
-        harness_native: registry
-            .capabilities
+        harness_native: filtered
             .iter()
             .filter(|record| is_harness_native_class(&record.portability_class))
             .count(),
         bridge_actions: bridges.actions.len(),
-        wired_harnesses: bridges
-            .actions
-            .iter()
-            .map(|action| action.harness.clone())
-            .collect::<BTreeSet<_>>()
-            .len(),
+        wired_harnesses: bridge_harnesses.len(),
+        filters: serde_json::json!({
+            "harness": args.harness,
+            "kind": args.kind,
+            "portability": args.portability,
+            "query": args.query,
+            "limit": args.limit,
+        }),
         harnesses: harnesses.into_values().collect(),
+        records: filtered.into_iter().take(args.limit).collect(),
     })
 }
 
@@ -18060,7 +18205,7 @@ fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> Strin
         .join(",");
     if harnesses.is_empty() {
         format!(
-            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} harnesses=none",
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses=none",
             response.bundle_root,
             response.discovered,
             response.universal,
@@ -18068,10 +18213,11 @@ fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> Strin
             response.harness_native,
             response.bridge_actions,
             response.wired_harnesses,
+            response.records.len(),
         )
     } else {
         format!(
-            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} harnesses={}",
+            "capabilities bundle={} discovered={} universal={} bridgeable={} harness_native={} bridge_actions={} wired_harnesses={} shown={} harnesses={}",
             response.bundle_root,
             response.discovered,
             response.universal,
@@ -18079,6 +18225,7 @@ fn render_capabilities_runtime_summary(response: &CapabilitiesResponse) -> Strin
             response.harness_native,
             response.bridge_actions,
             response.wired_harnesses,
+            response.records.len(),
             harnesses
         )
     }
@@ -18161,6 +18308,34 @@ fn render_tasks_summary(response: &TasksResponse) -> String {
     lines.join("\n")
 }
 
+fn read_recent_maintain_reports(
+    output: &Path,
+    limit: usize,
+) -> anyhow::Result<Vec<MaintainReport>> {
+    let dir = maintain_reports_dir(output);
+    if !dir.exists() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut candidates = fs::read_dir(&dir)
+        .with_context(|| format!("read {}", dir.display()))?
+        .filter_map(|entry| entry.ok().map(|value| value.path()))
+        .filter(|path| {
+            path.extension().and_then(|value| value.to_str()) == Some("json")
+                && path.file_name().and_then(|value| value.to_str()) != Some("latest.json")
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.reverse();
+    let mut reports = Vec::new();
+    for path in candidates.into_iter().take(limit) {
+        let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        let report = serde_json::from_str::<MaintainReport>(&raw)
+            .with_context(|| format!("parse {}", path.display()))?;
+        reports.push(report);
+    }
+    Ok(reports)
+}
+
 async fn read_memory_surface(
     output: &Path,
     base_url: &str,
@@ -18184,9 +18359,23 @@ async fn read_memory_surface(
         base_url,
     )
     .await?;
+    let truth_summary = build_truth_summary(&snapshot);
+    let records = truth_summary.records.clone();
+    let contradiction_pressure = snapshot.redundant_context_items()
+        + truth_summary.contested_sources
+        + snapshot.active_claims().len();
+    let superseded_pressure = snapshot
+        .change_summary
+        .iter()
+        .chain(snapshot.recent_repo_changes.iter())
+        .filter(|entry| {
+            let lowered = entry.to_ascii_lowercase();
+            lowered.contains("supersed") || lowered.contains("stale")
+        })
+        .count();
     Ok(MemorySurfaceResponse {
         bundle_root: output.display().to_string(),
-        truth_summary: build_truth_summary(&snapshot),
+        truth_summary,
         context_records: snapshot.context.records.len(),
         working_records: snapshot.working.records.len(),
         inbox_items: snapshot.inbox.items.len(),
@@ -18200,14 +18389,17 @@ async fn read_memory_surface(
         change_summary: snapshot.change_summary.len(),
         estimated_prompt_tokens: snapshot.estimated_prompt_tokens(),
         refresh_recommended: snapshot.refresh_recommended,
+        contradiction_pressure,
+        superseded_pressure,
+        records,
     })
 }
 
 fn render_memory_surface_summary(response: &MemorySurfaceResponse) -> String {
     let truth = &response.truth_summary;
-    let head = truth.records.first();
+    let head = response.records.first();
     format!(
-        "memory bundle={} truth={} freshness={} retrieval={} conf={:.2} tiers=context:{} working:{} inbox:{} sources:{} rehydrate:{} semantic:{} changes:{} tok={} refresh={} action=\"{}\" head={} preview=\"{}\"",
+        "memory bundle={} truth={} freshness={} retrieval={} conf={:.2} tiers=context:{} working:{} inbox:{} sources:{} rehydrate:{} semantic:{} changes:{} tok={} refresh={} contradictions={} superseded={} action=\"{}\" head={} preview=\"{}\"",
         response.bundle_root,
         truth.truth,
         truth.freshness,
@@ -18228,6 +18420,8 @@ fn render_memory_surface_summary(response: &MemorySurfaceResponse) -> String {
         } else {
             "no"
         },
+        response.contradiction_pressure,
+        response.superseded_pressure,
         compact_inline(&truth.action_hint, 64),
         head.map(|record| record.lane.as_str()).unwrap_or("none"),
         compact_inline(
@@ -20437,6 +20631,7 @@ async fn apply_improvement_action(
                     request_help: false,
                     request_review: false,
                     all: false,
+                    view: None,
                     summary: false,
                     json: false,
                 },
@@ -20461,6 +20656,7 @@ async fn apply_improvement_action(
                     request_help: true,
                     request_review: false,
                     all: false,
+                    view: None,
                     summary: false,
                     json: false,
                 },
@@ -20488,6 +20684,7 @@ async fn apply_improvement_action(
                     request_help: false,
                     request_review: true,
                     all: false,
+                    view: None,
                     summary: false,
                     json: false,
                 },
@@ -22856,6 +23053,32 @@ fn write_evolution_merge_queue(output: &Path, queue: &EvolutionMergeQueue) -> an
     Ok(())
 }
 
+fn write_evolution_durability_ledger(
+    output: &Path,
+    ledger: &EvolutionDurabilityLedger,
+) -> anyhow::Result<()> {
+    let path = evolution_durability_ledger_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn write_evolution_authority_ledger(
+    output: &Path,
+    ledger: &EvolutionAuthorityLedger,
+) -> anyhow::Result<()> {
+    let path = evolution_authority_ledger_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(ledger)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 fn write_evolution_durability_queue(
     output: &Path,
     queue: &EvolutionDurabilityQueue,
@@ -22873,7 +23096,6 @@ fn append_evolution_durability_entry(
     output: &Path,
     proposal: &EvolutionProposalReport,
 ) -> anyhow::Result<()> {
-    let path = evolution_durability_ledger_path(output);
     let mut ledger = read_evolution_durability_ledger(output)?.unwrap_or_default();
     ledger.entries.push(EvolutionDurabilityEntry {
         proposal_id: proposal.proposal_id.clone(),
@@ -22890,19 +23112,13 @@ fn append_evolution_durability_entry(
         durable_truth: proposal.durable_truth,
         recorded_at: proposal.generated_at,
     });
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let json = serde_json::to_string_pretty(&ledger)? + "\n";
-    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    write_evolution_durability_ledger(output, &ledger)
 }
 
 fn append_evolution_authority_entry(
     output: &Path,
     proposal: &EvolutionProposalReport,
 ) -> anyhow::Result<()> {
-    let path = evolution_authority_ledger_path(output);
     let mut ledger = read_evolution_authority_ledger(output)?.unwrap_or_default();
     ledger.entries.push(EvolutionAuthorityEntry {
         scope_class: proposal.scope_class.clone(),
@@ -22914,12 +23130,7 @@ fn append_evolution_authority_entry(
         branch: proposal.branch.clone(),
         recorded_at: proposal.generated_at,
     });
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let json = serde_json::to_string_pretty(&ledger)? + "\n";
-    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    write_evolution_authority_ledger(output, &ledger)
 }
 
 fn append_evolution_merge_queue_entry(
@@ -23555,11 +23766,16 @@ fn default_evolution_authority_tier() -> String {
 }
 
 fn ensure_evolution_artifacts(output: &Path, report: &ExperimentReport) -> anyhow::Result<()> {
+    let built = build_evolution_proposal_report(report);
     let proposal = if let Some(existing) = read_latest_evolution_proposal(output)? {
-        existing
+        if evolution_proposal_needs_refresh(&existing, &built) {
+            sync_latest_evolution_artifacts(output, &built)?;
+            built
+        } else {
+            existing
+        }
     } else {
-        let built = build_evolution_proposal_report(report);
-        write_evolution_proposal_artifacts(output, &built)?;
+        sync_latest_evolution_artifacts(output, &built)?;
         built
     };
     let existing_branch_manifest = read_latest_evolution_branch_manifest(output)?;
@@ -23584,6 +23800,156 @@ fn ensure_evolution_artifacts(output: &Path, report: &ExperimentReport) -> anyho
     }
     process_evolution_queues(output)?;
     Ok(())
+}
+
+fn evolution_proposal_needs_refresh(
+    existing: &EvolutionProposalReport,
+    built: &EvolutionProposalReport,
+) -> bool {
+    existing.scope_class != built.scope_class
+        || existing.scope_gate != built.scope_gate
+        || existing.authority_tier != built.authority_tier
+        || existing.branch != built.branch
+        || existing.state != built.state
+        || existing.merge_eligible != built.merge_eligible
+        || existing.durable_truth != built.durable_truth
+        || existing.allowed_write_surface != built.allowed_write_surface
+        || existing.scope_reasons != built.scope_reasons
+}
+
+fn sync_latest_evolution_artifacts(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    write_evolution_proposal_artifacts(output, proposal)?;
+    let branch_manifest = create_or_update_evolution_branch(output, proposal)?;
+    write_evolution_branch_artifacts(output, &branch_manifest)?;
+    upsert_evolution_durability_entry(output, proposal)?;
+    upsert_evolution_authority_entry(output, proposal)?;
+    upsert_evolution_merge_queue_entry(output, proposal)?;
+    upsert_evolution_durability_queue_entry(output, proposal)?;
+    Ok(())
+}
+
+fn upsert_evolution_durability_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let mut ledger = read_evolution_durability_ledger(output)?.unwrap_or_default();
+    let next = EvolutionDurabilityEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        branch_prefix: format!(
+            "auto/evolution/{}/{}",
+            branch_safe_slug(&proposal.scope_class),
+            branch_safe_slug(&proposal.topic)
+        ),
+        state: proposal.state.clone(),
+        scope_class: proposal.scope_class.clone(),
+        scope_gate: proposal.scope_gate.clone(),
+        merge_eligible: proposal.merge_eligible,
+        durable_truth: proposal.durable_truth,
+        recorded_at: proposal.generated_at,
+    };
+    if let Some(index) = ledger
+        .entries
+        .iter()
+        .rposition(|entry| entry.proposal_id == proposal.proposal_id)
+    {
+        ledger.entries[index] = next;
+    } else {
+        ledger.entries.push(next);
+    }
+    write_evolution_durability_ledger(output, &ledger)
+}
+
+fn upsert_evolution_authority_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let mut ledger = read_evolution_authority_ledger(output)?.unwrap_or_default();
+    let next = EvolutionAuthorityEntry {
+        scope_class: proposal.scope_class.clone(),
+        authority_tier: proposal.authority_tier.clone(),
+        accepted: proposal.accepted,
+        merged: proposal.state == "merged" || proposal.state == "durable_truth",
+        durable_truth: proposal.durable_truth,
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        recorded_at: proposal.generated_at,
+    };
+    if let Some(index) = ledger
+        .entries
+        .iter()
+        .rposition(|entry| entry.proposal_id == proposal.proposal_id)
+    {
+        ledger.entries[index] = next;
+    } else {
+        ledger.entries.push(next);
+    }
+    write_evolution_authority_ledger(output, &ledger)
+}
+
+fn upsert_evolution_merge_queue_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let mut queue = read_evolution_merge_queue(output)?.unwrap_or_default();
+    let next = EvolutionMergeQueueEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        scope_class: proposal.scope_class.clone(),
+        scope_gate: proposal.scope_gate.clone(),
+        authority_tier: proposal.authority_tier.clone(),
+        status: if proposal.merge_eligible {
+            "pending_merge".to_string()
+        } else {
+            "human_review".to_string()
+        },
+        merge_eligible: proposal.merge_eligible,
+        recorded_at: proposal.generated_at,
+    };
+    if let Some(index) = queue
+        .entries
+        .iter()
+        .rposition(|entry| entry.proposal_id == proposal.proposal_id)
+    {
+        queue.entries[index] = next;
+    } else {
+        queue.entries.push(next);
+    }
+    write_evolution_merge_queue(output, &queue)
+}
+
+fn upsert_evolution_durability_queue_entry(
+    output: &Path,
+    proposal: &EvolutionProposalReport,
+) -> anyhow::Result<()> {
+    let mut queue = read_evolution_durability_queue(output)?.unwrap_or_default();
+    let next = EvolutionDurabilityQueueEntry {
+        proposal_id: proposal.proposal_id.clone(),
+        branch: proposal.branch.clone(),
+        state: proposal.state.clone(),
+        status: if proposal.state == "merged" || proposal.state == "durable_truth" {
+            "scheduled".to_string()
+        } else if !proposal.merge_eligible {
+            "human_review".to_string()
+        } else {
+            "waiting_for_merge".to_string()
+        },
+        due_at: proposal.durability_due_at,
+        recorded_at: proposal.generated_at,
+    };
+    if let Some(index) = queue
+        .entries
+        .iter()
+        .rposition(|entry| entry.proposal_id == proposal.proposal_id)
+    {
+        queue.entries[index] = next;
+    } else {
+        queue.entries.push(next);
+    }
+    write_evolution_durability_queue(output, &queue)
 }
 
 #[derive(Debug, Clone)]
@@ -26340,8 +26706,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let maintenance_surface = match (
         read_latest_maintain_report(output)?,
         read_previous_maintain_report(output)?,
+        read_recent_maintain_reports(output, 5)?,
     ) {
-        (Some(report), previous) => {
+        (Some(report), previous, history) => {
             let total = report.compacted_items + report.refreshed_items + report.repaired_items;
             let previous_total = previous
                 .as_ref()
@@ -26349,6 +26716,14 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 .unwrap_or(0);
             let delta_total = total as i64 - previous_total as i64;
             let auto_mode = report.mode == "auto";
+            let history_modes = history
+                .iter()
+                .map(|value| value.mode.clone())
+                .collect::<Vec<_>>();
+            let history_totals = history
+                .iter()
+                .map(|value| value.compacted_items + value.refreshed_items + value.repaired_items)
+                .collect::<Vec<_>>();
             Some(serde_json::json!({
                 "mode": report.mode,
                 "auto_mode": auto_mode,
@@ -26361,6 +26736,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
                 "delta_total_actions": delta_total,
                 "trend": if delta_total > 0 { "up" } else if delta_total < 0 { "down" } else { "flat" },
                 "previous_mode": previous.as_ref().map(|value| value.mode.clone()),
+                "history_modes": history_modes,
+                "history_totals": history_totals,
+                "history_count": history.len(),
                 "generated_at": report.generated_at,
             }))
         }
@@ -31935,7 +32313,9 @@ struct CapabilitiesResponse {
     harness_native: usize,
     bridge_actions: usize,
     wired_harnesses: usize,
+    filters: serde_json::Value,
     harnesses: Vec<CapabilityHarnessSummary>,
+    records: Vec<CapabilityRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31966,6 +32346,9 @@ struct MemorySurfaceResponse {
     change_summary: usize,
     estimated_prompt_tokens: usize,
     refresh_recommended: bool,
+    contradiction_pressure: usize,
+    superseded_pressure: usize,
+    records: Vec<TruthRecordSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38203,6 +38586,19 @@ mod tests {
         write_maintain_artifacts(
             &dir,
             &MaintainReport {
+                mode: "scan".to_string(),
+                receipt_id: Some("receipt-0".to_string()),
+                compacted_items: 1,
+                refreshed_items: 0,
+                repaired_items: 0,
+                findings: vec!["baseline".to_string()],
+                generated_at: Utc::now() - chrono::TimeDelta::minutes(10),
+            },
+        )
+        .expect("write baseline maintenance artifact");
+        write_maintain_artifacts(
+            &dir,
+            &MaintainReport {
                 mode: "compact".to_string(),
                 receipt_id: Some("receipt-1".to_string()),
                 compacted_items: 3,
@@ -38258,6 +38654,21 @@ mod tests {
                 .and_then(|value| value.get("mode"))
                 .and_then(|value| value.as_str()),
             Some("compact")
+        );
+        assert_eq!(
+            status
+                .get("maintenance_surface")
+                .and_then(|value| value.get("history_count"))
+                .and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert_eq!(
+            status
+                .get("maintenance_surface")
+                .and_then(|value| value.get("history_modes"))
+                .and_then(|value| value.as_array())
+                .map(|values| values.len()),
+            Some(2)
         );
 
         fs::remove_dir_all(dir).expect("cleanup status dir");
@@ -43100,6 +43511,7 @@ mod tests {
             harness_native: 2,
             bridge_actions: 4,
             wired_harnesses: 2,
+            filters: serde_json::json!({}),
             harnesses: vec![
                 CapabilityHarnessSummary {
                     harness: "codex".to_string(),
@@ -43114,11 +43526,13 @@ mod tests {
                     bridge_actions: 3,
                 },
             ],
+            records: Vec::new(),
         });
 
         assert!(summary.contains("discovered=7"));
         assert!(summary.contains("bridge_actions=4"));
         assert!(summary.contains("wired_harnesses=2"));
+        assert!(summary.contains("shown=0"));
         assert!(summary.contains("codex:3/2/1"));
         assert!(summary.contains("claude-code:4/4/3"));
     }
@@ -43155,6 +43569,17 @@ mod tests {
             change_summary: 1,
             estimated_prompt_tokens: 180,
             refresh_recommended: false,
+            contradiction_pressure: 2,
+            superseded_pressure: 1,
+            records: vec![TruthRecordSummary {
+                lane: "live_truth".to_string(),
+                truth: "current".to_string(),
+                freshness: "fresh".to_string(),
+                retrieval_tier: RetrievalTier::Hot,
+                confidence: 0.97,
+                provenance: "event_spine / compact".to_string(),
+                preview: "Current live truth head".to_string(),
+            }],
         });
 
         assert!(summary.contains("truth=current"));
@@ -43163,7 +43588,134 @@ mod tests {
         assert!(summary.contains("working:3"));
         assert!(summary.contains("sources:2"));
         assert!(summary.contains("tok=180"));
+        assert!(summary.contains("contradictions=2"));
+        assert!(summary.contains("superseded=1"));
         assert!(summary.contains("head=live_truth"));
+    }
+
+    #[test]
+    fn run_capabilities_command_filters_records() {
+        let output =
+            std::env::temp_dir().join(format!("memd-capabilities-filter-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create output");
+
+        let response = run_capabilities_command(&CapabilitiesArgs {
+            output: output.clone(),
+            harness: Some("codex".to_string()),
+            kind: None,
+            portability: None,
+            query: Some("memory".to_string()),
+            limit: 8,
+            summary: true,
+            json: false,
+        })
+        .expect("capabilities response");
+
+        assert!(
+            response
+                .records
+                .iter()
+                .all(|record| record.harness == "codex")
+        );
+        assert!(response.records.len() <= 8);
+
+        fs::remove_dir_all(output).expect("cleanup output");
+    }
+
+    #[tokio::test]
+    async fn run_tasks_command_supports_owned_view() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-tasks-view-owned-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let state = MockRuntimeState::default();
+        {
+            let mut tasks = state.task_records.lock().expect("lock task records");
+            tasks.push(HiveTaskRecord {
+                task_id: "owned-1".to_string(),
+                title: "owned".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["src/main.rs".to_string()],
+                help_requested: false,
+                review_requested: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+            tasks.push(HiveTaskRecord {
+                task_id: "shared-2".to_string(),
+                title: "other".to_string(),
+                description: None,
+                status: "needs_review".to_string(),
+                coordination_mode: "shared_review".to_string(),
+                session: Some("codex-b".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: Vec::new(),
+                help_requested: false,
+                review_requested: true,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        }
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        fs::write(
+            dir.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write config");
+
+        let response = run_tasks_command(
+            &TasksArgs {
+                output: dir.clone(),
+                upsert: false,
+                assign_to_session: None,
+                target_session: None,
+                task_id: None,
+                title: None,
+                description: None,
+                status: None,
+                mode: None,
+                scope: Vec::new(),
+                request_help: false,
+                request_review: false,
+                all: false,
+                view: Some("owned".to_string()),
+                summary: true,
+                json: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect("tasks response");
+
+        assert_eq!(response.tasks.len(), 1);
+        assert_eq!(response.tasks[0].task_id, "owned-1");
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
     #[test]
@@ -44626,6 +45178,78 @@ mod tests {
         );
 
         fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_self_evolution_loop_refreshes_stale_proposal_classification() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-self-evolution-refresh-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = root.join(".memd");
+        fs::create_dir_all(output.join("experiments")).expect("create experiments dir");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+
+        let completed_at = Utc::now();
+        let mut report = test_experiment_report(&output, true, false, 100, 100, completed_at);
+        report.composite.scenario = Some("self_evolution".to_string());
+        report.improvement.final_changes =
+            vec!["retune pass/fail gate for self-evolution proposals".to_string()];
+        fs::write(
+            output.join("experiments").join("latest.json"),
+            serde_json::to_string_pretty(&report).expect("serialize report"),
+        )
+        .expect("write latest report");
+
+        let stale = EvolutionProposalReport {
+            bundle_root: output.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: None,
+            agent: Some("codex".to_string()),
+            session: None,
+            workspace: None,
+            visibility: None,
+            proposal_id: format!("self-evolution-{}", completed_at.format("%Y%m%dT%H%M%SZ")),
+            scenario: Some("self_evolution".to_string()),
+            topic: "self-evolution".to_string(),
+            branch: format!(
+                "auto/evolution/broader-implementation/self-evolution/{}",
+                completed_at.format("%Y%m%d%H%M%S")
+            ),
+            state: "accepted_proposal".to_string(),
+            scope_class: "broader_implementation".to_string(),
+            scope_gate: "proposal_only".to_string(),
+            authority_tier: "proposal_only".to_string(),
+            allowed_write_surface: vec!["proposal-only".to_string()],
+            merge_eligible: false,
+            durable_truth: false,
+            accepted: true,
+            restored: false,
+            composite_score: 100,
+            composite_max: 100,
+            evidence: vec!["accepted=true".to_string()],
+            scope_reasons: vec!["scope unclear; keep on proposal branch".to_string()],
+            generated_at: completed_at,
+            durability_due_at: None,
+        };
+        write_evolution_proposal_artifacts(&output, &stale).expect("write stale proposal");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "self-evolution")
+            .expect("self-evolution descriptor");
+        let _record = run_self_evolution_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run self evolution loop");
+
+        let refreshed = read_latest_evolution_proposal(&output)
+            .expect("read refreshed proposal")
+            .expect("refreshed proposal present");
+        assert_eq!(refreshed.scope_class, "runtime_policy");
+        assert_eq!(refreshed.scope_gate, "auto_merge");
+        assert_eq!(refreshed.authority_tier, "phase1_auto_merge");
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
     }
 
     #[tokio::test]
