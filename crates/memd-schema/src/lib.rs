@@ -901,6 +901,18 @@ pub struct HiveSessionRetireResponse {
     pub sessions: Vec<HiveSessionRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveSessionAutoRetireRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveSessionAutoRetireResponse {
+    pub retired: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTaskRecord {
     pub task_id: String,
@@ -1728,6 +1740,10 @@ pub struct BenchmarkRegistry {
     pub features: Vec<BenchmarkFeatureRecord>,
     pub journeys: Vec<BenchmarkJourneyRecord>,
     pub loops: Vec<BenchmarkLoopRecord>,
+    pub verifiers: Vec<VerifierRecord>,
+    pub fixtures: Vec<FixtureRecord>,
+    pub evidence_policies: Vec<EvidencePolicyRecord>,
+    pub schedules: Vec<ScheduleRecord>,
     pub scorecards: Vec<BenchmarkScorecardRecord>,
     pub evidence: Vec<BenchmarkEvidenceRecord>,
     pub gates: Vec<BenchmarkGateRecord>,
@@ -1815,6 +1831,103 @@ pub struct BenchmarkLoopRecord {
     pub stop_condition: String,
     pub artifacts_written: Vec<String>,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierRecord {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub verifier_type: String,
+    pub pillar: String,
+    pub family: String,
+    pub subject_ids: Vec<String>,
+    pub fixture_id: String,
+    pub baseline_modes: Vec<String>,
+    pub steps: Vec<VerifierStepRecord>,
+    pub assertions: Vec<VerifierAssertionRecord>,
+    pub metrics: Vec<String>,
+    pub evidence_requirements: Vec<String>,
+    pub gate_target: String,
+    pub status: String,
+    pub lanes: Vec<String>,
+    pub helper_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierStepRecord {
+    pub kind: String,
+    #[serde(default)]
+    pub run: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub left: Option<String>,
+    #[serde(default)]
+    pub right: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierAssertionRecord {
+    pub kind: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub equals_fixture: Option<String>,
+    #[serde(default)]
+    pub contains_fixture: Option<String>,
+    #[serde(default)]
+    pub exists: Option<bool>,
+    #[serde(default)]
+    pub metric: Option<String>,
+    #[serde(default)]
+    pub op: Option<String>,
+    #[serde(default)]
+    pub left: Option<String>,
+    #[serde(default)]
+    pub right: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FixtureRecord {
+    pub id: String,
+    pub kind: String,
+    pub description: String,
+    pub seed_files: Vec<String>,
+    pub seed_config: serde_json::Value,
+    pub seed_memories: Vec<String>,
+    pub seed_events: Vec<String>,
+    pub seed_sessions: Vec<String>,
+    pub seed_claims: Vec<String>,
+    pub seed_vault: Option<String>,
+    pub backend_mode: String,
+    pub isolation: String,
+    pub cleanup_policy: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvidencePolicyRecord {
+    pub id: String,
+    pub applies_to: Vec<String>,
+    pub required_tiers: Vec<String>,
+    pub max_gate_without_live_primary: String,
+    pub comparative_required: bool,
+    pub freshness_window: String,
+    pub contradiction_rule: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScheduleRecord {
+    pub id: String,
+    pub lane: String,
+    pub max_tokens: usize,
+    pub max_duration_ms: u64,
+    pub tiers: Vec<String>,
+    pub default_types: Vec<String>,
+    pub retry_policy: String,
+    pub quarantine_policy: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -3067,6 +3180,41 @@ mod tests {
             }],
             journeys: vec![],
             loops: vec![],
+            verifiers: vec![VerifierRecord {
+                id: "verifier.journey.resume-handoff-attach".to_string(),
+                name: "Resume handoff attach continuity".to_string(),
+                verifier_type: "journey".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                subject_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                fixture_id: "fixture.continuity_bundle".to_string(),
+                baseline_modes: vec!["with_memd".to_string()],
+                steps: vec![],
+                assertions: vec![],
+                metrics: vec!["prompt_tokens".to_string()],
+                evidence_requirements: vec!["live_primary".to_string()],
+                gate_target: "acceptable".to_string(),
+                status: "declared".to_string(),
+                lanes: vec!["fast".to_string()],
+                helper_hooks: vec![],
+            }],
+            fixtures: vec![FixtureRecord {
+                id: "fixture.continuity_bundle".to_string(),
+                kind: "bundle_fixture".to_string(),
+                description: "continuity bundle".to_string(),
+                seed_files: vec![],
+                seed_config: serde_json::json!({"project":"memd"}),
+                seed_memories: vec![],
+                seed_events: vec![],
+                seed_sessions: vec![],
+                seed_claims: vec![],
+                seed_vault: None,
+                backend_mode: "normal".to_string(),
+                isolation: "fresh_temp_dir".to_string(),
+                cleanup_policy: "destroy".to_string(),
+            }],
+            evidence_policies: vec![],
+            schedules: vec![],
             scorecards: vec![],
             evidence: vec![],
             gates: vec![],
@@ -3080,6 +3228,75 @@ mod tests {
         assert_eq!(decoded.version, "v1");
         assert_eq!(decoded.features[0].id, "feature.bundle.resume");
         assert!(decoded.features[0].continuity_critical);
+        assert_eq!(
+            decoded.verifiers[0].id,
+            "verifier.journey.resume-handoff-attach"
+        );
+        assert_eq!(decoded.fixtures[0].id, "fixture.continuity_bundle");
+    }
+
+    #[test]
+    fn verifier_registry_roundtrips_minimal_resume_verifier() {
+        let registry = BenchmarkRegistry {
+            version: "v1".to_string(),
+            app_goal: "seamless memory and continuity".to_string(),
+            quality_dimensions: vec![],
+            tiers: vec![],
+            pillars: vec![],
+            families: vec![],
+            features: vec![],
+            journeys: vec![],
+            loops: vec![],
+            verifiers: vec![VerifierRecord {
+                id: "verifier.journey.resume-handoff-attach".to_string(),
+                name: "Resume handoff attach continuity".to_string(),
+                verifier_type: "journey".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                subject_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                fixture_id: "fixture.continuity_bundle".to_string(),
+                baseline_modes: vec!["with_memd".to_string()],
+                steps: vec![],
+                assertions: vec![],
+                metrics: vec!["prompt_tokens".to_string()],
+                evidence_requirements: vec!["live_primary".to_string()],
+                gate_target: "acceptable".to_string(),
+                status: "declared".to_string(),
+                lanes: vec!["fast".to_string()],
+                helper_hooks: vec![],
+            }],
+            fixtures: vec![FixtureRecord {
+                id: "fixture.continuity_bundle".to_string(),
+                kind: "bundle_fixture".to_string(),
+                description: "continuity bundle".to_string(),
+                seed_files: vec![],
+                seed_config: serde_json::json!({"project":"memd"}),
+                seed_memories: vec![],
+                seed_events: vec![],
+                seed_sessions: vec![],
+                seed_claims: vec![],
+                seed_vault: None,
+                backend_mode: "normal".to_string(),
+                isolation: "fresh_temp_dir".to_string(),
+                cleanup_policy: "destroy".to_string(),
+            }],
+            evidence_policies: vec![],
+            schedules: vec![],
+            scorecards: vec![],
+            evidence: vec![],
+            gates: vec![],
+            baseline_modes: vec![],
+            runtime_policies: vec![],
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&registry).unwrap();
+        let decoded: BenchmarkRegistry = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            decoded.verifiers[0].id,
+            "verifier.journey.resume-handoff-attach"
+        );
+        assert_eq!(decoded.fixtures[0].id, "fixture.continuity_bundle");
     }
 
     #[test]

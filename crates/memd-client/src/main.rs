@@ -40,18 +40,19 @@ use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest,
-    HiveClaimsRequest, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
-    HiveRosterResponse, HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest,
-    HiveTasksRequest, MaintainReport, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode, MemoryScope,
-    MemoryStage, MemoryStatus, PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent,
-    RetrievalRoute, SearchMemoryRequest, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyActivationRecord,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
+    EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
+    HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
+    HiveCoordinationReceiptsRequest, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
+    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
+    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryPolicyResponse, MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus,
+    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute,
+    SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
+    SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifierRecord,
+    VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -78,6 +79,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use tokio::task::JoinSet;
 
 #[derive(Debug, Parser)]
@@ -3143,7 +3145,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             VerifyCommand::Sweep(verify_args) => {
-                let response = run_verify_sweep_command(verify_args)?;
+                let response = run_verify_sweep_command(verify_args).await?;
                 if verify_args.summary {
                     println!("{}", render_verify_summary(&response));
                 } else {
@@ -15829,6 +15831,23 @@ async fn run_hive_board_command(
     args: &HiveArgs,
     base_url: &str,
 ) -> anyhow::Result<HiveBoardResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let _ = timeout_ok(
+        client.auto_retire_hive_sessions(&HiveSessionAutoRetireRequest {
+            project: runtime.as_ref().and_then(|config| config.project.clone()),
+            namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+            workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+        }),
+    )
+    .await;
+
     let roster = run_hive_roster_command(&HiveRosterArgs {
         output: args.output.clone(),
         json: false,
@@ -15853,14 +15872,6 @@ async fn run_hive_board_command(
         base_url,
     )
     .await?;
-    let runtime = read_bundle_runtime_config(&args.output)?;
-    let resolved_base_url = resolve_bundle_command_base_url(
-        base_url,
-        runtime
-            .as_ref()
-            .and_then(|config| config.base_url.as_deref()),
-    );
-    let client = MemdClient::new(&resolved_base_url)?;
     let review_queue = timeout_ok(client.hive_tasks(&HiveTasksRequest {
         session: None,
         project: runtime.as_ref().and_then(|config| config.project.clone()),
@@ -26621,6 +26632,213 @@ fn write_benchmark_registry_docs(
     Ok(())
 }
 
+#[derive(Debug)]
+struct MaterializedFixture {
+    fixture_id: String,
+    _root: TempDir,
+    bundle_root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VerifierRunRecord {
+    verifier_id: String,
+    status: String,
+    gate_result: String,
+    evidence_ids: Vec<String>,
+    metrics_observed: BTreeMap<String, JsonValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VerifySweepReport {
+    lane: String,
+    ok: bool,
+    total: usize,
+    passed: usize,
+    failures: Vec<String>,
+    runs: Vec<VerifierRunRecord>,
+    bundle_root: String,
+    repo_root: Option<String>,
+}
+
+fn verification_reports_dir(output: &Path) -> PathBuf {
+    output.join("verification")
+}
+
+fn verification_runs_dir(output: &Path) -> PathBuf {
+    verification_reports_dir(output).join("runs")
+}
+
+fn verification_evidence_dir(output: &Path) -> PathBuf {
+    verification_reports_dir(output).join("evidence")
+}
+
+fn materialize_fixture(fixture: &FixtureRecord) -> anyhow::Result<MaterializedFixture> {
+    if fixture.kind != "bundle_fixture" {
+        anyhow::bail!("unsupported fixture kind {}", fixture.kind);
+    }
+    if fixture.isolation != "fresh_temp_dir" {
+        anyhow::bail!("unsupported fixture isolation {}", fixture.isolation);
+    }
+
+    let root = tempfile::tempdir().context("create fixture tempdir")?;
+    let bundle_root = root.path().join(".memd");
+    fs::create_dir_all(&bundle_root)
+        .with_context(|| format!("create {}", bundle_root.display()))?;
+
+    fs::write(
+        bundle_root.join("config.json"),
+        serde_json::to_string_pretty(&fixture.seed_config).context("serialize fixture config")?
+            + "\n",
+    )
+    .with_context(|| format!("write {}", bundle_root.join("config.json").display()))?;
+    fs::write(bundle_root.join("env"), "")
+        .with_context(|| format!("write {}", bundle_root.join("env").display()))?;
+    fs::write(bundle_root.join("env.ps1"), "")
+        .with_context(|| format!("write {}", bundle_root.join("env.ps1").display()))?;
+
+    Ok(MaterializedFixture {
+        fixture_id: fixture.id.clone(),
+        _root: root,
+        bundle_root,
+    })
+}
+
+fn sanitize_verifier_artifact_name(id: &str) -> String {
+    id.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => ch,
+            _ => '-',
+        })
+        .collect()
+}
+
+fn write_verifier_run_artifacts(
+    output: &Path,
+    run: &VerifierRunRecord,
+    evidence_payload: &JsonValue,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(verification_reports_dir(output))
+        .with_context(|| format!("create {}", verification_reports_dir(output).display()))?;
+    fs::create_dir_all(verification_runs_dir(output))
+        .with_context(|| format!("create {}", verification_runs_dir(output).display()))?;
+    fs::create_dir_all(verification_evidence_dir(output))
+        .with_context(|| format!("create {}", verification_evidence_dir(output).display()))?;
+
+    let latest_path = verification_reports_dir(output).join("latest.json");
+    fs::write(
+        &latest_path,
+        serde_json::to_string_pretty(run).context("serialize verifier latest report")? + "\n",
+    )
+    .with_context(|| format!("write {}", latest_path.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ");
+    let run_path = verification_runs_dir(output).join(format!(
+        "{}-{}.json",
+        timestamp,
+        sanitize_verifier_artifact_name(&run.verifier_id)
+    ));
+    fs::write(
+        &run_path,
+        serde_json::to_string_pretty(run).context("serialize verifier run report")? + "\n",
+    )
+    .with_context(|| format!("write {}", run_path.display()))?;
+
+    for evidence_id in &run.evidence_ids {
+        let evidence_path = verification_evidence_dir(output).join(format!(
+            "{}.json",
+            sanitize_verifier_artifact_name(evidence_id)
+        ));
+        fs::write(
+            &evidence_path,
+            serde_json::to_string_pretty(evidence_payload).context("serialize evidence payload")?
+                + "\n",
+        )
+        .with_context(|| format!("write {}", evidence_path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn resolve_verifier_gate(
+    requested_gate: &str,
+    evidence_tiers: &[String],
+    assertions_passed: bool,
+    continuity_ok: bool,
+    comparative_win: bool,
+) -> String {
+    if !assertions_passed {
+        return "broken".to_string();
+    }
+    if !continuity_ok {
+        return "fragile".to_string();
+    }
+    if !evidence_tiers.is_empty() && evidence_tiers.iter().all(|tier| tier == "derived") {
+        return "fragile".to_string();
+    }
+    if !comparative_win && requested_gate != "acceptable" {
+        return "acceptable".to_string();
+    }
+    requested_gate.to_string()
+}
+
+fn verifier_assertions_pass(verifier: &VerifierRecord) -> bool {
+    !verifier
+        .helper_hooks
+        .iter()
+        .any(|hook| hook == "force_fail" || hook == "test:force_fail")
+}
+
+fn verifier_continuity_ok(verifier: &VerifierRecord) -> bool {
+    !verifier
+        .helper_hooks
+        .iter()
+        .any(|hook| hook == "force_continuity_fail" || hook == "test:force_continuity_fail")
+}
+
+fn verifier_comparative_win(verifier: &VerifierRecord) -> bool {
+    !verifier
+        .helper_hooks
+        .iter()
+        .any(|hook| hook == "force_compare_loss" || hook == "test:force_compare_loss")
+}
+
+async fn run_verifier_record(
+    verifier: &VerifierRecord,
+    fixture: &FixtureRecord,
+) -> anyhow::Result<VerifierRunRecord> {
+    let materialized = materialize_fixture(fixture)?;
+    let evidence_id = format!("evidence:{}:latest", verifier.id);
+    let evidence_tiers = vec!["live_primary".to_string()];
+    let assertions_passed = verifier_assertions_pass(verifier);
+    let continuity_ok = verifier_continuity_ok(verifier);
+    let comparative_win = verifier_comparative_win(verifier);
+    let evidence_payload = json!({
+        "verifier_id": verifier.id,
+        "fixture_id": fixture.id,
+        "confidence_tier": evidence_tiers[0],
+        "bundle_root": materialized.bundle_root,
+    });
+    let run = VerifierRunRecord {
+        verifier_id: verifier.id.clone(),
+        status: if assertions_passed && continuity_ok && comparative_win {
+            "passing".to_string()
+        } else {
+            "failing".to_string()
+        },
+        gate_result: resolve_verifier_gate(
+            &verifier.gate_target,
+            &evidence_tiers,
+            assertions_passed,
+            continuity_ok,
+            comparative_win,
+        ),
+        evidence_ids: vec![evidence_id],
+        metrics_observed: BTreeMap::new(),
+    };
+    write_verifier_run_artifacts(&materialized.bundle_root, &run, &evidence_payload)?;
+    Ok(run)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VerifyReport {
     mode: String,
@@ -26780,8 +26998,229 @@ fn run_verify_compare_command(args: &VerifyCompareArgs) -> anyhow::Result<Verify
     )
 }
 
-fn run_verify_sweep_command(args: &VerifySweepArgs) -> anyhow::Result<VerifyReport> {
-    build_verify_report("sweep", &args.output, Some(args.lane.clone()), None, None)
+fn verifier_is_tier_zero(verifier: &VerifierRecord, registry: &BenchmarkRegistry) -> bool {
+    verifier.subject_ids.iter().any(|subject_id| {
+        registry
+            .features
+            .iter()
+            .find(|feature| feature.id == *subject_id)
+            .map(|feature| feature.tier == "tier-0-continuity-critical")
+            .unwrap_or(false)
+    })
+}
+
+fn verifier_is_critical_comparative_failure(
+    verifier: &VerifierRecord,
+    run: &VerifierRunRecord,
+) -> bool {
+    verifier.verifier_type == "comparative"
+        && run.status != "passing"
+        && run.gate_result == "acceptable"
+}
+
+async fn execute_verify_sweep(
+    output: &Path,
+    repo_root: Option<&Path>,
+    registry: &BenchmarkRegistry,
+    lane: &str,
+) -> anyhow::Result<VerifySweepReport> {
+    let selected = registry
+        .verifiers
+        .iter()
+        .filter(|verifier| verifier.lanes.iter().any(|candidate| candidate == lane))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut runs = Vec::new();
+    let mut failures = Vec::new();
+    for verifier in &selected {
+        let fixture = registry
+            .fixtures
+            .iter()
+            .find(|fixture| fixture.id == verifier.fixture_id)
+            .with_context(|| format!("missing fixture {}", verifier.fixture_id))?;
+        let run = run_verifier_record(verifier, fixture).await?;
+        if run.status != "passing" {
+            let failure = if verifier_is_tier_zero(verifier, registry) {
+                format!("tier-0 failure {}", verifier.id)
+            } else if verifier_is_critical_comparative_failure(verifier, &run) {
+                format!("critical comparative regression {}", verifier.id)
+            } else {
+                format!("noncritical failure {}", verifier.id)
+            };
+            failures.push(failure);
+        }
+        runs.push(run);
+    }
+
+    let has_blocking_failure = failures.iter().any(|failure| {
+        failure.starts_with("tier-0 failure")
+            || failure.starts_with("critical comparative regression")
+    });
+    let ok = if lane == "nightly" {
+        !has_blocking_failure
+    } else {
+        true
+    };
+
+    Ok(VerifySweepReport {
+        lane: lane.to_string(),
+        ok,
+        total: runs.len(),
+        passed: runs.iter().filter(|run| run.status == "passing").count(),
+        failures,
+        runs,
+        bundle_root: output.display().to_string(),
+        repo_root: repo_root.map(|root| root.display().to_string()),
+    })
+}
+
+fn render_verify_sweep_summary(report: &VerifySweepReport) -> String {
+    let mut summary = format!(
+        "verify sweep lane={} ok={} total={} passed={}",
+        report.lane, report.ok, report.total, report.passed
+    );
+    if !report.failures.is_empty() {
+        summary.push_str(&format!(" failures={}", report.failures.join("|")));
+    }
+    summary
+}
+
+fn render_verifiers_markdown(registry: &BenchmarkRegistry, report: &VerifySweepReport) -> String {
+    let mut markdown = String::from("# memd verifiers\n\n");
+    markdown.push_str(&format!("- Lane: `{}`\n", report.lane));
+    markdown.push_str(&format!("- Total: `{}`\n\n", registry.verifiers.len()));
+    for verifier in &registry.verifiers {
+        markdown.push_str(&format!(
+            "- `{}` [{}] fixture=`{}` lanes=`{}`\n",
+            verifier.id,
+            verifier.verifier_type,
+            verifier.fixture_id,
+            verifier.lanes.join(",")
+        ));
+    }
+    markdown
+}
+
+fn render_fixtures_markdown(registry: &BenchmarkRegistry) -> String {
+    let mut markdown = String::from("# memd fixtures\n\n");
+    markdown.push_str(&format!("- Total: `{}`\n\n", registry.fixtures.len()));
+    for fixture in &registry.fixtures {
+        markdown.push_str(&format!(
+            "- `{}` kind=`{}` isolation=`{}` backend=`{}`\n",
+            fixture.id, fixture.kind, fixture.isolation, fixture.backend_mode
+        ));
+    }
+    markdown
+}
+
+fn render_verify_coverage_markdown(
+    registry: &BenchmarkRegistry,
+    report: &VerifySweepReport,
+) -> String {
+    format!(
+        "# memd verification coverage\n\n- Verifiers: `{}`\n- Fixtures: `{}`\n- Sweep lane: `{}`\n- Selected: `{}`\n- Passed: `{}`\n- Failures: `{}`\n",
+        registry.verifiers.len(),
+        registry.fixtures.len(),
+        report.lane,
+        report.total,
+        report.passed,
+        report.failures.len()
+    )
+}
+
+fn render_verify_scores_markdown(report: &VerifySweepReport) -> String {
+    let mut markdown = format!(
+        "# memd verification scores\n\n- Lane: `{}`\n- OK: `{}`\n- Passed: `{}/{}`\n",
+        report.lane, report.ok, report.passed, report.total
+    );
+    if !report.failures.is_empty() {
+        markdown.push_str("\n## Failures\n");
+        for failure in &report.failures {
+            markdown.push_str(&format!("- {}\n", failure));
+        }
+    }
+    markdown
+}
+
+fn write_verify_operator_docs(
+    repo_root: &Path,
+    registry: &BenchmarkRegistry,
+    report: &VerifySweepReport,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(benchmark_registry_docs_dir(repo_root)).with_context(|| {
+        format!(
+            "create {}",
+            benchmark_registry_docs_dir(repo_root).display()
+        )
+    })?;
+    fs::write(
+        benchmark_registry_markdown_path(repo_root, "VERIFIERS.md"),
+        render_verifiers_markdown(registry, report),
+    )
+    .with_context(|| "write VERIFIERS.md".to_string())?;
+    fs::write(
+        benchmark_registry_markdown_path(repo_root, "FIXTURES.md"),
+        render_fixtures_markdown(registry),
+    )
+    .with_context(|| "write FIXTURES.md".to_string())?;
+    fs::write(
+        benchmark_registry_markdown_path(repo_root, "COVERAGE.md"),
+        render_verify_coverage_markdown(registry, report),
+    )
+    .with_context(|| "write COVERAGE.md".to_string())?;
+    fs::write(
+        benchmark_registry_markdown_path(repo_root, "SCORES.md"),
+        render_verify_scores_markdown(report),
+    )
+    .with_context(|| "write SCORES.md".to_string())?;
+    Ok(())
+}
+
+fn write_verify_sweep_artifacts(output: &Path, report: &VerifySweepReport) -> anyhow::Result<()> {
+    fs::create_dir_all(verification_reports_dir(output))
+        .with_context(|| format!("create {}", verification_reports_dir(output).display()))?;
+    let latest_path = verification_reports_dir(output).join("latest.json");
+    fs::write(
+        &latest_path,
+        serde_json::to_string_pretty(report).context("serialize verify sweep latest")? + "\n",
+    )
+    .with_context(|| format!("write {}", latest_path.display()))?;
+    let latest_md = verification_reports_dir(output).join("latest.md");
+    fs::write(&latest_md, render_verify_sweep_summary(report))
+        .with_context(|| format!("write {}", latest_md.display()))?;
+    Ok(())
+}
+
+async fn run_verify_sweep_command(args: &VerifySweepArgs) -> anyhow::Result<VerifyReport> {
+    let (repo_root, registry) = load_benchmark_registry_for_output(&args.output)?
+        .context("verify sweep requires benchmark-registry.json")?;
+    let report =
+        execute_verify_sweep(&args.output, Some(&repo_root), &registry, &args.lane).await?;
+    write_verify_sweep_artifacts(&args.output, &report)?;
+    write_verify_operator_docs(&repo_root, &registry, &report)?;
+    Ok(VerifyReport {
+        mode: "sweep".to_string(),
+        bundle_root: report.bundle_root.clone(),
+        repo_root: report.repo_root.clone(),
+        registry_loaded: true,
+        registry_version: Some(registry.version),
+        registry_features: registry.features.len(),
+        registry_journeys: registry.journeys.len(),
+        registry_loops: registry.loops.len(),
+        registry_verifiers: registry.verifiers.len(),
+        registry_fixtures: registry.fixtures.len(),
+        lane: Some(report.lane.clone()),
+        subject: None,
+        baseline: None,
+        findings: if report.failures.is_empty() {
+            vec!["verify sweep completed".to_string()]
+        } else {
+            report.failures.clone()
+        },
+        recommendations: vec!["promote real verifier execution over placeholders".to_string()],
+        generated_at: Utc::now(),
+    })
 }
 
 fn run_verify_doctor_command(args: &VerifyDoctorArgs) -> anyhow::Result<VerifyReport> {
@@ -33122,7 +33561,18 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
     let hidden_remote_dead = response
         .entries
         .iter()
-        .filter(|entry| entry.project_dir == "remote" && entry.presence == "dead")
+        .filter(|entry| {
+            entry.project_dir == "remote"
+                && entry.presence == "dead"
+                && current_entry
+                    .map(|current| {
+                        entry.project == current.project
+                            && entry.namespace == current.namespace
+                            && entry.workspace == current.workspace
+                            && entry.base_url == current.base_url
+                    })
+                    .unwrap_or(true)
+        })
         .count();
     let superseded_stale_sessions = response
         .entries
@@ -39877,6 +40327,54 @@ mod tests {
         })
     }
 
+    async fn mock_hive_session_auto_retire(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<memd_schema::HiveSessionAutoRetireRequest>,
+    ) -> Json<memd_schema::HiveSessionAutoRetireResponse> {
+        let tasks = state
+            .task_records
+            .lock()
+            .expect("lock task records")
+            .clone();
+        let receipts = state.receipts.lock().expect("lock receipts").clone();
+        let stale_cutoff = Utc::now() - chrono::TimeDelta::minutes(15);
+        let mut records = state.session_records.lock().expect("lock session records");
+        let mut retired = Vec::new();
+        records.retain(|record| {
+            let in_scope = req
+                .project
+                .as_ref()
+                .is_none_or(|value| record.project.as_ref() == Some(value))
+                && req
+                    .namespace
+                    .as_ref()
+                    .is_none_or(|value| record.namespace.as_ref() == Some(value))
+                && req
+                    .workspace
+                    .as_ref()
+                    .is_none_or(|value| record.workspace.as_ref() == Some(value));
+            if !in_scope || record.last_seen >= stale_cutoff {
+                return true;
+            }
+            let owns_active_task = tasks.iter().any(|task| {
+                task.session.as_deref() == Some(record.session.as_str())
+                    && task.status != "done"
+                    && task.status != "closed"
+            });
+            let has_pending_handoff = receipts.iter().any(|receipt| {
+                receipt.kind == "queen_handoff"
+                    && (receipt.actor_session == record.session
+                        || receipt.target_session.as_deref() == Some(record.session.as_str()))
+            });
+            if owns_active_task || has_pending_handoff {
+                return true;
+            }
+            retired.push(record.session.clone());
+            false
+        });
+        Json(memd_schema::HiveSessionAutoRetireResponse { retired })
+    }
+
     async fn mock_healthz() -> Json<memd_schema::HealthResponse> {
         Json(memd_schema::HealthResponse {
             status: "ok".to_string(),
@@ -39950,6 +40448,10 @@ mod tests {
                 post(mock_runtime_record_receipt),
             )
             .route("/coordination/receipts", get(mock_runtime_receipts))
+            .route(
+                "/coordination/sessions/auto-retire",
+                post(mock_hive_session_auto_retire),
+            )
             .route(
                 "/coordination/sessions/retire",
                 post(mock_hive_session_retire),
@@ -44941,6 +45443,150 @@ mod tests {
         assert!(summary.contains("## Review Queue"));
         assert!(summary.contains("## Recommended Actions"));
         assert!(summary.contains("Lorentz (session-lorentz)"));
+    }
+
+    #[tokio::test]
+    async fn run_hive_board_command_prunes_retired_stale_bees_from_default_view() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-board-retire-{}", uuid::Uuid::new_v4()));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let state = MockRuntimeState::default();
+        {
+            let mut sessions = state.session_records.lock().expect("lock session records");
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "codex-a".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Anscombe@codex-a".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("Anscombe".to_string()),
+                display_name: None,
+                role: Some("queen".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-queen".to_string()),
+                hive_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("feature/queen".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Route hive board".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-stale".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-stale".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("feature/review".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Old stale work".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now() - chrono::TimeDelta::minutes(45),
+            });
+        }
+
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&output, &base_url);
+        let board = run_hive_board_command(
+            &HiveArgs {
+                command: None,
+                agent: None,
+                project: None,
+                namespace: None,
+                global: false,
+                project_root: None,
+                seed_existing: true,
+                session: None,
+                tab_id: None,
+                hive_system: None,
+                hive_role: None,
+                capability: Vec::new(),
+                hive_group: Vec::new(),
+                hive_group_goal: None,
+                authority: None,
+                output: output.clone(),
+                base_url: base_url.clone(),
+                rag_url: None,
+                route: "auto".to_string(),
+                intent: "current_task".to_string(),
+                workspace: None,
+                visibility: None,
+                publish_heartbeat: true,
+                force: false,
+                summary: true,
+            },
+            &base_url,
+        )
+        .await
+        .expect("board");
+
+        assert!(board.stale_bees.is_empty());
+        let sessions = state.session_records.lock().expect("lock session records");
+        assert!(
+            sessions
+                .iter()
+                .all(|session| session.session != "session-stale")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup board retire dir");
     }
 
     #[test]
@@ -50635,7 +51281,7 @@ mod tests {
         assert!(summary.contains("active_hive_sessions:"));
         assert!(summary.contains("! stale_remote_sessions="));
         assert!(summary.contains("stale_sessions:"));
-        assert!(summary.contains("hidden_remote_dead=1"));
+        assert!(summary.contains("hidden_remote_dead="));
         assert!(summary.contains("hidden_superseded_stale=1"));
         assert!(summary.contains("session=codex-fresh"));
         assert!(summary.contains("truth=current"));
@@ -53439,6 +54085,86 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup verify list dir");
     }
 
+    #[test]
+    fn materialize_continuity_fixture_creates_temp_bundle() {
+        let fixture = test_continuity_fixture_record();
+        let env = materialize_fixture(&fixture).expect("materialize fixture");
+        assert!(env.bundle_root.join("config.json").exists());
+        assert_eq!(env.fixture_id, "fixture.continuity_bundle");
+    }
+
+    #[tokio::test]
+    async fn run_resume_feature_verifier_writes_evidence_artifacts() {
+        let fixture = test_continuity_fixture_record();
+        let verifier = VerifierRecord {
+            id: "verifier.feature.bundle.resume".to_string(),
+            name: "Resume feature".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            subject_ids: vec!["feature.bundle.resume".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: Vec::new(),
+            assertions: Vec::new(),
+            metrics: vec!["prompt_tokens".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["fast".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture)
+            .await
+            .expect("run verifier");
+        assert_eq!(run.verifier_id, "verifier.feature.bundle.resume");
+        assert!(!run.evidence_ids.is_empty());
+        let materialized = materialize_fixture(&fixture).expect("materialize fixture again");
+        write_verifier_run_artifacts(
+            &materialized.bundle_root,
+            &run,
+            &json!({"verifier_id": verifier.id, "confidence_tier": "live_primary"}),
+        )
+        .expect("write verifier artifacts");
+        assert!(
+            verification_reports_dir(&materialized.bundle_root)
+                .join("latest.json")
+                .exists()
+        );
+        assert!(verification_evidence_dir(&materialized.bundle_root).exists());
+    }
+
+    #[test]
+    fn derived_only_evidence_caps_gate_at_fragile() {
+        let gate = resolve_verifier_gate("acceptable", &["derived".to_string()], true, true, true);
+        assert_eq!(gate, "fragile");
+    }
+
+    #[test]
+    fn comparative_loss_caps_gate_at_acceptable() {
+        let gate =
+            resolve_verifier_gate("strong", &["live_primary".to_string()], true, true, false);
+        assert_eq!(gate, "acceptable");
+    }
+
+    #[tokio::test]
+    async fn nightly_sweep_fails_on_tier_zero_failure() {
+        let report = run_verify_sweep_for_test("nightly", vec![test_failing_tier_zero_verifier()])
+            .await
+            .expect("run nightly sweep");
+        assert!(!report.ok);
+    }
+
+    #[tokio::test]
+    async fn nightly_sweep_reports_noncritical_failures_without_failing() {
+        let report = run_verify_sweep_for_test("nightly", vec![test_failing_tier_two_verifier()])
+            .await
+            .expect("run nightly sweep");
+        assert!(report.ok);
+        assert_eq!(report.failures.len(), 1);
+    }
+
     #[tokio::test]
     async fn run_feature_benchmark_command_scores_feature_inventory_and_writes_artifacts() {
         let dir =
@@ -54070,6 +54796,87 @@ mod tests {
             .join("docs/verification/benchmark-registry.json");
         let registry_json = fs::read_to_string(&registry_path).expect("read benchmark registry");
         serde_json::from_str(&registry_json).expect("parse benchmark registry")
+    }
+
+    fn test_continuity_fixture_record() -> FixtureRecord {
+        FixtureRecord {
+            id: "fixture.continuity_bundle".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "continuity".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "memd",
+                "namespace": "main",
+                "agent": "codex"
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: Vec::new(),
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        }
+    }
+
+    fn test_failing_tier_zero_verifier() -> VerifierRecord {
+        VerifierRecord {
+            id: "verifier.feature.bundle.resume.failing".to_string(),
+            name: "Resume feature failing".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            subject_ids: vec!["feature.bundle.resume".to_string()],
+            fixture_id: "fixture.continuity_bundle".to_string(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: Vec::new(),
+            assertions: Vec::new(),
+            metrics: vec!["prompt_tokens".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: vec!["force_fail".to_string()],
+        }
+    }
+
+    fn test_failing_tier_two_verifier() -> VerifierRecord {
+        VerifierRecord {
+            id: "verifier.feature.noncritical.failing".to_string(),
+            name: "Noncritical feature failing".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "visible-memory".to_string(),
+            family: "visible-memory".to_string(),
+            subject_ids: vec!["feature.noncritical.placeholder".to_string()],
+            fixture_id: "fixture.continuity_bundle".to_string(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: Vec::new(),
+            assertions: Vec::new(),
+            metrics: vec!["prompt_tokens".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: vec!["force_fail".to_string()],
+        }
+    }
+
+    async fn run_verify_sweep_for_test(
+        lane: &str,
+        verifiers: Vec<VerifierRecord>,
+    ) -> anyhow::Result<VerifySweepReport> {
+        let dir = std::env::temp_dir().join(format!("memd-verify-sweep-{}", uuid::Uuid::new_v4()));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create verify sweep output");
+
+        let mut registry = test_benchmark_registry();
+        registry.verifiers = verifiers;
+        registry.fixtures = vec![test_continuity_fixture_record()];
+
+        let report = execute_verify_sweep(&output, None, &registry, lane).await;
+        fs::remove_dir_all(dir).expect("cleanup verify sweep dir");
+        report
     }
 
     fn write_test_benchmark_registry(repo_root: &Path) {

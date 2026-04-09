@@ -9,10 +9,10 @@ use memd_schema::{
     HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
     HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRecord,
-    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
-    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskRecord,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
+    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireResponse,
+    HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
     MaintainReportRequest, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
     MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
     MemoryMaintenanceReportRequest, SkillPolicyActivationEntriesRequest,
@@ -2687,6 +2687,122 @@ impl SqliteStore {
         })
     }
 
+    pub fn auto_retire_stale_hive_sessions(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        workspace: Option<&str>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<HiveSessionAutoRetireResponse> {
+        self.prune_expired_hive_claims()?;
+        self.prune_stale_hive_sessions()?;
+
+        let project = project
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let namespace = namespace
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let workspace = workspace
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let sessions = self
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(512),
+            })?
+            .sessions;
+        let tasks = self
+            .hive_tasks(&HiveTasksRequest {
+                session: None,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                active_only: Some(true),
+                limit: Some(512),
+            })?
+            .tasks;
+        let claims = self
+            .hive_claims(&HiveClaimsRequest {
+                session: None,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                active_only: Some(true),
+                limit: Some(512),
+            })?
+            .claims;
+        let receipts = self
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: project.clone(),
+                namespace: namespace.clone(),
+                workspace: workspace.clone(),
+                limit: Some(512),
+            })?
+            .receipts;
+
+        let stale_cutoff = now - chrono::TimeDelta::minutes(15);
+        let retireable = sessions
+            .into_iter()
+            .filter(|session| session.last_seen < stale_cutoff)
+            .filter(|session| {
+                !tasks.iter().any(|task| {
+                    task.session.as_deref() == Some(session.session.as_str())
+                        && task.status != "done"
+                        && task.status != "closed"
+                })
+            })
+            .filter(|session| !claims.iter().any(|claim| claim.session == session.session))
+            .filter(|session| {
+                !receipts.iter().any(|receipt| {
+                    receipt.kind == "queen_handoff"
+                        && (receipt.actor_session == session.session
+                            || receipt.target_session.as_deref() == Some(session.session.as_str()))
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut retired = Vec::new();
+        for session in retireable {
+            let response = self.retire_hive_session(&HiveSessionRetireRequest {
+                session: session.session.clone(),
+                project: session.project.clone(),
+                namespace: session.namespace.clone(),
+                workspace: session.workspace.clone(),
+                repo_root: session.repo_root.clone(),
+                worktree_root: session.worktree_root.clone(),
+                branch: session.branch.clone(),
+                agent: session.agent.clone(),
+                effective_agent: session.effective_agent.clone(),
+                hive_system: session.hive_system.clone(),
+                hive_role: session.hive_role.clone(),
+                host: session.host.clone(),
+                reason: Some("auto_retire_stale_session".to_string()),
+            })?;
+            if response.retired > 0 {
+                retired.push(session.session);
+            }
+        }
+
+        Ok(HiveSessionAutoRetireResponse { retired })
+    }
+
     pub fn upsert_hive_task(
         &self,
         request: &HiveTaskUpsertRequest,
@@ -4836,6 +4952,152 @@ mod tests {
             .expect("query remaining sessions");
         assert_eq!(sessions.sessions.len(), 1);
         assert_eq!(sessions.sessions[0].agent.as_deref(), Some("claude-code"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_coordination_auto_retires_stale_session_without_owned_work() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-auto-retire-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-old".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@session-old".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert stale session");
+
+        let mut session = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-old".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("load session")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("session exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(45);
+        let conn = store.connect().expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize stale session"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("mark session stale");
+
+        let sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("list sessions");
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.session == "session-old")
+        );
+
+        let retired = store
+            .auto_retire_stale_hive_sessions(
+                Some("memd"),
+                Some("main"),
+                Some("shared"),
+                chrono::Utc::now(),
+            )
+            .expect("auto retire");
+        assert_eq!(retired.retired, vec!["session-old".to_string()]);
+
+        let remaining = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("list sessions after retire");
+        assert!(
+            remaining
+                .sessions
+                .iter()
+                .all(|session| session.session != "session-old")
+        );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }

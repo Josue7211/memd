@@ -30,24 +30,24 @@ use memd_schema::{
     HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
     HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
-    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
-    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
-    InboxMemoryItem, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
-    MemoryConsolidationResponse, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
-    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
-    MemoryVisibility, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
-    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
-    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
-    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
+    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
+    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
+    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
+    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use serde::Deserialize;
@@ -357,6 +357,10 @@ async fn main() {
         .route(
             "/coordination/sessions/retire",
             post(post_hive_session_retire),
+        )
+        .route(
+            "/coordination/sessions/auto-retire",
+            post(post_hive_session_auto_retire),
         )
         .route("/coordination/sessions", get(get_hive_sessions))
         .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
@@ -1131,6 +1135,22 @@ async fn post_hive_session_retire(
     let response = state
         .store
         .retire_hive_session(&req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_hive_session_auto_retire(
+    State(state): State<AppState>,
+    Json(req): Json<HiveSessionAutoRetireRequest>,
+) -> Result<Json<HiveSessionAutoRetireResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .auto_retire_stale_hive_sessions(
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            Utc::now(),
+        )
         .map_err(internal_error)?;
     Ok(Json(response))
 }

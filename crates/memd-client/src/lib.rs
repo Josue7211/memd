@@ -10,10 +10,11 @@ use memd_schema::{
     HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
     HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
-    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
-    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
-    MaintainReport, MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
     MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
@@ -374,6 +375,14 @@ impl MemdClient {
         req: &HiveSessionRetireRequest,
     ) -> anyhow::Result<HiveSessionRetireResponse> {
         self.post_json("/coordination/sessions/retire", req).await
+    }
+
+    pub async fn auto_retire_hive_sessions(
+        &self,
+        req: &HiveSessionAutoRetireRequest,
+    ) -> anyhow::Result<HiveSessionAutoRetireResponse> {
+        self.post_json("/coordination/sessions/auto-retire", req)
+            .await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>
