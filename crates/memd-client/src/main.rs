@@ -36,19 +36,20 @@ use memd_rag::{
 };
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
-    BenchmarkEvidenceSummary, BenchmarkGateDecision, BenchmarkRegistry, BenchmarkSubjectMetrics,
-    CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
-    CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest,
-    HiveClaimsRequest, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
-    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport,
-    MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryPolicyResponse, MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus,
-    PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent, RetrievalRoute,
-    SearchMemoryRequest, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    BenchmarkEvidenceSummary, BenchmarkFeatureRecord, BenchmarkGateDecision, BenchmarkRegistry,
+    BenchmarkSubjectMetrics, CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop,
+    CompactionPacket, CompactionReference, CompactionSession, CompactionSpillOptions,
+    CompactionSpillResult, ContextRequest, ContinuityJourneyReport, EntityLinkRequest,
+    EntityLinksRequest, EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest,
+    HiveClaimRecoverRequest, HiveClaimsRequest, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
+    HiveCoordinationReceiptsRequest, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveTaskAssignRequest, HiveTaskRecord,
+    HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport, MemoryConsolidationRequest,
+    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
+    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
+    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
     SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
     WorkingMemoryRequest,
@@ -10230,11 +10231,12 @@ fn loop_control_plane_summary(entry: &LoopEntry) -> Option<ExperimentEvolutionSu
 fn run_telemetry(args: &TelemetryArgs) -> anyhow::Result<()> {
     let path = loops_summary_path(&args.output);
     let summary = read_loop_summary(&path)?;
+    let benchmark = build_telemetry_benchmark_coverage(&args.output)?;
     if args.json {
-        let report = build_telemetry_report(&summary);
+        let report = build_telemetry_report(&summary, benchmark.as_ref());
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        print_loop_telemetry(&summary, &path);
+        print_loop_telemetry(&summary, &path, benchmark.as_ref());
     }
     Ok(())
 }
@@ -10243,12 +10245,36 @@ fn loops_summary_path(output: &Path) -> PathBuf {
     loops_directory(output).join("loops.summary.json")
 }
 
-fn print_loop_telemetry(summary: &LoopSummary, path: &Path) {
+fn print_loop_telemetry(
+    summary: &LoopSummary,
+    path: &Path,
+    benchmark: Option<&BenchmarkCoverageTelemetry>,
+) {
     if summary.entries.is_empty() {
         println!(
             "No telemetry records found ({}). Run autoresearch to generate loop telemetry.",
             path.display()
         );
+        if let Some(benchmark) = benchmark {
+            println!(
+                "Benchmark coverage: continuity-critical {}/{} benchmarked, missing loops {}, with-memd losses {}",
+                benchmark.continuity_critical_benchmarked,
+                benchmark.continuity_critical_total,
+                benchmark.missing_loop_count,
+                benchmark.with_memd_losses
+            );
+            if !benchmark.gap_candidates.is_empty() {
+                println!(
+                    "Benchmark gaps: {}",
+                    benchmark
+                        .gap_candidates
+                        .iter()
+                        .map(|candidate| format!("{} ({})", candidate.id, candidate.severity))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                );
+            }
+        }
         return;
     }
 
@@ -10294,9 +10320,33 @@ fn print_loop_telemetry(summary: &LoopSummary, path: &Path) {
             format_tokens(Some(highlight.value))
         );
     }
+
+    if let Some(benchmark) = benchmark {
+        println!(
+            "Benchmark coverage: continuity-critical {}/{} benchmarked, missing loops {}, with-memd losses {}",
+            benchmark.continuity_critical_benchmarked,
+            benchmark.continuity_critical_total,
+            benchmark.missing_loop_count,
+            benchmark.with_memd_losses
+        );
+        if !benchmark.gap_candidates.is_empty() {
+            println!(
+                "Benchmark gaps: {}",
+                benchmark
+                    .gap_candidates
+                    .iter()
+                    .map(|candidate| format!("{} ({})", candidate.id, candidate.severity))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            );
+        }
+    }
 }
 
-fn build_telemetry_report(summary: &LoopSummary) -> TelemetryReport {
+fn build_telemetry_report(
+    summary: &LoopSummary,
+    benchmark: Option<&BenchmarkCoverageTelemetry>,
+) -> TelemetryReport {
     let stats = TelemetryStats::from_summary(summary);
     TelemetryReport {
         total_loops: stats.total_loops,
@@ -10306,6 +10356,7 @@ fn build_telemetry_report(summary: &LoopSummary) -> TelemetryReport {
         worst_improvement: stats.worst_improvement(),
         total_tokens_saved: stats.total_tokens_saved,
         largest_token_saving: stats.best_token_saving(),
+        benchmark: benchmark.cloned(),
     }
 }
 
@@ -10399,6 +10450,7 @@ struct TelemetryReport {
     worst_improvement: Option<TelemetryHighlight>,
     total_tokens_saved: f64,
     largest_token_saving: Option<TelemetryHighlight>,
+    benchmark: Option<BenchmarkCoverageTelemetry>,
 }
 
 #[derive(Debug, Serialize)]
@@ -10452,6 +10504,22 @@ async fn run_autoresearch(args: &AutoresearchArgs, base_url: &str) -> anyhow::Re
     } else {
         Vec::new()
     };
+
+    if let Some((_, registry)) = load_benchmark_registry_for_output(&args.output)
+        .ok()
+        .flatten()
+    {
+        let benchmark_gaps = build_benchmark_gap_candidates(&registry);
+        if !benchmark_gaps.is_empty() {
+            println!(
+                "Benchmark coverage gaps detected: {} candidate(s)",
+                benchmark_gaps.len()
+            );
+            for gap in benchmark_gaps.iter().take(3) {
+                println!("- {}: {}", gap.id, gap.recommendation);
+            }
+        }
+    }
 
     if loops.is_empty() {
         anyhow::bail!("no loops matched; run with --manifest to see available loops");
@@ -22423,6 +22491,10 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
     .await
     .ok();
     let research_loops_doc_count = research_loops_doc_loop_count(project_root);
+    let benchmark_registry = load_benchmark_registry_for_output(&args.output)
+        .ok()
+        .flatten()
+        .map(|(_, registry)| registry);
 
     let candidates = build_gap_candidates(
         &args.output,
@@ -22435,6 +22507,7 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
         research_loops_doc_count,
         &recent_commits,
         &mut evidence,
+        benchmark_registry.as_ref(),
     );
     let candidates = prioritize_gap_candidates(candidates, limit);
 
@@ -24737,6 +24810,20 @@ fn benchmark_telemetry_dir(output: &Path) -> PathBuf {
     output.join("telemetry").join("continuity")
 }
 
+fn read_latest_feature_benchmark_report(
+    output: &Path,
+) -> anyhow::Result<Option<FeatureBenchmarkReport>> {
+    let path = feature_benchmark_reports_dir(output).join("latest.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let report = serde_json::from_str::<FeatureBenchmarkReport>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(report))
+}
+
 fn load_benchmark_registry_for_output(
     output: &Path,
 ) -> anyhow::Result<Option<(PathBuf, BenchmarkRegistry)>> {
@@ -24749,6 +24836,61 @@ fn load_benchmark_registry_for_output(
     let registry = serde_json::from_str::<BenchmarkRegistry>(&registry_json)
         .with_context(|| format!("parse {}", registry_path.display()))?;
     Ok(Some((repo_root, registry)))
+}
+
+fn build_telemetry_benchmark_coverage(
+    output: &Path,
+) -> anyhow::Result<Option<BenchmarkCoverageTelemetry>> {
+    let Some((_, registry)) = load_benchmark_registry_for_output(output)? else {
+        return Ok(None);
+    };
+    let benchmark = read_latest_feature_benchmark_report(output)?;
+    Ok(Some(build_benchmark_coverage_telemetry(
+        &registry,
+        benchmark.as_ref(),
+    )))
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkCoverageTelemetry {
+    continuity_critical_total: usize,
+    continuity_critical_benchmarked: usize,
+    missing_loop_count: usize,
+    with_memd_losses: usize,
+    gap_candidates: Vec<GapCandidate>,
+}
+
+fn build_benchmark_coverage_telemetry(
+    registry: &BenchmarkRegistry,
+    benchmark: Option<&FeatureBenchmarkReport>,
+) -> BenchmarkCoverageTelemetry {
+    let continuity_critical_total = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical)
+        .count();
+    let continuity_critical_benchmarked = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical && feature.coverage_status == "verified")
+        .count();
+    let missing_loop_count = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical && feature.coverage_status != "verified")
+        .count();
+    let with_memd_losses = benchmark
+        .and_then(build_benchmark_comparison_report)
+        .map(|report| usize::from(!report.with_memd_better))
+        .unwrap_or(0);
+
+    BenchmarkCoverageTelemetry {
+        continuity_critical_total,
+        continuity_critical_benchmarked,
+        missing_loop_count,
+        with_memd_losses,
+        gap_candidates: build_benchmark_gap_candidates(registry),
+    }
 }
 
 fn benchmark_gate_rank(gate: &str) -> u8 {
@@ -25103,8 +25245,10 @@ fn build_benchmark_registry_docs_report(
     let registry_path = benchmark_registry_json_path(repo_root);
     let benchmarks_markdown =
         render_benchmark_registry_benchmarks_markdown(repo_root, registry, benchmark);
-    let loops_markdown = render_benchmark_registry_loops_markdown(registry);
-    let coverage_markdown = render_benchmark_registry_coverage_markdown(registry, benchmark);
+    let coverage_telemetry = build_benchmark_coverage_telemetry(registry, Some(benchmark));
+    let loops_markdown = render_benchmark_registry_loops_markdown(registry, &coverage_telemetry);
+    let coverage_markdown =
+        render_benchmark_registry_coverage_markdown(registry, benchmark, &coverage_telemetry);
     let continuity_journey_report =
         build_continuity_journey_report(Path::new(&benchmark.bundle_root), registry, benchmark);
     let comparative_report = build_benchmark_comparison_report(benchmark);
@@ -25261,7 +25405,10 @@ fn render_benchmark_registry_benchmarks_markdown(
     markdown
 }
 
-fn render_benchmark_registry_loops_markdown(registry: &BenchmarkRegistry) -> String {
+fn render_benchmark_registry_loops_markdown(
+    registry: &BenchmarkRegistry,
+    coverage: &BenchmarkCoverageTelemetry,
+) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd benchmark loops\n\n");
     markdown.push_str(&format!("- Loops: `{}`\n", registry.loops.len()));
@@ -25281,6 +25428,21 @@ fn render_benchmark_registry_loops_markdown(registry: &BenchmarkRegistry) -> Str
         ));
     }
     markdown.push('\n');
+    markdown.push_str("## Coverage Gaps\n");
+    if coverage.gap_candidates.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for candidate in &coverage.gap_candidates {
+            markdown.push_str(&format!(
+                "- `{}` [{}] {}\n",
+                candidate.id, candidate.severity, candidate.recommendation
+            ));
+            for entry in &candidate.evidence {
+                markdown.push_str(&format!("  - evidence: {}\n", entry));
+            }
+        }
+    }
+    markdown.push('\n');
     markdown.push_str("## Loop Coverage Notes\n");
     for loop_record in &registry.loops {
         markdown.push_str(&format!(
@@ -25295,6 +25457,7 @@ fn render_benchmark_registry_loops_markdown(registry: &BenchmarkRegistry) -> Str
 fn render_benchmark_registry_coverage_markdown(
     registry: &BenchmarkRegistry,
     benchmark: &FeatureBenchmarkReport,
+    coverage: &BenchmarkCoverageTelemetry,
 ) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd benchmark coverage\n\n");
@@ -25310,12 +25473,36 @@ fn render_benchmark_registry_coverage_markdown(
         "- Journey coverage records: `{}`\n\n",
         registry.journeys.len()
     ));
+    markdown.push_str("## Coverage Summary\n");
+    markdown.push_str(&format!(
+        "- continuity-critical total: `{}`\n",
+        coverage.continuity_critical_total
+    ));
+    markdown.push_str(&format!(
+        "- continuity-critical benchmarked: `{}`\n",
+        coverage.continuity_critical_benchmarked
+    ));
+    markdown.push_str(&format!(
+        "- missing loop count: `{}`\n",
+        coverage.missing_loop_count
+    ));
+    markdown.push_str(&format!(
+        "- with-memd losses: `{}`\n",
+        coverage.with_memd_losses
+    ));
+    markdown.push('\n');
     markdown.push_str("## Continuity-Critical Features\n");
-    for feature in registry
+    let mut continuity_features = registry
         .features
         .iter()
         .filter(|feature| feature.continuity_critical)
-    {
+        .collect::<Vec<_>>();
+    continuity_features.sort_by(|left, right| {
+        left.coverage_status
+            .cmp(&right.coverage_status)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    for feature in continuity_features {
         markdown.push_str(&format!(
             "- `{}` [{}] loops={} drift={}\n",
             feature.id,
@@ -25323,6 +25510,35 @@ fn render_benchmark_registry_coverage_markdown(
             feature.loop_ids.len(),
             feature.drift_risks.join("|")
         ));
+    }
+    markdown.push('\n');
+    markdown.push_str("## Benchmark Gaps\n");
+    if coverage.gap_candidates.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for candidate in &coverage.gap_candidates {
+            markdown.push_str(&format!(
+                "- `{}` [{}] {}\n",
+                candidate.id, candidate.severity, candidate.recommendation
+            ));
+        }
+    }
+    markdown.push('\n');
+    markdown.push_str("## Missing Loop IDs\n");
+    let missing_loop_features = registry
+        .features
+        .iter()
+        .filter(|feature| feature.loop_ids.is_empty())
+        .collect::<Vec<_>>();
+    if missing_loop_features.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for feature in missing_loop_features {
+            markdown.push_str(&format!(
+                "- `{}` [{}] missing loop IDs\n",
+                feature.id, feature.coverage_status
+            ));
+        }
     }
     markdown.push('\n');
     markdown.push_str("## Journeys\n");
@@ -27359,6 +27575,7 @@ fn build_gap_candidates(
     research_loops_doc_count: Option<usize>,
     recent_commits: &[String],
     evidence: &mut Vec<String>,
+    benchmark_registry: Option<&BenchmarkRegistry>,
 ) -> Vec<GapCandidate> {
     let mut candidates = Vec::new();
     let add = |candidates: &mut Vec<GapCandidate>,
@@ -27735,6 +27952,14 @@ fn build_gap_candidates(
                 "update docs/research-loops.md to match `memd autoresearch --manifest` and rerun gap scoring",
             );
         }
+    }
+
+    if let Some(registry) = benchmark_registry {
+        let benchmark_gaps = build_benchmark_gap_candidates(registry);
+        evidence.push(format!("benchmark coverage gaps={}", benchmark_gaps.len()));
+        candidates.extend(benchmark_gaps);
+    } else {
+        evidence.push("benchmark coverage gaps=unavailable".to_string());
     }
 
     if let Some(runtime) = runtime {
@@ -30905,6 +31130,38 @@ fn awareness_presence_rank(presence: &str) -> u8 {
     }
 }
 
+fn prune_dead_local_bundle_heartbeat(
+    bundle_root: &Path,
+    heartbeat: Option<&BundleHeartbeatState>,
+    active_claims: usize,
+    is_current_bundle: bool,
+) -> anyhow::Result<bool> {
+    if is_current_bundle || active_claims > 0 {
+        return Ok(false);
+    }
+    let Some(heartbeat) = heartbeat else {
+        return Ok(false);
+    };
+    if heartbeat_presence_label(heartbeat.last_seen) != "dead" {
+        return Ok(false);
+    }
+
+    let heartbeat_path = bundle_heartbeat_state_path(bundle_root);
+    if heartbeat_path.exists() {
+        fs::remove_file(&heartbeat_path)
+            .with_context(|| format!("remove {}", heartbeat_path.display()))?;
+    }
+    Ok(true)
+}
+
+fn skip_inactive_local_bundle_entry(
+    heartbeat: Option<&BundleHeartbeatState>,
+    active_claims: usize,
+    is_current_bundle: bool,
+) -> bool {
+    !is_current_bundle && active_claims == 0 && heartbeat.is_none()
+}
+
 async fn read_project_awareness_shared(
     args: &AwarenessArgs,
     fallback: &ProjectAwarenessResponse,
@@ -31160,6 +31417,26 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
         let state = read_bundle_resume_state(&bundle_root)?;
         let heartbeat = read_bundle_heartbeat(&bundle_root)?;
         let claims = read_bundle_claims(&bundle_root)?;
+        let active_claims = claims
+            .claims
+            .iter()
+            .filter(|claim| claim.expires_at > Utc::now())
+            .count();
+        if prune_dead_local_bundle_heartbeat(
+            &bundle_root,
+            heartbeat.as_ref(),
+            active_claims,
+            canonical_bundle == current_bundle,
+        )? {
+            continue;
+        }
+        if skip_inactive_local_bundle_entry(
+            heartbeat.as_ref(),
+            active_claims,
+            canonical_bundle == current_bundle,
+        ) {
+            continue;
+        }
         let state_path = bundle_resume_state_path(&bundle_root);
         let heartbeat_path = bundle_heartbeat_state_path(&bundle_root);
         let last_updated = if heartbeat_path.exists() {
@@ -31236,11 +31513,7 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
                 .unwrap_or_else(|| "unknown".to_string()),
             host: heartbeat.as_ref().and_then(|value| value.host.clone()),
             pid: heartbeat.as_ref().and_then(|value| value.pid),
-            active_claims: claims
-                .claims
-                .iter()
-                .filter(|claim| claim.expires_at > Utc::now())
-                .count(),
+            active_claims,
             workspace: heartbeat
                 .as_ref()
                 .and_then(|value| value.workspace.clone())
@@ -35685,6 +35958,71 @@ struct GapCandidate {
     signal: String,
     evidence: Vec<String>,
     recommendation: String,
+}
+
+fn build_benchmark_gap_candidates(registry: &BenchmarkRegistry) -> Vec<GapCandidate> {
+    let mut candidates = Vec::new();
+
+    let continuity_gaps = registry
+        .features
+        .iter()
+        .filter(|feature| feature.continuity_critical && feature.coverage_status != "verified")
+        .collect::<Vec<_>>();
+    if !continuity_gaps.is_empty() {
+        let evidence = continuity_gaps
+            .iter()
+            .take(5)
+            .map(|feature| {
+                format!(
+                    "{} [{}] coverage={} loops={}",
+                    feature.id,
+                    feature.family,
+                    feature.coverage_status,
+                    feature.loop_ids.len()
+                )
+            })
+            .collect::<Vec<_>>();
+        candidates.push(GapCandidate {
+            id: "benchmark:unbenchmarked_continuity_feature".to_string(),
+            area: "benchmark".to_string(),
+            priority: 98,
+            severity: "high".to_string(),
+            signal: "unbenchmarked_continuity_feature".to_string(),
+            evidence,
+            recommendation:
+                "bench continuity-critical features before promoting the benchmark registry"
+                    .to_string(),
+        });
+    }
+
+    let missing_loop_ids = registry
+        .features
+        .iter()
+        .filter(|feature| feature.loop_ids.is_empty())
+        .collect::<Vec<_>>();
+    if !missing_loop_ids.is_empty() {
+        let evidence = missing_loop_ids
+            .iter()
+            .take(5)
+            .map(|feature| {
+                format!(
+                    "{} [{}] coverage={} missing_loop_ids=1",
+                    feature.id, feature.family, feature.coverage_status
+                )
+            })
+            .collect::<Vec<_>>();
+        candidates.push(GapCandidate {
+            id: "benchmark:missing_loop_ids".to_string(),
+            area: "benchmark".to_string(),
+            priority: 86,
+            severity: "medium".to_string(),
+            signal: "missing_loop_ids".to_string(),
+            evidence,
+            recommendation: "assign loop IDs to every benchmarked feature".to_string(),
+        });
+    }
+
+    candidates
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41092,6 +41430,104 @@ mod tests {
             entry.project.as_deref() == Some("sibling")
                 && entry.agent.as_deref() == Some("claude-code")
         }));
+
+        fs::remove_dir_all(root).expect("cleanup awareness root");
+    }
+
+    #[test]
+    fn project_awareness_local_prunes_dead_sibling_without_active_claims() {
+        let root =
+            std::env::temp_dir().join(format!("memd-awareness-prune-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let sibling_project = root.join("sibling");
+        let current_bundle = current_project.join(".memd");
+        let sibling_bundle = sibling_project.join(".memd");
+        fs::create_dir_all(current_bundle.join("state")).expect("create current");
+        fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling");
+
+        fs::write(
+            current_bundle.join("config.json"),
+            r#"{
+  "project": "current",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "current-a",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            sibling_bundle.join("config.json"),
+            r#"{
+  "project": "sibling",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "sibling-dead",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write sibling config");
+        fs::write(
+            bundle_heartbeat_state_path(&sibling_bundle),
+            serde_json::to_string_pretty(&BundleHeartbeatState {
+                session: Some("sibling-dead".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@sibling-dead".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:sibling".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("sibling".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some(sibling_project.display().to_string()),
+                branch: Some("feature/old".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(SHARED_MEMD_BASE_URL.to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now() - chrono::TimeDelta::minutes(30),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
+            })
+            .expect("serialize heartbeat")
+                + "\n",
+        )
+        .expect("write sibling heartbeat");
+
+        let response = read_project_awareness_local(&AwarenessArgs {
+            output: current_bundle.clone(),
+            root: Some(root.clone()),
+            include_current: true,
+            summary: false,
+        })
+        .expect("read awareness");
+
+        assert!(
+            response
+                .entries
+                .iter()
+                .all(|entry| { entry.session.as_deref() != Some("sibling-dead") })
+        );
+        assert!(
+            !bundle_heartbeat_state_path(&sibling_bundle).exists(),
+            "dead sibling heartbeat should be pruned automatically"
+        );
 
         fs::remove_dir_all(root).expect("cleanup awareness root");
     }
@@ -47920,6 +48356,7 @@ mod tests {
             None,
             &commits,
             &mut evidence,
+            None,
         );
 
         assert!(
@@ -48036,6 +48473,7 @@ mod tests {
             None,
             &[],
             &mut evidence,
+            None,
         );
 
         assert!(
@@ -48109,6 +48547,7 @@ mod tests {
             None,
             &[],
             &mut evidence,
+            None,
         );
 
         assert!(
@@ -48138,6 +48577,7 @@ mod tests {
             Some(8),
             &[],
             &mut evidence,
+            None,
         );
 
         assert!(
@@ -49840,11 +50280,14 @@ mod tests {
                 .contains("# memd benchmark registry")
         );
         assert!(report.loops_markdown.contains("# memd benchmark loops"));
+        assert!(report.loops_markdown.contains("Coverage Gaps"));
         assert!(
             report
                 .coverage_markdown
                 .contains("# memd benchmark coverage")
         );
+        assert!(report.coverage_markdown.contains("Coverage Summary"));
+        assert!(report.coverage_markdown.contains("Benchmark Gaps"));
         assert!(report.scores_markdown.contains("# memd benchmark scores"));
         assert!(report.comparative_report.is_some());
         assert!(report.scores_markdown.contains("Comparative Evidence"));
@@ -49880,6 +50323,84 @@ mod tests {
         assert!(morning_md.contains("Continuity Failures"));
 
         fs::remove_dir_all(dir).expect("cleanup benchmark registry docs dir");
+    }
+
+    #[test]
+    fn build_benchmark_gap_candidates_surfaces_unbenchmarked_continuity_feature() {
+        let registry = BenchmarkRegistry {
+            version: "v1".to_string(),
+            app_goal: "demo".to_string(),
+            quality_dimensions: Vec::new(),
+            tiers: Vec::new(),
+            pillars: Vec::new(),
+            families: Vec::new(),
+            features: vec![BenchmarkFeatureRecord {
+                id: "feature.bundle.resume".to_string(),
+                name: "Resume".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                tier: "tier-0-continuity-critical".to_string(),
+                continuity_critical: true,
+                user_contract: "resume restores continuity".to_string(),
+                source_contract_refs: Vec::new(),
+                commands: vec!["memd resume".to_string()],
+                routes: Vec::new(),
+                files: vec!["crates/memd-client/src/main.rs".to_string()],
+                journey_ids: Vec::new(),
+                loop_ids: Vec::new(),
+                quality_dimensions: vec!["continuity".to_string()],
+                drift_risks: vec!["continuity-drift".to_string()],
+                failure_modes: vec!["resume misses task state".to_string()],
+                coverage_status: "unbenchmarked".to_string(),
+                last_verified_at: None,
+            }],
+            journeys: Vec::new(),
+            loops: Vec::new(),
+            scorecards: Vec::new(),
+            evidence: Vec::new(),
+            gates: Vec::new(),
+            baseline_modes: Vec::new(),
+            runtime_policies: Vec::new(),
+            generated_at: None,
+        };
+
+        let gaps = build_benchmark_gap_candidates(&registry);
+        assert!(
+            gaps.iter()
+                .any(|gap| gap.id == "benchmark:unbenchmarked_continuity_feature")
+        );
+    }
+
+    #[test]
+    fn build_telemetry_benchmark_coverage_surfaces_registry_gaps() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-benchmark-telemetry-{}", uuid::Uuid::new_v4()));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(feature_benchmark_reports_dir(&output)).expect("create benchmark dir");
+        write_test_benchmark_registry(&repo_root);
+        let report = test_feature_benchmark_report(&output);
+        fs::write(
+            feature_benchmark_reports_dir(&output).join("latest.json"),
+            serde_json::to_string_pretty(&report).expect("serialize report") + "\n",
+        )
+        .expect("write benchmark report");
+
+        let coverage = build_telemetry_benchmark_coverage(&output)
+            .expect("build telemetry coverage")
+            .expect("telemetry coverage");
+        assert_eq!(coverage.continuity_critical_total, 8);
+        assert_eq!(coverage.continuity_critical_benchmarked, 0);
+        assert_eq!(coverage.missing_loop_count, 8);
+        assert!(
+            coverage
+                .gap_candidates
+                .iter()
+                .any(|gap| gap.id == "benchmark:unbenchmarked_continuity_feature")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup telemetry dir");
     }
 
     #[test]
