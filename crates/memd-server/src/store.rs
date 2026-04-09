@@ -3747,13 +3747,13 @@ fn hive_follow_overlap_risk(
 
     if let (Some(current_task), Some(target_task)) =
         (current_task.as_deref(), target_task.as_deref())
-        && current_task != target_task
-        && !shared_scopes.is_empty()
     {
-        return Some(format!(
-            "confirmed hive overlap: target session {} already owns scope(s) for task {}",
-            target.session, target_task
-        ));
+        if current_task != target_task && !shared_scopes.is_empty() {
+            return Some(format!(
+                "confirmed hive overlap: target session {} already owns scope(s) for task {}",
+                target.session, target_task
+            ));
+        }
     }
 
     if !shared_scopes.is_empty() {
@@ -3765,23 +3765,25 @@ fn hive_follow_overlap_risk(
 
     if let (Some(current_task), Some(target_task)) =
         (current_task.as_deref(), target_task.as_deref())
-        && current_task == target_task
     {
-        return Some(format!(
-            "confirmed hive overlap: target session {} already owns task {}",
-            target.session, target_task
-        ));
+        if current_task == target_task {
+            return Some(format!(
+                "confirmed hive overlap: target session {} already owns task {}",
+                target.session, target_task
+            ));
+        }
     }
 
     if let (Some(current_topic), Some(target_topic)) =
         (current_topic.as_deref(), target_topic.as_deref())
-        && current_topic == target_topic
     {
-        return Some(format!(
-            "confirmed hive overlap: target session {} already owns topic {}",
-            target.session,
-            target.topic_claim.as_deref().unwrap_or("none")
-        ));
+        if current_topic == target_topic {
+            return Some(format!(
+                "confirmed hive overlap: target session {} already owns topic {}",
+                target.session,
+                target.topic_claim.as_deref().unwrap_or("none")
+            ));
+        }
     }
 
     None
