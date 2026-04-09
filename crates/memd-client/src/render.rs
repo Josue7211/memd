@@ -576,6 +576,24 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             ));
         }
     }
+    if let Some(lane) = status
+        .get("lane_surface")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_action={} lane_previous_branch={} lane_current_branch={} lane_conflict_session={}",
+            lane.get("action").and_then(Value::as_str).unwrap_or("none"),
+            lane.get("previous_branch")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane.get("current_branch")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane.get("conflict_session")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+    }
 
     if let Some(resume) = resume {
         let pressure = resume
@@ -3308,6 +3326,36 @@ mod tests {
         assert!(summary.contains("drivers=duplicates,inbox,refresh,rehydration,semantic,tokens"));
         assert!(summary.contains("action=\"drain inbox before the next prompt\""));
         assert!(summary.contains("warning=\"prompt pressure high\""));
+    }
+
+    #[test]
+    fn status_summary_surfaces_lane_reroute_context() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "lane_surface": {
+                "action": "auto_reroute",
+                "previous_branch": "feature/hive-shared",
+                "current_branch": "workerbee/codex-a",
+                "conflict_session": "claude-b"
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("lane_action=auto_reroute"));
+        assert!(summary.contains("lane_previous_branch=feature/hive-shared"));
+        assert!(summary.contains("lane_current_branch=workerbee/codex-a"));
+        assert!(summary.contains("lane_conflict_session=claude-b"));
     }
 
     #[test]

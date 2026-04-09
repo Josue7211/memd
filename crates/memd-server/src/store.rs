@@ -4395,8 +4395,7 @@ mod tests {
 
     #[test]
     fn hive_sessions_keep_same_named_sessions_separate_across_branches() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-hive-branches-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-hive-branches-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 

@@ -14843,6 +14843,9 @@ struct HiveWireResponse {
     hive_groups: Vec<String>,
     hive_group_goal: Option<String>,
     authority: Option<String>,
+    lane_rerouted: bool,
+    lane_created: bool,
+    lane_surface: Option<serde_json::Value>,
     heartbeat: Option<serde_json::Value>,
 }
 
@@ -15078,7 +15081,8 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
 
     let runtime = read_bundle_runtime_config(&output)?
         .context("hive wiring requires a readable bundle runtime config")?;
-    let output = ensure_isolated_hive_bundle_lane(&output, &runtime).await?;
+    let lane = ensure_isolated_hive_bundle_lane(&output, &runtime).await?;
+    let output = lane.output;
     let runtime_before_overlay = read_bundle_runtime_config_raw(&output)?;
     let runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive lane isolation")?;
@@ -15097,6 +15101,36 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
         _ => None,
     };
+    if let Some(surface) = lane.lane_surface.as_ref()
+        && let Some(session) = runtime
+            .session
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+    {
+        let client = MemdClient::new(&resolved_base_url)?;
+        emit_coordination_receipt(
+            &client,
+            "lane_reroute",
+            session,
+            runtime
+                .agent
+                .as_deref()
+                .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
+            surface.conflict_session.clone(),
+            None,
+            surface.current_branch.clone(),
+            runtime.project.clone(),
+            runtime.namespace.clone(),
+            runtime.workspace.clone(),
+            format!(
+                "Auto-rerouted hive lane from {} to {} after collision with {}.",
+                surface.previous_branch.as_deref().unwrap_or("none"),
+                surface.current_branch.as_deref().unwrap_or("none"),
+                surface.conflict_session.as_deref().unwrap_or("unknown"),
+            ),
+        )
+        .await?;
+    }
     propagate_hive_metadata_to_active_project_bundles(&output, &runtime, args.publish_heartbeat)
         .await?;
     let heartbeat = if args.publish_heartbeat {
@@ -15122,6 +15156,12 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         hive_groups: runtime.hive_groups,
         hive_group_goal: runtime.hive_group_goal,
         authority: runtime.authority,
+        lane_rerouted: lane.lane_surface.is_some(),
+        lane_created: lane.lane_surface.is_some(),
+        lane_surface: lane
+            .lane_surface
+            .as_ref()
+            .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null)),
         heartbeat,
     })
 }
@@ -15417,7 +15457,8 @@ async fn join_hive_bundle(
 ) -> anyhow::Result<HiveJoinBundleResponse> {
     let runtime = read_bundle_runtime_config_raw(output)?
         .context("hive join requires a readable bundle runtime config")?;
-    let output = ensure_isolated_hive_bundle_lane(output, &runtime).await?;
+    let lane = ensure_isolated_hive_bundle_lane(output, &runtime).await?;
+    let output = lane.output;
     let runtime = read_bundle_runtime_config_raw(&output)?
         .context("reload bundle runtime config after hive lane isolation")?;
     let join_base_url = resolve_hive_join_base_url(Some(&runtime), base_url);
@@ -15468,6 +15509,36 @@ async fn join_hive_bundle(
     };
     let joined_runtime = read_bundle_runtime_config_raw(&output)?
         .context("reload bundle runtime config after hive join")?;
+    if let Some(surface) = lane.lane_surface.as_ref()
+        && let Some(session) = joined_runtime
+            .session
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+    {
+        let client = MemdClient::new(&join_base_url)?;
+        emit_coordination_receipt(
+            &client,
+            "lane_reroute",
+            session,
+            joined_runtime
+                .agent
+                .as_deref()
+                .map(|agent| compose_agent_identity(agent, joined_runtime.session.as_deref())),
+            surface.conflict_session.clone(),
+            None,
+            surface.current_branch.clone(),
+            joined_runtime.project.clone(),
+            joined_runtime.namespace.clone(),
+            joined_runtime.workspace.clone(),
+            format!(
+                "Auto-rerouted hive lane from {} to {} after collision with {}.",
+                surface.previous_branch.as_deref().unwrap_or("none"),
+                surface.current_branch.as_deref().unwrap_or("none"),
+                surface.conflict_session.as_deref().unwrap_or("unknown"),
+            ),
+        )
+        .await?;
+    }
 
     Ok(HiveJoinBundleResponse {
         output: output.display().to_string(),
@@ -15482,6 +15553,12 @@ async fn join_hive_bundle(
         hive_groups: joined_runtime.hive_groups,
         hive_group_goal: joined_runtime.hive_group_goal,
         authority: joined_runtime.authority,
+        lane_rerouted: lane.lane_surface.is_some(),
+        lane_created: lane.lane_surface.is_some(),
+        lane_surface: lane
+            .lane_surface
+            .as_ref()
+            .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null)),
         heartbeat,
     })
 }
@@ -15492,8 +15569,15 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
         .as_deref()
         .map(|value| format!("rebased_from={value}"))
         .unwrap_or_else(|| "rebased_from=none".to_string());
+    let lane = response
+        .lane_surface
+        .as_ref()
+        .and_then(|value| value.get("current_branch"))
+        .and_then(JsonValue::as_str)
+        .map(|value| format!("lane=current:{value}"))
+        .unwrap_or_else(|| "lane=current:none".to_string());
     format!(
-        "hive {} bundle={} agent={} bundle_session={} live_session={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={} {}",
+        "hive {} bundle={} agent={} bundle_session={} live_session={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} lane_rerouted={} lane_created={} {} heartbeat={} {}",
         response.action,
         response.output,
         response.agent,
@@ -15510,6 +15594,9 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
         },
         response.hive_group_goal.as_deref().unwrap_or("none"),
         response.authority.as_deref().unwrap_or("none"),
+        if response.lane_rerouted { "yes" } else { "no" },
+        if response.lane_created { "yes" } else { "no" },
+        lane,
         if response.heartbeat.is_some() {
             "published"
         } else {
@@ -15522,7 +15609,7 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
 fn render_hive_join_summary(response: &HiveJoinResponse) -> String {
     match response {
         HiveJoinResponse::Single(response) => format!(
-            "hive join bundle={} base_url={} project={} namespace={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
+            "hive join bundle={} base_url={} project={} namespace={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} lane_rerouted={} lane_created={} heartbeat={}",
             response.output,
             response.base_url,
             response.project.as_deref().unwrap_or("none"),
@@ -15539,6 +15626,8 @@ fn render_hive_join_summary(response: &HiveJoinResponse) -> String {
             },
             response.hive_group_goal.as_deref().unwrap_or("none"),
             response.authority.as_deref().unwrap_or("none"),
+            if response.lane_rerouted { "yes" } else { "no" },
+            if response.lane_created { "yes" } else { "no" },
             if response.heartbeat.is_some() {
                 "published"
             } else {
@@ -15590,6 +15679,9 @@ struct HiveJoinBundleResponse {
     hive_groups: Vec<String>,
     hive_group_goal: Option<String>,
     authority: Option<String>,
+    lane_rerouted: bool,
+    lane_created: bool,
+    lane_surface: Option<serde_json::Value>,
     heartbeat: Option<JsonValue>,
 }
 
@@ -16599,6 +16691,10 @@ fn bundle_resume_state_path(output: &Path) -> PathBuf {
 
 fn bundle_heartbeat_state_path(output: &Path) -> PathBuf {
     output.join("state").join("heartbeat.json")
+}
+
+fn bundle_lane_surface_path(output: &Path) -> PathBuf {
+    output.join("state").join("lane-surface.json")
 }
 
 fn bundle_claims_state_path(output: &Path) -> PathBuf {
@@ -27440,6 +27536,8 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             .filter(|record| is_harness_native_class(&record.portability_class))
             .count(),
     });
+    let lane_surface = read_bundle_lane_surface(output)?
+        .map(|surface| serde_json::to_value(surface).unwrap_or(JsonValue::Null));
     let bridge_ready = harness_bridge.all_wired;
     let setup_ready = output.exists()
         && missing.is_empty()
@@ -27523,6 +27621,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "truth_summary": truth_summary,
         "evolution": evolution,
         "cowork_surface": cowork_surface,
+        "lane_surface": lane_surface,
         "maintenance_surface": maintenance_surface,
         "capability_surface": capability_surface,
         "server": health,
@@ -28973,6 +29072,27 @@ struct BundleLaneIdentity {
     branch: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BundleLaneSurface {
+    action: String,
+    previous_bundle: String,
+    current_bundle: String,
+    previous_branch: Option<String>,
+    current_branch: Option<String>,
+    previous_worktree: Option<String>,
+    current_worktree: Option<String>,
+    conflict_session: Option<String>,
+    conflict_branch: Option<String>,
+    conflict_worktree: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct EnsuredHiveLane {
+    output: PathBuf,
+    lane_surface: Option<BundleLaneSurface>,
+}
+
 fn detect_bundle_lane_identity(output: &Path) -> Option<BundleLaneIdentity> {
     let project_root = infer_bundle_project_root(output)?;
     let repo_root = detect_git_repo_root(&project_root)
@@ -29061,6 +29181,27 @@ fn render_hive_lane_collision(entry: &ProjectAwarenessEntry) -> String {
         entry.branch.as_deref().unwrap_or("none"),
         entry.worktree_root.as_deref().unwrap_or("none")
     )
+}
+
+fn write_bundle_lane_surface(output: &Path, surface: &BundleLaneSurface) -> anyhow::Result<()> {
+    let path = bundle_lane_surface_path(output);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(surface)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn read_bundle_lane_surface(output: &Path) -> anyhow::Result<Option<BundleLaneSurface>> {
+    let path = bundle_lane_surface_path(output);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let surface =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(surface))
 }
 
 fn sanitize_lane_segment(value: &str) -> String {
@@ -29185,16 +29326,41 @@ fn allocate_isolated_hive_lane(
 async fn ensure_isolated_hive_bundle_lane(
     output: &Path,
     runtime: &BundleRuntimeConfig,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<EnsuredHiveLane> {
     let current_session = runtime.session.as_deref();
     let Some(conflict) = detect_bundle_lane_collision(output, current_session).await? else {
-        return Ok(output.to_path_buf());
+        return Ok(EnsuredHiveLane {
+            output: output.to_path_buf(),
+            lane_surface: None,
+        });
     };
-    allocate_isolated_hive_lane(output, runtime).with_context(|| {
+    let source_lane = detect_bundle_lane_identity(output)
+        .context("hive cowork isolation requires a git worktree and branch")?;
+    let rerouted_output = allocate_isolated_hive_lane(output, runtime).with_context(|| {
         format!(
             "unsafe hive cowork lane collision detected: {}",
             render_hive_lane_collision(&conflict)
         )
+    })?;
+    let rerouted_lane = detect_bundle_lane_identity(&rerouted_output)
+        .context("reload rerouted hive lane identity after worktree creation")?;
+    let surface = BundleLaneSurface {
+        action: "auto_reroute".to_string(),
+        previous_bundle: output.display().to_string(),
+        current_bundle: rerouted_output.display().to_string(),
+        previous_branch: Some(source_lane.branch),
+        current_branch: Some(rerouted_lane.branch),
+        previous_worktree: Some(source_lane.worktree_root),
+        current_worktree: Some(rerouted_lane.worktree_root),
+        conflict_session: conflict.session.clone(),
+        conflict_branch: conflict.branch.clone(),
+        conflict_worktree: conflict.worktree_root.clone(),
+        created_at: Utc::now(),
+    };
+    write_bundle_lane_surface(&rerouted_output, &surface)?;
+    Ok(EnsuredHiveLane {
+        output: rerouted_output,
+        lane_surface: Some(surface),
     })
 }
 
@@ -33667,6 +33833,7 @@ mod tests {
         session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
         session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
         session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
+        receipts: Arc<Mutex<Vec<HiveCoordinationReceiptRecord>>>,
         task_records: Arc<Mutex<Vec<HiveTaskRecord>>>,
         search_count: Arc<Mutex<usize>>,
         source_requests: Arc<Mutex<Vec<memd_schema::SourceMemoryRequest>>>,
@@ -33872,6 +34039,34 @@ mod tests {
             .receipts
             .lock()
             .expect("lock receipts")
+            .push(receipt.clone());
+        Json(HiveCoordinationReceiptsResponse {
+            receipts: vec![receipt],
+        })
+    }
+
+    async fn mock_runtime_record_receipt(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveCoordinationReceiptRequest>,
+    ) -> Json<HiveCoordinationReceiptsResponse> {
+        let receipt = HiveCoordinationReceiptRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: req.kind,
+            actor_session: req.actor_session,
+            actor_agent: req.actor_agent,
+            target_session: req.target_session,
+            task_id: req.task_id,
+            scope: req.scope,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            summary: req.summary,
+            created_at: Utc::now(),
+        };
+        state
+            .receipts
+            .lock()
+            .expect("lock runtime receipts")
             .push(receipt.clone());
         Json(HiveCoordinationReceiptsResponse {
             receipts: vec![receipt],
@@ -34580,6 +34775,10 @@ mod tests {
             .route("/coordination/tasks", get(mock_hive_tasks))
             .route("/coordination/sessions/upsert", hive_route)
             .route("/coordination/sessions", get(mock_hive_sessions))
+            .route(
+                "/coordination/receipts/record",
+                post(mock_runtime_record_receipt),
+            )
             .route(
                 "/coordination/sessions/retire",
                 post(mock_hive_session_retire),
@@ -39168,6 +39367,9 @@ mod tests {
             hive_group_goal: None,
             authority: Some("participant".to_string()),
             heartbeat: None,
+            lane_rerouted: false,
+            lane_created: false,
+            lane_surface: None,
         });
 
         assert!(summary.contains("bundle_session=codex-stale"));
@@ -42970,6 +43172,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_hive_command_surfaces_lane_reroute() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-wire-reroute-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+        write_test_bundle_config(&current_bundle, &base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
+
+        let response = run_hive_command(&HiveArgs {
+            agent: None,
+            project: None,
+            namespace: None,
+            global: false,
+            project_root: Some(current_project.clone()),
+            seed_existing: false,
+            session: None,
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: Vec::new(),
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: current_bundle.clone(),
+            base_url: base_url.clone(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            publish_heartbeat: false,
+            force: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive command");
+
+        assert!(response.lane_rerouted);
+        assert!(response.lane_created);
+        assert!(response.lane_surface.is_some());
+        assert_ne!(PathBuf::from(&response.output), current_bundle);
+
+        let receipts = state.receipts.lock().expect("lock receipts");
+        assert!(
+            receipts
+                .iter()
+                .any(|receipt| receipt.kind == "lane_reroute")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup hive reroute root");
+    }
+
+    #[tokio::test]
     async fn read_bundle_status_reports_live_session_rebind() {
         let _home_lock = lock_home_mutation();
         let temp_root =
@@ -45193,9 +45513,119 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hive_join_reroutes_colliding_worker_lane_into_new_worktree() {
-        let root =
-            std::env::temp_dir().join(format!("memd-hive-lane-reroute-{}", uuid::Uuid::new_v4()));
+    async fn run_tasks_command_rejects_colliding_help_target_lane() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-tasks-help-collision-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+        write_test_bundle_config(&current_bundle, &base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
+
+        let err = run_tasks_command(
+            &TasksArgs {
+                output: current_bundle.clone(),
+                upsert: false,
+                assign_to_session: None,
+                target_session: Some("claude-b".to_string()),
+                task_id: Some("task-1".to_string()),
+                title: Some("need help".to_string()),
+                description: None,
+                status: None,
+                mode: None,
+                scope: vec!["src/main.rs".to_string()],
+                request_help: true,
+                request_review: false,
+                all: false,
+                view: None,
+                summary: false,
+                json: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect_err("colliding help request should fail");
+        assert!(
+            err.to_string()
+                .contains("unsafe hive cowork target collision")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup tasks help collision dir");
+    }
+
+    #[tokio::test]
+    async fn run_tasks_command_rejects_colliding_review_target_lane() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-tasks-review-collision-{}",
+            uuid::Uuid::new_v4()
+        ));
         let current_project = root.join("current");
         let target_project = root.join("target");
         let current_bundle = current_project.join(".memd");
@@ -45265,6 +45695,112 @@ mod tests {
                 last_seen: Utc::now(),
             },
         );
+
+        let err = run_tasks_command(
+            &TasksArgs {
+                output: current_bundle.clone(),
+                upsert: false,
+                assign_to_session: None,
+                target_session: Some("claude-b".to_string()),
+                task_id: Some("task-1".to_string()),
+                title: Some("need review".to_string()),
+                description: None,
+                status: None,
+                mode: None,
+                scope: vec!["src/main.rs".to_string()],
+                request_help: false,
+                request_review: true,
+                all: false,
+                view: None,
+                summary: false,
+                json: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect_err("colliding review request should fail");
+        assert!(
+            err.to_string()
+                .contains("unsafe hive cowork target collision")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup tasks review collision dir");
+    }
+
+    #[tokio::test]
+    async fn hive_join_reroutes_colliding_worker_lane_into_new_worktree() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-lane-reroute-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+
+        write_test_bundle_config(&current_bundle, &base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
         let conflict = detect_bundle_lane_collision(&current_bundle, Some("codex-a"))
             .await
             .expect("detect lane collision");
@@ -45272,7 +45808,7 @@ mod tests {
 
         let response = run_hive_join_command(&HiveJoinArgs {
             output: current_bundle.clone(),
-            base_url: default_hive_join_base_url(),
+            base_url: base_url.clone(),
             all_active: false,
             all_local: false,
             publish_heartbeat: false,
@@ -45286,6 +45822,9 @@ mod tests {
             other => panic!("expected single response, got {other:?}"),
         };
         let rerouted_output = PathBuf::from(&response.output);
+        assert!(response.lane_rerouted);
+        assert!(response.lane_created);
+        assert!(response.lane_surface.is_some());
         assert_ne!(rerouted_output, current_bundle);
         assert!(rerouted_output.join("config.json").exists());
 
@@ -45305,6 +45844,24 @@ mod tests {
             .expect("read rerouted runtime")
             .expect("rerouted runtime config");
         assert_ne!(rerouted_runtime.session.as_deref(), Some("codex-a"));
+        let status = read_bundle_status(&rerouted_output, SHARED_MEMD_BASE_URL)
+            .await
+            .expect("read rerouted status");
+        let lane = status.get("lane_surface").expect("lane surface present");
+        assert_eq!(
+            lane.get("action").and_then(JsonValue::as_str),
+            Some("auto_reroute")
+        );
+        assert_eq!(
+            lane.get("conflict_session").and_then(JsonValue::as_str),
+            Some("claude-b")
+        );
+        let receipts = state.receipts.lock().expect("lock receipts");
+        assert!(
+            receipts
+                .iter()
+                .any(|receipt| receipt.kind == "lane_reroute")
+        );
 
         fs::remove_dir_all(root).expect("cleanup hive reroute dir");
     }
