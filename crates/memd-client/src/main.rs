@@ -17303,7 +17303,7 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
         if state
             .topic_claim
             .as_deref()
-            .is_none_or(|value| value.starts_with("editing "))
+            .is_none_or(hive_topic_claim_needs_runtime_upgrade)
         {
             state.topic_claim = Some(task.title.clone());
         }
@@ -31245,12 +31245,18 @@ fn is_shadowed_local_seen_session(
     entry: &ProjectAwarenessEntry,
     current: &ProjectAwarenessEntry,
 ) -> bool {
-    if entry.presence != "unknown" {
+    let entry_is_shadow_candidate = matches!(entry.presence.as_str(), "unknown" | "active");
+    if !entry_is_shadow_candidate {
         return false;
     }
+    let current_is_newer = match (entry.last_updated, current.last_updated) {
+        (Some(entry_updated), Some(current_updated)) => current_updated > entry_updated,
+        _ => false,
+    };
     entry.bundle_root != current.bundle_root
         && entry.project_dir != "remote"
         && current.presence == "active"
+        && current_is_newer
         && entry.project == current.project
         && entry.namespace == current.namespace
         && entry.workspace == current.workspace
@@ -31361,12 +31367,21 @@ fn prune_dead_local_bundle_heartbeat(
 }
 
 fn skip_inactive_local_bundle_entry(
+    runtime: &BundleRuntimeConfig,
     heartbeat: Option<&BundleHeartbeatState>,
-    state: Option<&ResumeState>,
+    state: Option<&BundleResumeState>,
     active_claims: usize,
     is_current_bundle: bool,
 ) -> bool {
-    !is_current_bundle && active_claims == 0 && heartbeat.is_none() && state.is_none()
+    !is_current_bundle
+        && active_claims == 0
+        && heartbeat.is_none()
+        && state.is_none()
+        && runtime
+            .session
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty())
 }
 
 async fn read_project_awareness_shared(
@@ -31643,6 +31658,7 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             continue;
         }
         if skip_inactive_local_bundle_entry(
+            &runtime,
             heartbeat.as_ref(),
             state.as_ref(),
             active_claims,
@@ -32758,6 +32774,15 @@ fn derive_hive_topic_claim(
         });
     }
     None
+}
+
+fn hive_topic_claim_needs_runtime_upgrade(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
+        || trimmed.starts_with("editing ")
+        || trimmed.starts_with("ws=")
+        || trimmed.starts_with("workspace=")
+        || trimmed == "project"
 }
 
 fn derive_hive_scope_claims(
@@ -50223,6 +50248,54 @@ mod tests {
                 .scope_claims
                 .iter()
                 .any(|scope| scope == "task:parser-refactor")
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_hive_heartbeat_with_runtime_intent_overrides_workspace_topic_placeholder() {
+        let state = MockRuntimeState::default();
+        {
+            let mut tasks = state.task_records.lock().expect("lock task records");
+            tasks.push(HiveTaskRecord {
+                task_id: "remote-proof-refactor".to_string(),
+                title: "Remote proof overlap flow".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec![
+                    "task:remote-proof-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                help_requested: false,
+                review_requested: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        }
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        let mut heartbeat =
+            test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now());
+        heartbeat.base_url = Some(base_url);
+        heartbeat.project = Some("demo".to_string());
+        heartbeat.namespace = Some("main".to_string());
+        heartbeat.workspace = Some("shared".to_string());
+        heartbeat.session = Some("codex-a".to_string());
+        heartbeat.topic_claim = Some("ws=shared".to_string());
+
+        enrich_hive_heartbeat_with_runtime_intent(&mut heartbeat)
+            .await
+            .expect("enrich heartbeat");
+
+        assert_eq!(heartbeat.task_id.as_deref(), Some("remote-proof-refactor"));
+        assert_eq!(
+            heartbeat.topic_claim.as_deref(),
+            Some("Remote proof overlap flow")
         );
     }
 
