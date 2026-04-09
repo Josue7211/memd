@@ -24,27 +24,26 @@ use memd_schema::{
     ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, InboxMemoryItem,
-    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PeerClaimAcquireRequest,
-    PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest,
-    PeerClaimsResponse, PeerCoordinationInboxRequest, PeerCoordinationInboxResponse,
-    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest,
-    PeerCoordinationReceiptsResponse, PeerMessageAckRequest, PeerMessageInboxRequest,
-    PeerMessageSendRequest, PeerMessagesResponse, PeerSessionUpsertRequest, PeerSessionsRequest,
-    PeerSessionsResponse, PeerTaskAssignRequest, PeerTaskUpsertRequest, PeerTasksRequest,
-    PeerTasksResponse, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
-    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
-    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest,
-    WorkspaceMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
+    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
+    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionUpsertRequest, HiveSessionsRequest,
+    HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest,
+    HiveTasksResponse, InboxMemoryItem, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
+    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
+    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
+    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, WorkingMemoryRequest, WorkingMemoryResponse,
+    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
@@ -306,17 +305,17 @@ async fn main() {
         .route("/memory/source", get(get_source_memory))
         .route("/memory/workspaces", get(get_workspace_memory))
         .route("/memory/explain", get(get_explain))
-        .route("/coordination/messages/send", post(post_peer_message))
-        .route("/coordination/messages/inbox", get(get_peer_inbox))
-        .route("/coordination/messages/ack", post(post_peer_ack))
-        .route("/coordination/inbox", get(get_peer_coordination_inbox))
+        .route("/coordination/messages/send", post(post_hive_message))
+        .route("/coordination/messages/inbox", get(get_hive_inbox))
+        .route("/coordination/messages/ack", post(post_hive_ack))
+        .route("/coordination/inbox", get(get_hive_coordination_inbox))
         .route(
             "/coordination/receipts/record",
-            post(post_peer_coordination_receipt),
+            post(post_hive_coordination_receipt),
         )
         .route(
             "/coordination/receipts",
-            get(get_peer_coordination_receipts),
+            get(get_hive_coordination_receipts),
         )
         .route(
             "/coordination/skill-policy/apply",
@@ -328,29 +327,29 @@ async fn main() {
         )
         .route(
             "/coordination/claims/acquire",
-            post(post_peer_claim_acquire),
+            post(post_hive_claim_acquire),
         )
         .route(
             "/coordination/claims/release",
-            post(post_peer_claim_release),
+            post(post_hive_claim_release),
         )
         .route(
             "/coordination/claims/transfer",
-            post(post_peer_claim_transfer),
+            post(post_hive_claim_transfer),
         )
         .route(
             "/coordination/claims/recover",
-            post(post_peer_claim_recover),
+            post(post_hive_claim_recover),
         )
-        .route("/coordination/claims", get(get_peer_claims))
+        .route("/coordination/claims", get(get_hive_claims))
         .route(
             "/coordination/sessions/upsert",
-            post(post_peer_session_upsert),
+            post(post_hive_session_upsert),
         )
-        .route("/coordination/sessions", get(get_peer_sessions))
-        .route("/coordination/tasks/upsert", post(post_peer_task_upsert))
-        .route("/coordination/tasks/assign", post(post_peer_task_assign))
-        .route("/coordination/tasks", get(get_peer_tasks))
+        .route("/coordination/sessions", get(get_hive_sessions))
+        .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
+        .route("/coordination/tasks/assign", post(post_hive_task_assign))
+        .route("/coordination/tasks", get(get_hive_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
@@ -789,10 +788,10 @@ async fn get_workspace_memory(
     Ok(Json(response))
 }
 
-async fn post_peer_message(
+async fn post_hive_message(
     State(state): State<AppState>,
-    Json(req): Json<PeerMessageSendRequest>,
-) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveMessageSendRequest>,
+) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.from_session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -814,29 +813,29 @@ async fn post_peer_message(
 
     let response = state
         .store
-        .send_peer_message(&req)
+        .send_hive_message(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_inbox(
+async fn get_hive_inbox(
     State(state): State<AppState>,
-    Query(req): Query<PeerMessageInboxRequest>,
-) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    Query(req): Query<HiveMessageInboxRequest>,
+) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             "session must not be empty".to_string(),
         ));
     }
-    let response = state.store.peer_inbox(&req).map_err(internal_error)?;
+    let response = state.store.hive_inbox(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_ack(
+async fn post_hive_ack(
     State(state): State<AppState>,
-    Json(req): Json<PeerMessageAckRequest>,
-) -> Result<Json<PeerMessagesResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveMessageAckRequest>,
+) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -846,14 +845,14 @@ async fn post_peer_ack(
     if req.id.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
     }
-    let response = state.store.ack_peer_message(&req).map_err(internal_error)?;
+    let response = state.store.ack_hive_message(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_coordination_inbox(
+async fn get_hive_coordination_inbox(
     State(state): State<AppState>,
-    Query(req): Query<PeerCoordinationInboxRequest>,
-) -> Result<Json<PeerCoordinationInboxResponse>, (StatusCode, String)> {
+    Query(req): Query<HiveCoordinationInboxRequest>,
+) -> Result<Json<HiveCoordinationInboxResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -862,15 +861,15 @@ async fn get_peer_coordination_inbox(
     }
     let response = state
         .store
-        .peer_coordination_inbox(&req)
+        .hive_coordination_inbox(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_coordination_receipt(
+async fn post_hive_coordination_receipt(
     State(state): State<AppState>,
-    Json(req): Json<PeerCoordinationReceiptRequest>,
-) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveCoordinationReceiptRequest>,
+) -> Result<Json<HiveCoordinationReceiptsResponse>, (StatusCode, String)> {
     if req.kind.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -891,18 +890,18 @@ async fn post_peer_coordination_receipt(
     }
     let response = state
         .store
-        .record_peer_coordination_receipt(&req)
+        .record_hive_coordination_receipt(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_coordination_receipts(
+async fn get_hive_coordination_receipts(
     State(state): State<AppState>,
-    Query(req): Query<PeerCoordinationReceiptsRequest>,
-) -> Result<Json<PeerCoordinationReceiptsResponse>, (StatusCode, String)> {
+    Query(req): Query<HiveCoordinationReceiptsRequest>,
+) -> Result<Json<HiveCoordinationReceiptsResponse>, (StatusCode, String)> {
     let response = state
         .store
-        .peer_coordination_receipts(&req)
+        .hive_coordination_receipts(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
@@ -952,10 +951,10 @@ async fn get_skill_policy_activations(
     Ok(Json(response))
 }
 
-async fn post_peer_claim_acquire(
+async fn post_hive_claim_acquire(
     State(state): State<AppState>,
-    Json(req): Json<PeerClaimAcquireRequest>,
-) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveClaimAcquireRequest>,
+) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -970,15 +969,15 @@ async fn post_peer_claim_acquire(
     }
     let response = state
         .store
-        .acquire_peer_claim(&req)
+        .acquire_hive_claim(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_claim_release(
+async fn post_hive_claim_release(
     State(state): State<AppState>,
-    Json(req): Json<PeerClaimReleaseRequest>,
-) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveClaimReleaseRequest>,
+) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -993,15 +992,15 @@ async fn post_peer_claim_release(
     }
     let response = state
         .store
-        .release_peer_claim(&req)
+        .release_hive_claim(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_claim_transfer(
+async fn post_hive_claim_transfer(
     State(state): State<AppState>,
-    Json(req): Json<PeerClaimTransferRequest>,
-) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveClaimTransferRequest>,
+) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1016,15 +1015,15 @@ async fn post_peer_claim_transfer(
     }
     let response = state
         .store
-        .transfer_peer_claim(&req)
+        .transfer_hive_claim(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_claim_recover(
+async fn post_hive_claim_recover(
     State(state): State<AppState>,
-    Json(req): Json<PeerClaimRecoverRequest>,
-) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveClaimRecoverRequest>,
+) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1047,23 +1046,23 @@ async fn post_peer_claim_recover(
     }
     let response = state
         .store
-        .recover_peer_claim(&req)
+        .recover_hive_claim(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_claims(
+async fn get_hive_claims(
     State(state): State<AppState>,
-    Query(req): Query<PeerClaimsRequest>,
-) -> Result<Json<PeerClaimsResponse>, (StatusCode, String)> {
-    let response = state.store.peer_claims(&req).map_err(internal_error)?;
+    Query(req): Query<HiveClaimsRequest>,
+) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
+    let response = state.store.hive_claims(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_session_upsert(
+async fn post_hive_session_upsert(
     State(state): State<AppState>,
-    Json(req): Json<PeerSessionUpsertRequest>,
-) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveSessionUpsertRequest>,
+) -> Result<Json<HiveSessionsResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1072,23 +1071,23 @@ async fn post_peer_session_upsert(
     }
     let response = state
         .store
-        .upsert_peer_session(&req)
+        .upsert_hive_session(&req)
         .map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_sessions(
+async fn get_hive_sessions(
     State(state): State<AppState>,
-    Query(req): Query<PeerSessionsRequest>,
-) -> Result<Json<PeerSessionsResponse>, (StatusCode, String)> {
-    let response = state.store.peer_sessions(&req).map_err(internal_error)?;
+    Query(req): Query<HiveSessionsRequest>,
+) -> Result<Json<HiveSessionsResponse>, (StatusCode, String)> {
+    let response = state.store.hive_sessions(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_task_upsert(
+async fn post_hive_task_upsert(
     State(state): State<AppState>,
-    Json(req): Json<PeerTaskUpsertRequest>,
-) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveTaskUpsertRequest>,
+) -> Result<Json<HiveTasksResponse>, (StatusCode, String)> {
     if req.task_id.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1101,14 +1100,14 @@ async fn post_peer_task_upsert(
             "title must not be empty".to_string(),
         ));
     }
-    let response = state.store.upsert_peer_task(&req).map_err(internal_error)?;
+    let response = state.store.upsert_hive_task(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn post_peer_task_assign(
+async fn post_hive_task_assign(
     State(state): State<AppState>,
-    Json(req): Json<PeerTaskAssignRequest>,
-) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
+    Json(req): Json<HiveTaskAssignRequest>,
+) -> Result<Json<HiveTasksResponse>, (StatusCode, String)> {
     if req.task_id.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1121,15 +1120,15 @@ async fn post_peer_task_assign(
             "to_session must not be empty".to_string(),
         ));
     }
-    let response = state.store.assign_peer_task(&req).map_err(internal_error)?;
+    let response = state.store.assign_hive_task(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 
-async fn get_peer_tasks(
+async fn get_hive_tasks(
     State(state): State<AppState>,
-    Query(req): Query<PeerTasksRequest>,
-) -> Result<Json<PeerTasksResponse>, (StatusCode, String)> {
-    let response = state.store.peer_tasks(&req).map_err(internal_error)?;
+    Query(req): Query<HiveTasksRequest>,
+) -> Result<Json<HiveTasksResponse>, (StatusCode, String)> {
+    let response = state.store.hive_tasks(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

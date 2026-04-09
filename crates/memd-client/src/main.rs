@@ -38,13 +38,13 @@ use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, EntityLinkRequest, EntityLinksRequest, EntitySearchRequest,
-    ExpireMemoryRequest, ExplainMemoryRequest, MemoryConsolidationRequest, MemoryInboxRequest,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode,
-    MemoryScope, MemoryStage, MemoryStatus, PeerClaimRecoverRequest, PeerClaimsRequest,
-    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord,
-    PeerCoordinationReceiptRequest, PeerCoordinationReceiptsRequest, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerTaskAssignRequest,
-    PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest, PromoteMemoryRequest,
+    ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest, HiveClaimsRequest,
+    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveTaskAssignRequest,
+    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, MemoryConsolidationRequest,
+    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
+    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
     RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
     SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
@@ -98,7 +98,7 @@ enum Commands {
     Tasks(TasksArgs),
     Coordination(CoordinationArgs),
     Bundle(BundleArgs),
-    Peer(PeerArgs),
+    Hive(HiveArgs),
     Eval(EvalArgs),
     Gap(GapArgs),
     Improve(ImproveArgs),
@@ -1004,19 +1004,19 @@ struct SetupArgs {
     tab_id: Option<String>,
 
     #[arg(long)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
 
     #[arg(long)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
 
     #[arg(long, value_name = "TEXT")]
     capability: Vec<String>,
 
     #[arg(long, value_name = "TEXT")]
-    peer_group: Vec<String>,
+    hive_group: Vec<String>,
 
     #[arg(long)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
 
     #[arg(long)]
     authority: Option<String>,
@@ -1326,19 +1326,19 @@ struct InitArgs {
     tab_id: Option<String>,
 
     #[arg(long)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
 
     #[arg(long)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
 
     #[arg(long, value_name = "TEXT")]
     capability: Vec<String>,
 
     #[arg(long, value_name = "TEXT")]
-    peer_group: Vec<String>,
+    hive_group: Vec<String>,
 
     #[arg(long)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
 
     #[arg(long)]
     authority: Option<String>,
@@ -1591,19 +1591,19 @@ struct BundleArgs {
     output: PathBuf,
 
     #[arg(long)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
 
     #[arg(long)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
 
     #[arg(long, value_name = "TEXT")]
     capability: Vec<String>,
 
     #[arg(long, value_name = "TEXT")]
-    peer_group: Vec<String>,
+    hive_group: Vec<String>,
 
     #[arg(long)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
 
     #[arg(long)]
     authority: Option<String>,
@@ -1628,7 +1628,7 @@ struct BundleArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-struct PeerArgs {
+struct HiveArgs {
     #[arg(long)]
     agent: Option<String>,
 
@@ -1654,19 +1654,19 @@ struct PeerArgs {
     tab_id: Option<String>,
 
     #[arg(long)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
 
     #[arg(long)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
 
     #[arg(long, value_name = "TEXT")]
     capability: Vec<String>,
 
     #[arg(long, value_name = "TEXT")]
-    peer_group: Vec<String>,
+    hive_group: Vec<String>,
 
     #[arg(long)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
 
     #[arg(long)]
     authority: Option<String>,
@@ -2474,20 +2474,20 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Bundle(args) => {
-            if let Some(value) = args.peer_system.as_deref() {
-                set_bundle_peer_system(&args.output, value)?;
+            if let Some(value) = args.hive_system.as_deref() {
+                set_bundle_hive_system(&args.output, value)?;
             }
-            if let Some(value) = args.peer_role.as_deref() {
-                set_bundle_peer_role(&args.output, value)?;
+            if let Some(value) = args.hive_role.as_deref() {
+                set_bundle_hive_role(&args.output, value)?;
             }
             if !args.capability.is_empty() {
                 set_bundle_capabilities(&args.output, &args.capability)?;
             }
-            if !args.peer_group.is_empty() {
-                set_bundle_peer_groups(&args.output, &args.peer_group)?;
+            if !args.hive_group.is_empty() {
+                set_bundle_hive_groups(&args.output, &args.hive_group)?;
             }
-            if let Some(value) = args.peer_group_goal.as_deref() {
-                set_bundle_peer_group_goal(&args.output, value)?;
+            if let Some(value) = args.hive_group_goal.as_deref() {
+                set_bundle_hive_group_goal(&args.output, value)?;
             }
             if let Some(value) = args.authority.as_deref() {
                 set_bundle_authority(&args.output, value)?;
@@ -2529,14 +2529,14 @@ async fn main() -> anyhow::Result<()> {
                     .and_then(|value| value.get("intent"))
                     .and_then(|value| value.as_str())
                     .unwrap_or("general");
-                let peer_system = status
+                let hive_system = status
                     .get("defaults")
-                    .and_then(|value| value.get("peer_system"))
+                    .and_then(|value| value.get("hive_system"))
                     .and_then(|value| value.as_str())
                     .unwrap_or("none");
-                let peer_role = status
+                let hive_role = status
                     .get("defaults")
-                    .and_then(|value| value.get("peer_role"))
+                    .and_then(|value| value.get("hive_role"))
                     .and_then(|value| value.as_str())
                     .unwrap_or("none");
                 let authority = status
@@ -2544,9 +2544,9 @@ async fn main() -> anyhow::Result<()> {
                     .and_then(|value| value.get("authority"))
                     .and_then(|value| value.as_str())
                     .unwrap_or("none");
-                let peer_groups = status
+                let hive_groups = status
                     .get("defaults")
-                    .and_then(|value| value.get("peer_groups"))
+                    .and_then(|value| value.get("hive_groups"))
                     .and_then(|value| value.as_array())
                     .map(|values| {
                         values
@@ -2557,18 +2557,18 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .filter(|value| !value.is_empty())
                     .unwrap_or_else(|| "none".to_string());
-                let peer_group_goal = status
+                let hive_group_goal = status
                     .get("defaults")
-                    .and_then(|value| value.get("peer_group_goal"))
+                    .and_then(|value| value.get("hive_group_goal"))
                     .and_then(|value| value.as_str())
                     .unwrap_or("none");
                 println!(
-                    "bundle={} peer={} role={} groups={} goal=\"{}\" authority={} base_url={} route={} intent={} auto_short_term_capture={}",
+                    "bundle={} hive={} role={} groups={} goal=\"{}\" authority={} base_url={} route={} intent={} auto_short_term_capture={}",
                     args.output.display(),
-                    peer_system,
-                    peer_role,
-                    peer_groups,
-                    peer_group_goal,
+                    hive_system,
+                    hive_role,
+                    hive_groups,
+                    hive_group_goal,
                     authority,
                     base_url,
                     route,
@@ -2579,10 +2579,10 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&status)?;
             }
         }
-        Commands::Peer(args) => {
-            let response = run_peer_command(&args).await?;
+        Commands::Hive(args) => {
+            let response = run_hive_command(&args).await?;
             if args.summary {
-                println!("{}", render_peer_wire_summary(&response));
+                println!("{}", render_hive_wire_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -5859,11 +5859,11 @@ fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
         agent,
         session: args.session.clone(),
         tab_id: args.tab_id.clone(),
-        peer_system: args.peer_system.clone(),
-        peer_role: args.peer_role.clone(),
+        hive_system: args.hive_system.clone(),
+        hive_role: args.hive_role.clone(),
         capability: args.capability.clone(),
-        peer_group: args.peer_group.clone(),
-        peer_group_goal: args.peer_group_goal.clone(),
+        hive_group: args.hive_group.clone(),
+        hive_group_goal: args.hive_group_goal.clone(),
         authority: args.authority.clone(),
         output,
         base_url: args.base_url.clone().unwrap_or_else(default_base_url),
@@ -5893,11 +5893,11 @@ fn doctor_args_to_setup_args(
         agent: None,
         session: None,
         tab_id: None,
-        peer_system: None,
-        peer_role: None,
+        hive_system: None,
+        hive_role: None,
         capability: Vec::new(),
-        peer_group: Vec::new(),
-        peer_group_goal: None,
+        hive_group: Vec::new(),
+        hive_group_goal: None,
         authority: None,
         output: Some(output),
         base_url: None,
@@ -5948,9 +5948,9 @@ struct BundleConfigSnapshot {
     intent: Option<String>,
     workspace: Option<String>,
     visibility: Option<String>,
-    peer_system: Option<String>,
-    peer_role: Option<String>,
-    peer_group_goal: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
 }
 
@@ -5980,11 +5980,11 @@ fn render_bundle_config_snapshot(
         intent: runtime.as_ref().and_then(|value| value.intent.clone()),
         workspace: runtime.as_ref().and_then(|value| value.workspace.clone()),
         visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
-        peer_system: runtime.as_ref().and_then(|value| value.peer_system.clone()),
-        peer_role: runtime.as_ref().and_then(|value| value.peer_role.clone()),
-        peer_group_goal: runtime
+        hive_system: runtime.as_ref().and_then(|value| value.hive_system.clone()),
+        hive_role: runtime.as_ref().and_then(|value| value.hive_role.clone()),
+        hive_group_goal: runtime
             .as_ref()
-            .and_then(|value| value.peer_group_goal.clone()),
+            .and_then(|value| value.hive_group_goal.clone()),
         authority: runtime.as_ref().and_then(|value| value.authority.clone()),
     }
 }
@@ -6053,16 +6053,16 @@ fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {
         config.visibility.as_deref().unwrap_or("none")
     ));
     markdown.push_str(&format!(
-        "- peer system: `{}`\n",
-        config.peer_system.as_deref().unwrap_or("none")
+        "- hive system: `{}`\n",
+        config.hive_system.as_deref().unwrap_or("none")
     ));
     markdown.push_str(&format!(
-        "- peer role: `{}`\n",
-        config.peer_role.as_deref().unwrap_or("none")
+        "- hive role: `{}`\n",
+        config.hive_role.as_deref().unwrap_or("none")
     ));
     markdown.push_str(&format!(
-        "- peer group goal: `{}`\n",
-        config.peer_group_goal.as_deref().unwrap_or("none")
+        "- hive group goal: `{}`\n",
+        config.hive_group_goal.as_deref().unwrap_or("none")
     ));
     markdown.push_str(&format!(
         "- authority: `{}`\n",
@@ -8137,19 +8137,19 @@ fn builtin_skill_entries() -> Vec<SkillCatalogEntry> {
             "prefer project bundle status when inside a repo, otherwise global status",
         ),
         skill_entry(
-            "memd-peer",
-            "peer and session wiring",
+            "memd-hive",
+            "hive and session wiring",
             "built-in",
             "read-only",
-            "run `memd peer ...` to configure a bundle peer",
-            "prefer this for repo/workspace peer setup because it initializes, applies metadata, and publishes a heartbeat",
+            "run `memd hive ...` to configure a bundle hive",
+            "prefer this for repo/workspace hive setup because it initializes, applies metadata, and publishes a heartbeat",
         ),
         skill_entry(
             "memd-group-link",
             "persistent group anchor",
             "built-in",
             "read-only",
-            "run `memd group-link ...` when you want a long-lived peer anchor",
+            "run `memd group-link ...` when you want a long-lived hive anchor",
             "use when you want a persistent group trust anchor across sessions",
         ),
         skill_entry(
@@ -12365,92 +12365,123 @@ fn compose_agent_identity(agent: &str, session: Option<&str>) -> String {
     }
 }
 
+fn project_hive_group(project: Option<&str>) -> Option<String> {
+    let project = project?.trim();
+    if project.is_empty() {
+        None
+    } else {
+        let mut slug = String::new();
+        let mut last_dash = false;
+        for ch in project.chars() {
+            let normalized = ch.to_ascii_lowercase();
+            if normalized.is_ascii_alphanumeric() {
+                slug.push(normalized);
+                last_dash = false;
+            } else if !last_dash {
+                slug.push('-');
+                last_dash = true;
+            }
+        }
+        Some(format!("project:{}", slug.trim_matches('-')))
+    }
+}
+
+fn effective_hive_groups(hive_groups: Vec<String>, project: Option<&str>) -> Vec<String> {
+    let mut groups = hive_groups;
+    if let Some(project_group) = project_hive_group(project) {
+        groups.push(project_group);
+    }
+    groups.sort();
+    groups.dedup();
+    groups
+}
+
 #[derive(Debug, Clone)]
-struct PeerProfileDefaults {
-    peer_system: Option<String>,
-    peer_role: Option<String>,
+struct HiveProfileDefaults {
+    hive_system: Option<String>,
+    hive_role: Option<String>,
     capabilities: Vec<String>,
-    peer_groups: Vec<String>,
-    peer_group_goal: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
 }
 
-fn default_peer_profile(agent: &str) -> PeerProfileDefaults {
+fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
     let normalized = agent.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "agent-shell" => PeerProfileDefaults {
-            peer_system: Some("agent-shell".to_string()),
-            peer_role: Some("runtime-shell".to_string()),
+        "agent-shell" => HiveProfileDefaults {
+            hive_system: Some("agent-shell".to_string()),
+            hive_role: Some("runtime-shell".to_string()),
             capabilities: vec![
                 "shell".to_string(),
                 "exec".to_string(),
                 "workspace".to_string(),
             ],
-            peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
-            peer_group_goal: Some(
+            hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+            hive_group_goal: Some(
                 "stabilize runtime execution and dependency health across active agent sessions"
                     .to_string(),
             ),
             authority: Some("worker".to_string()),
         },
-        "agent-secrets" => PeerProfileDefaults {
-            peer_system: Some("agent-secrets".to_string()),
-            peer_role: Some("secret-broker".to_string()),
+        "agent-secrets" => HiveProfileDefaults {
+            hive_system: Some("agent-secrets".to_string()),
+            hive_role: Some("secret-broker".to_string()),
             capabilities: vec![
                 "secrets".to_string(),
                 "auth".to_string(),
                 "policy".to_string(),
             ],
-            peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
-            peer_group_goal: Some(
+            hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+            hive_group_goal: Some(
                 "keep secret access and auth dependencies reliable for the active product stack"
                     .to_string(),
             ),
             authority: Some("restricted".to_string()),
         },
-        "claw-control" => PeerProfileDefaults {
-            peer_system: Some("claw-control".to_string()),
-            peer_role: Some("orchestrator".to_string()),
+        "claw-control" => HiveProfileDefaults {
+            hive_system: Some("claw-control".to_string()),
+            hive_role: Some("orchestrator".to_string()),
             capabilities: vec![
                 "control".to_string(),
                 "routing".to_string(),
                 "coordination".to_string(),
             ],
-            peer_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
-            peer_group_goal: Some(
-                "coordinate the OpenClaw stack so peers converge on the proper product-level fix"
+            hive_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
+            hive_group_goal: Some(
+                "coordinate the OpenClaw stack so hives converge on the proper product-level fix"
                     .to_string(),
             ),
             authority: Some("coordinator".to_string()),
         },
-        "memd" => PeerProfileDefaults {
-            peer_system: Some("memd".to_string()),
-            peer_role: Some("memory-control-plane".to_string()),
+        "memd" => HiveProfileDefaults {
+            hive_system: Some("memd".to_string()),
+            hive_role: Some("memory-control-plane".to_string()),
             capabilities: vec![
                 "memory".to_string(),
                 "coordination".to_string(),
                 "handoff".to_string(),
             ],
-            peer_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
-            peer_group_goal: Some(
+            hive_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
+            hive_group_goal: Some(
                 "maintain canonical shared memory and coordination for the OpenClaw stack"
                     .to_string(),
             ),
             authority: Some("canonical".to_string()),
         },
-        _ => PeerProfileDefaults {
-            peer_system: Some(normalized),
-            peer_role: Some("agent".to_string()),
+        _ => HiveProfileDefaults {
+            hive_system: Some(normalized),
+            hive_role: Some("agent".to_string()),
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: Some("participant".to_string()),
         },
     }
 }
 
-fn resolve_peer_profile(args: &InitArgs) -> PeerProfileDefaults {
-    let defaults = default_peer_profile(&args.agent);
+fn resolve_hive_profile(args: &InitArgs, project: Option<&str>) -> HiveProfileDefaults {
+    let defaults = default_hive_profile(&args.agent);
     let mut capabilities = if args.capability.is_empty() {
         defaults.capabilities
     } else {
@@ -12463,24 +12494,24 @@ fn resolve_peer_profile(args: &InitArgs) -> PeerProfileDefaults {
     };
     capabilities.sort();
     capabilities.dedup();
-    let mut peer_groups = if args.peer_group.is_empty() {
-        defaults.peer_groups
+    let mut hive_groups = if args.hive_group.is_empty() {
+        defaults.hive_groups
     } else {
-        args.peer_group
+        args.hive_group
             .iter()
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .collect::<Vec<_>>()
     };
-    peer_groups.sort();
-    peer_groups.dedup();
-    PeerProfileDefaults {
-        peer_system: args.peer_system.clone().or(defaults.peer_system),
-        peer_role: args.peer_role.clone().or(defaults.peer_role),
+    hive_groups.sort();
+    hive_groups.dedup();
+    HiveProfileDefaults {
+        hive_system: args.hive_system.clone().or(defaults.hive_system),
+        hive_role: args.hive_role.clone().or(defaults.hive_role),
         capabilities,
-        peer_groups,
-        peer_group_goal: args.peer_group_goal.clone().or(defaults.peer_group_goal),
+        hive_groups: effective_hive_groups(hive_groups, project),
+        hive_group_goal: args.hive_group_goal.clone().or(defaults.hive_group_goal),
         authority: args.authority.clone().or(defaults.authority),
     }
 }
@@ -12508,7 +12539,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     let tab_id = args.tab_id.clone().or_else(default_bundle_tab_id);
     let project = init_project_name(args, project_root.as_deref());
     let namespace = init_namespace_name(args, &output);
-    let peer_profile = resolve_peer_profile(args);
+    let hive_profile = resolve_hive_profile(args, Some(project.as_str()));
     let project_bootstrap = if args.seed_existing {
         build_project_bootstrap_memory(project_root.as_deref(), &project, args).unwrap_or_default()
     } else {
@@ -12529,12 +12560,12 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         agent: args.agent.clone(),
         session: session.clone(),
         tab_id: tab_id.clone(),
-        peer_system: peer_profile.peer_system.clone(),
-        peer_role: peer_profile.peer_role.clone(),
-        capabilities: peer_profile.capabilities.clone(),
-        peer_groups: peer_profile.peer_groups.clone(),
-        peer_group_goal: peer_profile.peer_group_goal.clone(),
-        authority: peer_profile.authority.clone(),
+        hive_system: hive_profile.hive_system.clone(),
+        hive_role: hive_profile.hive_role.clone(),
+        capabilities: hive_profile.capabilities.clone(),
+        hive_groups: hive_profile.hive_groups.clone(),
+        hive_group_goal: hive_profile.hive_group_goal.clone(),
+        authority: hive_profile.authority.clone(),
         base_url: args.base_url.clone(),
         route: args.route.clone(),
         intent: args.intent.clone(),
@@ -12603,45 +12634,45 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     )
     .with_context(|| format!("write {}", output.join("env").display()))?;
 
-    if let Some(peer_system) = peer_profile.peer_system.as_deref() {
+    if let Some(hive_system) = hive_profile.hive_system.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_SYSTEM=",
-            &format!("MEMD_PEER_SYSTEM={peer_system}\n"),
+            &format!("MEMD_PEER_SYSTEM={hive_system}\n"),
         )?;
     }
-    if let Some(peer_role) = peer_profile.peer_role.as_deref() {
+    if let Some(hive_role) = hive_profile.hive_role.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_ROLE=",
-            &format!("MEMD_PEER_ROLE={peer_role}\n"),
+            &format!("MEMD_PEER_ROLE={hive_role}\n"),
         )?;
     }
-    if !peer_profile.capabilities.is_empty() {
+    if !hive_profile.capabilities.is_empty() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_CAPABILITIES=",
             &format!(
                 "MEMD_PEER_CAPABILITIES={}\n",
-                peer_profile.capabilities.join(",")
+                hive_profile.capabilities.join(",")
             ),
         )?;
     }
-    if !peer_profile.peer_groups.is_empty() {
+    if !hive_profile.hive_groups.is_empty() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_GROUPS=",
-            &format!("MEMD_PEER_GROUPS={}\n", peer_profile.peer_groups.join(",")),
+            &format!("MEMD_PEER_GROUPS={}\n", hive_profile.hive_groups.join(",")),
         )?;
     }
-    if let Some(goal) = peer_profile.peer_group_goal.as_deref() {
+    if let Some(goal) = hive_profile.hive_group_goal.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_GROUP_GOAL=",
             &format!("MEMD_PEER_GROUP_GOAL={goal}\n"),
         )?;
     }
-    if let Some(authority) = peer_profile.authority.as_deref() {
+    if let Some(authority) = hive_profile.authority.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_AUTHORITY=",
@@ -12692,48 +12723,48 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     )
     .with_context(|| format!("write {}", output.join("env.ps1").display()))?;
 
-    if let Some(peer_system) = peer_profile.peer_system.as_deref() {
+    if let Some(hive_system) = hive_profile.hive_system.as_deref() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_SYSTEM = ",
-            &format!("$env:MEMD_PEER_SYSTEM = \"{}\"\n", escape_ps1(peer_system)),
+            &format!("$env:MEMD_PEER_SYSTEM = \"{}\"\n", escape_ps1(hive_system)),
         )?;
     }
-    if let Some(peer_role) = peer_profile.peer_role.as_deref() {
+    if let Some(hive_role) = hive_profile.hive_role.as_deref() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_ROLE = ",
-            &format!("$env:MEMD_PEER_ROLE = \"{}\"\n", escape_ps1(peer_role)),
+            &format!("$env:MEMD_PEER_ROLE = \"{}\"\n", escape_ps1(hive_role)),
         )?;
     }
-    if !peer_profile.capabilities.is_empty() {
+    if !hive_profile.capabilities.is_empty() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_CAPABILITIES = ",
             &format!(
                 "$env:MEMD_PEER_CAPABILITIES = \"{}\"\n",
-                escape_ps1(&peer_profile.capabilities.join(","))
+                escape_ps1(&hive_profile.capabilities.join(","))
             ),
         )?;
     }
-    if !peer_profile.peer_groups.is_empty() {
+    if !hive_profile.hive_groups.is_empty() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_GROUPS = ",
             &format!(
                 "$env:MEMD_PEER_GROUPS = \"{}\"\n",
-                escape_ps1(&peer_profile.peer_groups.join(","))
+                escape_ps1(&hive_profile.hive_groups.join(","))
             ),
         )?;
     }
-    if let Some(goal) = peer_profile.peer_group_goal.as_deref() {
+    if let Some(goal) = hive_profile.hive_group_goal.as_deref() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_GROUP_GOAL = ",
             &format!("$env:MEMD_PEER_GROUP_GOAL = \"{}\"\n", escape_ps1(goal)),
         )?;
     }
-    if let Some(authority) = peer_profile.authority.as_deref() {
+    if let Some(authority) = hive_profile.authority.as_deref() {
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_PEER_AUTHORITY = ",
@@ -12821,19 +12852,19 @@ fn build_bundle_turn_placeholder_config(
         .as_ref()
         .and_then(|value| value.tab_id.clone())
         .or_else(default_bundle_tab_id);
-    let peer_system = runtime.as_ref().and_then(|value| value.peer_system.clone());
-    let peer_role = runtime.as_ref().and_then(|value| value.peer_role.clone());
+    let hive_system = runtime.as_ref().and_then(|value| value.hive_system.clone());
+    let hive_role = runtime.as_ref().and_then(|value| value.hive_role.clone());
     let capabilities = runtime
         .as_ref()
         .map(|value| value.capabilities.clone())
         .unwrap_or_default();
-    let peer_groups = runtime
+    let hive_groups = runtime
         .as_ref()
-        .map(|value| value.peer_groups.clone())
+        .map(|value| value.hive_groups.clone())
         .unwrap_or_default();
-    let peer_group_goal = runtime
+    let hive_group_goal = runtime
         .as_ref()
-        .and_then(|value| value.peer_group_goal.clone());
+        .and_then(|value| value.hive_group_goal.clone());
     let authority = runtime.as_ref().and_then(|value| value.authority.clone());
     let base_url = runtime
         .as_ref()
@@ -12873,11 +12904,11 @@ fn build_bundle_turn_placeholder_config(
         agent,
         session,
         tab_id,
-        peer_system,
-        peer_role,
+        hive_system,
+        hive_role,
         capabilities,
-        peer_groups,
-        peer_group_goal,
+        hive_groups,
+        hive_group_goal,
         authority,
         base_url,
         route,
@@ -12956,17 +12987,17 @@ fn resolve_init_output_path(args: &InitArgs, project_root: Option<&Path>) -> Pat
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct PeerWireResponse {
+struct HiveWireResponse {
     action: String,
     output: String,
     project_root: Option<String>,
     agent: String,
     session: Option<String>,
     tab_id: Option<String>,
-    peer_system: Option<String>,
-    peer_role: Option<String>,
-    peer_groups: Vec<String>,
-    peer_group_goal: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
     heartbeat: Option<serde_json::Value>,
 }
@@ -12992,7 +13023,7 @@ fn infer_service_agent_from_path(path: &Path) -> Option<String> {
     }
 }
 
-fn maybe_explicit_peer_output(args: &PeerArgs) -> Option<PathBuf> {
+fn maybe_explicit_hive_output(args: &HiveArgs) -> Option<PathBuf> {
     let default_init_output = default_init_output_path();
     let default_global_output = default_global_bundle_root();
 
@@ -13003,8 +13034,8 @@ fn maybe_explicit_peer_output(args: &PeerArgs) -> Option<PathBuf> {
     None
 }
 
-fn resolve_peer_output_path(args: &PeerArgs, project_root: Option<&Path>) -> PathBuf {
-    if let Some(explicit) = maybe_explicit_peer_output(args) {
+fn resolve_hive_output_path(args: &HiveArgs, project_root: Option<&Path>) -> PathBuf {
+    if let Some(explicit) = maybe_explicit_hive_output(args) {
         return explicit;
     }
 
@@ -13019,7 +13050,7 @@ fn resolve_peer_output_path(args: &PeerArgs, project_root: Option<&Path>) -> Pat
     default_bundle_root_path()
 }
 
-fn peer_args_to_init_args(args: &PeerArgs, agent: String) -> InitArgs {
+fn hive_args_to_init_args(args: &HiveArgs, agent: String) -> InitArgs {
     InitArgs {
         project: args.project.clone(),
         namespace: args.namespace.clone(),
@@ -13029,14 +13060,14 @@ fn peer_args_to_init_args(args: &PeerArgs, agent: String) -> InitArgs {
         agent,
         session: args.session.clone(),
         tab_id: args.tab_id.clone(),
-        peer_system: args.peer_system.clone(),
-        peer_role: args.peer_role.clone(),
+        hive_system: args.hive_system.clone(),
+        hive_role: args.hive_role.clone(),
         capability: args.capability.clone(),
-        peer_group: args.peer_group.clone(),
-        peer_group_goal: args.peer_group_goal.clone(),
+        hive_group: args.hive_group.clone(),
+        hive_group_goal: args.hive_group_goal.clone(),
         authority: args.authority.clone(),
         output: args.output.clone(),
-        base_url: resolve_peer_command_base_url(&args.base_url),
+        base_url: resolve_hive_command_base_url(&args.base_url),
         rag_url: args.rag_url.clone(),
         route: args.route.clone(),
         intent: args.intent.clone(),
@@ -13046,7 +13077,7 @@ fn peer_args_to_init_args(args: &PeerArgs, agent: String) -> InitArgs {
     }
 }
 
-fn resolve_peer_command_base_url(base_url: &str) -> String {
+fn resolve_hive_command_base_url(base_url: &str) -> String {
     let requested = base_url.trim();
     if requested != SHARED_MEMD_BASE_URL {
         return requested.to_string();
@@ -13060,7 +13091,7 @@ fn resolve_peer_command_base_url(base_url: &str) -> String {
         .unwrap_or_else(|| requested.to_string())
 }
 
-async fn run_peer_command(args: &PeerArgs) -> anyhow::Result<PeerWireResponse> {
+async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     let current_project_root = detect_current_project_root().ok().flatten();
     let inferred_agent = args
         .agent
@@ -13076,11 +13107,11 @@ async fn run_peer_command(args: &PeerArgs) -> anyhow::Result<PeerWireResponse> {
                 .and_then(infer_service_agent_from_path)
         })
         .unwrap_or_else(|| "codex".to_string());
-    let init_args = peer_args_to_init_args(args, inferred_agent);
+    let init_args = hive_args_to_init_args(args, inferred_agent);
     let project_root = detect_init_project_root(&init_args)?;
-    let output = resolve_peer_output_path(args, project_root.as_deref());
+    let output = resolve_hive_output_path(args, project_root.as_deref());
     let mut action = "updated".to_string();
-    let defaults = default_peer_profile(&init_args.agent);
+    let defaults = default_hive_profile(&init_args.agent);
 
     if read_bundle_runtime_config(&output)?.is_none() {
         write_init_bundle(&InitArgs {
@@ -13102,30 +13133,30 @@ async fn run_peer_command(args: &PeerArgs) -> anyhow::Result<PeerWireResponse> {
         if let Some(value) = args.tab_id.as_deref() {
             set_bundle_tab_id(&output, value)?;
         }
-        if let Some(value) = args.peer_system.as_deref() {
-            set_bundle_peer_system(&output, value)?;
-        } else if let Some(value) = defaults.peer_system.as_deref() {
-            set_bundle_peer_system(&output, value)?;
+        if let Some(value) = args.hive_system.as_deref() {
+            set_bundle_hive_system(&output, value)?;
+        } else if let Some(value) = defaults.hive_system.as_deref() {
+            set_bundle_hive_system(&output, value)?;
         }
-        if let Some(value) = args.peer_role.as_deref() {
-            set_bundle_peer_role(&output, value)?;
-        } else if let Some(value) = defaults.peer_role.as_deref() {
-            set_bundle_peer_role(&output, value)?;
+        if let Some(value) = args.hive_role.as_deref() {
+            set_bundle_hive_role(&output, value)?;
+        } else if let Some(value) = defaults.hive_role.as_deref() {
+            set_bundle_hive_role(&output, value)?;
         }
         if !args.capability.is_empty() {
             set_bundle_capabilities(&output, &args.capability)?;
         } else if !defaults.capabilities.is_empty() {
             set_bundle_capabilities(&output, &defaults.capabilities)?;
         }
-        if !args.peer_group.is_empty() {
-            set_bundle_peer_groups(&output, &args.peer_group)?;
-        } else if !defaults.peer_groups.is_empty() {
-            set_bundle_peer_groups(&output, &defaults.peer_groups)?;
+        if !args.hive_group.is_empty() {
+            set_bundle_hive_groups(&output, &args.hive_group)?;
+        } else if !defaults.hive_groups.is_empty() {
+            set_bundle_hive_groups(&output, &defaults.hive_groups)?;
         }
-        if let Some(value) = args.peer_group_goal.as_deref() {
-            set_bundle_peer_group_goal(&output, value)?;
-        } else if let Some(value) = defaults.peer_group_goal.as_deref() {
-            set_bundle_peer_group_goal(&output, value)?;
+        if let Some(value) = args.hive_group_goal.as_deref() {
+            set_bundle_hive_group_goal(&output, value)?;
+        } else if let Some(value) = defaults.hive_group_goal.as_deref() {
+            set_bundle_hive_group_goal(&output, value)?;
         }
         if let Some(value) = args.authority.as_deref() {
             set_bundle_authority(&output, value)?;
@@ -13144,7 +13175,7 @@ async fn run_peer_command(args: &PeerArgs) -> anyhow::Result<PeerWireResponse> {
     }
 
     let runtime = read_bundle_runtime_config(&output)?
-        .context("peer wiring requires a readable bundle runtime config")?;
+        .context("hive wiring requires a readable bundle runtime config")?;
     let heartbeat = if args.publish_heartbeat {
         Some(serde_json::to_value(
             refresh_bundle_heartbeat(&output, None, false).await?,
@@ -13153,38 +13184,38 @@ async fn run_peer_command(args: &PeerArgs) -> anyhow::Result<PeerWireResponse> {
         None
     };
 
-    Ok(PeerWireResponse {
+    Ok(HiveWireResponse {
         action,
         output: output.display().to_string(),
         project_root: project_root.map(|value| value.display().to_string()),
         agent: runtime.agent.unwrap_or(init_args.agent),
         session: runtime.session,
         tab_id: runtime.tab_id,
-        peer_system: runtime.peer_system,
-        peer_role: runtime.peer_role,
-        peer_groups: runtime.peer_groups,
-        peer_group_goal: runtime.peer_group_goal,
+        hive_system: runtime.hive_system,
+        hive_role: runtime.hive_role,
+        hive_groups: runtime.hive_groups,
+        hive_group_goal: runtime.hive_group_goal,
         authority: runtime.authority,
         heartbeat,
     })
 }
 
-fn render_peer_wire_summary(response: &PeerWireResponse) -> String {
+fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
     format!(
-        "peer {} bundle={} agent={} session={} tab={} peer={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
+        "hive {} bundle={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
         response.action,
         response.output,
         response.agent,
         response.session.as_deref().unwrap_or("none"),
         response.tab_id.as_deref().unwrap_or("none"),
-        response.peer_system.as_deref().unwrap_or("none"),
-        response.peer_role.as_deref().unwrap_or("none"),
-        if response.peer_groups.is_empty() {
+        response.hive_system.as_deref().unwrap_or("none"),
+        response.hive_role.as_deref().unwrap_or("none"),
+        if response.hive_groups.is_empty() {
             "none".to_string()
         } else {
-            response.peer_groups.join(",")
+            response.hive_groups.join(",")
         },
-        response.peer_group_goal.as_deref().unwrap_or("none"),
+        response.hive_group_goal.as_deref().unwrap_or("none"),
         response.authority.as_deref().unwrap_or("none"),
         if response.heartbeat.is_some() {
             "published"
@@ -14314,7 +14345,7 @@ fn heartbeat_presence_label(last_seen: DateTime<Utc>) -> &'static str {
     }
 }
 
-fn build_bundle_heartbeat(
+fn build_hive_heartbeat(
     output: &Path,
     snapshot: Option<&ResumeSnapshot>,
 ) -> anyhow::Result<BundleHeartbeatState> {
@@ -14324,11 +14355,11 @@ fn build_bundle_heartbeat(
         agent: None,
         session: None,
         tab_id: None,
-        peer_system: None,
-        peer_role: None,
+        hive_system: None,
+        hive_role: None,
         capabilities: Vec::new(),
-        peer_groups: Vec::new(),
-        peer_group_goal: None,
+        hive_groups: Vec::new(),
+        hive_group_goal: None,
         authority: None,
         base_url: None,
         route: None,
@@ -14391,11 +14422,16 @@ fn build_bundle_heartbeat(
         agent,
         effective_agent,
         tab_id: runtime.tab_id,
-        peer_system: runtime.peer_system,
-        peer_role: runtime.peer_role,
+        hive_system: runtime.hive_system,
+        hive_role: runtime.hive_role,
         capabilities: runtime.capabilities,
-        peer_groups: runtime.peer_groups,
-        peer_group_goal: runtime.peer_group_goal,
+        hive_groups: effective_hive_groups(
+            runtime.hive_groups,
+            snapshot
+                .and_then(|value| value.project.as_deref())
+                .or(runtime.project.as_deref()),
+        ),
+        hive_group_goal: runtime.hive_group_goal,
         authority: runtime.authority,
         heartbeat_model: runtime.heartbeat_model,
         project: snapshot
@@ -14431,7 +14467,7 @@ async fn write_bundle_heartbeat(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    let mut state = build_bundle_heartbeat(output, snapshot)?;
+    let mut state = build_hive_heartbeat(output, snapshot)?;
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
     }
@@ -14467,16 +14503,16 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
     };
 
     let client = MemdClient::new(base_url)?;
-    let request = memd_schema::PeerSessionUpsertRequest {
+    let request = memd_schema::HiveSessionUpsertRequest {
         session: session.to_string(),
         tab_id: state.tab_id.clone(),
         agent: state.agent.clone(),
         effective_agent: state.effective_agent.clone(),
-        peer_system: state.peer_system.clone(),
-        peer_role: state.peer_role.clone(),
+        hive_system: state.hive_system.clone(),
+        hive_role: state.hive_role.clone(),
         capabilities: state.capabilities.clone(),
-        peer_groups: state.peer_groups.clone(),
-        peer_group_goal: state.peer_group_goal.clone(),
+        hive_groups: state.hive_groups.clone(),
+        hive_group_goal: state.hive_group_goal.clone(),
         authority: state.authority.clone(),
         heartbeat_model: state.heartbeat_model.clone(),
         project: state.project.clone(),
@@ -14494,7 +14530,7 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
     };
     let _ = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        client.upsert_peer_session(&request),
+        client.upsert_hive_session(&request),
     )
     .await;
     Ok(())
@@ -14502,21 +14538,21 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
 
 fn render_bundle_heartbeat_summary(state: &BundleHeartbeatState) -> String {
     format!(
-        "heartbeat project={} agent={} peer={} role={} groups={} goal=\"{}\" authority={} session={} tab={} presence={} model={} base_url={} focus=\"{}\" pressure=\"{}\"",
+        "heartbeat project={} agent={} hive={} role={} groups={} goal=\"{}\" authority={} session={} tab={} presence={} model={} base_url={} focus=\"{}\" pressure=\"{}\"",
         state.project.as_deref().unwrap_or("none"),
         state
             .effective_agent
             .as_deref()
             .or(state.agent.as_deref())
             .unwrap_or("none"),
-        state.peer_system.as_deref().unwrap_or("none"),
-        state.peer_role.as_deref().unwrap_or("none"),
-        if state.peer_groups.is_empty() {
+        state.hive_system.as_deref().unwrap_or("none"),
+        state.hive_role.as_deref().unwrap_or("none"),
+        if state.hive_groups.is_empty() {
             "none".to_string()
         } else {
-            state.peer_groups.join(",")
+            state.hive_groups.join(",")
         },
-        state.peer_group_goal.as_deref().unwrap_or("none"),
+        state.hive_group_goal.as_deref().unwrap_or("none"),
         state.authority.as_deref().unwrap_or("none"),
         state.session.as_deref().unwrap_or("none"),
         state.tab_id.as_deref().unwrap_or("none"),
@@ -14575,7 +14611,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             .as_deref()
             .context("claims --acquire requires a configured bundle session")?;
         let response = client
-            .acquire_peer_claim(&memd_schema::PeerClaimAcquireRequest {
+            .acquire_hive_claim(&memd_schema::HiveClaimAcquireRequest {
                 scope: scope.to_string(),
                 session: session.to_string(),
                 tab_id: current_tab_id.clone(),
@@ -14600,7 +14636,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         .await?;
         let cache = SessionClaimsState {
             claims: client
-                .peer_claims(&memd_schema::PeerClaimsRequest {
+                .hive_claims(&memd_schema::HiveClaimsRequest {
                     session: None,
                     project: shared_project.clone(),
                     namespace: shared_namespace.clone(),
@@ -14642,7 +14678,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             .context("claims --transfer-to-session requires a configured bundle session")?;
         let target = resolve_target_session_bundle(&args.output, target_session).await?;
         let response = client
-            .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+            .transfer_hive_claim(&memd_schema::HiveClaimTransferRequest {
                 scope: scope.to_string(),
                 from_session: session.to_string(),
                 to_session: target_session.to_string(),
@@ -14671,7 +14707,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         .await?;
         let cache = SessionClaimsState {
             claims: client
-                .peer_claims(&memd_schema::PeerClaimsRequest {
+                .hive_claims(&memd_schema::HiveClaimsRequest {
                     session: None,
                     project: shared_project.clone(),
                     namespace: shared_namespace.clone(),
@@ -14707,7 +14743,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
             .as_deref()
             .context("claims --release requires a configured bundle session")?;
         let response = client
-            .release_peer_claim(&memd_schema::PeerClaimReleaseRequest {
+            .release_hive_claim(&memd_schema::HiveClaimReleaseRequest {
                 scope: scope.to_string(),
                 session: session.to_string(),
             })
@@ -14723,7 +14759,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
         .await?;
         let cache = SessionClaimsState {
             claims: client
-                .peer_claims(&memd_schema::PeerClaimsRequest {
+                .hive_claims(&memd_schema::HiveClaimsRequest {
                     session: None,
                     project: runtime.as_ref().and_then(|config| config.project.clone()),
                     namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
@@ -14751,7 +14787,7 @@ async fn run_claims_command(args: &ClaimsArgs, base_url: &str) -> anyhow::Result
     }
 
     let response = client
-        .peer_claims(&memd_schema::PeerClaimsRequest {
+        .hive_claims(&memd_schema::HiveClaimsRequest {
             session: None,
             project: shared_project,
             namespace: shared_namespace,
@@ -14860,7 +14896,7 @@ async fn run_messages_command(
         {
             let transfer_client = MemdClient::new(&current_base_url)?;
             transfer_client
-                .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+                .transfer_hive_claim(&memd_schema::HiveClaimTransferRequest {
                     scope: assign_scope.to_string(),
                     from_session: from_session.to_string(),
                     to_session: target_session.to_string(),
@@ -14871,7 +14907,7 @@ async fn run_messages_command(
                 .await?;
         }
         let response = client
-            .send_peer_message(&PeerMessageSendRequest {
+            .send_hive_message(&HiveMessageSendRequest {
                 kind,
                 from_session: from_session.to_string(),
                 from_agent: current_agent.clone(),
@@ -14957,7 +14993,7 @@ async fn run_messages_command(
             .as_deref()
             .context("messages --ack requires a configured bundle session")?;
         client
-            .ack_peer_message(&PeerMessageAckRequest {
+            .ack_hive_message(&HiveMessageAckRequest {
                 id: ack.trim().to_string(),
                 session: session.to_string(),
             })
@@ -14968,7 +15004,7 @@ async fn run_messages_command(
             .as_deref()
             .context("messages --inbox requires a configured bundle session")?;
         client
-            .peer_inbox(&PeerMessageInboxRequest {
+            .hive_inbox(&HiveMessageInboxRequest {
                 session: session.to_string(),
                 project: current_project,
                 namespace: current_namespace,
@@ -15078,7 +15114,7 @@ async fn emit_coordination_receipt(
     summary: String,
 ) -> anyhow::Result<()> {
     client
-        .record_peer_coordination_receipt(&PeerCoordinationReceiptRequest {
+        .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
             kind: kind.to_string(),
             actor_session: actor_session.to_string(),
             actor_agent,
@@ -15132,7 +15168,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             .filter(|value| !value.is_empty())
             .context("tasks --upsert requires --title")?;
         let response = client
-            .upsert_peer_task(&PeerTaskUpsertRequest {
+            .upsert_hive_task(&HiveTaskUpsertRequest {
                 task_id: task_id.to_string(),
                 title: title.to_string(),
                 description: args.description.clone(),
@@ -15199,7 +15235,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             .context("target session not found in awareness")?;
 
         let existing = client
-            .peer_tasks(&PeerTasksRequest {
+            .hive_tasks(&HiveTasksRequest {
                 session: None,
                 project: current_project.clone(),
                 namespace: current_namespace.clone(),
@@ -15211,7 +15247,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         if let Some(task) = existing.tasks.iter().find(|task| task.task_id == task_id) {
             for scope in &task.claim_scopes {
                 let _ = client
-                    .transfer_peer_claim(&memd_schema::PeerClaimTransferRequest {
+                    .transfer_hive_claim(&memd_schema::HiveClaimTransferRequest {
                         scope: scope.clone(),
                         from_session: session.to_string(),
                         to_session: target_session.to_string(),
@@ -15224,7 +15260,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         }
 
         let response = client
-            .assign_peer_task(&PeerTaskAssignRequest {
+            .assign_hive_task(&HiveTaskAssignRequest {
                 task_id: task_id.to_string(),
                 from_session: Some(session.to_string()),
                 to_session: target_session.to_string(),
@@ -15295,7 +15331,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let target_client = MemdClient::new(&target_base_url)?;
 
         let tasks = client
-            .upsert_peer_task(&PeerTaskUpsertRequest {
+            .upsert_hive_task(&HiveTaskUpsertRequest {
                 task_id: task_id.to_string(),
                 title: args
                     .title
@@ -15336,7 +15372,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             format!("Need review on shared task {task_id}. Please inspect the task before handoff.")
         };
         target_client
-            .send_peer_message(&PeerMessageSendRequest {
+            .send_hive_message(&HiveMessageSendRequest {
                 kind: kind.to_string(),
                 from_session: from_session.to_string(),
                 from_agent: current_effective_agent.clone(),
@@ -15396,7 +15432,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
     }
 
     let response = client
-        .peer_tasks(&PeerTasksRequest {
+        .hive_tasks(&HiveTasksRequest {
             session: None,
             project: current_project,
             namespace: current_namespace,
@@ -15476,7 +15512,7 @@ async fn run_coordination_command(
     let current_namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
     let current_workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
     let claims = client
-        .peer_claims(&PeerClaimsRequest {
+        .hive_claims(&HiveClaimsRequest {
             session: None,
             project: current_project.clone(),
             namespace: current_namespace.clone(),
@@ -15490,7 +15526,7 @@ async fn run_coordination_command(
         .map(session_claim_from_record)
         .collect::<Vec<_>>();
     let tasks = client
-        .peer_tasks(&PeerTasksRequest {
+        .hive_tasks(&HiveTasksRequest {
             session: None,
             project: current_project.clone(),
             namespace: current_namespace.clone(),
@@ -15501,7 +15537,7 @@ async fn run_coordination_command(
         .await?
         .tasks;
 
-    let stale_peers = awareness
+    let stale_hives = awareness
         .entries
         .iter()
         .filter(|entry| entry.session.as_deref() != Some(current_session.as_str()))
@@ -15515,7 +15551,7 @@ async fn run_coordination_command(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        let stale_entry = stale_peers
+        let stale_entry = stale_hives
             .iter()
             .find(|entry| entry.session.as_deref() == Some(recover_session))
             .cloned()
@@ -15554,7 +15590,7 @@ async fn run_coordination_command(
 
         for claim in &recover_claims {
             client
-                .recover_peer_claim(&PeerClaimRecoverRequest {
+                .recover_hive_claim(&HiveClaimRecoverRequest {
                     scope: claim.scope.clone(),
                     from_session: recover_session.to_string(),
                     to_session: destination.session.clone(),
@@ -15566,7 +15602,7 @@ async fn run_coordination_command(
         }
         for task in &recover_tasks {
             client
-                .assign_peer_task(&PeerTaskAssignRequest {
+                .assign_hive_task(&HiveTaskAssignRequest {
                     task_id: task.task_id.clone(),
                     from_session: Some(recover_session.to_string()),
                     to_session: destination
@@ -15624,7 +15660,7 @@ async fn run_coordination_command(
     }
 
     let response = client
-        .peer_coordination_inbox(&PeerCoordinationInboxRequest {
+        .hive_coordination_inbox(&HiveCoordinationInboxRequest {
             session: current_session.clone(),
             project: current_project.clone(),
             namespace: current_namespace.clone(),
@@ -15633,7 +15669,7 @@ async fn run_coordination_command(
         })
         .await?;
     let claims = client
-        .peer_claims(&PeerClaimsRequest {
+        .hive_claims(&HiveClaimsRequest {
             session: None,
             project: current_project,
             namespace: current_namespace,
@@ -15647,7 +15683,7 @@ async fn run_coordination_command(
         .map(session_claim_from_record)
         .collect::<Vec<_>>();
     let tasks = client
-        .peer_tasks(&PeerTasksRequest {
+        .hive_tasks(&HiveTasksRequest {
             session: None,
             project: runtime.as_ref().and_then(|config| config.project.clone()),
             namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
@@ -15658,7 +15694,7 @@ async fn run_coordination_command(
         .await?
         .tasks;
     let receipts = client
-        .peer_coordination_receipts(&PeerCoordinationReceiptsRequest {
+        .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
             session: None,
             project: runtime.as_ref().and_then(|config| config.project.clone()),
             namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
@@ -15696,11 +15732,11 @@ async fn run_coordination_command(
             })
         })
         .collect::<Vec<_>>();
-    let stale_sessions = stale_peers
+    let stale_sessions = stale_hives
         .iter()
         .filter_map(|entry| entry.session.as_deref())
         .collect::<Vec<_>>();
-    let active_peers = awareness
+    let active_hives = awareness
         .entries
         .iter()
         .filter(|entry| entry.session.as_deref() != Some(current_session.as_str()))
@@ -15710,7 +15746,7 @@ async fn run_coordination_command(
     let suggestions = suggest_coordination_actions(
         &response,
         &stale_sessions,
-        &active_peers,
+        &active_hives,
         &claims,
         &tasks,
         &current_session,
@@ -15721,13 +15757,13 @@ async fn run_coordination_command(
         current_session: current_session.clone(),
         inbox: response,
         recovery: CoordinationRecoverySummary {
-            stale_peers: stale_peers.clone(),
+            stale_hives: stale_hives.clone(),
             reclaimable_claims: claims
                 .clone()
                 .into_iter()
                 .filter(|claim| {
                     claim.session.as_deref().is_some_and(|session| {
-                        stale_peers
+                        stale_hives
                             .iter()
                             .any(|entry| entry.session.as_deref() == Some(session))
                     })
@@ -15738,7 +15774,7 @@ async fn run_coordination_command(
                 .into_iter()
                 .filter(|task| {
                     task.session.as_deref().is_some_and(|session| {
-                        stale_peers
+                        stale_hives
                             .iter()
                             .any(|entry| entry.session.as_deref() == Some(session))
                     })
@@ -15771,8 +15807,8 @@ fn render_coordination_summary(response: &CoordinationResponse, view: Option<&st
             response.inbox.review_tasks.len(),
         ),
         format!(
-            "recovery stale_peers={} reclaimable_claims={} stalled_tasks={}",
-            response.recovery.stale_peers.len(),
+            "recovery stale_hives={} reclaimable_claims={} stalled_tasks={}",
+            response.recovery.stale_hives.len(),
             response.recovery.reclaimable_claims.len(),
             response.recovery.stalled_tasks.len(),
         ),
@@ -15793,11 +15829,11 @@ fn render_coordination_summary(response: &CoordinationResponse, view: Option<&st
 }
 
 fn suggest_coordination_actions(
-    inbox: &PeerCoordinationInboxResponse,
+    inbox: &HiveCoordinationInboxResponse,
     stale_sessions: &[&str],
-    active_peers: &[ProjectAwarenessEntry],
+    active_hives: &[ProjectAwarenessEntry],
     claims: &[SessionClaim],
-    tasks: &[PeerTaskRecord],
+    tasks: &[HiveTaskRecord],
     current_session: &str,
     policy_conflicts: &[String],
 ) -> Vec<CoordinationSuggestion> {
@@ -15948,8 +15984,8 @@ fn suggest_coordination_actions(
     }
 
     if !policy_conflicts.is_empty() && suggestions.len() < 6 && !tasks.is_empty() {
-        let Some(peer_session) =
-            select_coordination_helper_peer(active_peers, tasks, policy_conflicts, current_session)
+        let Some(hive_session) =
+            select_coordination_helper_hive(active_hives, tasks, policy_conflicts, current_session)
         else {
             return suggestions;
         };
@@ -15974,13 +16010,13 @@ fn suggest_coordination_actions(
             let suggestion = CoordinationSuggestion {
                 action: action.to_string(),
                 priority: "low".to_string(),
-                target_session: peer_session.session.clone(),
+                target_session: hive_session.session.clone(),
                 task_id: Some(task.task_id.clone()),
                 scope: None,
                 message_id: None,
                 reason: format!(
                     "Ask {} for collaboration support on task {} before heavy overlap grows.",
-                    peer_session.session.as_deref().unwrap_or("none"),
+                    hive_session.session.as_deref().unwrap_or("none"),
                     task.task_id
                 ),
                 stale_session: None,
@@ -15992,9 +16028,9 @@ fn suggest_coordination_actions(
     suggestions
 }
 
-fn select_coordination_helper_peer<'a>(
-    active_peers: &'a [ProjectAwarenessEntry],
-    tasks: &[PeerTaskRecord],
+fn select_coordination_helper_hive<'a>(
+    active_hives: &'a [ProjectAwarenessEntry],
+    tasks: &[HiveTaskRecord],
     policy_conflicts: &[String],
     current_session: &str,
 ) -> Option<&'a ProjectAwarenessEntry> {
@@ -16030,33 +16066,33 @@ fn select_coordination_helper_peer<'a>(
         ["openclaw-stack", "control-plane"]
     };
 
-    active_peers
+    active_hives
         .iter()
-        .filter(|peer| {
-            peer.session
+        .filter(|hive| {
+            hive.session
                 .as_deref()
                 .is_some_and(|value| value != current_session)
         })
-        .max_by_key(|peer| {
+        .max_by_key(|hive| {
             let mut score = 0i32;
-            for group in &peer.peer_groups {
+            for group in &hive.hive_groups {
                 if preferred_groups.iter().any(|preferred| preferred == group) {
                     score += 10;
                 }
             }
-            if peer.authority.as_deref() == Some("canonical") {
+            if hive.authority.as_deref() == Some("canonical") {
                 score += 3;
             }
-            if peer.authority.as_deref() == Some("coordinator") {
+            if hive.authority.as_deref() == Some("coordinator") {
                 score += 2;
             }
-            if peer.presence == "active" {
+            if hive.presence == "active" {
                 score += 2;
             }
-            if peer.peer_role.as_deref() == Some("runtime-shell") && need_runtime {
+            if hive.hive_role.as_deref() == Some("runtime-shell") && need_runtime {
                 score += 4;
             }
-            if peer.peer_role.as_deref() == Some("secret-broker") && need_runtime {
+            if hive.hive_role.as_deref() == Some("secret-broker") && need_runtime {
                 score += 4;
             }
             score
@@ -16123,13 +16159,13 @@ fn append_coordination_sections(
         }
     }
     if show_recovery
-        && (!response.recovery.stale_peers.is_empty()
+        && (!response.recovery.stale_hives.is_empty()
             || !response.recovery.reclaimable_claims.is_empty()
             || !response.recovery.stalled_tasks.is_empty())
     {
         lines.push("".to_string());
         lines.push("## Recovery".to_string());
-        for entry in response.recovery.stale_peers.iter().take(6) {
+        for entry in response.recovery.stale_hives.iter().take(6) {
             lines.push(format!(
                 "- stale session={} agent={} presence={} focus=\"{}\"",
                 entry.session.as_deref().unwrap_or("none"),
@@ -16245,15 +16281,15 @@ fn render_coordination_alerts(
         ));
     }
     if (show_all || view == "recovery")
-        && (previous.recovery.stale_peers.len() != current.recovery.stale_peers.len()
+        && (previous.recovery.stale_hives.len() != current.recovery.stale_hives.len()
             || previous.recovery.reclaimable_claims.len()
                 != current.recovery.reclaimable_claims.len()
             || previous.recovery.stalled_tasks.len() != current.recovery.stalled_tasks.len())
     {
         alerts.push(format!(
             "alert recovery stale {}->{} reclaimable {}->{} stalled {}->{}",
-            previous.recovery.stale_peers.len(),
-            current.recovery.stale_peers.len(),
+            previous.recovery.stale_hives.len(),
+            current.recovery.stale_hives.len(),
             previous.recovery.reclaimable_claims.len(),
             current.recovery.reclaimable_claims.len(),
             previous.recovery.stalled_tasks.len(),
@@ -16502,7 +16538,7 @@ fn build_coordination_alert_snapshot(response: &CoordinationResponse) -> Coordin
         owned_count: response.inbox.owned_tasks.len(),
         help_count: response.inbox.help_tasks.len(),
         review_count: response.inbox.review_tasks.len(),
-        stale_peer_count: response.recovery.stale_peers.len(),
+        stale_hive_count: response.recovery.stale_hives.len(),
         reclaimable_claim_count: response.recovery.reclaimable_claims.len(),
         stalled_task_count: response.recovery.stalled_tasks.len(),
         policy_conflict_count: response.policy_conflicts.len(),
@@ -16546,14 +16582,14 @@ fn render_coordination_snapshot_alerts(
         ));
     }
     if (show_all || view == "recovery")
-        && (previous.stale_peer_count != current.stale_peer_count
+        && (previous.stale_hive_count != current.stale_hive_count
             || previous.reclaimable_claim_count != current.reclaimable_claim_count
             || previous.stalled_task_count != current.stalled_task_count)
     {
         alerts.push(format!(
             "alert recovery stale {}->{} reclaimable {}->{} stalled {}->{}",
-            previous.stale_peer_count,
-            current.stale_peer_count,
+            previous.stale_hive_count,
+            current.stale_hive_count,
             previous.reclaimable_claim_count,
             current.reclaimable_claim_count,
             previous.stalled_task_count,
@@ -16631,7 +16667,7 @@ fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> 
             response.snapshot.owned_count,
             response.snapshot.help_count,
             response.snapshot.review_count,
-            response.snapshot.stale_peer_count,
+            response.snapshot.stale_hive_count,
             response.snapshot.reclaimable_claim_count,
             response.snapshot.stalled_task_count,
             response.snapshot.policy_conflict_count,
@@ -16651,7 +16687,7 @@ fn render_coordination_change_summary(response: &CoordinationChangeResponse) -> 
 }
 
 fn suggest_boundary_recommendations(
-    tasks: &[PeerTaskRecord],
+    tasks: &[HiveTaskRecord],
     claims: &[SessionClaim],
     current_session: &str,
 ) -> Vec<String> {
@@ -17287,8 +17323,8 @@ async fn apply_improvement_action(
             )
             .await?;
             Ok(format!(
-                "recovered stale session pressure (stale_peers={})",
-                response.recovery.stale_peers.len()
+                "recovered stale session pressure (stale_hives={})",
+                response.recovery.stale_hives.len()
             ))
         }
         "assign_scope" => {
@@ -18595,7 +18631,7 @@ async fn run_scenario_command(
     }
 
     if let Some(coordination) = &coordination {
-        if coordination.recovery.stale_peers.is_empty()
+        if coordination.recovery.stale_hives.is_empty()
             && coordination.policy_conflicts.is_empty()
             && coordination.suggestions.is_empty()
         {
@@ -18605,14 +18641,14 @@ async fn run_scenario_command(
                 20,
                 "coordination has no immediate health warnings".to_string(),
             );
-        } else if coordination.recovery.stale_peers.len() <= 2 {
+        } else if coordination.recovery.stale_hives.len() <= 2 {
             add_check(
                 "coordination_health",
                 "warn",
                 12,
                 format!(
-                    "coordination has {} stale peers and {} suggestion(s)",
-                    coordination.recovery.stale_peers.len(),
+                    "coordination has {} stale hives and {} suggestion(s)",
+                    coordination.recovery.stale_hives.len(),
                     coordination.suggestions.len()
                 ),
             );
@@ -18622,16 +18658,16 @@ async fn run_scenario_command(
                 "fail",
                 0,
                 format!(
-                    "{} stale peers and {} policy conflicts",
-                    coordination.recovery.stale_peers.len(),
+                    "{} stale hives and {} policy conflicts",
+                    coordination.recovery.stale_hives.len(),
                     coordination.policy_conflicts.len()
                 ),
             );
         }
         evidence.push(format!(
-            "coordination inbox_messages={} stale_peers={} policy_conflicts={}",
+            "coordination inbox_messages={} stale_hives={} policy_conflicts={}",
             coordination.inbox.messages.len(),
-            coordination.recovery.stale_peers.len(),
+            coordination.recovery.stale_hives.len(),
             coordination.policy_conflicts.len()
         ));
     } else if runtime_session.is_some() {
@@ -18795,21 +18831,21 @@ async fn run_scenario_command(
         }
         ScenarioKind::StaleSessionRecovery => {
             if let Some(coordination) = &coordination {
-                if coordination.recovery.stale_peers.is_empty() {
+                if coordination.recovery.stale_hives.is_empty() {
                     add_check(
                         "stale_session_scan",
                         "pass",
                         12,
-                        "no stale peers detected".to_string(),
+                        "no stale hives detected".to_string(),
                     );
-                } else if coordination.recovery.stale_peers.len() <= 2 {
+                } else if coordination.recovery.stale_hives.len() <= 2 {
                     add_check(
                         "stale_session_scan",
                         "warn",
                         6,
                         format!(
-                            "{} stale peer(s) detected; recovery path available",
-                            coordination.recovery.stale_peers.len()
+                            "{} stale hive(s) detected; recovery path available",
+                            coordination.recovery.stale_hives.len()
                         ),
                     );
                 } else {
@@ -18818,8 +18854,8 @@ async fn run_scenario_command(
                         "warn",
                         2,
                         format!(
-                            "{} stale peers detected; investigate before recovery wave",
-                            coordination.recovery.stale_peers.len()
+                            "{} stale hives detected; investigate before recovery wave",
+                            coordination.recovery.stale_hives.len()
                         ),
                     );
                 }
@@ -19051,9 +19087,9 @@ async fn run_composite_command(
     }
     if let Some(coordination) = &coordination {
         evidence.push(format!(
-            "coordination messages={} stale_peers={} conflicts={} suggestions={}",
+            "coordination messages={} stale_hives={} conflicts={} suggestions={}",
             coordination.inbox.messages.len(),
-            coordination.recovery.stale_peers.len(),
+            coordination.recovery.stale_hives.len(),
             coordination.policy_conflicts.len(),
             coordination.suggestions.len()
         ));
@@ -19075,7 +19111,7 @@ async fn run_composite_command(
         .unwrap_or(50);
     let coordination_score = if let Some(coordination) = &coordination {
         let mut score = 100i32;
-        score -= (coordination.recovery.stale_peers.len() as i32).min(3) * 15;
+        score -= (coordination.recovery.stale_hives.len() as i32).min(3) * 15;
         score -= (coordination.policy_conflicts.len() as i32).min(3) * 15;
         score -= if coordination.suggestions.is_empty() {
             5
@@ -19178,7 +19214,7 @@ async fn run_composite_command(
         "coordination_quality",
         20,
         coordination_score,
-        "coordination quality reflects stale peers, conflicts, inbox pressure, and suggestions"
+        "coordination quality reflects stale hives, conflicts, inbox pressure, and suggestions"
             .to_string(),
     );
     add_dimension(
@@ -19852,15 +19888,15 @@ fn build_gap_candidates(
     }
 
     if let Some(coordination) = coordination {
-        if !coordination.recovery.stale_peers.is_empty() {
+        if !coordination.recovery.stale_hives.is_empty() {
             add(
                 &mut candidates,
                 "coordination",
-                "stale_peers_recovery",
+                "stale_hives_recovery",
                 90,
                 vec![format!(
-                    "stale peers={}",
-                    coordination.recovery.stale_peers.len()
+                    "stale hives={}",
+                    coordination.recovery.stale_hives.len()
                 )],
                 "recover stale sessions before assigning new claims",
             );
@@ -21748,11 +21784,11 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "session": config.session,
             "tab_id": config.tab_id,
             "effective_agent": config.agent.as_ref().map(|agent| compose_agent_identity(agent, config.session.as_deref())),
-            "peer_system": config.peer_system,
-            "peer_role": config.peer_role,
+            "hive_system": config.hive_system,
+            "hive_role": config.hive_role,
             "capabilities": config.capabilities,
-            "peer_groups": config.peer_groups,
-            "peer_group_goal": config.peer_group_goal,
+            "hive_groups": config.hive_groups,
+            "hive_group_goal": config.hive_group_goal,
             "authority": config.authority,
             "base_url": config.base_url,
             "route": config.route,
@@ -21767,11 +21803,11 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "agent": value.agent,
             "effective_agent": value.effective_agent,
             "tab_id": value.tab_id,
-            "peer_system": value.peer_system,
-            "peer_role": value.peer_role,
+            "hive_system": value.hive_system,
+            "hive_role": value.hive_role,
             "capabilities": value.capabilities,
-            "peer_groups": value.peer_groups,
-            "peer_group_goal": value.peer_group_goal,
+            "hive_groups": value.hive_groups,
+            "hive_group_goal": value.hive_group_goal,
             "authority": value.authority,
             "presence": heartbeat_presence_label(value.last_seen),
             "heartbeat_model": value.heartbeat_model,
@@ -22051,11 +22087,11 @@ fn read_bundle_runtime_config_raw(output: &Path) -> anyhow::Result<Option<Bundle
         agent: config.agent,
         session: config.session,
         tab_id: config.tab_id.or_else(default_bundle_tab_id),
-        peer_system: config.peer_system,
-        peer_role: config.peer_role,
+        hive_system: config.hive_system,
+        hive_role: config.hive_role,
         capabilities: config.capabilities,
-        peer_groups: config.peer_groups,
-        peer_group_goal: config.peer_group_goal,
+        hive_groups: config.hive_groups,
+        hive_group_goal: config.hive_group_goal,
         authority: config.authority,
         base_url: config.base_url,
         route: config.route,
@@ -22112,20 +22148,20 @@ fn merge_bundle_runtime_config(
     if overlay.tab_id.is_some() {
         runtime.tab_id = overlay.tab_id;
     }
-    if overlay.peer_system.is_some() {
-        runtime.peer_system = overlay.peer_system;
+    if overlay.hive_system.is_some() {
+        runtime.hive_system = overlay.hive_system;
     }
-    if overlay.peer_role.is_some() {
-        runtime.peer_role = overlay.peer_role;
+    if overlay.hive_role.is_some() {
+        runtime.hive_role = overlay.hive_role;
     }
     if !overlay.capabilities.is_empty() {
         runtime.capabilities = overlay.capabilities;
     }
-    if !overlay.peer_groups.is_empty() {
-        runtime.peer_groups = overlay.peer_groups;
+    if !overlay.hive_groups.is_empty() {
+        runtime.hive_groups = overlay.hive_groups;
     }
-    if overlay.peer_group_goal.is_some() {
-        runtime.peer_group_goal = overlay.peer_group_goal;
+    if overlay.hive_group_goal.is_some() {
+        runtime.hive_group_goal = overlay.hive_group_goal;
     }
     if overlay.authority.is_some() {
         runtime.authority = overlay.authority;
@@ -22242,15 +22278,15 @@ async fn read_project_awareness_shared(
     let (shared_project, shared_namespace) = shared_awareness_scope(runtime.as_ref());
 
     let sessions = match client
-        .peer_sessions(&memd_schema::PeerSessionsRequest {
+        .hive_sessions(&memd_schema::HiveSessionsRequest {
             session: None,
             project: shared_project.clone(),
             namespace: shared_namespace.clone(),
             workspace: workspace.clone(),
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             host: None,
-            peer_group: None,
+            hive_group: None,
             active_only: Some(false),
             limit: Some(512),
         })
@@ -22264,7 +22300,7 @@ async fn read_project_awareness_shared(
     }
 
     let claims = client
-        .peer_claims(&PeerClaimsRequest {
+        .hive_claims(&HiveClaimsRequest {
             session: None,
             project: shared_project,
             namespace: shared_namespace,
@@ -22299,11 +22335,11 @@ async fn read_project_awareness_shared(
             session: Some(session.session.clone()),
             tab_id: session.tab_id.clone(),
             effective_agent: session.effective_agent.clone(),
-            peer_system: session.peer_system.clone(),
-            peer_role: session.peer_role.clone(),
+            hive_system: session.hive_system.clone(),
+            hive_role: session.hive_role.clone(),
             capabilities: session.capabilities.clone(),
-            peer_groups: session.peer_groups.clone(),
-            peer_group_goal: session.peer_group_goal.clone(),
+            hive_groups: session.hive_groups.clone(),
+            hive_group_goal: session.hive_group_goal.clone(),
             authority: session.authority.clone(),
             base_url: session.base_url.clone(),
             presence: heartbeat_presence_label(session.last_seen).to_string(),
@@ -22447,11 +22483,11 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             agent: None,
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capabilities: Vec::new(),
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             base_url: None,
             route: None,
@@ -22498,28 +22534,28 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
                 .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
             agent: runtime.agent,
             session: runtime.session,
-            peer_system: heartbeat
+            hive_system: heartbeat
                 .as_ref()
-                .and_then(|value| value.peer_system.clone())
-                .or(runtime.peer_system),
-            peer_role: heartbeat
+                .and_then(|value| value.hive_system.clone())
+                .or(runtime.hive_system),
+            hive_role: heartbeat
                 .as_ref()
-                .and_then(|value| value.peer_role.clone())
-                .or(runtime.peer_role),
+                .and_then(|value| value.hive_role.clone())
+                .or(runtime.hive_role),
             capabilities: heartbeat
                 .as_ref()
                 .map(|value| value.capabilities.clone())
                 .filter(|value| !value.is_empty())
                 .unwrap_or(runtime.capabilities),
-            peer_groups: heartbeat
+            hive_groups: heartbeat
                 .as_ref()
-                .map(|value| value.peer_groups.clone())
+                .map(|value| value.hive_groups.clone())
                 .filter(|value| !value.is_empty())
-                .unwrap_or(runtime.peer_groups),
-            peer_group_goal: heartbeat
+                .unwrap_or(runtime.hive_groups),
+            hive_group_goal: heartbeat
                 .as_ref()
-                .and_then(|value| value.peer_group_goal.clone())
-                .or(runtime.peer_group_goal),
+                .and_then(|value| value.hive_group_goal.clone())
+                .or(runtime.hive_group_goal),
             authority: heartbeat
                 .as_ref()
                 .and_then(|value| value.authority.clone())
@@ -22606,19 +22642,19 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             .map(|value| compact_inline(value, 56))
             .unwrap_or_else(|| "none".to_string());
         lines.push(format!(
-            "- {} | presence={} claims={} ns={} peer={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
+            "- {} | presence={} claims={} ns={} hive={} role={} groups={} goal=\"{}\" authority={} agent={} session={} tab={} base_url={} workspace={} visibility={} focus=\"{}\" pressure=\"{}\"",
             entry.project.as_deref().unwrap_or("unknown"),
             entry.presence,
             entry.active_claims,
             entry.namespace.as_deref().unwrap_or("none"),
-            entry.peer_system.as_deref().unwrap_or("none"),
-            entry.peer_role.as_deref().unwrap_or("none"),
-            if entry.peer_groups.is_empty() {
+            entry.hive_system.as_deref().unwrap_or("none"),
+            entry.hive_role.as_deref().unwrap_or("none"),
+            if entry.hive_groups.is_empty() {
                 "none".to_string()
             } else {
-                entry.peer_groups.join(",")
+                entry.hive_groups.join(",")
             },
-            entry.peer_group_goal.as_deref().unwrap_or("none"),
+            entry.hive_group_goal.as_deref().unwrap_or("none"),
             entry.authority.as_deref().unwrap_or("none"),
             entry.effective_agent
                 .as_deref()
@@ -24600,41 +24636,41 @@ fn write_bundle_config_file(config_path: &Path, config: &BundleConfigFile) -> an
     Ok(())
 }
 
-fn set_bundle_peer_system(output: &Path, peer_system: &str) -> anyhow::Result<()> {
+fn set_bundle_hive_system(output: &Path, hive_system: &str) -> anyhow::Result<()> {
     let (config_path, mut config) = read_bundle_config_file(output)?;
-    config.peer_system = Some(peer_system.trim().to_string());
+    config.hive_system = Some(hive_system.trim().to_string());
     write_bundle_config_file(&config_path, &config)?;
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_PEER_SYSTEM=",
-        &format!("MEMD_PEER_SYSTEM={}\n", peer_system.trim()),
+        &format!("MEMD_PEER_SYSTEM={}\n", hive_system.trim()),
     )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_PEER_SYSTEM = ",
         &format!(
             "$env:MEMD_PEER_SYSTEM = \"{}\"\n",
-            escape_ps1(peer_system.trim())
+            escape_ps1(hive_system.trim())
         ),
     )?;
     Ok(())
 }
 
-fn set_bundle_peer_role(output: &Path, peer_role: &str) -> anyhow::Result<()> {
+fn set_bundle_hive_role(output: &Path, hive_role: &str) -> anyhow::Result<()> {
     let (config_path, mut config) = read_bundle_config_file(output)?;
-    config.peer_role = Some(peer_role.trim().to_string());
+    config.hive_role = Some(hive_role.trim().to_string());
     write_bundle_config_file(&config_path, &config)?;
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_PEER_ROLE=",
-        &format!("MEMD_PEER_ROLE={}\n", peer_role.trim()),
+        &format!("MEMD_PEER_ROLE={}\n", hive_role.trim()),
     )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_PEER_ROLE = ",
         &format!(
             "$env:MEMD_PEER_ROLE = \"{}\"\n",
-            escape_ps1(peer_role.trim())
+            escape_ps1(hive_role.trim())
         ),
     )?;
     Ok(())
@@ -24668,9 +24704,9 @@ fn set_bundle_capabilities(output: &Path, capabilities: &[String]) -> anyhow::Re
     Ok(())
 }
 
-fn set_bundle_peer_groups(output: &Path, peer_groups: &[String]) -> anyhow::Result<()> {
+fn set_bundle_hive_groups(output: &Path, hive_groups: &[String]) -> anyhow::Result<()> {
     let (config_path, mut config) = read_bundle_config_file(output)?;
-    let mut normalized = peer_groups
+    let mut normalized = hive_groups
         .iter()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
@@ -24678,7 +24714,7 @@ fn set_bundle_peer_groups(output: &Path, peer_groups: &[String]) -> anyhow::Resu
         .collect::<Vec<_>>();
     normalized.sort();
     normalized.dedup();
-    config.peer_groups = normalized.clone();
+    config.hive_groups = normalized.clone();
     write_bundle_config_file(&config_path, &config)?;
     rewrite_env_assignment(
         &output.join("env"),
@@ -24696,9 +24732,9 @@ fn set_bundle_peer_groups(output: &Path, peer_groups: &[String]) -> anyhow::Resu
     Ok(())
 }
 
-fn set_bundle_peer_group_goal(output: &Path, goal: &str) -> anyhow::Result<()> {
+fn set_bundle_hive_group_goal(output: &Path, goal: &str) -> anyhow::Result<()> {
     let (config_path, mut config) = read_bundle_config_file(output)?;
-    config.peer_group_goal = Some(goal.trim().to_string());
+    config.hive_group_goal = Some(goal.trim().to_string());
     write_bundle_config_file(&config_path, &config)?;
     rewrite_env_assignment(
         &output.join("env"),
@@ -24945,11 +24981,11 @@ struct BundleConfig {
     agent: String,
     session: String,
     tab_id: Option<String>,
-    peer_system: Option<String>,
-    peer_role: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
     capabilities: Vec<String>,
-    peer_groups: Vec<String>,
-    peer_group_goal: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
     base_url: String,
     route: String,
@@ -24998,15 +25034,15 @@ struct BundleConfigFile {
     #[serde(default)]
     tab_id: Option<String>,
     #[serde(default)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
     #[serde(default)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
     #[serde(default)]
     capabilities: Vec<String>,
     #[serde(default)]
-    peer_groups: Vec<String>,
+    hive_groups: Vec<String>,
     #[serde(default)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
     #[serde(default)]
     authority: Option<String>,
     #[serde(default)]
@@ -25036,11 +25072,11 @@ struct BundleRuntimeConfig {
     agent: Option<String>,
     session: Option<String>,
     tab_id: Option<String>,
-    peer_system: Option<String>,
-    peer_role: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
     capabilities: Vec<String>,
-    peer_groups: Vec<String>,
-    peer_group_goal: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
     base_url: Option<String>,
     route: Option<String>,
@@ -25925,11 +25961,11 @@ struct ProjectAwarenessEntry {
     session: Option<String>,
     tab_id: Option<String>,
     effective_agent: Option<String>,
-    peer_system: Option<String>,
-    peer_role: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
     capabilities: Vec<String>,
-    peer_groups: Vec<String>,
-    peer_group_goal: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
     authority: Option<String>,
     base_url: Option<String>,
     presence: String,
@@ -25963,15 +25999,15 @@ struct BundleHeartbeatState {
     #[serde(default)]
     tab_id: Option<String>,
     #[serde(default)]
-    peer_system: Option<String>,
+    hive_system: Option<String>,
     #[serde(default)]
-    peer_role: Option<String>,
+    hive_role: Option<String>,
     #[serde(default)]
     capabilities: Vec<String>,
     #[serde(default)]
-    peer_groups: Vec<String>,
+    hive_groups: Vec<String>,
     #[serde(default)]
-    peer_group_goal: Option<String>,
+    hive_group_goal: Option<String>,
     #[serde(default)]
     authority: Option<String>,
     #[serde(default)]
@@ -26022,7 +26058,7 @@ struct SessionClaimsState {
     claims: Vec<SessionClaim>,
 }
 
-fn session_claim_from_record(record: memd_schema::PeerClaimRecord) -> SessionClaim {
+fn session_claim_from_record(record: memd_schema::HiveClaimRecord) -> SessionClaim {
     SessionClaim {
         scope: record.scope,
         session: Some(record.session),
@@ -26050,33 +26086,33 @@ struct ClaimsResponse {
 struct MessagesResponse {
     bundle_root: String,
     current_session: Option<String>,
-    messages: Vec<PeerMessageRecord>,
+    messages: Vec<HiveMessageRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct TasksResponse {
     bundle_root: String,
     current_session: Option<String>,
-    tasks: Vec<PeerTaskRecord>,
+    tasks: Vec<HiveTaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct CoordinationResponse {
     bundle_root: String,
     current_session: String,
-    inbox: PeerCoordinationInboxResponse,
+    inbox: HiveCoordinationInboxResponse,
     recovery: CoordinationRecoverySummary,
     policy_conflicts: Vec<String>,
     suggestions: Vec<CoordinationSuggestion>,
     boundary_recommendations: Vec<String>,
-    receipts: Vec<PeerCoordinationReceiptRecord>,
+    receipts: Vec<HiveCoordinationReceiptRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct CoordinationRecoverySummary {
-    stale_peers: Vec<ProjectAwarenessEntry>,
+    stale_hives: Vec<ProjectAwarenessEntry>,
     reclaimable_claims: Vec<SessionClaim>,
-    stalled_tasks: Vec<PeerTaskRecord>,
+    stalled_tasks: Vec<HiveTaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -26104,7 +26140,7 @@ struct CoordinationAlertSnapshot {
     owned_count: usize,
     help_count: usize,
     review_count: usize,
-    stale_peer_count: usize,
+    stale_hive_count: usize,
     reclaimable_claim_count: usize,
     stalled_task_count: usize,
     policy_conflict_count: usize,
@@ -26231,12 +26267,12 @@ mod tests {
         routing::{get, post},
     };
     use memd_schema::{
-        PeerClaimAcquireRequest, PeerClaimRecord, PeerClaimReleaseRequest,
-        PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
-        PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord,
-        PeerCoordinationReceiptRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
-        PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
-        PeerTaskRecord, SkillPolicyActivationRecord, SkillPolicyApplyReceipt,
+        HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimReleaseRequest,
+        HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
+        HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+        HiveCoordinationReceiptRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
+        HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
+        HiveTaskRecord, SkillPolicyActivationRecord, SkillPolicyApplyReceipt,
         SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
         SkillPolicyApplyResponse,
     };
@@ -26385,10 +26421,10 @@ mod tests {
     }
 
     #[derive(Clone, Default)]
-    struct MockPeerState {
-        messages: Arc<Mutex<Vec<PeerMessageRecord>>>,
-        claims: Arc<Mutex<Vec<PeerClaimRecord>>>,
-        receipts: Arc<Mutex<Vec<PeerCoordinationReceiptRecord>>>,
+    struct MockHiveState {
+        messages: Arc<Mutex<Vec<HiveMessageRecord>>>,
+        claims: Arc<Mutex<Vec<HiveClaimRecord>>>,
+        receipts: Arc<Mutex<Vec<HiveCoordinationReceiptRecord>>>,
         skill_policy_receipts: Arc<Mutex<Vec<SkillPolicyApplyReceipt>>>,
         skill_policy_activations: Arc<Mutex<Vec<memd_schema::SkillPolicyActivationEntry>>>,
     }
@@ -26397,18 +26433,18 @@ mod tests {
     struct MockRuntimeState {
         stored: Arc<Mutex<Vec<memd_schema::StoreMemoryRequest>>>,
         repaired: Arc<Mutex<Vec<memd_schema::RepairMemoryRequest>>>,
-        session_upserts: Arc<Mutex<Vec<memd_schema::PeerSessionUpsertRequest>>>,
+        session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
         search_count: Arc<Mutex<usize>>,
         source_requests: Arc<Mutex<Vec<memd_schema::SourceMemoryRequest>>>,
         context_compact_response: Arc<Mutex<Option<memd_schema::CompactContextResponse>>>,
         working_response: Arc<Mutex<Option<memd_schema::WorkingMemoryResponse>>>,
     }
 
-    async fn mock_send_peer_message(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerMessageSendRequest>,
-    ) -> Json<PeerMessagesResponse> {
-        let message = PeerMessageRecord {
+    async fn mock_send_hive_message(
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveMessageSendRequest>,
+    ) -> Json<HiveMessagesResponse> {
+        let message = HiveMessageRecord {
             id: uuid::Uuid::new_v4().to_string(),
             kind: req.kind,
             from_session: req.from_session,
@@ -26426,15 +26462,15 @@ mod tests {
             .lock()
             .expect("lock messages")
             .push(message.clone());
-        Json(PeerMessagesResponse {
+        Json(HiveMessagesResponse {
             messages: vec![message],
         })
     }
 
-    async fn mock_peer_inbox(
-        State(state): State<MockPeerState>,
-        Query(req): Query<PeerMessageInboxRequest>,
-    ) -> Json<PeerMessagesResponse> {
+    async fn mock_hive_inbox(
+        State(state): State<MockHiveState>,
+        Query(req): Query<HiveMessageInboxRequest>,
+    ) -> Json<HiveMessagesResponse> {
         let messages = state
             .messages
             .lock()
@@ -26459,13 +26495,13 @@ mod tests {
             })
             .cloned()
             .collect();
-        Json(PeerMessagesResponse { messages })
+        Json(HiveMessagesResponse { messages })
     }
 
-    async fn mock_peer_ack(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerMessageAckRequest>,
-    ) -> Json<PeerMessagesResponse> {
+    async fn mock_hive_ack(
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveMessageAckRequest>,
+    ) -> Json<HiveMessagesResponse> {
         let mut messages = state.messages.lock().expect("lock messages");
         let mut acked = Vec::new();
         for message in messages.iter_mut() {
@@ -26474,13 +26510,13 @@ mod tests {
                 acked.push(message.clone());
             }
         }
-        Json(PeerMessagesResponse { messages: acked })
+        Json(HiveMessagesResponse { messages: acked })
     }
 
     async fn mock_claim_acquire(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerClaimAcquireRequest>,
-    ) -> Json<PeerClaimsResponse> {
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveClaimAcquireRequest>,
+    ) -> Json<HiveClaimsResponse> {
         let mut claims = state.claims.lock().expect("lock claims");
         claims.retain(|claim| claim.expires_at > Utc::now());
         if let Some(existing) = claims
@@ -26488,12 +26524,12 @@ mod tests {
             .find(|claim| claim.scope == req.scope && claim.session != req.session)
             .cloned()
         {
-            return Json(PeerClaimsResponse {
+            return Json(HiveClaimsResponse {
                 claims: vec![existing],
             });
         }
         claims.retain(|claim| !(claim.scope == req.scope && claim.session == req.session));
-        let claim = PeerClaimRecord {
+        let claim = HiveClaimRecord {
             scope: req.scope,
             session: req.session,
             tab_id: req.tab_id,
@@ -26508,15 +26544,15 @@ mod tests {
             expires_at: Utc::now() + chrono::TimeDelta::seconds(req.ttl_seconds as i64),
         };
         claims.push(claim.clone());
-        Json(PeerClaimsResponse {
+        Json(HiveClaimsResponse {
             claims: vec![claim],
         })
     }
 
     async fn mock_claim_release(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerClaimReleaseRequest>,
-    ) -> Json<PeerClaimsResponse> {
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveClaimReleaseRequest>,
+    ) -> Json<HiveClaimsResponse> {
         let mut claims = state.claims.lock().expect("lock claims");
         let mut released = Vec::new();
         claims.retain(|claim| {
@@ -26526,13 +26562,13 @@ mod tests {
             }
             !matches
         });
-        Json(PeerClaimsResponse { claims: released })
+        Json(HiveClaimsResponse { claims: released })
     }
 
     async fn mock_claim_transfer(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerClaimTransferRequest>,
-    ) -> Json<PeerClaimsResponse> {
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveClaimTransferRequest>,
+    ) -> Json<HiveClaimsResponse> {
         let mut claims = state.claims.lock().expect("lock claims");
         let mut transferred = Vec::new();
         for claim in claims.iter_mut() {
@@ -26543,15 +26579,15 @@ mod tests {
                 transferred.push(claim.clone());
             }
         }
-        Json(PeerClaimsResponse {
+        Json(HiveClaimsResponse {
             claims: transferred,
         })
     }
 
     async fn mock_claims(
-        State(state): State<MockPeerState>,
-        Query(req): Query<PeerClaimsRequest>,
-    ) -> Json<PeerClaimsResponse> {
+        State(state): State<MockHiveState>,
+        Query(req): Query<HiveClaimsRequest>,
+    ) -> Json<HiveClaimsResponse> {
         let claims = state
             .claims
             .lock()
@@ -26577,14 +26613,14 @@ mod tests {
             })
             .cloned()
             .collect();
-        Json(PeerClaimsResponse { claims })
+        Json(HiveClaimsResponse { claims })
     }
 
     async fn mock_record_receipt(
-        State(state): State<MockPeerState>,
-        Json(req): Json<PeerCoordinationReceiptRequest>,
-    ) -> Json<PeerCoordinationReceiptsResponse> {
-        let receipt = PeerCoordinationReceiptRecord {
+        State(state): State<MockHiveState>,
+        Json(req): Json<HiveCoordinationReceiptRequest>,
+    ) -> Json<HiveCoordinationReceiptsResponse> {
+        let receipt = HiveCoordinationReceiptRecord {
             id: uuid::Uuid::new_v4().to_string(),
             kind: req.kind,
             actor_session: req.actor_session,
@@ -26603,13 +26639,13 @@ mod tests {
             .lock()
             .expect("lock receipts")
             .push(receipt.clone());
-        Json(PeerCoordinationReceiptsResponse {
+        Json(HiveCoordinationReceiptsResponse {
             receipts: vec![receipt],
         })
     }
 
     async fn mock_record_skill_policy_apply(
-        State(state): State<MockPeerState>,
+        State(state): State<MockHiveState>,
         Json(req): Json<SkillPolicyApplyRequest>,
     ) -> Json<SkillPolicyApplyResponse> {
         let receipt = SkillPolicyApplyReceipt {
@@ -26652,7 +26688,7 @@ mod tests {
     }
 
     async fn mock_skill_policy_apply_receipts(
-        State(state): State<MockPeerState>,
+        State(state): State<MockHiveState>,
         Query(req): Query<SkillPolicyApplyReceiptsRequest>,
     ) -> Json<SkillPolicyApplyReceiptsResponse> {
         let receipts = state
@@ -26741,7 +26777,7 @@ mod tests {
     }
 
     async fn mock_skill_policy_activations(
-        State(state): State<MockPeerState>,
+        State(state): State<MockHiveState>,
         Query(req): Query<SkillPolicyActivationEntriesRequest>,
     ) -> Json<SkillPolicyActivationEntriesResponse> {
         let activations =
@@ -26877,8 +26913,8 @@ mod tests {
         } else {
             vec![memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
-                content: "peer resume state".to_string(),
-                redundancy_key: Some("Status|Project|demo|main||peer|resume|state".to_string()),
+                content: "hive resume state".to_string(),
+                redundancy_key: Some("Status|Project|demo|main||hive|resume|state".to_string()),
                 belief_branch: None,
                 preferred: false,
                 kind: memd_schema::MemoryKind::Status,
@@ -26989,26 +27025,26 @@ mod tests {
         })
     }
 
-    async fn mock_peer_session_upsert(
+    async fn mock_hive_session_upsert(
         State(state): State<MockRuntimeState>,
-        Json(req): Json<memd_schema::PeerSessionUpsertRequest>,
-    ) -> Json<memd_schema::PeerSessionsResponse> {
+        Json(req): Json<memd_schema::HiveSessionUpsertRequest>,
+    ) -> Json<memd_schema::HiveSessionsResponse> {
         state
             .session_upserts
             .lock()
             .expect("lock session upserts")
             .push(req.clone());
-        Json(memd_schema::PeerSessionsResponse {
-            sessions: vec![memd_schema::PeerSessionRecord {
+        Json(memd_schema::HiveSessionsResponse {
+            sessions: vec![memd_schema::HiveSessionRecord {
                 session: req.session,
                 tab_id: req.tab_id,
                 agent: req.agent,
                 effective_agent: req.effective_agent,
-                peer_system: req.peer_system,
-                peer_role: req.peer_role,
+                hive_system: req.hive_system,
+                hive_role: req.hive_role,
                 capabilities: req.capabilities,
-                peer_groups: req.peer_groups,
-                peer_group_goal: req.peer_group_goal,
+                hive_groups: req.hive_groups,
+                hive_group_goal: req.hive_group_goal,
                 authority: req.authority,
                 heartbeat_model: req.heartbeat_model,
                 project: req.project,
@@ -27035,17 +27071,17 @@ mod tests {
         })
     }
 
-    async fn mock_slow_peer_session_upsert(
+    async fn mock_slow_hive_session_upsert(
         State(state): State<MockRuntimeState>,
-        Json(req): Json<memd_schema::PeerSessionUpsertRequest>,
-    ) -> Json<memd_schema::PeerSessionsResponse> {
+        Json(req): Json<memd_schema::HiveSessionUpsertRequest>,
+    ) -> Json<memd_schema::HiveSessionsResponse> {
         state
             .session_upserts
             .lock()
             .expect("lock session upserts")
             .push(req.clone());
         tokio::time::sleep(Duration::from_secs(5)).await;
-        Json(memd_schema::PeerSessionsResponse {
+        Json(memd_schema::HiveSessionsResponse {
             sessions: Vec::new(),
         })
     }
@@ -27071,11 +27107,11 @@ mod tests {
         format!("http://{}", addr)
     }
 
-    async fn spawn_mock_runtime_server(state: MockRuntimeState, slow_peer_upsert: bool) -> String {
-        let peer_route = if slow_peer_upsert {
-            post(mock_slow_peer_session_upsert)
+    async fn spawn_mock_runtime_server(state: MockRuntimeState, slow_hive_upsert: bool) -> String {
+        let hive_route = if slow_hive_upsert {
+            post(mock_slow_hive_session_upsert)
         } else {
-            post(mock_peer_session_upsert)
+            post(mock_hive_session_upsert)
         };
         let app = Router::new()
             .route("/healthz", get(mock_healthz))
@@ -27087,7 +27123,7 @@ mod tests {
             .route("/memory/search", post(mock_search_memory))
             .route("/memory/store", post(mock_store_memory))
             .route("/memory/repair", post(mock_repair_memory))
-            .route("/coordination/sessions/upsert", peer_route)
+            .route("/coordination/sessions/upsert", hive_route)
             .with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -27102,12 +27138,12 @@ mod tests {
         format!("http://{}", addr)
     }
 
-    async fn spawn_mock_peer_server() -> String {
-        let state = MockPeerState::default();
+    async fn spawn_mock_hive_server() -> String {
+        let state = MockHiveState::default();
         let app = Router::new()
-            .route("/coordination/messages/send", post(mock_send_peer_message))
-            .route("/coordination/messages/inbox", get(mock_peer_inbox))
-            .route("/coordination/messages/ack", post(mock_peer_ack))
+            .route("/coordination/messages/send", post(mock_send_hive_message))
+            .route("/coordination/messages/inbox", get(mock_hive_inbox))
+            .route("/coordination/messages/ack", post(mock_hive_ack))
             .route("/coordination/receipts/record", post(mock_record_receipt))
             .route(
                 "/coordination/skill-policy/apply",
@@ -27124,12 +27160,12 @@ mod tests {
             .with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
-            .expect("bind mock peer server");
-        let addr = listener.local_addr().expect("mock peer server addr");
+            .expect("bind mock hive server");
+        let addr = listener.local_addr().expect("mock hive server addr");
         tokio::spawn(async move {
             axum::serve(listener, app)
                 .await
-                .expect("serve mock peer server");
+                .expect("serve mock hive server");
         });
         tokio::time::sleep(Duration::from_millis(25)).await;
         format!("http://{}", addr)
@@ -27209,11 +27245,11 @@ mod tests {
             agent: None,
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capabilities: Vec::new(),
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             base_url: None,
             route: None,
@@ -27246,11 +27282,11 @@ mod tests {
             agent: None,
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capabilities: Vec::new(),
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             base_url: None,
             route: None,
@@ -27279,11 +27315,11 @@ mod tests {
             agent: "codex".to_string(),
             session: "session-demo".to_string(),
             tab_id: None,
-            peer_system: Some("codex".to_string()),
-            peer_role: Some("agent".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
-            peer_groups: vec!["openclaw-stack".to_string()],
-            peer_group_goal: None,
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
             authority: Some("participant".to_string()),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
@@ -27335,11 +27371,11 @@ mod tests {
             agent: "codex".to_string(),
             session: "session-demo".to_string(),
             tab_id: None,
-            peer_system: Some("codex".to_string()),
-            peer_role: Some("agent".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
-            peer_groups: vec!["openclaw-stack".to_string()],
-            peer_group_goal: None,
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
             authority: Some("participant".to_string()),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
@@ -28009,11 +28045,11 @@ mod tests {
             agent: "codex".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: project_root.join(".memd"),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -28071,11 +28107,11 @@ mod tests {
             agent: "codex".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: output.clone(),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -28131,11 +28167,11 @@ mod tests {
             agent: "codex".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: output.clone(),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -28958,11 +28994,11 @@ mod tests {
             agent: "codex".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: default_init_output_path(),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -28995,11 +29031,11 @@ mod tests {
             agent: "codex".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: default_init_output_path(),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -29547,11 +29583,11 @@ mod tests {
             agent: Some("codex".to_string()),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capabilities: Vec::new(),
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             base_url: None,
             route: Some("auto".to_string()),
@@ -29818,7 +29854,7 @@ mod tests {
             promote_kind: Some("fact".to_string()),
             promote_scope: Some("project".to_string()),
             promote_supersede: Vec::new(),
-            promote_supersede_query: Some("peer resume state".to_string()),
+            promote_supersede_query: Some("hive resume state".to_string()),
             promote_tag: vec!["correction".to_string()],
             promote_confidence: Some(0.99),
             summary: true,
@@ -29827,7 +29863,7 @@ mod tests {
         let (supersede_targets, diagnostics) = find_hook_capture_supersede_targets(
             &base_url,
             &args,
-            "corrected fact: peer resume state",
+            "corrected fact: hive resume state",
         )
         .await
         .expect("query repair");
@@ -30423,11 +30459,11 @@ mod tests {
                 session: Some("claude-a".to_string()),
                 tab_id: Some("tab-a".to_string()),
                 effective_agent: Some("claude-code@claude-a".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 base_url: None,
                 presence: "active".to_string(),
@@ -30446,7 +30482,7 @@ mod tests {
         let summary = render_project_awareness_summary(&response);
         assert!(summary.contains("awareness root=/tmp/projects bundles=1 collisions=0"));
         assert!(summary.contains(
-            "sibling | presence=active claims=0 ns=main peer=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
+            "sibling | presence=active claims=0 ns=main hive=claude-code role=agent groups=openclaw-stack goal=\"none\" authority=participant agent=claude-code@claude-a session=claude-a tab=tab-a base_url=none workspace=research"
         ));
         assert!(summary.contains("focus=\"Investigate whether the recall lane is still stale\""));
         assert!(summary.contains("pressure=\"Repair the shared lane before the next resume\""));
@@ -30469,11 +30505,11 @@ mod tests {
                     session: Some("codex-a".to_string()),
                     tab_id: Some("tab-a".to_string()),
                     effective_agent: Some("codex@codex-a".to_string()),
-                    peer_system: Some("codex".to_string()),
-                    peer_role: Some("agent".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
                     capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                    peer_groups: vec!["openclaw-stack".to_string()],
-                    peer_group_goal: None,
+                    hive_groups: vec!["openclaw-stack".to_string()],
+                    hive_group_goal: None,
                     authority: Some("participant".to_string()),
                     base_url: Some("http://127.0.0.1:8787".to_string()),
                     presence: "active".to_string(),
@@ -30496,11 +30532,11 @@ mod tests {
                     session: Some("claude-b".to_string()),
                     tab_id: Some("tab-b".to_string()),
                     effective_agent: Some("claude-code@claude-b".to_string()),
-                    peer_system: Some("claude-code".to_string()),
-                    peer_role: Some("agent".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
                     capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                    peer_groups: vec!["openclaw-stack".to_string()],
-                    peer_group_goal: None,
+                    hive_groups: vec!["openclaw-stack".to_string()],
+                    hive_group_goal: None,
                     authority: Some("participant".to_string()),
                     base_url: Some("http://127.0.0.1:8787".to_string()),
                     presence: "active".to_string(),
@@ -30533,11 +30569,11 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 tab_id: Some("tab-a".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 presence: "active".to_string(),
@@ -30560,11 +30596,11 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 tab_id: Some("tab-a".to_string()),
                 effective_agent: Some("claude-code@shared-session".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
                 presence: "active".to_string(),
@@ -30609,11 +30645,11 @@ mod tests {
             agent: Some("codex".to_string()),
             effective_agent: Some("codex@codex-a".to_string()),
             tab_id: None,
-            peer_system: Some("codex".to_string()),
-            peer_role: Some("agent".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
-            peer_groups: vec!["openclaw-stack".to_string()],
-            peer_group_goal: None,
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
             authority: Some("participant".to_string()),
             heartbeat_model: Some(default_heartbeat_model()),
             project: Some("demo".to_string()),
@@ -30685,11 +30721,11 @@ mod tests {
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@claude-b".to_string()),
                 tab_id: None,
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("target".to_string()),
@@ -30725,7 +30761,7 @@ mod tests {
     async fn claims_acquire_and_release_scope() {
         let dir = std::env::temp_dir().join(format!("memd-claims-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(dir.join("state")).expect("create claims dir");
-        let base_url = spawn_mock_peer_server().await;
+        let base_url = spawn_mock_hive_server().await;
         fs::write(
             dir.join("config.json"),
             format!(
@@ -30751,11 +30787,11 @@ mod tests {
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-a".to_string()),
                 tab_id: None,
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
@@ -30823,7 +30859,7 @@ mod tests {
         let target_bundle = target_project.join(".memd");
         fs::create_dir_all(current_bundle.join("state")).expect("create current claims dir");
         fs::create_dir_all(target_bundle.join("state")).expect("create target claims dir");
-        let base_url = spawn_mock_peer_server().await;
+        let base_url = spawn_mock_hive_server().await;
 
         fs::write(
             current_bundle.join("config.json"),
@@ -30850,11 +30886,11 @@ mod tests {
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@codex-a".to_string()),
                 tab_id: None,
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
@@ -30900,11 +30936,11 @@ mod tests {
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@claude-b".to_string()),
                 tab_id: None,
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
@@ -30974,8 +31010,8 @@ mod tests {
         let target_bundle = target_project.join(".memd");
         fs::create_dir_all(&current_bundle).expect("create current bundle");
         fs::create_dir_all(&target_bundle).expect("create target bundle");
-        let current_base_url = spawn_mock_peer_server().await;
-        let target_base_url = spawn_mock_peer_server().await;
+        let current_base_url = spawn_mock_hive_server().await;
+        let target_base_url = spawn_mock_hive_server().await;
 
         fs::write(
             current_bundle.join("config.json"),
@@ -31195,7 +31231,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_bundle_heartbeat_times_out_slow_peer_publish() {
+    async fn write_bundle_heartbeat_times_out_slow_hive_publish() {
         let dir =
             std::env::temp_dir().join(format!("memd-heartbeat-timeout-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create heartbeat dir");
@@ -31209,9 +31245,9 @@ mod tests {
   "namespace": "main",
   "agent": "codex",
   "session": "codex-a",
-  "peer_system": "codex",
-  "peer_role": "agent",
-  "peer_groups": ["openclaw-stack", "runtime-core"],
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "hive_groups": ["openclaw-stack", "runtime-core"],
   "workspace": "shared",
   "visibility": "workspace",
   "tab_id": "tab-alpha",
@@ -31237,12 +31273,27 @@ mod tests {
             .expect("heartbeat present");
         assert_eq!(heartbeat.session.as_deref(), Some("codex-a"));
         assert_eq!(heartbeat.base_url.as_deref(), Some(base_url.as_str()));
+        assert!(
+            heartbeat
+                .hive_groups
+                .iter()
+                .any(|group| group == "project:demo")
+        );
+
+        let session_upserts = state.session_upserts.lock().expect("lock session upserts");
+        assert_eq!(session_upserts.len(), 1);
+        assert!(
+            session_upserts[0]
+                .hive_groups
+                .iter()
+                .any(|group| group == "project:demo")
+        );
 
         fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
     }
 
     #[tokio::test]
-    async fn read_bundle_resume_publishes_resume_state_and_peer_groups() {
+    async fn read_bundle_resume_publishes_resume_state_and_hive_groups() {
         let dir =
             std::env::temp_dir().join(format!("memd-resume-runtime-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create resume dir");
@@ -31256,9 +31307,9 @@ mod tests {
   "namespace": "main",
   "agent": "codex",
   "session": "codex-a",
-  "peer_system": "codex",
-  "peer_role": "agent",
-  "peer_groups": ["openclaw-stack", "runtime-core"],
+  "hive_system": "codex",
+  "hive_role": "agent",
+  "hive_groups": ["openclaw-stack", "runtime-core"],
   "workspace": "shared",
   "visibility": "workspace",
   "base_url": "{}",
@@ -31312,8 +31363,12 @@ mod tests {
         let last = session_upserts.last().expect("session upsert recorded");
         assert_eq!(last.session, "codex-a");
         assert_eq!(
-            last.peer_groups,
-            vec!["openclaw-stack".to_string(), "runtime-core".to_string()]
+            last.hive_groups,
+            vec![
+                "openclaw-stack".to_string(),
+                "project:demo".to_string(),
+                "runtime-core".to_string()
+            ]
         );
         assert_eq!(last.base_url.as_deref(), Some(base_url.as_str()));
 
@@ -32419,11 +32474,11 @@ mod tests {
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@claude-b".to_string()),
                 tab_id: None,
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some(default_heartbeat_model()),
                 project: Some("demo".to_string()),
@@ -32828,9 +32883,9 @@ mod tests {
     }
 
     #[test]
-    fn set_bundle_peer_metadata_updates_config_and_env_files() {
+    fn set_bundle_hive_metadata_updates_config_and_env_files() {
         let dir =
-            std::env::temp_dir().join(format!("memd-bundle-peer-meta-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("memd-bundle-hive-meta-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -32849,26 +32904,26 @@ mod tests {
         fs::write(dir.join("env"), "").expect("write env");
         fs::write(dir.join("env.ps1"), "").expect("write env.ps1");
 
-        set_bundle_peer_system(&dir, "agent-shell").expect("set peer system");
-        set_bundle_peer_role(&dir, "runtime-shell").expect("set peer role");
+        set_bundle_hive_system(&dir, "agent-shell").expect("set hive system");
+        set_bundle_hive_role(&dir, "runtime-shell").expect("set hive role");
         set_bundle_capabilities(&dir, &["shell".to_string(), "exec".to_string()])
             .expect("set capabilities");
-        set_bundle_peer_groups(
+        set_bundle_hive_groups(
             &dir,
             &["runtime-core".to_string(), "dependency-owners".to_string()],
         )
-        .expect("set peer groups");
-        set_bundle_peer_group_goal(&dir, "stabilize runtime dependencies").expect("set group goal");
+        .expect("set hive groups");
+        set_bundle_hive_group_goal(&dir, "stabilize runtime dependencies").expect("set group goal");
         set_bundle_authority(&dir, "worker").expect("set authority");
 
         let config = fs::read_to_string(dir.join("config.json")).expect("read config");
         let env = fs::read_to_string(dir.join("env")).expect("read env");
         let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
-        assert!(config.contains(r#""peer_system": "agent-shell""#));
-        assert!(config.contains(r#""peer_role": "runtime-shell""#));
-        assert!(config.contains(r#""peer_group_goal": "stabilize runtime dependencies""#));
+        assert!(config.contains(r#""hive_system": "agent-shell""#));
+        assert!(config.contains(r#""hive_role": "runtime-shell""#));
+        assert!(config.contains(r#""hive_group_goal": "stabilize runtime dependencies""#));
         assert!(config.contains(r#""authority": "worker""#));
-        assert!(config.contains(r#""peer_groups": ["#) || config.contains("\"peer_groups\": ["));
+        assert!(config.contains(r#""hive_groups": ["#) || config.contains("\"hive_groups\": ["));
         assert!(env.contains("MEMD_PEER_SYSTEM=agent-shell"));
         assert!(env.contains("MEMD_PEER_ROLE=runtime-shell"));
         assert!(
@@ -32939,11 +32994,11 @@ mod tests {
             agent: Some("codex".to_string()),
             session: Some("codex-a".to_string()),
             tab_id: None,
-            peer_system: Some("codex".to_string()),
-            peer_role: Some("agent".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
-            peer_groups: vec!["openclaw-stack".to_string()],
-            peer_group_goal: None,
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
             authority: Some("participant".to_string()),
             base_url: Some("http://127.0.0.1:8787".to_string()),
             route: Some("auto".to_string()),
@@ -32959,11 +33014,11 @@ mod tests {
             agent: None,
             session: None,
             tab_id: None,
-            peer_system: Some("claw-control".to_string()),
-            peer_role: Some("orchestrator".to_string()),
+            hive_system: Some("claw-control".to_string()),
+            hive_role: Some("orchestrator".to_string()),
             capabilities: vec!["control".to_string(), "coordination".to_string()],
-            peer_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
-            peer_group_goal: None,
+            hive_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
+            hive_group_goal: None,
             authority: Some("coordinator".to_string()),
             base_url: None,
             route: Some("lexical".to_string()),
@@ -32977,8 +33032,8 @@ mod tests {
         let merged = merge_bundle_runtime_config(runtime, overlay);
         assert_eq!(merged.project.as_deref(), Some("memd"));
         assert_eq!(merged.namespace.as_deref(), Some("main"));
-        assert_eq!(merged.peer_system.as_deref(), Some("claw-control"));
-        assert_eq!(merged.peer_role.as_deref(), Some("orchestrator"));
+        assert_eq!(merged.hive_system.as_deref(), Some("claw-control"));
+        assert_eq!(merged.hive_role.as_deref(), Some("orchestrator"));
         assert_eq!(merged.route.as_deref(), Some("lexical"));
         assert_eq!(merged.intent.as_deref(), Some("current_task"));
         assert_eq!(merged.workspace.as_deref(), Some("team-alpha"));
@@ -32988,7 +33043,7 @@ mod tests {
     }
 
     #[test]
-    fn init_infers_service_peer_profile_for_claw_control() {
+    fn init_infers_service_hive_profile_for_claw_control() {
         let args = InitArgs {
             project: None,
             namespace: None,
@@ -32998,11 +33053,11 @@ mod tests {
             agent: "claw-control".to_string(),
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capability: Vec::new(),
-            peer_group: Vec::new(),
-            peer_group_goal: None,
+            hive_group: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             output: default_init_output_path(),
             base_url: "http://127.0.0.1:8787".to_string(),
@@ -33014,9 +33069,9 @@ mod tests {
             force: false,
         };
 
-        let profile = resolve_peer_profile(&args);
-        assert_eq!(profile.peer_system.as_deref(), Some("claw-control"));
-        assert_eq!(profile.peer_role.as_deref(), Some("orchestrator"));
+        let profile = resolve_hive_profile(&args, None);
+        assert_eq!(profile.hive_system.as_deref(), Some("claw-control"));
+        assert_eq!(profile.hive_role.as_deref(), Some("orchestrator"));
         assert_eq!(profile.authority.as_deref(), Some("coordinator"));
         assert!(profile.capabilities.iter().any(|value| value == "control"));
         assert!(
@@ -33049,7 +33104,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_peer_command_base_url_prefers_global_bundle_override() {
+    fn resolve_hive_command_base_url_prefers_global_bundle_override() {
         let _home_lock = lock_home_mutation();
         let home = std::env::temp_dir().join(format!("memd-home-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(home.join(".memd")).expect("create fake home bundle");
@@ -33070,7 +33125,7 @@ mod tests {
             std::env::set_var("HOME", &home);
         }
 
-        let resolved = resolve_peer_command_base_url(SHARED_MEMD_BASE_URL);
+        let resolved = resolve_hive_command_base_url(SHARED_MEMD_BASE_URL);
         assert_eq!(resolved, "http://100.104.154.24:8787");
 
         if let Some(value) = original_home {
@@ -33190,11 +33245,11 @@ mod tests {
             agent: None,
             session: None,
             tab_id: None,
-            peer_system: None,
-            peer_role: None,
+            hive_system: None,
+            hive_role: None,
             capabilities: Vec::new(),
-            peer_groups: Vec::new(),
-            peer_group_goal: None,
+            hive_groups: Vec::new(),
+            hive_group_goal: None,
             authority: None,
             base_url: None,
             route: None,
@@ -33608,12 +33663,12 @@ mod tests {
     #[test]
     fn suggest_coordination_actions_emits_multi_priority_output() {
         let now = Utc::now();
-        let inbox = PeerCoordinationInboxResponse {
+        let inbox = HiveCoordinationInboxResponse {
             messages: vec![
-                PeerMessageRecord {
+                HiveMessageRecord {
                     id: "m-1".to_string(),
                     kind: "status_check".to_string(),
-                    from_session: "peer-a".to_string(),
+                    from_session: "hive-a".to_string(),
                     from_agent: None,
                     to_session: "codex".to_string(),
                     project: None,
@@ -33623,10 +33678,10 @@ mod tests {
                     created_at: now,
                     acknowledged_at: None,
                 },
-                PeerMessageRecord {
+                HiveMessageRecord {
                     id: "m-2".to_string(),
                     kind: "help_request".to_string(),
-                    from_session: "peer-b".to_string(),
+                    from_session: "hive-b".to_string(),
                     from_agent: None,
                     to_session: "codex".to_string(),
                     project: None,
@@ -33642,21 +33697,21 @@ mod tests {
             review_tasks: vec![],
         };
 
-        let stale_sessions = vec!["peer-stale"];
-        let active_peers = vec![ProjectAwarenessEntry {
+        let stale_sessions = vec!["hive-stale"];
+        let active_hives = vec![ProjectAwarenessEntry {
             project_dir: "remote".to_string(),
-            bundle_root: "remote:http://127.0.0.1:8787:peer-helper".to_string(),
+            bundle_root: "remote:http://127.0.0.1:8787:hive-helper".to_string(),
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
             agent: Some("agent-shell".to_string()),
-            session: Some("peer-helper".to_string()),
+            session: Some("hive-helper".to_string()),
             tab_id: Some("tab-helper".to_string()),
-            effective_agent: Some("agent-shell@peer-helper".to_string()),
-            peer_system: Some("agent-shell".to_string()),
-            peer_role: Some("runtime-shell".to_string()),
+            effective_agent: Some("agent-shell@hive-helper".to_string()),
+            hive_system: Some("agent-shell".to_string()),
+            hive_role: Some("runtime-shell".to_string()),
             capabilities: vec!["shell".to_string(), "exec".to_string()],
-            peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
-            peer_group_goal: Some("stabilize runtime execution".to_string()),
+            hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+            hive_group_goal: Some("stabilize runtime execution".to_string()),
             authority: Some("worker".to_string()),
             base_url: Some("http://127.0.0.1:8787".to_string()),
             presence: "active".to_string(),
@@ -33673,7 +33728,7 @@ mod tests {
         let claims = vec![
             SessionClaim {
                 scope: "shared/src.rs".to_string(),
-                session: Some("peer-stale".to_string()),
+                session: Some("hive-stale".to_string()),
                 tab_id: None,
                 agent: Some("claude".to_string()),
                 effective_agent: Some("codex".to_string()),
@@ -33686,7 +33741,7 @@ mod tests {
             },
             SessionClaim {
                 scope: "shared/src.rs".to_string(),
-                session: Some("peer-contender".to_string()),
+                session: Some("hive-contender".to_string()),
                 tab_id: None,
                 agent: None,
                 effective_agent: None,
@@ -33699,14 +33754,14 @@ mod tests {
             },
         ];
         let tasks = vec![
-            PeerTaskRecord {
+            HiveTaskRecord {
                 task_id: "task-exclusive".to_string(),
                 title: "edit shared".to_string(),
                 description: None,
                 status: "assigned".to_string(),
                 coordination_mode: "exclusive_write".to_string(),
-                session: Some("peer-owner".to_string()),
-                agent: Some("peer-owner".to_string()),
+                session: Some("hive-owner".to_string()),
+                agent: Some("hive-owner".to_string()),
                 effective_agent: None,
                 project: None,
                 namespace: None,
@@ -33717,7 +33772,7 @@ mod tests {
                 created_at: now,
                 updated_at: now,
             },
-            PeerTaskRecord {
+            HiveTaskRecord {
                 task_id: "task-review".to_string(),
                 title: "run review".to_string(),
                 description: None,
@@ -33735,7 +33790,7 @@ mod tests {
                 created_at: now,
                 updated_at: now,
             },
-            PeerTaskRecord {
+            HiveTaskRecord {
                 task_id: "task-help".to_string(),
                 title: "parallel assist".to_string(),
                 description: None,
@@ -33759,7 +33814,7 @@ mod tests {
         let suggestions = suggest_coordination_actions(
             &inbox,
             &stale_sessions,
-            &active_peers,
+            &active_hives,
             &claims,
             &tasks,
             "codex",
@@ -33782,12 +33837,12 @@ mod tests {
             suggestions
                 .iter()
                 .filter(|s| matches!(s.action.as_str(), "request_review" | "request_help"))
-                .all(|s| s.target_session.as_deref() == Some("peer-helper"))
+                .all(|s| s.target_session.as_deref() == Some("hive-helper"))
         );
         assert!(
             suggestions
                 .iter()
-                .any(|s| s.stale_session.as_deref() == Some("peer-stale"))
+                .any(|s| s.stale_session.as_deref() == Some("hive-stale"))
         );
     }
 
@@ -34040,14 +34095,14 @@ mod tests {
         let coordination = CoordinationResponse {
             bundle_root: ".memd".to_string(),
             current_session: "codex".to_string(),
-            inbox: PeerCoordinationInboxResponse {
+            inbox: HiveCoordinationInboxResponse {
                 messages: Vec::new(),
                 owned_tasks: Vec::new(),
                 help_tasks: Vec::new(),
                 review_tasks: Vec::new(),
             },
             recovery: CoordinationRecoverySummary {
-                stale_peers: Vec::new(),
+                stale_hives: Vec::new(),
                 reclaimable_claims: Vec::new(),
                 stalled_tasks: Vec::new(),
             },
@@ -34657,7 +34712,7 @@ mod tests {
 
     #[tokio::test]
     async fn skill_policy_apply_posts_to_server_sink() {
-        let base_url = spawn_mock_peer_server().await;
+        let base_url = spawn_mock_hive_server().await;
         let client = MemdClient::new(&base_url).expect("build client");
         let response = client
             .record_skill_policy_apply(&SkillPolicyApplyRequest {

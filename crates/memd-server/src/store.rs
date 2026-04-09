@@ -4,17 +4,17 @@ use std::sync::Arc;
 use anyhow::Context;
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchHit, EntitySearchRequest, MemoryAgentProfile, MemoryConsolidationRequest,
-    MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord,
-    MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest, PeerClaimAcquireRequest,
-    PeerClaimRecord, PeerClaimRecoverRequest, PeerClaimReleaseRequest, PeerClaimTransferRequest,
-    PeerClaimsRequest, PeerClaimsResponse, PeerCoordinationInboxRequest,
-    PeerCoordinationInboxResponse, PeerCoordinationReceiptRecord, PeerCoordinationReceiptRequest,
-    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageRecord, PeerMessageSendRequest, PeerMessagesResponse,
-    PeerSessionRecord, PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse,
-    PeerTaskAssignRequest, PeerTaskRecord, PeerTaskUpsertRequest, PeerTasksRequest,
-    PeerTasksResponse, SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    EntitySearchHit, EntitySearchRequest, HiveClaimAcquireRequest, HiveClaimRecord,
+    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
+    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRecord,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, MemoryMaintenanceReportRequest,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
     SkillPolicyActivationEntry, SkillPolicyApplyReceipt, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
@@ -169,7 +169,7 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_memory_agent_profiles_updated_at
               ON memory_agent_profiles(updated_at DESC);
 
-            CREATE TABLE IF NOT EXISTS peer_messages (
+            CREATE TABLE IF NOT EXISTS hive_messages (
               id TEXT PRIMARY KEY,
               to_session TEXT NOT NULL,
               project TEXT,
@@ -179,12 +179,12 @@ impl SqliteStore {
               acknowledged_at TEXT,
               payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_messages_session
-              ON peer_messages(to_session, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_messages_project_namespace
-              ON peer_messages(project, namespace, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_messages_session
+              ON hive_messages(to_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_messages_project_namespace
+              ON hive_messages(project, namespace, created_at DESC);
 
-            CREATE TABLE IF NOT EXISTS peer_claims (
+            CREATE TABLE IF NOT EXISTS hive_claims (
               scope TEXT PRIMARY KEY,
               session TEXT NOT NULL,
               project TEXT,
@@ -193,12 +193,12 @@ impl SqliteStore {
               expires_at TEXT NOT NULL,
               payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_claims_session
-              ON peer_claims(session, expires_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_claims_project_namespace
-              ON peer_claims(project, namespace, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_claims_session
+              ON hive_claims(session, expires_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_claims_project_namespace
+              ON hive_claims(project, namespace, expires_at DESC);
 
-            CREATE TABLE IF NOT EXISTS peer_tasks (
+            CREATE TABLE IF NOT EXISTS hive_tasks (
               task_id TEXT PRIMARY KEY,
               session TEXT,
               project TEXT,
@@ -208,12 +208,12 @@ impl SqliteStore {
               updated_at TEXT NOT NULL,
               payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_tasks_session
-              ON peer_tasks(session, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_tasks_project_namespace
-              ON peer_tasks(project, namespace, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_tasks_session
+              ON hive_tasks(session, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_tasks_project_namespace
+              ON hive_tasks(project, namespace, updated_at DESC);
 
-            CREATE TABLE IF NOT EXISTS peer_coordination_receipts (
+            CREATE TABLE IF NOT EXISTS hive_coordination_receipts (
               id TEXT PRIMARY KEY,
               actor_session TEXT NOT NULL,
               project TEXT,
@@ -222,10 +222,10 @@ impl SqliteStore {
               created_at TEXT NOT NULL,
               payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_actor
-              ON peer_coordination_receipts(actor_session, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_coordination_receipts_project_namespace
-              ON peer_coordination_receipts(project, namespace, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_coordination_receipts_actor
+              ON hive_coordination_receipts(actor_session, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_coordination_receipts_project_namespace
+              ON hive_coordination_receipts(project, namespace, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS skill_policy_apply_receipts (
               id TEXT PRIMARY KEY,
@@ -252,44 +252,44 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_skill_policy_activations_project_namespace
               ON skill_policy_activations(project, namespace, created_at DESC);
 
-            CREATE TABLE IF NOT EXISTS peer_sessions (
+            CREATE TABLE IF NOT EXISTS hive_sessions (
               session_key TEXT PRIMARY KEY,
               session TEXT NOT NULL,
               project TEXT,
               namespace TEXT,
               workspace TEXT,
-              peer_system TEXT,
-              peer_role TEXT,
+              hive_system TEXT,
+              hive_role TEXT,
               host TEXT,
               status TEXT NOT NULL,
               last_seen TEXT NOT NULL,
               payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_sessions_session
-              ON peer_sessions(session, last_seen DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_sessions_project_namespace
-              ON peer_sessions(project, namespace, last_seen DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_sessions_project_namespace_workspace
-              ON peer_sessions(project, namespace, workspace, last_seen DESC);
-            CREATE INDEX IF NOT EXISTS idx_peer_sessions_last_seen
-              ON peer_sessions(last_seen DESC);
-            CREATE TABLE IF NOT EXISTS peer_session_groups (
+            CREATE INDEX IF NOT EXISTS idx_hive_sessions_session
+              ON hive_sessions(session, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_sessions_project_namespace
+              ON hive_sessions(project, namespace, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_sessions_project_namespace_workspace
+              ON hive_sessions(project, namespace, workspace, last_seen DESC);
+            CREATE INDEX IF NOT EXISTS idx_hive_sessions_last_seen
+              ON hive_sessions(last_seen DESC);
+            CREATE TABLE IF NOT EXISTS hive_session_groups (
               session_key TEXT NOT NULL,
-              peer_group TEXT NOT NULL,
-              PRIMARY KEY (session_key, peer_group),
-              FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
+              hive_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, hive_group),
+              FOREIGN KEY (session_key) REFERENCES hive_sessions(session_key) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
-              ON peer_session_groups(session_key);
-            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
-              ON peer_session_groups(peer_group, session_key);
+            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_session
+              ON hive_session_groups(session_key);
+            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_hive_group
+              ON hive_session_groups(hive_group, session_key);
             "#,
         )
         .context("initialize sqlite schema")?;
 
         migrate_redundancy_key(&conn)?;
-        migrate_peer_sessions_identity_columns(&mut conn)?;
-        create_peer_session_identity_indexes(&conn)?;
+        migrate_hive_sessions_identity_columns(&mut conn)?;
+        create_hive_session_identity_indexes(&conn)?;
 
         Ok(Self {
             db_path: Arc::new(db_path),
@@ -1556,11 +1556,11 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
-    pub fn send_peer_message(
+    pub fn send_hive_message(
         &self,
-        request: &PeerMessageSendRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
-        let message = PeerMessageRecord {
+        request: &HiveMessageSendRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
+        let message = HiveMessageRecord {
             id: Uuid::new_v4().to_string(),
             kind: request.kind.trim().to_string(),
             from_session: request.from_session.trim().to_string(),
@@ -1579,12 +1579,12 @@ impl SqliteStore {
             acknowledged_at: None,
         };
         let payload_json =
-            serde_json::to_string(&message).context("serialize peer message payload")?;
+            serde_json::to_string(&message).context("serialize hive message payload")?;
 
         let conn = self.connect()?;
         conn.execute(
             r#"
-            INSERT INTO peer_messages (
+            INSERT INTO hive_messages (
               id, to_session, project, namespace, workspace, created_at, acknowledged_at, payload_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             "#,
@@ -1599,17 +1599,17 @@ impl SqliteStore {
                 payload_json,
             ],
         )
-        .context("insert peer message")?;
+        .context("insert hive message")?;
 
-        Ok(PeerMessagesResponse {
+        Ok(HiveMessagesResponse {
             messages: vec![message],
         })
     }
 
-    pub fn peer_inbox(
+    pub fn hive_inbox(
         &self,
-        request: &PeerMessageInboxRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
+        request: &HiveMessageInboxRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
         let include_acknowledged = request.include_acknowledged.unwrap_or(false);
         let limit = request.limit.unwrap_or(64).clamp(1, 512) as i64;
 
@@ -1618,7 +1618,7 @@ impl SqliteStore {
             .prepare(
                 r#"
                 SELECT payload_json
-                FROM peer_messages
+                FROM hive_messages
                 WHERE to_session = ?1
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
@@ -1628,7 +1628,7 @@ impl SqliteStore {
                 LIMIT ?6
                 "#,
             )
-            .context("prepare peer inbox query")?;
+            .context("prepare hive inbox query")?;
 
         let rows = stmt
             .query_map(
@@ -1642,48 +1642,48 @@ impl SqliteStore {
                 ],
                 |row| row.get::<_, String>(0),
             )
-            .context("query peer inbox")?;
+            .context("query hive inbox")?;
 
         let mut messages = Vec::new();
         for row in rows {
-            let payload = row.context("read peer inbox row")?;
+            let payload = row.context("read hive inbox row")?;
             messages.push(
-                serde_json::from_str::<PeerMessageRecord>(&payload)
-                    .context("deserialize peer inbox payload")?,
+                serde_json::from_str::<HiveMessageRecord>(&payload)
+                    .context("deserialize hive inbox payload")?,
             );
         }
 
-        Ok(PeerMessagesResponse { messages })
+        Ok(HiveMessagesResponse { messages })
     }
 
-    pub fn ack_peer_message(
+    pub fn ack_hive_message(
         &self,
-        request: &PeerMessageAckRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
+        request: &HiveMessageAckRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
         let conn = self.connect()?;
         let payload = conn
             .query_row(
-                "SELECT payload_json FROM peer_messages WHERE id = ?1 AND to_session = ?2",
+                "SELECT payload_json FROM hive_messages WHERE id = ?1 AND to_session = ?2",
                 params![request.id.trim(), request.session.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch peer message for ack")?;
+            .context("fetch hive message for ack")?;
 
         let Some(payload) = payload else {
-            return Ok(PeerMessagesResponse {
+            return Ok(HiveMessagesResponse {
                 messages: Vec::new(),
             });
         };
 
-        let mut message: PeerMessageRecord =
-            serde_json::from_str(&payload).context("deserialize peer message for ack")?;
+        let mut message: HiveMessageRecord =
+            serde_json::from_str(&payload).context("deserialize hive message for ack")?;
         message.acknowledged_at = Some(chrono::Utc::now());
         let updated_payload =
-            serde_json::to_string(&message).context("serialize acked peer message")?;
+            serde_json::to_string(&message).context("serialize acked hive message")?;
 
         conn.execute(
-            "UPDATE peer_messages SET acknowledged_at = ?2, payload_json = ?3 WHERE id = ?1",
+            "UPDATE hive_messages SET acknowledged_at = ?2, payload_json = ?3 WHERE id = ?1",
             params![
                 &message.id,
                 message
@@ -1693,22 +1693,22 @@ impl SqliteStore {
                 updated_payload,
             ],
         )
-        .context("ack peer message")?;
+        .context("ack hive message")?;
 
-        Ok(PeerMessagesResponse {
+        Ok(HiveMessagesResponse {
             messages: vec![message],
         })
     }
 
-    pub fn acquire_peer_claim(
+    pub fn acquire_hive_claim(
         &self,
-        request: &PeerClaimAcquireRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
-        self.prune_expired_peer_claims()?;
+        request: &HiveClaimAcquireRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
+        self.prune_expired_hive_claims()?;
 
         let expires_at =
             chrono::Utc::now() + chrono::TimeDelta::seconds(request.ttl_seconds.max(1) as i64);
-        let claim = PeerClaimRecord {
+        let claim = HiveClaimRecord {
             scope: request.scope.trim().to_string(),
             session: request.session.trim().to_string(),
             tab_id: request.tab_id.clone(),
@@ -1726,15 +1726,15 @@ impl SqliteStore {
         let conn = self.connect()?;
         let existing = conn
             .query_row(
-                "SELECT payload_json FROM peer_claims WHERE scope = ?1",
+                "SELECT payload_json FROM hive_claims WHERE scope = ?1",
                 params![claim.scope.as_str()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch existing peer claim")?;
+            .context("fetch existing hive claim")?;
         if let Some(payload) = existing {
-            let existing_claim: PeerClaimRecord =
-                serde_json::from_str(&payload).context("deserialize existing peer claim")?;
+            let existing_claim: HiveClaimRecord =
+                serde_json::from_str(&payload).context("deserialize existing hive claim")?;
             if existing_claim.session != claim.session
                 && existing_claim.expires_at > chrono::Utc::now()
             {
@@ -1749,10 +1749,10 @@ impl SqliteStore {
             }
         }
 
-        let payload_json = serde_json::to_string(&claim).context("serialize peer claim")?;
+        let payload_json = serde_json::to_string(&claim).context("serialize hive claim")?;
         conn.execute(
             r#"
-            INSERT INTO peer_claims (scope, session, project, namespace, workspace, expires_at, payload_json)
+            INSERT INTO hive_claims (scope, session, project, namespace, workspace, expires_at, payload_json)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ON CONFLICT(scope) DO UPDATE SET
               session = excluded.session,
@@ -1772,71 +1772,71 @@ impl SqliteStore {
                 payload_json,
             ],
         )
-        .context("upsert peer claim")?;
+        .context("upsert hive claim")?;
 
-        Ok(PeerClaimsResponse {
+        Ok(HiveClaimsResponse {
             claims: vec![claim],
         })
     }
 
-    pub fn release_peer_claim(
+    pub fn release_hive_claim(
         &self,
-        request: &PeerClaimReleaseRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+        request: &HiveClaimReleaseRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
         let conn = self.connect()?;
         let payload = conn
             .query_row(
-                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                "SELECT payload_json FROM hive_claims WHERE scope = ?1 AND session = ?2",
                 params![request.scope.trim(), request.session.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch peer claim for release")?;
+            .context("fetch hive claim for release")?;
         let Some(payload) = payload else {
-            return Ok(PeerClaimsResponse { claims: Vec::new() });
+            return Ok(HiveClaimsResponse { claims: Vec::new() });
         };
-        let claim: PeerClaimRecord =
-            serde_json::from_str(&payload).context("deserialize peer claim for release")?;
+        let claim: HiveClaimRecord =
+            serde_json::from_str(&payload).context("deserialize hive claim for release")?;
         conn.execute(
-            "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+            "DELETE FROM hive_claims WHERE scope = ?1 AND session = ?2",
             params![request.scope.trim(), request.session.trim()],
         )
-        .context("release peer claim")?;
-        Ok(PeerClaimsResponse {
+        .context("release hive claim")?;
+        Ok(HiveClaimsResponse {
             claims: vec![claim],
         })
     }
 
-    pub fn transfer_peer_claim(
+    pub fn transfer_hive_claim(
         &self,
-        request: &PeerClaimTransferRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
-        self.prune_expired_peer_claims()?;
+        request: &HiveClaimTransferRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
+        self.prune_expired_hive_claims()?;
 
         let conn = self.connect()?;
         let payload = conn
             .query_row(
-                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                "SELECT payload_json FROM hive_claims WHERE scope = ?1 AND session = ?2",
                 params![request.scope.trim(), request.from_session.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch peer claim for transfer")?;
+            .context("fetch hive claim for transfer")?;
         let Some(payload) = payload else {
-            return Ok(PeerClaimsResponse { claims: Vec::new() });
+            return Ok(HiveClaimsResponse { claims: Vec::new() });
         };
 
-        let mut claim: PeerClaimRecord =
-            serde_json::from_str(&payload).context("deserialize peer claim for transfer")?;
+        let mut claim: HiveClaimRecord =
+            serde_json::from_str(&payload).context("deserialize hive claim for transfer")?;
         claim.session = request.to_session.trim().to_string();
         claim.tab_id = request.to_tab_id.clone();
         claim.agent = request.to_agent.clone();
         claim.effective_agent = request.to_effective_agent.clone();
         let updated_payload =
-            serde_json::to_string(&claim).context("serialize transferred peer claim")?;
+            serde_json::to_string(&claim).context("serialize transferred hive claim")?;
         conn.execute(
             r#"
-            UPDATE peer_claims
+            UPDATE hive_claims
             SET session = ?2, payload_json = ?3
             WHERE scope = ?1 AND session = ?4
             "#,
@@ -1847,33 +1847,33 @@ impl SqliteStore {
                 request.from_session.trim(),
             ],
         )
-        .context("transfer peer claim")?;
-        Ok(PeerClaimsResponse {
+        .context("transfer hive claim")?;
+        Ok(HiveClaimsResponse {
             claims: vec![claim],
         })
     }
 
-    pub fn recover_peer_claim(
+    pub fn recover_hive_claim(
         &self,
-        request: &PeerClaimRecoverRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
-        self.prune_expired_peer_claims()?;
+        request: &HiveClaimRecoverRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
+        self.prune_expired_hive_claims()?;
 
         let conn = self.connect()?;
         let payload = conn
             .query_row(
-                "SELECT payload_json FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                "SELECT payload_json FROM hive_claims WHERE scope = ?1 AND session = ?2",
                 params![request.scope.trim(), request.from_session.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch peer claim for recovery")?;
+            .context("fetch hive claim for recovery")?;
         let Some(payload) = payload else {
-            return Ok(PeerClaimsResponse { claims: Vec::new() });
+            return Ok(HiveClaimsResponse { claims: Vec::new() });
         };
 
-        let mut claim: PeerClaimRecord =
-            serde_json::from_str(&payload).context("deserialize peer claim for recovery")?;
+        let mut claim: HiveClaimRecord =
+            serde_json::from_str(&payload).context("deserialize hive claim for recovery")?;
 
         if let Some(to_session) = request
             .to_session
@@ -1886,10 +1886,10 @@ impl SqliteStore {
             claim.agent = request.to_agent.clone();
             claim.effective_agent = request.to_effective_agent.clone();
             let updated_payload =
-                serde_json::to_string(&claim).context("serialize recovered peer claim")?;
+                serde_json::to_string(&claim).context("serialize recovered hive claim")?;
             conn.execute(
                 r#"
-                UPDATE peer_claims
+                UPDATE hive_claims
                 SET session = ?2, payload_json = ?3
                 WHERE scope = ?1 AND session = ?4
                 "#,
@@ -1900,24 +1900,24 @@ impl SqliteStore {
                     request.from_session.trim(),
                 ],
             )
-            .context("recover peer claim into new owner")?;
-            Ok(PeerClaimsResponse {
+            .context("recover hive claim into new owner")?;
+            Ok(HiveClaimsResponse {
                 claims: vec![claim],
             })
         } else {
             conn.execute(
-                "DELETE FROM peer_claims WHERE scope = ?1 AND session = ?2",
+                "DELETE FROM hive_claims WHERE scope = ?1 AND session = ?2",
                 params![request.scope.trim(), request.from_session.trim()],
             )
-            .context("delete peer claim during recovery")?;
-            Ok(PeerClaimsResponse {
+            .context("delete hive claim during recovery")?;
+            Ok(HiveClaimsResponse {
                 claims: vec![claim],
             })
         }
     }
 
-    pub fn peer_claims(&self, request: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
-        self.prune_expired_peer_claims()?;
+    pub fn hive_claims(&self, request: &HiveClaimsRequest) -> anyhow::Result<HiveClaimsResponse> {
+        self.prune_expired_hive_claims()?;
 
         let limit = request.limit.unwrap_or(256).clamp(1, 1024) as i64;
         let active_only = request.active_only.unwrap_or(true);
@@ -1926,7 +1926,7 @@ impl SqliteStore {
             .prepare(
                 r#"
                 SELECT payload_json
-                FROM peer_claims
+                FROM hive_claims
                 WHERE (?1 IS NULL OR session = ?1)
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
@@ -1936,7 +1936,7 @@ impl SqliteStore {
                 LIMIT ?7
                 "#,
             )
-            .context("prepare peer claims query")?;
+            .context("prepare hive claims query")?;
         let now = chrono::Utc::now().to_rfc3339();
         let rows = stmt
             .query_map(
@@ -1951,24 +1951,24 @@ impl SqliteStore {
                 ],
                 |row| row.get::<_, String>(0),
             )
-            .context("query peer claims")?;
+            .context("query hive claims")?;
 
         let mut claims = Vec::new();
         for row in rows {
-            let payload = row.context("read peer claim row")?;
+            let payload = row.context("read hive claim row")?;
             claims.push(
-                serde_json::from_str::<PeerClaimRecord>(&payload)
-                    .context("deserialize peer claim payload")?,
+                serde_json::from_str::<HiveClaimRecord>(&payload)
+                    .context("deserialize hive claim payload")?,
             );
         }
-        Ok(PeerClaimsResponse { claims })
+        Ok(HiveClaimsResponse { claims })
     }
 
-    pub fn upsert_peer_session(
+    pub fn upsert_hive_session(
         &self,
-        request: &PeerSessionUpsertRequest,
-    ) -> anyhow::Result<PeerSessionsResponse> {
-        self.prune_stale_peer_sessions()?;
+        request: &HiveSessionUpsertRequest,
+    ) -> anyhow::Result<HiveSessionsResponse> {
+        self.prune_stale_hive_sessions()?;
 
         let now = chrono::Utc::now();
         let session = request.session.trim().to_string();
@@ -1990,7 +1990,7 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let record = PeerSessionRecord {
+        let record = HiveSessionRecord {
             session: session.clone(),
             tab_id: request
                 .tab_id
@@ -2010,14 +2010,14 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
-            peer_system: request
-                .peer_system
+            hive_system: request
+                .hive_system
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
-            peer_role: request
-                .peer_role
+            hive_role: request
+                .hive_role
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2029,15 +2029,15 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
-            peer_groups: request
-                .peer_groups
+            hive_groups: request
+                .hive_groups
                 .iter()
                 .map(|value| value.trim())
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
-            peer_group_goal: request
-                .peer_group_goal
+            hive_group_goal: request
+                .hive_group_goal
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2104,17 +2104,17 @@ impl SqliteStore {
                 .to_string(),
             last_seen: now,
         };
-        let payload_json = serde_json::to_string(&record).context("serialize peer session")?;
-        let session_key = peer_session_key(
+        let payload_json = serde_json::to_string(&record).context("serialize hive session")?;
+        let session_key = hive_session_key(
             &session,
-            PeerSessionKeyArgs {
+            HiveSessionKeyArgs {
                 project: project.as_deref(),
                 namespace: namespace.as_deref(),
                 workspace: workspace.as_deref(),
                 agent: record.agent.as_deref(),
                 effective_agent: record.effective_agent.as_deref(),
-                peer_system: record.peer_system.as_deref(),
-                peer_role: record.peer_role.as_deref(),
+                hive_system: record.hive_system.as_deref(),
+                hive_role: record.hive_role.as_deref(),
                 host: record.host.as_deref(),
             },
         );
@@ -2122,19 +2122,19 @@ impl SqliteStore {
         let mut conn = self.connect()?;
         let tx = conn
             .transaction()
-            .context("begin peer session upsert transaction")?;
+            .context("begin hive session upsert transaction")?;
         tx.execute(
             r#"
-            INSERT INTO peer_sessions (
-              session_key, session, project, namespace, workspace, peer_system, peer_role, host, status, last_seen, payload_json
+            INSERT INTO hive_sessions (
+              session_key, session, project, namespace, workspace, hive_system, hive_role, host, status, last_seen, payload_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
               namespace = excluded.namespace,
               workspace = excluded.workspace,
-              peer_system = excluded.peer_system,
-              peer_role = excluded.peer_role,
+              hive_system = excluded.hive_system,
+              hive_role = excluded.hive_role,
               host = excluded.host,
               status = excluded.status,
               last_seen = excluded.last_seen,
@@ -2146,54 +2146,54 @@ impl SqliteStore {
                 &record.project,
                 &record.namespace,
                 &record.workspace,
-                &record.peer_system,
-                &record.peer_role,
+                &record.hive_system,
+                &record.hive_role,
                 &record.host,
                 record.status,
                 record.last_seen.to_rfc3339(),
                 payload_json,
             ],
         )
-        .context("upsert peer session")?;
+        .context("upsert hive session")?;
         tx.execute(
-            "DELETE FROM peer_session_groups WHERE session_key = ?1",
+            "DELETE FROM hive_session_groups WHERE session_key = ?1",
             params![session_key],
         )
-        .context("clear peer session groups")?;
+        .context("clear hive session groups")?;
 
         {
             let mut insert_group_stmt = tx.prepare(
-                "INSERT OR REPLACE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+                "INSERT OR REPLACE INTO hive_session_groups (session_key, hive_group) VALUES (?1, ?2)",
             )?;
-            for peer_group in record.peer_groups.iter() {
-                insert_group_stmt.execute(params![session_key, peer_group])?;
+            for hive_group in record.hive_groups.iter() {
+                insert_group_stmt.execute(params![session_key, hive_group])?;
             }
         }
         tx.commit()
-            .context("commit peer session upsert transaction")?;
+            .context("commit hive session upsert transaction")?;
 
-        Ok(PeerSessionsResponse {
+        Ok(HiveSessionsResponse {
             sessions: vec![record],
         })
     }
 
-    pub fn peer_sessions(
+    pub fn hive_sessions(
         &self,
-        request: &PeerSessionsRequest,
-    ) -> anyhow::Result<PeerSessionsResponse> {
-        self.prune_stale_peer_sessions()?;
+        request: &HiveSessionsRequest,
+    ) -> anyhow::Result<HiveSessionsResponse> {
+        self.prune_stale_hive_sessions()?;
 
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
-        let peer_system = request
-            .peer_system
+        let hive_system = request
+            .hive_system
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let peer_role = request
-            .peer_role
+        let hive_role = request
+            .hive_role
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2204,8 +2204,8 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let peer_group = request
-            .peer_group
+        let hive_group = request
+            .hive_group
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2237,28 +2237,28 @@ impl SqliteStore {
             .prepare(
                 r#"
                 SELECT payload_json
-                FROM peer_sessions
+                FROM hive_sessions
                 WHERE (?1 IS NULL OR session = ?1)
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
                   AND (?4 IS NULL OR workspace = ?4)
                   AND (?5 = 0 OR last_seen >= ?6)
-                  AND (?7 IS NULL OR peer_system = ?7)
-                  AND (?8 IS NULL OR peer_role = ?8)
+                  AND (?7 IS NULL OR hive_system = ?7)
+                  AND (?8 IS NULL OR hive_role = ?8)
                   AND (?9 IS NULL OR host = ?9)
                   AND (
                     ?10 IS NULL OR EXISTS (
                       SELECT 1
-                      FROM peer_session_groups
-                      WHERE peer_session_groups.session_key = peer_sessions.session_key
-                        AND peer_session_groups.peer_group = ?10
+                      FROM hive_session_groups
+                      WHERE hive_session_groups.session_key = hive_sessions.session_key
+                        AND hive_session_groups.hive_group = ?10
                     )
                   )
                 ORDER BY last_seen DESC
                 LIMIT ?11
                 "#,
             )
-            .context("prepare peer sessions query")?;
+            .context("prepare hive sessions query")?;
         let rows = stmt
             .query_map(
                 params![
@@ -2268,46 +2268,46 @@ impl SqliteStore {
                     workspace_filter,
                     if active_only { 1 } else { 0 },
                     active_cutoff,
-                    peer_system,
-                    peer_role,
+                    hive_system,
+                    hive_role,
                     host,
-                    peer_group,
+                    hive_group,
                     limit,
                 ],
                 |row| row.get::<_, String>(0),
             )
-            .context("query peer sessions")?;
+            .context("query hive sessions")?;
 
         let mut sessions = Vec::new();
         for row in rows {
-            let payload = row.context("read peer session row")?;
+            let payload = row.context("read hive session row")?;
             sessions.push(
-                serde_json::from_str::<PeerSessionRecord>(&payload)
-                    .context("deserialize peer session payload")?,
+                serde_json::from_str::<HiveSessionRecord>(&payload)
+                    .context("deserialize hive session payload")?,
             );
         }
 
-        Ok(PeerSessionsResponse { sessions })
+        Ok(HiveSessionsResponse { sessions })
     }
 
-    pub fn upsert_peer_task(
+    pub fn upsert_hive_task(
         &self,
-        request: &PeerTaskUpsertRequest,
-    ) -> anyhow::Result<PeerTasksResponse> {
+        request: &HiveTaskUpsertRequest,
+    ) -> anyhow::Result<HiveTasksResponse> {
         let conn = self.connect()?;
         let existing = conn
             .query_row(
-                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                "SELECT payload_json FROM hive_tasks WHERE task_id = ?1",
                 params![request.task_id.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch existing peer task")?;
+            .context("fetch existing hive task")?;
 
         let now = chrono::Utc::now();
         let mut task = if let Some(payload) = existing {
-            let mut task: PeerTaskRecord =
-                serde_json::from_str(&payload).context("deserialize existing peer task")?;
+            let mut task: HiveTaskRecord =
+                serde_json::from_str(&payload).context("deserialize existing hive task")?;
             task.title = request.title.trim().to_string();
             task.description = request
                 .description
@@ -2350,7 +2350,7 @@ impl SqliteStore {
             task.updated_at = now;
             task
         } else {
-            PeerTaskRecord {
+            HiveTaskRecord {
                 task_id: request.task_id.trim().to_string(),
                 title: request.title.trim().to_string(),
                 description: request
@@ -2396,10 +2396,10 @@ impl SqliteStore {
             task.status = "active".to_string();
         }
 
-        let payload_json = serde_json::to_string(&task).context("serialize peer task")?;
+        let payload_json = serde_json::to_string(&task).context("serialize hive task")?;
         conn.execute(
             r#"
-            INSERT INTO peer_tasks (task_id, session, project, namespace, workspace, status, updated_at, payload_json)
+            INSERT INTO hive_tasks (task_id, session, project, namespace, workspace, status, updated_at, payload_json)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(task_id) DO UPDATE SET
               session = excluded.session,
@@ -2421,30 +2421,30 @@ impl SqliteStore {
                 payload_json,
             ],
         )
-        .context("upsert peer task")?;
+        .context("upsert hive task")?;
 
-        Ok(PeerTasksResponse { tasks: vec![task] })
+        Ok(HiveTasksResponse { tasks: vec![task] })
     }
 
-    pub fn assign_peer_task(
+    pub fn assign_hive_task(
         &self,
-        request: &PeerTaskAssignRequest,
-    ) -> anyhow::Result<PeerTasksResponse> {
+        request: &HiveTaskAssignRequest,
+    ) -> anyhow::Result<HiveTasksResponse> {
         let conn = self.connect()?;
         let payload = conn
             .query_row(
-                "SELECT payload_json FROM peer_tasks WHERE task_id = ?1",
+                "SELECT payload_json FROM hive_tasks WHERE task_id = ?1",
                 params![request.task_id.trim()],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .context("fetch peer task for assignment")?;
+            .context("fetch hive task for assignment")?;
         let Some(payload) = payload else {
-            return Ok(PeerTasksResponse { tasks: Vec::new() });
+            return Ok(HiveTasksResponse { tasks: Vec::new() });
         };
 
-        let mut task: PeerTaskRecord =
-            serde_json::from_str(&payload).context("deserialize peer task for assignment")?;
+        let mut task: HiveTaskRecord =
+            serde_json::from_str(&payload).context("deserialize hive task for assignment")?;
         if let Some(from_session) = request
             .from_session
             .as_deref()
@@ -2460,10 +2460,10 @@ impl SqliteStore {
         task.effective_agent = request.to_effective_agent.clone();
         task.status = "assigned".to_string();
         task.updated_at = chrono::Utc::now();
-        let payload_json = serde_json::to_string(&task).context("serialize assigned peer task")?;
+        let payload_json = serde_json::to_string(&task).context("serialize assigned hive task")?;
         conn.execute(
             r#"
-            UPDATE peer_tasks
+            UPDATE hive_tasks
             SET session = ?2, status = ?3, updated_at = ?4, payload_json = ?5
             WHERE task_id = ?1
             "#,
@@ -2475,11 +2475,11 @@ impl SqliteStore {
                 payload_json,
             ],
         )
-        .context("assign peer task")?;
-        Ok(PeerTasksResponse { tasks: vec![task] })
+        .context("assign hive task")?;
+        Ok(HiveTasksResponse { tasks: vec![task] })
     }
 
-    pub fn peer_tasks(&self, request: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+    pub fn hive_tasks(&self, request: &HiveTasksRequest) -> anyhow::Result<HiveTasksResponse> {
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let active_only = request.active_only.unwrap_or(true);
         let conn = self.connect()?;
@@ -2487,7 +2487,7 @@ impl SqliteStore {
             .prepare(
                 r#"
                 SELECT payload_json
-                FROM peer_tasks
+                FROM hive_tasks
                 WHERE (?1 IS NULL OR session = ?1)
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
@@ -2497,7 +2497,7 @@ impl SqliteStore {
                 LIMIT ?6
                 "#,
             )
-            .context("prepare peer tasks query")?;
+            .context("prepare hive tasks query")?;
         let rows = stmt
             .query_map(
                 params![
@@ -2510,25 +2510,25 @@ impl SqliteStore {
                 ],
                 |row| row.get::<_, String>(0),
             )
-            .context("query peer tasks")?;
+            .context("query hive tasks")?;
 
         let mut tasks = Vec::new();
         for row in rows {
-            let payload = row.context("read peer task row")?;
+            let payload = row.context("read hive task row")?;
             tasks.push(
-                serde_json::from_str::<PeerTaskRecord>(&payload)
-                    .context("deserialize peer task payload")?,
+                serde_json::from_str::<HiveTaskRecord>(&payload)
+                    .context("deserialize hive task payload")?,
             );
         }
-        Ok(PeerTasksResponse { tasks })
+        Ok(HiveTasksResponse { tasks })
     }
 
-    pub fn peer_coordination_inbox(
+    pub fn hive_coordination_inbox(
         &self,
-        request: &PeerCoordinationInboxRequest,
-    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        request: &HiveCoordinationInboxRequest,
+    ) -> anyhow::Result<HiveCoordinationInboxResponse> {
         let messages = self
-            .peer_inbox(&PeerMessageInboxRequest {
+            .hive_inbox(&HiveMessageInboxRequest {
                 session: request.session.clone(),
                 project: request.project.clone(),
                 namespace: request.namespace.clone(),
@@ -2539,7 +2539,7 @@ impl SqliteStore {
             .messages;
 
         let tasks = self
-            .peer_tasks(&PeerTasksRequest {
+            .hive_tasks(&HiveTasksRequest {
                 session: None,
                 project: request.project.clone(),
                 namespace: request.namespace.clone(),
@@ -2564,7 +2564,7 @@ impl SqliteStore {
             }
         }
 
-        Ok(PeerCoordinationInboxResponse {
+        Ok(HiveCoordinationInboxResponse {
             messages,
             owned_tasks,
             help_tasks,
@@ -2572,11 +2572,11 @@ impl SqliteStore {
         })
     }
 
-    pub fn record_peer_coordination_receipt(
+    pub fn record_hive_coordination_receipt(
         &self,
-        request: &PeerCoordinationReceiptRequest,
-    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
-        let receipt = PeerCoordinationReceiptRecord {
+        request: &HiveCoordinationReceiptRequest,
+    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
+        let receipt = HiveCoordinationReceiptRecord {
             id: Uuid::new_v4().to_string(),
             kind: request.kind.trim().to_string(),
             actor_session: request.actor_session.trim().to_string(),
@@ -2595,7 +2595,7 @@ impl SqliteStore {
         let conn = self.connect()?;
         conn.execute(
             r#"
-            INSERT INTO peer_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
+            INSERT INTO hive_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             "#,
             params![
@@ -2609,22 +2609,22 @@ impl SqliteStore {
             ],
         )
         .context("insert coordination receipt")?;
-        Ok(PeerCoordinationReceiptsResponse {
+        Ok(HiveCoordinationReceiptsResponse {
             receipts: vec![receipt],
         })
     }
 
-    pub fn peer_coordination_receipts(
+    pub fn hive_coordination_receipts(
         &self,
-        request: &PeerCoordinationReceiptsRequest,
-    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        request: &HiveCoordinationReceiptsRequest,
+    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
         let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
                 r#"
                 SELECT payload_json
-                FROM peer_coordination_receipts
+                FROM hive_coordination_receipts
                 WHERE (?1 IS NULL OR actor_session = ?1)
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
@@ -2650,11 +2650,11 @@ impl SqliteStore {
         for row in rows {
             let payload = row.context("read coordination receipt row")?;
             receipts.push(
-                serde_json::from_str::<PeerCoordinationReceiptRecord>(&payload)
+                serde_json::from_str::<HiveCoordinationReceiptRecord>(&payload)
                     .context("deserialize coordination receipt payload")?,
             );
         }
-        Ok(PeerCoordinationReceiptsResponse { receipts })
+        Ok(HiveCoordinationReceiptsResponse { receipts })
     }
 
     pub fn record_skill_policy_apply_receipt(
@@ -2821,23 +2821,23 @@ impl SqliteStore {
             .map(|found| found.filter(|duplicate| duplicate.id != exclude_id))
     }
 
-    fn prune_expired_peer_claims(&self) -> anyhow::Result<()> {
+    fn prune_expired_hive_claims(&self) -> anyhow::Result<()> {
         let conn = self.connect()?;
         conn.execute(
-            "DELETE FROM peer_claims WHERE expires_at <= ?1",
+            "DELETE FROM hive_claims WHERE expires_at <= ?1",
             params![chrono::Utc::now().to_rfc3339()],
         )
-        .context("prune expired peer claims")?;
+        .context("prune expired hive claims")?;
         Ok(())
     }
 
-    fn prune_stale_peer_sessions(&self) -> anyhow::Result<()> {
+    fn prune_stale_hive_sessions(&self) -> anyhow::Result<()> {
         let conn = self.connect()?;
         conn.execute(
-            "DELETE FROM peer_sessions WHERE last_seen < ?1",
+            "DELETE FROM hive_sessions WHERE last_seen < ?1",
             params![(chrono::Utc::now() - chrono::TimeDelta::hours(24)).to_rfc3339()],
         )
-        .context("prune stale peer sessions")?;
+        .context("prune stale hive sessions")?;
         Ok(())
     }
 
@@ -2985,18 +2985,18 @@ fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {
     )
 }
 
-struct PeerSessionKeyArgs<'a> {
+struct HiveSessionKeyArgs<'a> {
     project: Option<&'a str>,
     namespace: Option<&'a str>,
     workspace: Option<&'a str>,
     agent: Option<&'a str>,
     effective_agent: Option<&'a str>,
-    peer_system: Option<&'a str>,
-    peer_role: Option<&'a str>,
+    hive_system: Option<&'a str>,
+    hive_role: Option<&'a str>,
     host: Option<&'a str>,
 }
 
-fn peer_session_key(session: &str, args: PeerSessionKeyArgs<'_>) -> String {
+fn hive_session_key(session: &str, args: HiveSessionKeyArgs<'_>) -> String {
     format!(
         "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         session.trim(),
@@ -3005,8 +3005,8 @@ fn peer_session_key(session: &str, args: PeerSessionKeyArgs<'_>) -> String {
         args.workspace.unwrap_or("").trim(),
         args.agent.unwrap_or("").trim(),
         args.effective_agent.unwrap_or("").trim(),
-        args.peer_system.unwrap_or("").trim(),
-        args.peer_role.unwrap_or("").trim(),
+        args.hive_system.unwrap_or("").trim(),
+        args.hive_role.unwrap_or("").trim(),
         args.host.unwrap_or("").trim()
     )
 }
@@ -3511,126 +3511,126 @@ fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn migrate_peer_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
+fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
     let columns = {
-        let mut stmt = conn.prepare("PRAGMA table_info(peer_sessions)")?;
+        let mut stmt = conn.prepare("PRAGMA table_info(hive_sessions)")?;
         stmt.query_map([], |row| row.get::<_, String>(1))?
             .collect::<Result<Vec<_>, _>>()?
     };
 
-    let has_peer_system = columns.iter().any(|value| value == "peer_system");
-    let has_peer_role = columns.iter().any(|value| value == "peer_role");
+    let has_hive_system = columns.iter().any(|value| value == "hive_system");
+    let has_hive_role = columns.iter().any(|value| value == "hive_role");
     let has_host = columns.iter().any(|value| value == "host");
 
-    if !has_peer_system {
-        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_system TEXT;")?;
+    if !has_hive_system {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN hive_system TEXT;")?;
     }
-    if !has_peer_role {
-        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN peer_role TEXT;")?;
+    if !has_hive_role {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN hive_role TEXT;")?;
     }
     if !has_host {
-        conn.execute_batch("ALTER TABLE peer_sessions ADD COLUMN host TEXT;")?;
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN host TEXT;")?;
     }
 
-    let has_peer_session_groups = conn
+    let has_hive_session_groups = conn
         .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'peer_session_groups'",
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hive_session_groups'",
             [],
             |_| Ok(()),
         )
         .optional()?
         .is_some();
-    if !has_peer_session_groups {
+    if !has_hive_session_groups {
         conn.execute_batch(
             r#"
-            CREATE TABLE IF NOT EXISTS peer_session_groups (
+            CREATE TABLE IF NOT EXISTS hive_session_groups (
               session_key TEXT NOT NULL,
-              peer_group TEXT NOT NULL,
-              PRIMARY KEY (session_key, peer_group),
-              FOREIGN KEY (session_key) REFERENCES peer_sessions(session_key) ON DELETE CASCADE
+              hive_group TEXT NOT NULL,
+              PRIMARY KEY (session_key, hive_group),
+              FOREIGN KEY (session_key) REFERENCES hive_sessions(session_key) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_session
-              ON peer_session_groups(session_key);
-            CREATE INDEX IF NOT EXISTS idx_peer_session_groups_peer_group
-              ON peer_session_groups(peer_group, session_key);
+            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_session
+              ON hive_session_groups(session_key);
+            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_hive_group
+              ON hive_session_groups(hive_group, session_key);
             "#,
         )?;
     }
 
-    let peer_session_groups_empty = conn
-        .query_row("SELECT 1 FROM peer_session_groups LIMIT 1", [], |_| Ok(()))
+    let hive_session_groups_empty = conn
+        .query_row("SELECT 1 FROM hive_session_groups LIMIT 1", [], |_| Ok(()))
         .optional()?
         .is_none();
 
-    if !has_peer_system || !has_peer_role || !has_host || peer_session_groups_empty {
+    if !has_hive_system || !has_hive_role || !has_host || hive_session_groups_empty {
         let tx = conn
             .transaction()
-            .context("begin peer session migration backfill")?;
+            .context("begin hive session migration backfill")?;
 
         {
             let mut statement =
-                tx.prepare("SELECT session_key, payload_json FROM peer_sessions")?;
+                tx.prepare("SELECT session_key, payload_json FROM hive_sessions")?;
             let mut rows = statement.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
 
-            let mut update = if !has_peer_system || !has_peer_role || !has_host {
+            let mut update = if !has_hive_system || !has_hive_role || !has_host {
                 Some(tx.prepare(
-                    "UPDATE peer_sessions SET peer_system = ?1, peer_role = ?2, host = ?3 WHERE session_key = ?4",
+                    "UPDATE hive_sessions SET hive_system = ?1, hive_role = ?2, host = ?3 WHERE session_key = ?4",
                 )?)
             } else {
                 None
             };
-            let mut insert_group = if peer_session_groups_empty {
+            let mut insert_group = if hive_session_groups_empty {
                 Some(tx.prepare(
-                    "INSERT OR IGNORE INTO peer_session_groups (session_key, peer_group) VALUES (?1, ?2)",
+                    "INSERT OR IGNORE INTO hive_session_groups (session_key, hive_group) VALUES (?1, ?2)",
                 )?)
             } else {
                 None
             };
 
-            if peer_session_groups_empty {
-                tx.execute("DELETE FROM peer_session_groups", [])?;
+            if hive_session_groups_empty {
+                tx.execute("DELETE FROM hive_session_groups", [])?;
             }
 
             for row in rows.by_ref() {
                 let (session_key, payload) = row?;
-                let record: PeerSessionRecord =
-                    serde_json::from_str(&payload).context("deserialize peer session record")?;
+                let record: HiveSessionRecord =
+                    serde_json::from_str(&payload).context("deserialize hive session record")?;
                 if let Some(update) = update.as_mut() {
                     update.execute(params![
-                        record.peer_system,
-                        record.peer_role,
+                        record.hive_system,
+                        record.hive_role,
                         record.host,
                         session_key
                     ])?;
                 }
                 if let Some(insert_group) = insert_group.as_mut() {
-                    for peer_group in record.peer_groups.iter() {
-                        insert_group.execute(params![session_key, peer_group])?;
+                    for hive_group in record.hive_groups.iter() {
+                        insert_group.execute(params![session_key, hive_group])?;
                     }
                 }
             }
         }
         tx.commit()
-            .context("commit peer session migration backfill")?;
+            .context("commit hive session migration backfill")?;
     }
 
     Ok(())
 }
 
-fn create_peer_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
+fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"
-        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_system
-          ON peer_sessions(peer_system);
-        CREATE INDEX IF NOT EXISTS idx_peer_sessions_peer_role
-          ON peer_sessions(peer_role);
-        CREATE INDEX IF NOT EXISTS idx_peer_sessions_host
-          ON peer_sessions(host);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_system
+          ON hive_sessions(hive_system);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_role
+          ON hive_sessions(hive_role);
+        CREATE INDEX IF NOT EXISTS idx_hive_sessions_host
+          ON hive_sessions(host);
         "#,
     )
-    .context("create peer session identity indexes")?;
+    .context("create hive session identity indexes")?;
 
     Ok(())
 }
@@ -3652,7 +3652,7 @@ mod tests {
         let now = chrono::Utc::now();
         MemoryItem {
             id: Uuid::new_v4(),
-            content: "peer resume state".to_string(),
+            content: "hive resume state".to_string(),
             redundancy_key: None,
             belief_branch: None,
             preferred: false,
@@ -3919,21 +3919,21 @@ mod tests {
     }
 
     #[test]
-    fn peer_sessions_keep_same_named_sessions_separate_across_agents() {
-        let dir = std::env::temp_dir().join(format!("memd-peer-sessions-{}", uuid::Uuid::new_v4()));
+    fn hive_sessions_keep_same_named_sessions_separate_across_agents() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-sessions-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -3952,15 +3952,15 @@ mod tests {
             })
             .expect("insert codex session");
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("claude-code".to_string()),
                 effective_agent: Some("claude-code@shared-session".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("agent".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("claude-sonnet-4".to_string()),
                 tab_id: None,
@@ -3980,15 +3980,15 @@ mod tests {
             .expect("insert claude session");
 
         let sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: None,
                 namespace: None,
                 workspace: Some("initiative-alpha".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -4015,25 +4015,25 @@ mod tests {
     }
 
     #[test]
-    fn peer_sessions_preserve_service_peer_metadata() {
-        let dir = std::env::temp_dir().join(format!("memd-peer-service-{}", uuid::Uuid::new_v4()));
+    fn hive_sessions_preserve_service_hive_metadata() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-service-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shell-a".to_string(),
                 agent: Some("agent-shell".to_string()),
                 effective_agent: Some("agent-shell@shell-a".to_string()),
-                peer_system: Some("agent-shell".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("agent-shell".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec![
                     "shell".to_string(),
                     "exec".to_string(),
                     "workspace".to_string(),
                 ],
-                peer_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4050,50 +4050,50 @@ mod tests {
                 next_recovery: None,
                 status: Some("live".to_string()),
             })
-            .expect("insert service peer");
+            .expect("insert service hive");
 
         let sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shell-a".to_string()),
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("stack-alpha".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(8),
             })
-            .expect("query service peer");
+            .expect("query service hive");
 
         assert_eq!(sessions.sessions.len(), 1);
-        let peer = &sessions.sessions[0];
-        assert_eq!(peer.peer_system.as_deref(), Some("agent-shell"));
-        assert_eq!(peer.peer_role.as_deref(), Some("runtime-shell"));
-        assert_eq!(peer.authority.as_deref(), Some("worker"));
-        assert!(peer.capabilities.iter().any(|value| value == "shell"));
-        assert!(peer.capabilities.iter().any(|value| value == "exec"));
+        let hive = &sessions.sessions[0];
+        assert_eq!(hive.hive_system.as_deref(), Some("agent-shell"));
+        assert_eq!(hive.hive_role.as_deref(), Some("runtime-shell"));
+        assert_eq!(hive.authority.as_deref(), Some("worker"));
+        assert!(hive.capabilities.iter().any(|value| value == "shell"));
+        assert!(hive.capabilities.iter().any(|value| value == "exec"));
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
     #[test]
-    fn peer_sessions_filter_by_peer_identity() {
-        let dir = std::env::temp_dir().join(format!("memd-peer-filter-{}", uuid::Uuid::new_v4()));
+    fn hive_sessions_filter_by_hive_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-filter-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-a".to_string()),
                 effective_agent: Some("agent-a@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
-                peer_groups: vec!["runtime-core".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4113,15 +4113,15 @@ mod tests {
             .expect("insert codex runtime shell session");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-b".to_string()),
                 effective_agent: Some("agent-b@shared-session".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("orchestrator".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
                 capabilities: vec!["coordination".to_string()],
-                peer_groups: vec!["openclaw-stack".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
                 authority: Some("coordinator".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
@@ -4141,15 +4141,15 @@ mod tests {
             .expect("insert codex orchestrator session");
 
         store
-            .upsert_peer_session(&PeerSessionUpsertRequest {
+            .upsert_hive_session(&HiveSessionUpsertRequest {
                 session: "shared-session".to_string(),
                 agent: Some("agent-c".to_string()),
                 effective_agent: Some("agent-c@shared-session".to_string()),
-                peer_system: Some("claude-code".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
-                peer_groups: vec!["runtime-core".to_string()],
-                peer_group_goal: None,
+                hive_groups: vec!["runtime-core".to_string()],
+                hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("claude-opus".to_string()),
                 tab_id: None,
@@ -4169,56 +4169,56 @@ mod tests {
             .expect("insert claude runtime shell session");
 
         let codex_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: None,
+                hive_system: Some("codex".to_string()),
+                hive_role: None,
                 host: None,
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
-            .expect("query sessions by peer system");
+            .expect("query sessions by hive system");
         assert_eq!(codex_sessions.sessions.len(), 2);
 
         let runtime_session = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: Some("codex".to_string()),
-                peer_role: Some("runtime-shell".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("runtime-shell".to_string()),
                 host: Some("vm-a".to_string()),
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
-            .expect("query sessions by peer role and host");
+            .expect("query sessions by hive role and host");
         assert_eq!(runtime_session.sessions.len(), 1);
         assert_eq!(
-            runtime_session.sessions[0].peer_system.as_deref(),
+            runtime_session.sessions[0].hive_system.as_deref(),
             Some("codex")
         );
         assert_eq!(
-            runtime_session.sessions[0].peer_role.as_deref(),
+            runtime_session.sessions[0].hive_role.as_deref(),
             Some("runtime-shell")
         );
         assert_eq!(runtime_session.sessions[0].host.as_deref(), Some("vm-a"));
 
         let host_a_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: Some("vm-a".to_string()),
-                peer_group: None,
+                hive_group: None,
                 active_only: Some(false),
                 limit: Some(16),
             })
@@ -4232,23 +4232,23 @@ mod tests {
         );
 
         let runtime_group_sessions = store
-            .peer_sessions(&PeerSessionsRequest {
+            .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: Some("shared".to_string()),
-                peer_system: None,
-                peer_role: None,
+                hive_system: None,
+                hive_role: None,
                 host: None,
-                peer_group: Some("runtime-core".to_string()),
+                hive_group: Some("runtime-core".to_string()),
                 active_only: Some(false),
                 limit: Some(16),
             })
-            .expect("query sessions by peer group");
+            .expect("query sessions by hive group");
         assert_eq!(runtime_group_sessions.sessions.len(), 2);
         assert!(runtime_group_sessions.sessions.iter().all(|session| {
             session
-                .peer_groups
+                .hive_groups
                 .iter()
                 .any(|value| value == "runtime-core")
         }));
@@ -4257,8 +4257,8 @@ mod tests {
     }
 
     #[test]
-    fn open_migrates_legacy_peer_sessions_before_identity_indexes() {
-        let dir = std::env::temp_dir().join(format!("legacy-peer-sessions-{}", Uuid::new_v4()));
+    fn open_migrates_legacy_hive_sessions_before_identity_indexes() {
+        let dir = std::env::temp_dir().join(format!("legacy-hive-sessions-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let path = dir.join("state.sqlite");
         let conn = Connection::open(&path).expect("open sqlite database");
@@ -4266,7 +4266,7 @@ mod tests {
         conn.execute_batch(
             r#"
             PRAGMA foreign_keys = ON;
-            CREATE TABLE peer_sessions (
+            CREATE TABLE hive_sessions (
               session_key TEXT PRIMARY KEY,
               session TEXT NOT NULL,
               project TEXT,
@@ -4278,7 +4278,7 @@ mod tests {
             );
             "#,
         )
-        .expect("create legacy peer_sessions");
+        .expect("create legacy hive_sessions");
 
         drop(conn);
 
@@ -4286,40 +4286,40 @@ mod tests {
         let conn = store.connect().expect("connect migrated sqlite store");
         let columns = {
             let mut stmt = conn
-                .prepare("PRAGMA table_info(peer_sessions)")
+                .prepare("PRAGMA table_info(hive_sessions)")
                 .expect("prepare table info");
             stmt.query_map([], |row| row.get::<_, String>(1))
                 .expect("query table info")
                 .collect::<Result<Vec<_>, _>>()
-                .expect("collect peer session columns")
+                .expect("collect hive session columns")
         };
-        assert!(columns.iter().any(|value| value == "peer_system"));
-        assert!(columns.iter().any(|value| value == "peer_role"));
+        assert!(columns.iter().any(|value| value == "hive_system"));
+        assert!(columns.iter().any(|value| value == "hive_role"));
         assert!(columns.iter().any(|value| value == "host"));
 
         let indexes = {
             let mut stmt = conn
-                .prepare("PRAGMA index_list(peer_sessions)")
+                .prepare("PRAGMA index_list(hive_sessions)")
                 .expect("prepare index list");
             stmt.query_map([], |row| row.get::<_, String>(1))
                 .expect("query index list")
                 .collect::<Result<Vec<_>, _>>()
-                .expect("collect peer session indexes")
+                .expect("collect hive session indexes")
         };
         assert!(
             indexes
                 .iter()
-                .any(|value| value == "idx_peer_sessions_peer_system")
+                .any(|value| value == "idx_hive_sessions_hive_system")
         );
         assert!(
             indexes
                 .iter()
-                .any(|value| value == "idx_peer_sessions_peer_role")
+                .any(|value| value == "idx_hive_sessions_hive_role")
         );
         assert!(
             indexes
                 .iter()
-                .any(|value| value == "idx_peer_sessions_host")
+                .any(|value| value == "idx_hive_sessions_host")
         );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");

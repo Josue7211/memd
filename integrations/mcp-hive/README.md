@@ -1,12 +1,12 @@
-# memd Peer MCP
+# memd Hive MCP
 
-This MCP server exposes the brokered `memd` peer coordination substrate as
+This MCP server exposes the brokered `memd` hive coordination substrate as
 agent-facing tools.
 
 It reuses the existing `memd-server` coordination backend:
 
-- peer messages
-- peer inbox and acknowledgement
+- hive messages
+- hive inbox and acknowledgement
 - brokered claims
 - claim transfer
 - assignment-friendly work handoff
@@ -15,7 +15,7 @@ It does not create a second coordination store.
 
 ## Tools
 
-- `list_peers`
+- `list_hives`
 - `check_inbox`
 - `coordination_inbox`
 - `coordination_dashboard`
@@ -55,7 +55,7 @@ bundle's configured `base_url` for coordination calls.
 ## Install
 
 ```bash
-cd integrations/mcp-peer
+cd integrations/mcp-hive
 npm install
 ```
 
@@ -63,9 +63,9 @@ npm install
 
 ```json
 {
-  "memd-peer": {
+    "memd-hive": {
     "command": "node",
-    "args": ["./integrations/mcp-peer/server.js"],
+    "args": ["./integrations/mcp-hive/server.js"],
     "env": {
       "MEMD_BUNDLE_ROOT": "/absolute/path/to/project/.memd"
     }
@@ -75,7 +75,7 @@ npm install
 
 ## Notes
 
-- peer discovery is bundle-aware: it scans sibling project bundles and reads
+- hive discovery is bundle-aware: it scans sibling project bundles and reads
   their session identity and heartbeat state
 - message and claim operations use the shared `memd-server` backend routes
 - claims, tasks, and assignments preserve session-qualified ownership instead

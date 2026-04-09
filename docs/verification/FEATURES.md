@@ -809,7 +809,7 @@ Canonical short-term state such as focus, blockers, recovery steps, branch scope
 
 #### Notes
 
-- the repo already derives and stores `resume_state` and peer-group/session updates, so the audit should prove those records are functioning as a canonical live lane
+- the repo already derives and stores `resume_state` and hive-group/session updates, so the audit should prove those records are functioning as a canonical live lane
 - this is the contract that makes coworking feel synchronous instead of replay-based
 
 ### FEATURE-V3-MERGE-COLLISION-GOVERNOR: Merge, Divergence, And Provider Collision Handling

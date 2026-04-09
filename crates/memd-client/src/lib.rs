@@ -5,16 +5,16 @@ use memd_schema::{
     CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, MemoryConsolidationRequest,
-    MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, PeerClaimAcquireRequest, PeerClaimRecoverRequest,
-    PeerClaimReleaseRequest, PeerClaimTransferRequest, PeerClaimsRequest, PeerClaimsResponse,
-    PeerCoordinationInboxRequest, PeerCoordinationInboxResponse, PeerCoordinationReceiptRequest,
-    PeerCoordinationReceiptsRequest, PeerCoordinationReceiptsResponse, PeerMessageAckRequest,
-    PeerMessageInboxRequest, PeerMessageSendRequest, PeerMessagesResponse,
-    PeerSessionUpsertRequest, PeerSessionsRequest, PeerSessionsResponse, PeerTaskAssignRequest,
-    PeerTaskUpsertRequest, PeerTasksRequest, PeerTasksResponse, PromoteMemoryRequest,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
+    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
+    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionUpsertRequest, HiveSessionsRequest,
+    HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest,
+    HiveTasksResponse, MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
@@ -205,96 +205,96 @@ impl MemdClient {
         self.get_json_with_query("/memory/workspaces", req).await
     }
 
-    pub async fn send_peer_message(
+    pub async fn send_hive_message(
         &self,
-        req: &PeerMessageSendRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
+        req: &HiveMessageSendRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
         self.post_json("/coordination/messages/send", req).await
     }
 
-    pub async fn peer_inbox(
+    pub async fn hive_inbox(
         &self,
-        req: &PeerMessageInboxRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
+        req: &HiveMessageInboxRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
         self.get_json_with_query("/coordination/messages/inbox", req)
             .await
     }
 
-    pub async fn ack_peer_message(
+    pub async fn ack_hive_message(
         &self,
-        req: &PeerMessageAckRequest,
-    ) -> anyhow::Result<PeerMessagesResponse> {
+        req: &HiveMessageAckRequest,
+    ) -> anyhow::Result<HiveMessagesResponse> {
         self.post_json("/coordination/messages/ack", req).await
     }
 
-    pub async fn acquire_peer_claim(
+    pub async fn acquire_hive_claim(
         &self,
-        req: &PeerClaimAcquireRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+        req: &HiveClaimAcquireRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
         self.post_json("/coordination/claims/acquire", req).await
     }
 
-    pub async fn release_peer_claim(
+    pub async fn release_hive_claim(
         &self,
-        req: &PeerClaimReleaseRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+        req: &HiveClaimReleaseRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
         self.post_json("/coordination/claims/release", req).await
     }
 
-    pub async fn transfer_peer_claim(
+    pub async fn transfer_hive_claim(
         &self,
-        req: &PeerClaimTransferRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+        req: &HiveClaimTransferRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
         self.post_json("/coordination/claims/transfer", req).await
     }
 
-    pub async fn recover_peer_claim(
+    pub async fn recover_hive_claim(
         &self,
-        req: &PeerClaimRecoverRequest,
-    ) -> anyhow::Result<PeerClaimsResponse> {
+        req: &HiveClaimRecoverRequest,
+    ) -> anyhow::Result<HiveClaimsResponse> {
         self.post_json("/coordination/claims/recover", req).await
     }
 
-    pub async fn peer_claims(&self, req: &PeerClaimsRequest) -> anyhow::Result<PeerClaimsResponse> {
+    pub async fn hive_claims(&self, req: &HiveClaimsRequest) -> anyhow::Result<HiveClaimsResponse> {
         self.get_json_with_query("/coordination/claims", req).await
     }
 
-    pub async fn upsert_peer_task(
+    pub async fn upsert_hive_task(
         &self,
-        req: &PeerTaskUpsertRequest,
-    ) -> anyhow::Result<PeerTasksResponse> {
+        req: &HiveTaskUpsertRequest,
+    ) -> anyhow::Result<HiveTasksResponse> {
         self.post_json("/coordination/tasks/upsert", req).await
     }
 
-    pub async fn assign_peer_task(
+    pub async fn assign_hive_task(
         &self,
-        req: &PeerTaskAssignRequest,
-    ) -> anyhow::Result<PeerTasksResponse> {
+        req: &HiveTaskAssignRequest,
+    ) -> anyhow::Result<HiveTasksResponse> {
         self.post_json("/coordination/tasks/assign", req).await
     }
 
-    pub async fn peer_tasks(&self, req: &PeerTasksRequest) -> anyhow::Result<PeerTasksResponse> {
+    pub async fn hive_tasks(&self, req: &HiveTasksRequest) -> anyhow::Result<HiveTasksResponse> {
         self.get_json_with_query("/coordination/tasks", req).await
     }
 
-    pub async fn peer_coordination_inbox(
+    pub async fn hive_coordination_inbox(
         &self,
-        req: &PeerCoordinationInboxRequest,
-    ) -> anyhow::Result<PeerCoordinationInboxResponse> {
+        req: &HiveCoordinationInboxRequest,
+    ) -> anyhow::Result<HiveCoordinationInboxResponse> {
         self.get_json_with_query("/coordination/inbox", req).await
     }
 
-    pub async fn record_peer_coordination_receipt(
+    pub async fn record_hive_coordination_receipt(
         &self,
-        req: &PeerCoordinationReceiptRequest,
-    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        req: &HiveCoordinationReceiptRequest,
+    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
         self.post_json("/coordination/receipts/record", req).await
     }
 
-    pub async fn peer_coordination_receipts(
+    pub async fn hive_coordination_receipts(
         &self,
-        req: &PeerCoordinationReceiptsRequest,
-    ) -> anyhow::Result<PeerCoordinationReceiptsResponse> {
+        req: &HiveCoordinationReceiptsRequest,
+    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
         self.get_json_with_query("/coordination/receipts", req)
             .await
     }
@@ -323,17 +323,17 @@ impl MemdClient {
             .await
     }
 
-    pub async fn upsert_peer_session(
+    pub async fn upsert_hive_session(
         &self,
-        req: &PeerSessionUpsertRequest,
-    ) -> anyhow::Result<PeerSessionsResponse> {
+        req: &HiveSessionUpsertRequest,
+    ) -> anyhow::Result<HiveSessionsResponse> {
         self.post_json("/coordination/sessions/upsert", req).await
     }
 
-    pub async fn peer_sessions(
+    pub async fn hive_sessions(
         &self,
-        req: &PeerSessionsRequest,
-    ) -> anyhow::Result<PeerSessionsResponse> {
+        req: &HiveSessionsRequest,
+    ) -> anyhow::Result<HiveSessionsResponse> {
         self.get_json_with_query("/coordination/sessions", req)
             .await
     }

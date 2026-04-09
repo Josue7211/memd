@@ -59,11 +59,11 @@ Resume the compact current-task lane:
 memd resume --output .memd --intent current_task
 ```
 
-Peer and claim summaries now show the live tab label too, so two Codex tabs can
+Hive and claim summaries now show the live tab label too, so two Codex tabs can
 stay separate in the same project:
 
 ```bash
-memd peer --output .memd --summary
+memd hive --output .memd --summary
 memd claims --output .memd --summary
 ```
 

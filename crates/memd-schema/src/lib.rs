@@ -491,7 +491,7 @@ pub struct WorkspaceMemoryResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerMessageRecord {
+pub struct HiveMessageRecord {
     pub id: String,
     pub kind: String,
     pub from_session: String,
@@ -506,7 +506,7 @@ pub struct PeerMessageRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerMessageSendRequest {
+pub struct HiveMessageSendRequest {
     pub kind: String,
     pub from_session: String,
     pub from_agent: Option<String>,
@@ -518,13 +518,13 @@ pub struct PeerMessageSendRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerMessageAckRequest {
+pub struct HiveMessageAckRequest {
     pub id: String,
     pub session: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerMessageInboxRequest {
+pub struct HiveMessageInboxRequest {
     pub session: String,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -534,12 +534,12 @@ pub struct PeerMessageInboxRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerMessagesResponse {
-    pub messages: Vec<PeerMessageRecord>,
+pub struct HiveMessagesResponse {
+    pub messages: Vec<HiveMessageRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimRecord {
+pub struct HiveClaimRecord {
     pub scope: String,
     pub session: String,
     pub tab_id: Option<String>,
@@ -555,7 +555,7 @@ pub struct PeerClaimRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimAcquireRequest {
+pub struct HiveClaimAcquireRequest {
     pub scope: String,
     pub session: String,
     pub tab_id: Option<String>,
@@ -570,13 +570,13 @@ pub struct PeerClaimAcquireRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimReleaseRequest {
+pub struct HiveClaimReleaseRequest {
     pub scope: String,
     pub session: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimTransferRequest {
+pub struct HiveClaimTransferRequest {
     pub scope: String,
     pub from_session: String,
     pub to_session: String,
@@ -586,7 +586,7 @@ pub struct PeerClaimTransferRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimRecoverRequest {
+pub struct HiveClaimRecoverRequest {
     pub scope: String,
     pub from_session: String,
     pub to_session: Option<String>,
@@ -596,7 +596,7 @@ pub struct PeerClaimRecoverRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerClaimsRequest {
+pub struct HiveClaimsRequest {
     pub session: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -606,23 +606,23 @@ pub struct PeerClaimsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerClaimsResponse {
-    pub claims: Vec<PeerClaimRecord>,
+pub struct HiveClaimsResponse {
+    pub claims: Vec<HiveClaimRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerSessionRecord {
+pub struct HiveSessionRecord {
     pub session: String,
     pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    pub hive_system: Option<String>,
+    pub hive_role: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
-    pub peer_groups: Vec<String>,
-    pub peer_group_goal: Option<String>,
+    pub hive_groups: Vec<String>,
+    pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
@@ -641,18 +641,18 @@ pub struct PeerSessionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerSessionUpsertRequest {
+pub struct HiveSessionUpsertRequest {
     pub session: String,
     pub tab_id: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    pub hive_system: Option<String>,
+    pub hive_role: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
-    pub peer_groups: Vec<String>,
-    pub peer_group_goal: Option<String>,
+    pub hive_groups: Vec<String>,
+    pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
@@ -670,26 +670,26 @@ pub struct PeerSessionUpsertRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerSessionsRequest {
+pub struct HiveSessionsRequest {
     pub session: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
-    pub peer_system: Option<String>,
-    pub peer_role: Option<String>,
+    pub hive_system: Option<String>,
+    pub hive_role: Option<String>,
     pub host: Option<String>,
-    pub peer_group: Option<String>,
+    pub hive_group: Option<String>,
     pub active_only: Option<bool>,
     pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerSessionsResponse {
-    pub sessions: Vec<PeerSessionRecord>,
+pub struct HiveSessionsResponse {
+    pub sessions: Vec<HiveSessionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerTaskRecord {
+pub struct HiveTaskRecord {
     pub task_id: String,
     pub title: String,
     pub description: Option<String>,
@@ -710,7 +710,7 @@ pub struct PeerTaskRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerTaskUpsertRequest {
+pub struct HiveTaskUpsertRequest {
     pub task_id: String,
     pub title: String,
     pub description: Option<String>,
@@ -728,7 +728,7 @@ pub struct PeerTaskUpsertRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerTaskAssignRequest {
+pub struct HiveTaskAssignRequest {
     pub task_id: String,
     pub from_session: Option<String>,
     pub to_session: String,
@@ -738,7 +738,7 @@ pub struct PeerTaskAssignRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerTasksRequest {
+pub struct HiveTasksRequest {
     pub session: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -748,8 +748,8 @@ pub struct PeerTasksRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerTasksResponse {
-    pub tasks: Vec<PeerTaskRecord>,
+pub struct HiveTasksResponse {
+    pub tasks: Vec<HiveTaskRecord>,
 }
 
 fn default_coordination_mode() -> String {
@@ -757,7 +757,7 @@ fn default_coordination_mode() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerCoordinationInboxRequest {
+pub struct HiveCoordinationInboxRequest {
     pub session: String,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -766,15 +766,15 @@ pub struct PeerCoordinationInboxRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerCoordinationInboxResponse {
-    pub messages: Vec<PeerMessageRecord>,
-    pub owned_tasks: Vec<PeerTaskRecord>,
-    pub help_tasks: Vec<PeerTaskRecord>,
-    pub review_tasks: Vec<PeerTaskRecord>,
+pub struct HiveCoordinationInboxResponse {
+    pub messages: Vec<HiveMessageRecord>,
+    pub owned_tasks: Vec<HiveTaskRecord>,
+    pub help_tasks: Vec<HiveTaskRecord>,
+    pub review_tasks: Vec<HiveTaskRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerCoordinationReceiptRecord {
+pub struct HiveCoordinationReceiptRecord {
     pub id: String,
     pub kind: String,
     pub actor_session: String,
@@ -790,7 +790,7 @@ pub struct PeerCoordinationReceiptRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerCoordinationReceiptRequest {
+pub struct HiveCoordinationReceiptRequest {
     pub kind: String,
     pub actor_session: String,
     pub actor_agent: Option<String>,
@@ -804,7 +804,7 @@ pub struct PeerCoordinationReceiptRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerCoordinationReceiptsRequest {
+pub struct HiveCoordinationReceiptsRequest {
     pub session: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -813,8 +813,8 @@ pub struct PeerCoordinationReceiptsRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerCoordinationReceiptsResponse {
-    pub receipts: Vec<PeerCoordinationReceiptRecord>,
+pub struct HiveCoordinationReceiptsResponse {
+    pub receipts: Vec<HiveCoordinationReceiptRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

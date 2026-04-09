@@ -62,10 +62,10 @@ function detectPresence(heartbeat) {
   return "dead";
 }
 
-function listPeerBundles(bundleRoot) {
+function listHiveBundles(bundleRoot) {
   const projectRoot = path.dirname(bundleRoot);
   const projectsRoot = path.dirname(projectRoot);
-  const peers = [];
+  const hives = [];
 
   for (const entry of fs.readdirSync(projectsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -77,7 +77,7 @@ function listPeerBundles(bundleRoot) {
     const heartbeat = readHeartbeat(candidateBundle);
     const resume = readResume(candidateBundle);
 
-    peers.push({
+    hives.push({
       project_dir: candidateProject,
       bundle_root: candidateBundle,
       project: runtime.project ?? null,
@@ -100,14 +100,14 @@ function listPeerBundles(bundleRoot) {
     });
   }
 
-  return peers;
+  return hives;
 }
 
-function matchesIdentityScope(peer, identity) {
+function matchesIdentityScope(hive, identity) {
   return (
-    peer.project === (identity.project ?? null) &&
-    peer.namespace === (identity.namespace ?? null) &&
-    peer.workspace === (identity.workspace ?? null)
+    hive.project === (identity.project ?? null) &&
+    hive.namespace === (identity.namespace ?? null) &&
+    hive.workspace === (identity.workspace ?? null)
   );
 }
 
@@ -213,18 +213,18 @@ const bundleRoot = resolveBundleRoot();
 const identity = currentIdentity(bundleRoot);
 
 const server = new Server(
-  { name: "memd-peer-mcp", version: "0.1.0" },
+  { name: "memd-hive-mcp", version: "0.1.0" },
   {
     capabilities: { tools: {} },
     instructions:
-      "Use memd peer coordination tools for coworking. Prefer explicit claims and assignments over implicit overlap. Treat memd as the coordination source of truth.",
+      "Use memd hive coordination tools for coworking. Prefer explicit claims and assignments over implicit overlap. Treat memd as the coordination source of truth.",
   }
 );
 
 const tools = [
   {
-    name: "list_peers",
-    description: "List other live or recent memd peer sessions discovered from sibling bundles.",
+    name: "list_hives",
+    description: "List other live or recent memd hive sessions discovered from sibling bundles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -235,7 +235,7 @@ const tools = [
   },
   {
     name: "check_inbox",
-    description: "Read pending peer messages for the current session.",
+    description: "Read pending hive messages for the current session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -347,7 +347,7 @@ const tools = [
   },
   {
     name: "ack_message",
-    description: "Acknowledge a peer message addressed to the current session.",
+    description: "Acknowledge a hive message addressed to the current session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -358,7 +358,7 @@ const tools = [
   },
   {
     name: "list_claims",
-    description: "List active peer claims for the current project/namespace.",
+    description: "List active hive claims for the current project/namespace.",
     inputSchema: {
       type: "object",
       properties: {
@@ -490,24 +490,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args = request.params.arguments ?? {};
-  const peers = listPeerBundles(bundleRoot);
-  const peerBySession = new Map(peers.map((peer) => [peer.session, peer]));
+  const hives = listHiveBundles(bundleRoot);
+  const hiveBySession = new Map(hives.map((hive) => [hive.session, hive]));
 
   switch (request.params.name) {
-    case "list_peers": {
+    case "list_hives": {
       const includeCurrent = Boolean(args.include_current);
       const activeOnly = args.active_only !== false;
-      const rows = peers
-        .filter((peer) => includeCurrent || peer.bundle_root !== bundleRoot)
-        .filter((peer) => !activeOnly || peer.presence === "active")
+      const rows = hives
+        .filter((hive) => includeCurrent || hive.bundle_root !== bundleRoot)
+        .filter((hive) => !activeOnly || hive.presence === "active")
         .map(
-          (peer) =>
-            `- ${peer.effective_agent ?? peer.session ?? "unknown"} | presence=${peer.presence} | workspace=${peer.workspace ?? "none"} | focus="${compact(peer.focus ?? "none", 80)}"`
+          (hive) =>
+            `- ${hive.effective_agent ?? hive.session ?? "unknown"} | presence=${hive.presence} | workspace=${hive.workspace ?? "none"} | focus="${compact(hive.focus ?? "none", 80)}"`
         );
       return textResult([
         `bundle=${bundleRoot}`,
         `current=${identity.effectiveAgent ?? "unknown"}`,
-        `peers=${rows.length}`,
+        `hives=${rows.length}`,
         ...rows,
       ]);
     }
@@ -583,22 +583,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         active_only: true,
         limit: 256,
       });
-      const peers = listPeerBundles(bundleRoot).filter((peer) => matchesIdentityScope(peer, identity));
-      const stalePeers = peers.filter(
-        (peer) => peer.session && peer.session !== identity.session && (peer.presence === "stale" || peer.presence === "dead")
+      const hives = listHiveBundles(bundleRoot).filter((hive) => matchesIdentityScope(hive, identity));
+      const staleHives = hives.filter(
+        (hive) => hive.session && hive.session !== identity.session && (hive.presence === "stale" || hive.presence === "dead")
       );
       const reclaimableClaims = (claims.claims ?? []).filter((claim) =>
-        stalePeers.some((peer) => peer.session === claim.session)
+        staleHives.some((hive) => hive.session === claim.session)
       );
       const stalledTasks = (tasks.tasks ?? []).filter((task) =>
-        stalePeers.some((peer) => peer.session === task.session)
+        staleHives.some((hive) => hive.session === task.session)
       );
       const conflicts = policyConflicts(tasks.tasks ?? [], claims.claims ?? []);
       const recommendations = recommendBoundaries(tasks.tasks ?? []);
       const lines = [
         "## Coordination",
         `messages=${inbox.messages?.length ?? 0} owned=${inbox.owned_tasks?.length ?? 0} help=${inbox.help_tasks?.length ?? 0} review=${inbox.review_tasks?.length ?? 0}`,
-        `recovery stale=${stalePeers.length} reclaimable=${reclaimableClaims.length} stalled=${stalledTasks.length}`,
+        `recovery stale=${staleHives.length} reclaimable=${reclaimableClaims.length} stalled=${stalledTasks.length}`,
         `policy conflicts=${conflicts.length} recommendations=${recommendations.length} receipts=${receipts.receipts?.length ?? 0}`,
       ];
       const showAll = view === "all" || view === "overview";
@@ -622,9 +622,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       if (showAll || view === "recovery") {
         lines.push("", "## Recovery");
-        for (const peer of stalePeers) {
+        for (const hive of staleHives) {
           lines.push(
-            `- stale session=${peer.session || "none"} agent=${peer.effective_agent || peer.agent || "none"} presence=${peer.presence} focus="${compact(peer.focus || "none", 72)}"`
+            `- stale session=${hive.session || "none"} agent=${hive.effective_agent || hive.agent || "none"} presence=${hive.presence} focus="${compact(hive.focus || "none", 72)}"`
           );
         }
         for (const claim of reclaimableClaims) {
@@ -720,7 +720,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (!args.scope || !args.target_session) {
             throw new Error("scope and target_session are required for assign_scope.");
           }
-          const target = peerBySession.get(args.target_session);
+          const target = hiveBySession.get(args.target_session);
           if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
           await memdPost(identity.baseUrl, "/coordination/claims/transfer", {
             scope: args.scope,
@@ -749,8 +749,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "recover_session": {
           if (!args.stale_session) throw new Error("stale_session is required for recover_session.");
           const targetSession = args.target_session || identity.session;
-          const stale = peerBySession.get(args.stale_session);
-          const target = peerBySession.get(targetSession);
+          const stale = hiveBySession.get(args.stale_session);
+          const target = hiveBySession.get(targetSession);
           if (!stale) throw new Error(`Unknown stale session: ${args.stale_session}`);
           if (!target?.base_url) throw new Error(`Unknown target session: ${targetSession}`);
           const claims = await memdGet(identity.baseUrl, "/coordination/claims", {
@@ -803,7 +803,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             throw new Error("target_session and content are required for request actions.");
           }
           const kind = args.action === "request_help" ? "help_request" : "review_request";
-          const target = peerBySession.get(args.target_session);
+          const target = hiveBySession.get(args.target_session);
           if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
           const response = await memdPost(target.base_url, "/coordination/messages/send", {
             kind,
@@ -829,13 +829,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "recover_stale_session": {
       if (!identity.session) throw new Error("Bundle session is required for stale-session recovery.");
-      const stale = peerBySession.get(args.stale_session);
+      const stale = hiveBySession.get(args.stale_session);
       if (!stale) throw new Error(`Unknown stale session: ${args.stale_session}`);
       if (stale.presence === "active") {
         throw new Error(`Session ${args.stale_session} is still active.`);
       }
       const targetSession = args.target_session ?? identity.session;
-      const target = peerBySession.get(targetSession);
+      const target = hiveBySession.get(targetSession);
       if (!target) throw new Error(`Unknown target session: ${targetSession}`);
 
       const claims = await memdGet(identity.baseUrl, "/coordination/claims", {
@@ -899,8 +899,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case "send_message": {
-      if (!identity.session) throw new Error("Bundle session is required for peer messaging.");
-      const target = peerBySession.get(args.target_session);
+      if (!identity.session) throw new Error("Bundle session is required for hive messaging.");
+      const target = hiveBySession.get(args.target_session);
       if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
       const response = await memdPost(target.base_url, "/coordination/messages/send", {
         kind: args.kind ?? "handoff",
@@ -966,7 +966,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "transfer_claim": {
       if (!identity.session) throw new Error("Bundle session is required to transfer claims.");
-      const target = peerBySession.get(args.target_session);
+      const target = hiveBySession.get(args.target_session);
       if (!target) throw new Error(`Unknown target session: ${args.target_session}`);
       const response = await memdPost(identity.baseUrl, "/coordination/claims/transfer", {
         scope: args.scope,
@@ -980,7 +980,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "assign_work": {
       if (!identity.session) throw new Error("Bundle session is required to assign work.");
-      const target = peerBySession.get(args.target_session);
+      const target = hiveBySession.get(args.target_session);
       if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
       await memdPost(identity.baseUrl, "/coordination/claims/transfer", {
         scope: args.scope,
@@ -1047,7 +1047,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "assign_task": {
       if (!identity.session) throw new Error("Bundle session is required to assign shared tasks.");
-      const target = peerBySession.get(args.target_session);
+      const target = hiveBySession.get(args.target_session);
       if (!target) throw new Error(`Unknown target session: ${args.target_session}`);
       const response = await memdPost(identity.baseUrl, "/coordination/tasks/assign", {
         task_id: args.task_id,
@@ -1068,7 +1068,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "request_task_help":
     case "request_task_review": {
       if (!identity.session) throw new Error("Bundle session is required for task requests.");
-      const target = peerBySession.get(args.target_session);
+      const target = hiveBySession.get(args.target_session);
       if (!target?.base_url) throw new Error(`Unknown target session: ${args.target_session}`);
       const needsHelp = request.params.name === "request_task_help";
       const taskResponse = await memdPost(identity.baseUrl, "/coordination/tasks/upsert", {

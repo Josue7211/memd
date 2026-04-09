@@ -204,7 +204,7 @@ Activations are persisted separately and can be queried at
 `GET /coordination/skill-policy/activations`.
 Use `memd packs --root .memd --summary` to browse visible harness packs and
 `memd packs --root .memd --json` when a UI needs structured pack data.
-Use `memd peer --summary` and `memd claims --summary` to see session plus tab
+Use `memd hive --summary` and `memd claims --summary` to see session plus tab
 labels in the coordination surfaces when multiple Codex tabs are live.
 
 Rules:

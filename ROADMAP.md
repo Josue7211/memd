@@ -68,7 +68,7 @@ In practical terms:
 - `memd` should behave like a global memory add-on before it behaves like a per-repo tool
 - short-term state should stay sharp without transcript bloat
 - short-term state must sync quickly across machines and harnesses when active work changes
-- infrastructure peers like `memd`, `claw-control`, `agent-shell`, and `agent-secrets` should publish as first-class service peers so product sessions can route help to the right active specialist instead of guessing
+- infrastructure hives like `memd`, `claw-control`, `agent-shell`, and `agent-secrets` should publish as first-class service hives so product sessions can route help to the right active specialist instead of guessing
 - `memd init` and `memd refresh` should discover enabled plugins, skills, commands, hooks, agents, and team surfaces across configured harnesses instead of only reading markdown files
 - once a capability is discovered, `memd` should classify it as universal, harness-native, bridgeable, or blocked and publish that capability map as shared memory
 - bridgeable capabilities should spread automatically to other harnesses through generated bridge surfaces or explicit install guidance, so the system behaves like controlled self-propagation instead of manual per-harness setup
@@ -120,7 +120,7 @@ What is already real in the repo:
 - Obsidian compiled evidence pages now exist as a first-class workspace lane
 - project bundles make the long-term path configurable
 - clients attach through the same control plane
-- a first MCP-native peer coordination bridge now sits on top of the brokered backend substrate
+- a first MCP-native hive coordination bridge now sits on top of the brokered backend substrate
 - graph/entity primitives exist
 - salience, rehearsal, decay, and consolidation exist
 - explain, inbox, maintenance, and policy inspection exist
@@ -135,7 +135,7 @@ What is still not good enough yet:
   one memory loop instead of adjacent commands
 - the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading unchanged ones
 - runtime adoption still needs to reach every major agent surface beyond the core bootstrap hooks
-- peer groups, shared-memory recall, and cross-session continuity are still below the product bar
+- hive groups, shared-memory recall, and cross-session continuity are still below the product bar
 - the operator-facing status and summary views can still expose the layered memory model more clearly
 - capability discovery still needs to inventory plugin-backed workflows, not just memory files and a curated skill list
 - bridge generation still needs to turn discovered portable capabilities into actual installed surfaces across harnesses instead of leaving them trapped in one plugin system

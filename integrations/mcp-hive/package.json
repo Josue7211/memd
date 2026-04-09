@@ -1,11 +1,11 @@
 {
-  "name": "@memd/mcp-peer",
+  "name": "@memd/mcp-hive",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Peer coordination MCP bridge for memd",
+  "description": "Hive coordination MCP bridge for memd",
   "bin": {
-    "memd-peer-mcp": "./server.js"
+    "memd-hive-mcp": "./server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0"
