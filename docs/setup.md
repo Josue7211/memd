@@ -18,20 +18,20 @@ before running the client commands below.
 Bootstrap a project bundle:
 
 ```bash
-cargo run -p memd-client --bin memd -- init --agent codex
+cargo run -p memd-client --bin memd -- setup --agent codex
 ```
 
 If you already have a backend URL on the current machine, export it first:
 
 ```bash
 export MEMD_RAG_URL=http://10.30.30.152:9621
-cargo run -p memd-client --bin memd -- init --agent codex
+cargo run -p memd-client --bin memd -- setup --agent codex
 ```
 
 That keeps the setup portable: each PC can point at its own private backend
 without hardcoding the address into the repo.
 
-When you run this inside a repo, `memd init` seeds `.memd/` from existing
+When you run this inside a repo, `memd setup` seeds `.memd/` from existing
 project docs, planning files, and memory files when it can infer a project
 root. That includes `AGENTS.md`, `CLAUDE.md`, `MEMORY.md`, `memory/*.md`, and
 `.planning/*` when they exist. Use `--global` if you want `~/.memd` instead of
@@ -128,17 +128,16 @@ The same catalog is also written to `.memd/COMMANDS.md` when you initialize a
 bundle, so the `$` and `/` command surfaces stay visible next to the other
 bundle artifacts.
 
-Run the migration audit when you want to see what works, what is missing, and
-what still needs a target harness:
+Check setup health and repair drift when you want to see what works, what is
+missing, and what still needs attention:
 
 ```bash
-memd migrate --root .memd --summary
-memd migrate --root .memd --json
+memd doctor --output .memd --summary
+memd doctor --output .memd --json
 ```
 
-That catalog includes external skill commands discovered during migration, too.
-They are listed so you can carry them forward or replace them when a target
-harness does not support the same surface.
+That check keeps the bundle surfaces aligned and tells you what needs repair
+before the next turn.
 
 Browse the visible harness packs with:
 

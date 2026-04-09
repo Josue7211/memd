@@ -1,7 +1,6 @@
 mod command_catalog;
 mod commands;
 pub(crate) mod harness;
-mod migration;
 mod obsidian;
 mod render;
 
@@ -63,14 +62,13 @@ use render::{
     render_experiment_summary, render_explain_summary, render_gap_summary, render_handoff_prompt,
     render_harness_pack_index_json, render_harness_pack_index_markdown,
     render_harness_pack_index_summary, render_improvement_markdown, render_improvement_summary,
-    render_maintenance_report_summary, render_migration_audit_json,
-    render_migration_audit_markdown, render_migration_audit_summary,
-    render_obsidian_import_summary, render_obsidian_scan_summary, render_policy_summary,
-    render_profile_summary, render_recall_summary, render_repair_summary, render_resume_prompt,
-    render_scenario_markdown, render_scenario_summary, render_skill_catalog_markdown,
-    render_skill_catalog_match_markdown, render_skill_catalog_match_summary,
-    render_skill_catalog_summary, render_skill_policy_summary, render_source_summary,
-    render_timeline_summary, render_working_summary, render_workspace_summary, short_uuid,
+    render_maintenance_report_summary, render_obsidian_import_summary,
+    render_obsidian_scan_summary, render_policy_summary, render_profile_summary,
+    render_recall_summary, render_repair_summary, render_resume_prompt, render_scenario_markdown,
+    render_scenario_summary, render_skill_catalog_markdown, render_skill_catalog_match_markdown,
+    render_skill_catalog_match_summary, render_skill_catalog_summary, render_skill_policy_summary,
+    render_source_summary, render_timeline_summary, render_working_summary,
+    render_workspace_summary, short_uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -122,7 +120,6 @@ enum Commands {
     Skills(SkillsArgs),
     Packs(PacksArgs),
     Commands(CommandCatalogArgs),
-    Migrate(MigrateArgs),
     Setup(SetupArgs),
     Doctor(DoctorArgs),
     Config(ConfigArgs),
@@ -972,21 +969,6 @@ struct CommandCatalogArgs {
 
     #[arg(long)]
     query: Option<String>,
-
-    #[arg(long)]
-    summary: bool,
-
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Debug, Clone, Args)]
-struct MigrateArgs {
-    #[arg(long)]
-    root: Option<PathBuf>,
-
-    #[arg(long)]
-    project_root: Option<PathBuf>,
 
     #[arg(long)]
     summary: bool,
@@ -3138,22 +3120,6 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", render_command_catalog_markdown(&catalog));
             }
         }
-        Commands::Migrate(args) => {
-            let bundle_root = resolve_pack_bundle_root(args.root.as_deref())?;
-            let project_root = args.project_root.clone().or(detect_current_project_root()?);
-            let audit = migration::build_migration_audit(
-                &bundle_root,
-                project_root.as_deref(),
-                home_dir().as_deref(),
-            );
-            if args.json {
-                print_json(&render_migration_audit_json(&audit))?;
-            } else if args.summary {
-                println!("{}", render_migration_audit_summary(&audit));
-            } else {
-                println!("{}", render_migration_audit_markdown(&audit));
-            }
-        }
         Commands::Setup(args) => {
             let init_args = setup_args_to_init_args(&args);
             write_init_bundle(&init_args)?;
@@ -3179,10 +3145,7 @@ async fn main() -> anyhow::Result<()> {
                     init_args.agent,
                 );
             } else {
-                println!(
-                    "Initialized memd bundle at {}",
-                    init_args.output.display()
-                );
+                println!("Initialized memd bundle at {}", init_args.output.display());
             }
         }
         Commands::Doctor(args) => {
@@ -3194,7 +3157,8 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(false);
             if args.repair && !setup_ready {
                 let project_root = args.project_root.clone().or(detect_current_project_root()?);
-                let setup_args = doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
+                let setup_args =
+                    doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
                 write_init_bundle(&setup_args_to_init_args(&setup_args))?;
                 status = read_bundle_status(&bundle_root, &base_url).await?;
             }
@@ -5879,10 +5843,7 @@ fn resolve_doctor_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf
 
 fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
     let project_root = args.project_root.clone();
-    let output = args
-        .output
-        .clone()
-        .unwrap_or_else(default_init_output_path);
+    let output = args.output.clone().unwrap_or_else(default_init_output_path);
     let project_root_ref = project_root.as_deref();
     let agent = args
         .agent
@@ -6021,7 +5982,9 @@ fn render_bundle_config_snapshot(
         visibility: runtime.as_ref().and_then(|value| value.visibility.clone()),
         peer_system: runtime.as_ref().and_then(|value| value.peer_system.clone()),
         peer_role: runtime.as_ref().and_then(|value| value.peer_role.clone()),
-        peer_group_goal: runtime.as_ref().and_then(|value| value.peer_group_goal.clone()),
+        peer_group_goal: runtime
+            .as_ref()
+            .and_then(|value| value.peer_group_goal.clone()),
         authority: runtime.as_ref().and_then(|value| value.authority.clone()),
     }
 }
@@ -6051,7 +6014,11 @@ fn render_bundle_config_markdown(config: &BundleConfigSnapshot) -> String {
     markdown.push_str(&format!("- ready: `{}`\n", config.setup_ready));
     markdown.push_str(&format!(
         "- runtime: `{}`\n",
-        if config.runtime_present { "present" } else { "missing" }
+        if config.runtime_present {
+            "present"
+        } else {
+            "missing"
+        }
     ));
     markdown.push_str(&format!(
         "- project: `{}`\n",
@@ -6119,10 +6086,7 @@ fn render_doctor_status_markdown(bundle_root: &Path, status: &serde_json::Value)
         if !missing.is_empty() {
             markdown.push_str("\n## Missing\n");
             for item in missing {
-                markdown.push_str(&format!(
-                    "- {}\n",
-                    item.as_str().unwrap_or("unknown")
-                ));
+                markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
             }
         }
     }
@@ -12807,7 +12771,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Check readiness:\n   - `memd status --output {bundle}`\n2. Audit migration readiness:\n   - `memd migrate --output {bundle} --summary`\n3. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --intent current_task --write`\n4. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n5. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --intent current_task`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd migrate --output {bundle} --summary`\n- `memd migrate --output {bundle} --json`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Set up the bundle:\n   - `memd setup --output {bundle}`\n2. Check readiness and repair drift when needed:\n   - `memd doctor --output {bundle}`\n   - `memd doctor --output {bundle} --repair`\n3. Inspect the active config:\n   - `memd config --output {bundle}`\n4. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --intent current_task --write`\n5. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n6. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --intent current_task`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd setup --output {bundle}`\n- `memd doctor --output {bundle}`\n- `memd config --output {bundle}`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = project,
             bundle = output.display(),
         ),
@@ -26259,7 +26223,6 @@ mod tests {
         render_agent_zero_harness_pack_markdown, render_claude_code_harness_pack_markdown,
         render_codex_harness_pack_markdown, render_command_catalog_markdown,
         render_command_catalog_summary, render_hermes_harness_pack_markdown,
-        render_migration_audit_markdown, render_migration_audit_summary,
         render_openclaw_harness_pack_markdown, render_opencode_harness_pack_markdown,
     };
     use axum::{
@@ -26286,20 +26249,6 @@ mod tests {
             .lock()
             .expect("HOME mutation lock poisoned")
     }
-
-    #[cfg(unix)]
-    fn make_executable(path: &Path) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut permissions = fs::metadata(path)
-            .expect("read launcher metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).expect("set launcher executable bit");
-    }
-
-    #[cfg(not(unix))]
-    fn make_executable(_path: &Path) {}
 
     fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSnapshot {
         ResumeSnapshot {
@@ -27698,111 +27647,6 @@ mod tests {
         assert!(markdown.contains("bundle-root-present"));
         assert!(markdown.contains("codex-skill-installed"));
         assert!(markdown.contains(".memd/agents/claude-code.sh"));
-    }
-
-    #[test]
-    fn migration_audit_reports_ready_native_and_bridge_surfaces() {
-        let workspace_root =
-            std::env::temp_dir().join(format!("memd-migration-test-{}", uuid::Uuid::new_v4()));
-        let bundle_root = workspace_root.join(".memd");
-        let project_root = workspace_root.join("project");
-        let home_root = workspace_root.join("home");
-
-        fs::create_dir_all(bundle_root.join("agents")).expect("create bundle agents");
-        fs::create_dir_all(project_root.as_path()).expect("create project root");
-        fs::create_dir_all(
-            home_root
-                .join(".codex")
-                .join("skills")
-                .join("gsd-autonomous"),
-        )
-        .expect("create gsd autonomous skill dir");
-        fs::create_dir_all(
-            home_root
-                .join(".codex")
-                .join("skills")
-                .join("gsd-map-codebase"),
-        )
-        .expect("create gsd map codebase skill dir");
-
-        fs::write(
-            bundle_root.join("agents").join("CLAUDE_IMPORTS.md"),
-            "@../MEMD_WAKEUP.md\n@../MEMD_MEMORY.md\n",
-        )
-        .expect("write claude imports");
-        fs::write(
-            project_root.join("CLAUDE.md"),
-            "@.memd/agents/CLAUDE_IMPORTS.md\n",
-        )
-        .expect("write project claude");
-        for script in [
-            "codex.sh",
-            "claude-code.sh",
-            "agent-zero.sh",
-            "openclaw.sh",
-            "opencode.sh",
-            "hermes.sh",
-        ] {
-            let path = bundle_root.join("agents").join(script);
-            fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write launcher");
-            make_executable(&path);
-        }
-        fs::write(
-            home_root
-                .join(".codex")
-                .join("skills")
-                .join("gsd-autonomous")
-                .join("SKILL.md"),
-            "# gsd autonomous\n",
-        )
-        .expect("write gsd autonomous");
-        fs::write(
-            home_root
-                .join(".codex")
-                .join("skills")
-                .join("gsd-map-codebase")
-                .join("SKILL.md"),
-            "# gsd map codebase\n",
-        )
-        .expect("write gsd map codebase");
-
-        let audit = crate::migration::build_migration_audit(
-            &bundle_root,
-            Some(project_root.as_path()),
-            Some(home_root.as_path()),
-        );
-
-        assert_eq!(audit.ready_count, audit.command_count);
-        assert_eq!(audit.partial_count, 0);
-        assert_eq!(audit.missing_count, 0);
-        assert_eq!(audit.broken_count, 0);
-        assert!(
-            audit
-                .commands
-                .iter()
-                .any(|command| command.name == "/memory" && command.status == "ready")
-        );
-        assert!(
-            audit
-                .commands
-                .iter()
-                .any(|command| { command.name == "$gsd-autonomous" && command.status == "ready" })
-        );
-        assert!(audit.commands.iter().any(|command| {
-            command.name == ".memd/agents/claude-code.sh" && command.status == "ready"
-        }));
-
-        let summary = render_migration_audit_summary(&audit);
-        assert!(summary.contains("migration root="));
-        assert!(summary.contains("ready="));
-
-        let markdown = render_migration_audit_markdown(&audit);
-        assert!(markdown.contains("# memd migration audit"));
-        assert!(markdown.contains("## /memory"));
-        assert!(markdown.contains("## $gsd-autonomous"));
-        assert!(markdown.contains("## .memd/agents/claude-code.sh"));
-
-        fs::remove_dir_all(workspace_root).expect("cleanup migration temp dir");
     }
 
     #[test]
