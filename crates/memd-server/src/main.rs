@@ -29,25 +29,26 @@ use memd_schema::{
     HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
-    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
-    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
-    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterRequest,
+    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
+    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
+    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
+    HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport, MaintainReportRequest,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord, MemoryEntityRecord,
+    MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use serde::Deserialize;
@@ -364,6 +365,8 @@ async fn main() {
         )
         .route("/coordination/sessions", get(get_hive_sessions))
         .route("/hive/board", get(get_hive_board))
+        .route("/hive/roster", get(get_hive_roster))
+        .route("/hive/follow", get(get_hive_follow))
         .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
         .route("/coordination/tasks/assign", post(post_hive_task_assign))
         .route("/coordination/tasks", get(get_hive_tasks))
@@ -1169,6 +1172,28 @@ async fn get_hive_board(
     Query(req): Query<HiveBoardRequest>,
 ) -> Result<Json<HiveBoardResponse>, (StatusCode, String)> {
     let response = state.store.hive_board(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_hive_roster(
+    State(state): State<AppState>,
+    Query(req): Query<HiveRosterRequest>,
+) -> Result<Json<HiveRosterResponse>, (StatusCode, String)> {
+    let response = state.store.hive_roster(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_hive_follow(
+    State(state): State<AppState>,
+    Query(req): Query<HiveFollowRequest>,
+) -> Result<Json<HiveFollowResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.hive_follow(&req).map_err(internal_error)?;
     Ok(Json(response))
 }
 

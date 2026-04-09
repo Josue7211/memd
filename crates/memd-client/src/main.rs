@@ -43,17 +43,18 @@ use memd_schema::{
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
     HiveBoardRequest, HiveBoardResponse, HiveClaimRecoverRequest, HiveClaimsRequest,
     HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveHandoffPacket,
-    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
-    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveTaskAssignRequest, HiveTaskRecord,
-    HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
-    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
-    SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifierRecord,
-    VerifyMemoryRequest, WorkingMemoryRequest,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest, HiveFollowRequest,
+    HiveFollowResponse, HiveHandoffPacket, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveRosterRequest, HiveRosterResponse,
+    HiveSessionAutoRetireRequest, HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest,
+    HiveTasksRequest, MaintainReport, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode, MemoryScope,
+    MemoryStage, MemoryStatus, PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyActivationRecord,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SourceMemoryRequest, StoreMemoryRequest, VerifierRecord, VerifyMemoryRequest,
+    WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -3159,7 +3160,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Verify(args) => match &args.command {
             VerifyCommand::Feature(verify_args) => {
-                let response = run_verify_feature_command(verify_args)?;
+                let response = run_verify_feature_command(verify_args).await?;
                 if verify_args.summary {
                     println!("{}", render_verify_summary(&response));
                 } else {
@@ -3167,7 +3168,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             VerifyCommand::Journey(verify_args) => {
-                let response = run_verify_journey_command(verify_args)?;
+                let response = run_verify_journey_command(verify_args).await?;
                 if verify_args.summary {
                     println!("{}", render_verify_summary(&response));
                 } else {
@@ -3175,7 +3176,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             VerifyCommand::Adversarial(verify_args) => {
-                let response = run_verify_adversarial_command(verify_args)?;
+                let response = run_verify_adversarial_command(verify_args).await?;
                 if verify_args.summary {
                     println!("{}", render_verify_summary(&response));
                 } else {
@@ -3183,7 +3184,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             VerifyCommand::Compare(verify_args) => {
-                let response = run_verify_compare_command(verify_args)?;
+                let response = run_verify_compare_command(verify_args).await?;
                 if verify_args.summary {
                     println!("{}", render_verify_summary(&response));
                 } else {
@@ -15516,23 +15517,6 @@ struct HiveProjectResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct HiveFollowResponse {
-    bundle_root: String,
-    current_session: Option<String>,
-    target: memd_schema::HiveSessionRecord,
-    work_summary: String,
-    touch_points: Vec<String>,
-    next_action: Option<String>,
-    messages: Vec<HiveMessageRecord>,
-    owned_tasks: Vec<HiveTaskRecord>,
-    help_tasks: Vec<HiveTaskRecord>,
-    review_tasks: Vec<HiveTaskRecord>,
-    recent_receipts: Vec<HiveCoordinationReceiptRecord>,
-    overlap_risk: Option<String>,
-    recommended_action: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
 struct HiveQueenResponse {
     queen_session: String,
     suggested_actions: Vec<String>,
@@ -15638,6 +15622,24 @@ fn project_awareness_entry_to_hive_session(
 }
 
 async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRosterResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let base_url = resolve_bundle_command_base_url(
+        &default_base_url(),
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&base_url)?;
+    if let Some(response) = timeout_ok(client.hive_roster(&HiveRosterRequest {
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+    }))
+    .await
+    {
+        return Ok(response);
+    }
+
     let awareness = read_project_awareness(&AwarenessArgs {
         output: args.output.clone(),
         root: None,
@@ -15704,6 +15706,28 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
             .or(target_entry.base_url.as_deref()),
     );
     let client = MemdClient::new(&base_url)?;
+    if let Some(response) = timeout_ok(
+        client.hive_follow(&HiveFollowRequest {
+            session: target_session.clone(),
+            current_session: current_session.clone(),
+            project: target_entry
+                .project
+                .clone()
+                .or_else(|| runtime.as_ref().and_then(|config| config.project.clone())),
+            namespace: target_entry
+                .namespace
+                .clone()
+                .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone())),
+            workspace: target_entry
+                .workspace
+                .clone()
+                .or_else(|| runtime.as_ref().and_then(|config| config.workspace.clone())),
+        }),
+    )
+    .await
+    {
+        return Ok(response);
+    }
     let server_reachable = timeout_ok(client.healthz()).await.is_some();
     let project = target_entry
         .project
@@ -15810,7 +15834,6 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
     };
 
     Ok(HiveFollowResponse {
-        bundle_root: args.output.display().to_string(),
         current_session,
         target,
         work_summary,
@@ -27272,44 +27295,154 @@ fn render_verify_summary(report: &VerifyReport) -> String {
     summary
 }
 
-fn run_verify_feature_command(args: &VerifyFeatureArgs) -> anyhow::Result<VerifyReport> {
-    build_verify_report(
-        "feature",
+fn find_verifier_by_subject<'a>(
+    registry: &'a BenchmarkRegistry,
+    verifier_type: &str,
+    subject_id: &str,
+) -> Option<&'a VerifierRecord> {
+    registry.verifiers.iter().find(|verifier| {
+        verifier.verifier_type == verifier_type
+            && verifier
+                .subject_ids
+                .iter()
+                .any(|candidate| candidate == subject_id)
+    })
+}
+
+fn find_verifier_by_id<'a>(
+    registry: &'a BenchmarkRegistry,
+    verifier_id: &str,
+) -> Option<&'a VerifierRecord> {
+    registry
+        .verifiers
+        .iter()
+        .find(|verifier| verifier.id == verifier_id)
+}
+
+fn build_verify_report_from_run(
+    mode: &str,
+    output: &Path,
+    repo_root: &Path,
+    registry: &BenchmarkRegistry,
+    subject: Option<String>,
+    baseline: Option<String>,
+    run: &VerifierRunRecord,
+) -> VerifyReport {
+    let mut findings = vec![format!("verifier_run_status={}", run.status)];
+    findings.push(format!("gate_result={}", run.gate_result));
+    findings.push(format!("evidence={}", run.evidence_ids.join(",")));
+    VerifyReport {
+        mode: mode.to_string(),
+        bundle_root: output.display().to_string(),
+        repo_root: Some(repo_root.display().to_string()),
+        registry_loaded: true,
+        registry_version: Some(registry.version.clone()),
+        registry_features: registry.features.len(),
+        registry_journeys: registry.journeys.len(),
+        registry_loops: registry.loops.len(),
+        registry_verifiers: registry.verifiers.len(),
+        registry_fixtures: registry.fixtures.len(),
+        lane: None,
+        subject,
+        baseline,
+        findings,
+        recommendations: vec!["replace stub steps with concrete verifier execution".to_string()],
+        generated_at: Utc::now(),
+    }
+}
+
+async fn execute_named_verifier_command(
+    output: &Path,
+    mode: &str,
+    subject: Option<String>,
+    baseline: Option<String>,
+    verifier: &VerifierRecord,
+) -> anyhow::Result<VerifyReport> {
+    let (repo_root, registry) = load_benchmark_registry_for_output(output)?
+        .context("verify command requires benchmark-registry.json")?;
+    let fixture = registry
+        .fixtures
+        .iter()
+        .find(|fixture| fixture.id == verifier.fixture_id)
+        .with_context(|| format!("missing fixture {}", verifier.fixture_id))?;
+    let run = run_verifier_record(verifier, fixture).await?;
+    let evidence_payload = json!({
+        "verifier_id": verifier.id,
+        "fixture_id": fixture.id,
+        "confidence_tier": "live_primary",
+        "mode": mode,
+        "subject": subject,
+    });
+    write_verifier_run_artifacts(output, &run, &evidence_payload)?;
+    Ok(build_verify_report_from_run(
+        mode, output, &repo_root, &registry, subject, baseline, &run,
+    ))
+}
+
+async fn run_verify_feature_command(args: &VerifyFeatureArgs) -> anyhow::Result<VerifyReport> {
+    let (_, registry) = load_benchmark_registry_for_output(&args.output)?
+        .context("verify feature requires benchmark-registry.json")?;
+    let verifier = find_verifier_by_subject(&registry, "feature_contract", &args.feature_id)
+        .with_context(|| format!("missing feature verifier for {}", args.feature_id))?
+        .clone();
+    execute_named_verifier_command(
         &args.output,
-        None,
+        "feature",
         Some(args.feature_id.clone()),
         None,
+        &verifier,
     )
+    .await
 }
 
-fn run_verify_journey_command(args: &VerifyJourneyArgs) -> anyhow::Result<VerifyReport> {
-    build_verify_report(
-        "journey",
+async fn run_verify_journey_command(args: &VerifyJourneyArgs) -> anyhow::Result<VerifyReport> {
+    let (_, registry) = load_benchmark_registry_for_output(&args.output)?
+        .context("verify journey requires benchmark-registry.json")?;
+    let verifier = find_verifier_by_subject(&registry, "journey", &args.journey_id)
+        .with_context(|| format!("missing journey verifier for {}", args.journey_id))?
+        .clone();
+    execute_named_verifier_command(
         &args.output,
-        None,
+        "journey",
         Some(args.journey_id.clone()),
         None,
+        &verifier,
     )
+    .await
 }
 
-fn run_verify_adversarial_command(args: &VerifyAdversarialArgs) -> anyhow::Result<VerifyReport> {
-    build_verify_report(
+async fn run_verify_adversarial_command(
+    args: &VerifyAdversarialArgs,
+) -> anyhow::Result<VerifyReport> {
+    let (_, registry) = load_benchmark_registry_for_output(&args.output)?
+        .context("verify adversarial requires benchmark-registry.json")?;
+    let verifier = find_verifier_by_id(&registry, &args.verifier_id)
+        .with_context(|| format!("missing adversarial verifier {}", args.verifier_id))?
+        .clone();
+    execute_named_verifier_command(
+        &args.output,
         "adversarial",
-        &args.output,
-        None,
         Some(args.verifier_id.clone()),
         None,
+        &verifier,
     )
+    .await
 }
 
-fn run_verify_compare_command(args: &VerifyCompareArgs) -> anyhow::Result<VerifyReport> {
-    build_verify_report(
-        "compare",
+async fn run_verify_compare_command(args: &VerifyCompareArgs) -> anyhow::Result<VerifyReport> {
+    let (_, registry) = load_benchmark_registry_for_output(&args.output)?
+        .context("verify compare requires benchmark-registry.json")?;
+    let verifier = find_verifier_by_id(&registry, &args.verifier_id)
+        .with_context(|| format!("missing comparative verifier {}", args.verifier_id))?
+        .clone();
+    execute_named_verifier_command(
         &args.output,
-        None,
+        "compare",
         Some(args.verifier_id.clone()),
-        None,
+        Some(verifier.baseline_modes.join(",")),
+        &verifier,
     )
+    .await
 }
 
 fn verifier_is_tier_zero(verifier: &VerifierRecord, registry: &BenchmarkRegistry) -> bool {
@@ -45637,7 +45770,6 @@ mod tests {
     #[test]
     fn render_hive_follow_summary_surfaces_messages_receipts_and_overlap_risk() {
         let response = HiveFollowResponse {
-            bundle_root: "/tmp/projects/current/.memd".to_string(),
             current_session: Some("session-current".to_string()),
             target: memd_schema::HiveSessionRecord {
                 session: "session-lorentz".to_string(),
@@ -54793,6 +54925,82 @@ mod tests {
                 .exists()
         );
         assert!(verification_evidence_dir(&materialized.bundle_root).exists());
+    }
+
+    #[tokio::test]
+    async fn run_verify_feature_command_executes_seeded_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-feature-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let report = run_verify_feature_command(&VerifyFeatureArgs {
+            feature_id: "feature.bundle.resume".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify feature command");
+
+        assert_eq!(report.subject.as_deref(), Some("feature.bundle.resume"));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+        assert!(
+            verification_reports_dir(&output)
+                .join("latest.json")
+                .exists()
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify feature dir");
+    }
+
+    #[tokio::test]
+    async fn run_verify_compare_command_executes_seeded_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-compare-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let report = run_verify_compare_command(&VerifyCompareArgs {
+            verifier_id: "verifier.compare.resume-no-memd-vs-with-memd".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify compare command");
+
+        assert_eq!(
+            report.subject.as_deref(),
+            Some("verifier.compare.resume-no-memd-vs-with-memd")
+        );
+        assert_eq!(report.baseline.as_deref(), Some("no_mempath,with_memd"));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "gate_result=strong")
+        );
+        assert!(
+            verification_reports_dir(&output)
+                .join("latest.json")
+                .exists()
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify compare dir");
     }
 
     #[test]

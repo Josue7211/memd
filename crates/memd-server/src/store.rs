@@ -10,7 +10,7 @@ use memd_schema::{
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
     HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
     HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
-    HiveSessionAutoRetireResponse, HiveSessionRecord, HiveSessionRetireRequest,
+    HiveRosterResponse, HiveSessionAutoRetireResponse, HiveSessionRecord, HiveSessionRetireRequest,
     HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
     HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest,
     HiveTasksResponse, MaintainReport, MaintainReportRequest, MemoryAgentProfile,
@@ -2660,6 +2660,171 @@ impl SqliteStore {
             overlap_risks,
             lane_faults,
             recommended_actions,
+        })
+    }
+
+    pub fn hive_roster(
+        &self,
+        request: &memd_schema::HiveRosterRequest,
+    ) -> anyhow::Result<HiveRosterResponse> {
+        let sessions = self
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(256),
+            })?
+            .sessions;
+        let queen_session = sessions
+            .iter()
+            .find(|session| {
+                matches!(
+                    session.role.as_deref().or(session.hive_role.as_deref()),
+                    Some("queen" | "orchestrator" | "memory-control-plane")
+                ) || matches!(
+                    session.authority.as_deref(),
+                    Some("coordinator" | "canonical")
+                )
+            })
+            .map(|session| session.session.clone());
+
+        Ok(HiveRosterResponse {
+            project: request
+                .project
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            namespace: request
+                .namespace
+                .clone()
+                .unwrap_or_else(|| "default".to_string()),
+            queen_session,
+            bees: sessions,
+        })
+    }
+
+    pub fn hive_follow(
+        &self,
+        request: &memd_schema::HiveFollowRequest,
+    ) -> anyhow::Result<memd_schema::HiveFollowResponse> {
+        let sessions = self
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(256),
+            })?
+            .sessions;
+        let target = sessions
+            .iter()
+            .find(|session| session.session == request.session)
+            .cloned()
+            .context("hive follow session not found")?;
+        let inbox = self.hive_coordination_inbox(&HiveCoordinationInboxRequest {
+            session: request.session.clone(),
+            project: request.project.clone(),
+            namespace: request.namespace.clone(),
+            workspace: request.workspace.clone(),
+            limit: Some(32),
+        })?;
+        let recent_receipts = self
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                limit: Some(64),
+            })?
+            .receipts
+            .into_iter()
+            .filter(|receipt| {
+                receipt.actor_session == request.session
+                    || receipt.target_session.as_deref() == Some(request.session.as_str())
+                    || receipt.task_id.as_deref().is_some_and(|task_id| {
+                        inbox.owned_tasks.iter().any(|task| task.task_id == task_id)
+                    })
+            })
+            .take(8)
+            .collect::<Vec<_>>();
+
+        let overlap_risk = request
+            .current_session
+            .as_deref()
+            .and_then(|current_session| {
+                let current = sessions
+                    .iter()
+                    .find(|session| session.session == current_session)?;
+                let shared_scopes = current
+                    .scope_claims
+                    .iter()
+                    .filter(|scope| target.scope_claims.iter().any(|other| other == *scope))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !shared_scopes.is_empty() {
+                    Some(format!(
+                        "possible_work_overlap touches={}",
+                        shared_scopes.join(",")
+                    ))
+                } else if current.task_id.is_some() && current.task_id == target.task_id {
+                    current.task_id.as_ref().map(|task| {
+                        format!(
+                            "confirmed hive overlap: target session {} already owns task {}",
+                            target.session, task
+                        )
+                    })
+                } else {
+                    None
+                }
+            });
+        let recommended_action = if overlap_risk.is_some() {
+            "coordinate_now".to_string()
+        } else if !inbox.review_tasks.is_empty()
+            || !inbox.help_tasks.is_empty()
+            || !inbox.messages.is_empty()
+        {
+            "watch_and_coordinate".to_string()
+        } else {
+            "safe_to_continue".to_string()
+        };
+
+        Ok(memd_schema::HiveFollowResponse {
+            current_session: request.current_session.clone(),
+            target: target.clone(),
+            work_summary: target
+                .topic_claim
+                .clone()
+                .or_else(|| target.focus.clone())
+                .unwrap_or_else(|| "none".to_string()),
+            touch_points: if target.scope_claims.is_empty() {
+                Vec::new()
+            } else {
+                target.scope_claims.clone()
+            },
+            next_action: target.next_action.clone(),
+            messages: inbox.messages,
+            owned_tasks: inbox.owned_tasks,
+            help_tasks: inbox.help_tasks,
+            review_tasks: inbox.review_tasks,
+            recent_receipts,
+            overlap_risk,
+            recommended_action,
         })
     }
 

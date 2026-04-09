@@ -9,16 +9,17 @@ use memd_schema::{
     HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionAutoRetireRequest,
-    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
-    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterRequest,
+    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
+    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
+    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
+    HiveTasksRequest, HiveTasksResponse, MaintainReport, MaintainReportRequest,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
@@ -372,6 +373,14 @@ impl MemdClient {
 
     pub async fn hive_board(&self, req: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
         self.get_json_with_query("/hive/board", req).await
+    }
+
+    pub async fn hive_roster(&self, req: &HiveRosterRequest) -> anyhow::Result<HiveRosterResponse> {
+        self.get_json_with_query("/hive/roster", req).await
+    }
+
+    pub async fn hive_follow(&self, req: &HiveFollowRequest) -> anyhow::Result<HiveFollowResponse> {
+        self.get_json_with_query("/hive/follow", req).await
     }
 
     pub async fn retire_hive_session(

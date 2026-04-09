@@ -879,6 +879,13 @@ pub struct HiveRosterResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveRosterRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HiveBoardRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
@@ -895,6 +902,31 @@ pub struct HiveBoardResponse {
     pub overlap_risks: Vec<String>,
     pub lane_faults: Vec<String>,
     pub recommended_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveFollowRequest {
+    pub session: String,
+    pub current_session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveFollowResponse {
+    pub current_session: Option<String>,
+    pub target: HiveSessionRecord,
+    pub work_summary: String,
+    pub touch_points: Vec<String>,
+    pub next_action: Option<String>,
+    pub messages: Vec<HiveMessageRecord>,
+    pub owned_tasks: Vec<HiveTaskRecord>,
+    pub help_tasks: Vec<HiveTaskRecord>,
+    pub review_tasks: Vec<HiveTaskRecord>,
+    pub recent_receipts: Vec<HiveCoordinationReceiptRecord>,
+    pub overlap_risk: Option<String>,
+    pub recommended_action: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
