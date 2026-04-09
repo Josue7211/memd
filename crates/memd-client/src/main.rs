@@ -16078,14 +16078,16 @@ async fn run_hive_board_command(
             .and_then(|config| config.base_url.as_deref()),
     );
     let client = MemdClient::new(&resolved_base_url)?;
-    let _ = timeout_ok(
-        client.auto_retire_hive_sessions(&HiveSessionAutoRetireRequest {
+    let retired_sessions = timeout_ok(client.auto_retire_hive_sessions(
+        &HiveSessionAutoRetireRequest {
             project: runtime.as_ref().and_then(|config| config.project.clone()),
             namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
             workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
-        }),
-    )
-    .await;
+        },
+    ))
+    .await
+    .map(|response| response.retired)
+    .unwrap_or_default();
 
     if let Some(board) = timeout_ok(client.hive_board(&HiveBoardRequest {
         project: runtime.as_ref().and_then(|config| config.project.clone()),
@@ -16094,6 +16096,12 @@ async fn run_hive_board_command(
     }))
     .await
     {
+        let mut board = board;
+        if !retired_sessions.is_empty() {
+            board
+                .stale_bees
+                .retain(|session| !retired_sessions.iter().any(|retired| retired == session));
+        }
         return Ok(board);
     }
 
@@ -16150,6 +16158,11 @@ async fn run_hive_board_command(
     if let Some(fault) = coordination.lane_fault.as_ref() {
         blocked_bees.push(render_lane_fault_inline(fault));
     }
+    let roster_sessions = roster
+        .bees
+        .iter()
+        .map(|bee| bee.session.clone())
+        .collect::<BTreeSet<_>>();
 
     Ok(HiveBoardResponse {
         queen_session: roster
@@ -16167,6 +16180,8 @@ async fn run_hive_board_command(
             .stale_hives
             .iter()
             .filter_map(|entry| entry.session.clone())
+            .filter(|session| roster_sessions.contains(session))
+            .filter(|session| !retired_sessions.iter().any(|retired| retired == session))
             .collect(),
         review_queue,
         overlap_risks: coordination

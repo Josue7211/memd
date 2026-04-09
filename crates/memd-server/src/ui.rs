@@ -362,6 +362,42 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           </div>
         </div>
       </section>
+      <section class="panel">
+        <div class="eyebrow">Hive Board</div>
+        <h2>Live bees</h2>
+        <div class="meta" style="margin-bottom: 0.75rem;">
+          <span id="hive-queen">queen: loading</span>
+          <span id="hive-active-count">active: 0</span>
+          <span id="hive-review-count">review: 0</span>
+        </div>
+        <div class="grid">
+          <div class="block">
+            <div class="label">Active Bees</div>
+            <strong id="hive-active-total">0</strong>
+            <p id="hive-active-copy">No hive board loaded</p>
+          </div>
+          <div class="block">
+            <div class="label">Overlap Risks</div>
+            <strong id="hive-risk-total">0</strong>
+            <p id="hive-risk-copy">No overlap data loaded</p>
+          </div>
+          <div class="block">
+            <div class="label">Stale Bees</div>
+            <strong id="hive-stale-total">0</strong>
+            <p id="hive-stale-copy">No stale hive data loaded</p>
+          </div>
+        </div>
+        <div class="section-spacer" style="margin-top: 1rem;">
+          <div>
+            <div class="label">Roster</div>
+            <ul id="hive-roster-list"><li class="muted">Loading hive roster…</li></ul>
+          </div>
+          <div>
+            <div class="label">Focused Bee</div>
+            <ul id="hive-follow-list"><li class="muted">Loading hive focus…</li></ul>
+          </div>
+        </div>
+      </section>
       <section class="grid">
         <div class="block">
           <div class="label">Memory Home</div>
@@ -407,6 +443,16 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
 
     function actionButtons() {{
       return Array.from(document.querySelectorAll('[data-action]'));
+    }}
+
+    function renderList(id, items) {{
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!items.length) {{
+        el.innerHTML = '<li class="muted">none</li>';
+        return;
+      }}
+      el.innerHTML = items.map((item) => `<li>${{item}}</li>`).join('');
     }}
 
     function setActionArtifact(id) {{
@@ -469,6 +515,57 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       }}
     }}
 
+    async function loadHiveBoard() {{
+      const response = await fetch('/hive/board');
+      if (!response.ok) throw new Error(`hive board failed: ${{response.status}}`);
+      const board = await response.json();
+      text('hive-queen', `queen: ${{board.queen_session || 'none'}}`);
+      text('hive-active-count', `active: ${{board.active_bees.length}}`);
+      text('hive-review-count', `review: ${{board.review_queue.length}}`);
+      text('hive-active-total', String(board.active_bees.length));
+      text('hive-active-copy', board.active_bees.length ? 'Live hive board connected' : 'No active bees');
+      text('hive-risk-total', String(board.overlap_risks.length));
+      text('hive-risk-copy', board.overlap_risks.length ? board.overlap_risks[0] : 'No overlap data loaded');
+      text('hive-stale-total', String(board.stale_bees.length));
+      text('hive-stale-copy', board.stale_bees.length ? board.stale_bees[0] : 'No stale hive data loaded');
+      return board;
+    }}
+
+    async function loadHiveRoster() {{
+      const response = await fetch('/hive/roster');
+      if (!response.ok) throw new Error(`hive roster failed: ${{response.status}}`);
+      const roster = await response.json();
+      const items = (roster.bees || []).slice(0, 6).map((bee) => {{
+        const worker = bee.worker_name || bee.agent || 'unnamed';
+        const role = bee.role || bee.hive_role || 'worker';
+        const lane = bee.lane_id || bee.branch || 'none';
+        const task = bee.task_id || 'none';
+        return `<strong>${{worker}}</strong><span>${{role}} · ${{lane}} · task=${{task}}</span>`;
+      }});
+      renderList('hive-roster-list', items);
+      return roster;
+    }}
+
+    async function loadHiveFollow(session) {{
+      if (!session) {{
+        renderList('hive-follow-list', []);
+        return null;
+      }}
+      const response = await fetch(`/hive/follow?session=${{encodeURIComponent(session)}}`);
+      if (!response.ok) throw new Error(`hive follow failed: ${{response.status}}`);
+      const follow = await response.json();
+      const items = [
+        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>work=${{follow.work_summary || 'none'}}</span>`,
+        `<strong>touches</strong><span>${{(follow.touch_points || []).join(',') || 'none'}}</span>`,
+        `<strong>recommended</strong><span>${{follow.recommended_action}}</span>`,
+      ];
+      if (follow.overlap_risk) {{
+        items.push(`<strong>overlap</strong><span>${{follow.overlap_risk}}</span>`);
+      }}
+      renderList('hive-follow-list', items);
+      return follow;
+    }}
+
     document.addEventListener('click', (event) => {{
       const actionButton = event.target.closest('[data-action]');
       if (actionButton) {{
@@ -490,6 +587,15 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
     loadArtifactDetail(selectedState.artifactId).catch((error) => {{
       text('action-status', String(error));
     }});
+    Promise.all([loadHiveBoard(), loadHiveRoster()])
+      .then(async ([board]) => {{
+        const session = (board && board.active_bees && board.active_bees[0] && board.active_bees[0].session) || null;
+        await loadHiveFollow(session);
+      }})
+      .catch((error) => {{
+        renderList('hive-roster-list', [`<span class="muted">${{String(error)}}</span>`]);
+        renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
+      }});
   </script>
 </body>
 </html>
@@ -1315,6 +1421,10 @@ mod tests {
         assert!(html.contains("wiki/runtime-spine.md"));
         assert!(html.contains("timeline events"));
         assert!(html.contains("workspace lanes"));
+        assert!(html.contains("Hive Board"));
+        assert!(html.contains("/hive/board"));
+        assert!(html.contains("/hive/roster"));
+        assert!(html.contains("/hive/follow?session="));
     }
 
     #[test]
