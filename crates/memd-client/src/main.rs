@@ -99,6 +99,8 @@ enum Commands {
     Coordination(CoordinationArgs),
     Bundle(BundleArgs),
     Hive(HiveArgs),
+    #[command(name = "hive-join", alias = "hive-fix")]
+    HiveJoin(HiveJoinArgs),
     Eval(EvalArgs),
     Gap(GapArgs),
     Improve(ImproveArgs),
@@ -1703,6 +1705,27 @@ struct HiveArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct HiveJoinArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = default_hive_join_base_url())]
+    base_url: String,
+
+    #[arg(long)]
+    all_active: bool,
+
+    #[arg(long)]
+    all_local: bool,
+
+    #[arg(long, default_value_t = true)]
+    publish_heartbeat: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct EvalArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -2583,6 +2606,14 @@ async fn main() -> anyhow::Result<()> {
             let response = run_hive_command(&args).await?;
             if args.summary {
                 println!("{}", render_hive_wire_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
+        Commands::HiveJoin(args) => {
+            let response = run_hive_join_command(&args).await?;
+            if args.summary {
+                println!("{}", render_hive_join_summary(&response));
             } else {
                 print_json(&response)?;
             }
@@ -9780,24 +9811,47 @@ async fn execute_autoresearch_loop(
         .iter()
         .filter(|entry| entry.slug == descriptor.slug)
         .count();
+    let previous_entry = summary
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| entry.slug == descriptor.slug);
 
     let record = match descriptor.slug {
         "prompt-surface" => {
-            run_prompt_surface_loop(output, base_url, descriptor, previous_runs).await?
+            run_prompt_surface_loop(output, base_url, descriptor, previous_runs, previous_entry)
+                .await?
         }
-        "live-truth" => run_live_truth_loop(output, base_url, descriptor, previous_runs).await?,
+        "live-truth" => {
+            run_live_truth_loop(output, base_url, descriptor, previous_runs, previous_entry).await?
+        }
         "capability-contract" => {
-            run_capability_contract_loop(output, descriptor, previous_runs).await?
+            run_capability_contract_loop(output, descriptor, previous_runs, previous_entry).await?
         }
-        "event-spine" => run_event_spine_loop(output, base_url, descriptor, previous_runs).await?,
+        "event-spine" => {
+            run_event_spine_loop(output, base_url, descriptor, previous_runs, previous_entry)
+                .await?
+        }
         "correction-learning" => {
-            run_correction_learning_loop(output, base_url, descriptor, previous_runs).await?
+            run_correction_learning_loop(
+                output,
+                base_url,
+                descriptor,
+                previous_runs,
+                previous_entry,
+            )
+            .await?
         }
         "long-context" => {
-            run_long_context_loop(output, base_url, descriptor, previous_runs).await?
+            run_long_context_loop(output, base_url, descriptor, previous_runs, previous_entry)
+                .await?
         }
-        "cross-harness" => run_cross_harness_loop(output, descriptor, previous_runs).await?,
-        "self-evolution" => run_self_evolution_loop(output, descriptor, previous_runs).await?,
+        "cross-harness" => {
+            run_cross_harness_loop(output, descriptor, previous_runs, previous_entry).await?
+        }
+        "self-evolution" => {
+            run_self_evolution_loop(output, descriptor, previous_runs, previous_entry).await?
+        }
         _ => run_default_loop(output, descriptor, previous_runs).await?,
     };
 
@@ -9827,20 +9881,69 @@ async fn run_prompt_surface_loop(
     base_url: &str,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot =
+        read_bundle_resume(&autoresearch_long_context_resume_args(output), base_url).await?;
     let tokens = snapshot.estimated_prompt_tokens() as f64;
     let baseline = 1_400.0;
     let percent = improvement_less_is_better(tokens, baseline);
     let token_savings = (baseline - tokens).max(0.0);
     let summary = format!("prompt tokens = {} (baseline {})", tokens, baseline);
+    let evidence = vec![
+        "resume prompt".to_string(),
+        format!("route={}", snapshot.route),
+        format!("intent={}", snapshot.intent),
+        format!("estimated_tokens={}", tokens),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let warning_reasons = {
+        let mut reasons = Vec::new();
+        if snapshot.refresh_recommended {
+            reasons.push("refresh_recommended".to_string());
+        }
+        if tokens <= 0.0 {
+            reasons.push("no_prompt_tokens".to_string());
+        }
+        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+            reasons.extend(loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ));
+        }
+        if !confidence_met {
+            reasons.extend(loop_floor_warning_reasons(
+                descriptor,
+                percent,
+                token_savings,
+                evidence.len(),
+            ));
+        }
+        reasons
+    };
     let metadata = serde_json::json!({
         "estimated_tokens": tokens,
         "baseline_tokens": baseline,
         "route": snapshot.route,
         "intent": snapshot.intent,
+        "refresh_recommended": snapshot.refresh_recommended,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 4),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        "warning_reasons": warning_reasons,
     });
-    Ok(build_autoresearch_record(
+    let status = if tokens <= 0.0
+        || loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -9848,6 +9951,7 @@ async fn run_prompt_surface_loop(
         summary,
         vec!["resume prompt".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -9856,8 +9960,13 @@ async fn run_live_truth_loop(
     base_url: &str,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot = read_bundle_resume(
+        &autoresearch_resume_args_with_limits(output, 4, 2, true),
+        base_url,
+    )
+    .await?;
     let change_count = snapshot.change_summary.len() as f64;
     let baseline = 6.0;
     let percent = improvement_less_is_better(change_count, baseline);
@@ -9867,11 +9976,57 @@ async fn run_live_truth_loop(
         change_count,
         snapshot.recent_repo_changes.len()
     );
+    let evidence = vec![
+        "live truth".to_string(),
+        format!("change_summary={}", change_count),
+        format!("recent_repo_changes={}", snapshot.recent_repo_changes.len()),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let warning_reasons = {
+        let mut reasons = Vec::new();
+        if snapshot.refresh_recommended {
+            reasons.push("refresh_recommended".to_string());
+        }
+        if snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty() {
+            reasons.push("no_change_signal".to_string());
+        }
+        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+            reasons.extend(loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ));
+        }
+        if !confidence_met {
+            reasons.extend(loop_floor_warning_reasons(
+                descriptor,
+                percent,
+                token_savings,
+                evidence.len(),
+            ));
+        }
+        reasons
+    };
     let metadata = serde_json::json!({
         "change_summary": change_count,
         "recent_repo_changes": snapshot.recent_repo_changes.len(),
+        "refresh_recommended": snapshot.refresh_recommended,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        "warning_reasons": warning_reasons,
     });
-    Ok(build_autoresearch_record(
+    let status = if (snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty())
+        || loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -9879,6 +10034,7 @@ async fn run_live_truth_loop(
         summary,
         vec!["live truth".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -9887,8 +10043,13 @@ async fn run_event_spine_loop(
     base_url: &str,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot = read_bundle_resume(
+        &autoresearch_resume_args_with_limits(output, 4, 2, true),
+        base_url,
+    )
+    .await?;
     let spine = snapshot.event_spine();
     let spine_chars = spine.iter().map(|line| line.len()).sum::<usize>() as f64;
     let baseline = 600.0;
@@ -9899,11 +10060,57 @@ async fn run_event_spine_loop(
         spine.len(),
         spine_chars
     );
+    let evidence = vec![
+        "event spine".to_string(),
+        format!("entries={}", spine.len()),
+        format!("chars={}", spine_chars),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let warning_reasons = {
+        let mut reasons = Vec::new();
+        if snapshot.refresh_recommended {
+            reasons.push("refresh_recommended".to_string());
+        }
+        if spine.is_empty() {
+            reasons.push("empty_event_spine".to_string());
+        }
+        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+            reasons.extend(loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ));
+        }
+        if !confidence_met {
+            reasons.extend(loop_floor_warning_reasons(
+                descriptor,
+                percent,
+                token_savings,
+                evidence.len(),
+            ));
+        }
+        reasons
+    };
     let metadata = serde_json::json!({
         "event_spine_entries": spine.len(),
         "event_spine_chars": spine_chars,
+        "refresh_recommended": snapshot.refresh_recommended,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        "warning_reasons": warning_reasons,
     });
-    Ok(build_autoresearch_record(
+    let status = if spine.is_empty()
+        || loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -9911,6 +10118,7 @@ async fn run_event_spine_loop(
         summary,
         vec!["event spine".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -9919,9 +10127,14 @@ async fn run_correction_learning_loop(
     base_url: &str,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
-    let total = snapshot.change_summary.len().max(1) as f64;
+    let snapshot = read_bundle_resume(
+        &autoresearch_resume_args_with_limits(output, 4, 2, true),
+        base_url,
+    )
+    .await?;
+    let total = snapshot.change_summary.len() as f64;
     let corrections = snapshot
         .change_summary
         .iter()
@@ -9933,14 +10146,68 @@ async fn run_correction_learning_loop(
                 || lower.contains("update")
         })
         .count() as f64;
+    if total == 0.0 {
+        let summary = "no tracked change summaries yet".to_string();
+        let metadata = serde_json::json!({
+            "corrections": corrections,
+            "change_summary": total,
+            "recent": snapshot.recent_repo_changes.len(),
+            "evidence": [
+                "correction learning",
+                "no tracked change summaries yet",
+                format!("recent={}", snapshot.recent_repo_changes.len()),
+            ],
+            "confidence": {
+                "absolute_percent_floor": descriptor.base_percent,
+                "absolute_token_floor": descriptor.base_tokens,
+                "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+                "evidence_count": 0,
+                "absolute_percent_met": false,
+                "absolute_token_met": false,
+                "absolute_floor_met": false,
+            },
+        });
+        return Ok(build_autoresearch_record_with_status(
+            descriptor,
+            previous_runs + 1,
+            0.0,
+            0.0,
+            summary,
+            vec!["correction learning".to_string()],
+            metadata,
+            "warning",
+        ));
+    }
     let percent = (1.0 - (corrections / total)).max(0.0) * 100.0;
     let token_savings = ((total - corrections).max(0.0)) * 10.0;
     let summary = format!(
         "{} corrections out of {} tracked change summaries",
         corrections, total
     );
-    let metadata = serde_json::json!({ "corrections": corrections, "change_summary": total, "recent": snapshot.recent_repo_changes.len() });
-    Ok(build_autoresearch_record(
+    let evidence = vec![
+        "correction learning".to_string(),
+        format!("corrections={}", corrections),
+        format!("change_summary={}", total),
+        format!("recent={}", snapshot.recent_repo_changes.len()),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let metadata = serde_json::json!({
+        "corrections": corrections,
+        "change_summary": total,
+        "recent": snapshot.recent_repo_changes.len(),
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 4),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+    });
+    let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -9948,6 +10215,7 @@ async fn run_correction_learning_loop(
         summary,
         vec!["correction learning".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -9956,19 +10224,40 @@ async fn run_long_context_loop(
     base_url: &str,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
-    let tokens = snapshot.estimated_prompt_tokens() as f64;
+    let snapshot =
+        read_bundle_resume(&autoresearch_long_context_resume_args(output), base_url).await?;
+    let tokens = snapshot.core_prompt_tokens() as f64;
     let baseline = 1_200.0;
     let percent = improvement_less_is_better(tokens, baseline);
     let token_savings = (baseline - tokens).max(0.0);
-    let summary = format!("long prompt tokens {} (target {})", tokens, baseline);
+    let summary = format!("core prompt tokens {} (target {})", tokens, baseline);
+    let evidence = vec![
+        "long context".to_string(),
+        format!("core_prompt_tokens={}", tokens),
+        format!("context_records={}", snapshot.context.records.len()),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
     let metadata = serde_json::json!({
-        "estimated_tokens": tokens,
+        "core_prompt_tokens": tokens,
         "baseline": baseline,
         "context_records": snapshot.context.records.len(),
+        "refresh_recommended": snapshot.refresh_recommended,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
     });
-    Ok(build_autoresearch_record(
+    let status = if tokens <= 0.0
+        || loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -9976,6 +10265,7 @@ async fn run_long_context_loop(
         summary,
         vec!["long context".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -9983,37 +10273,112 @@ async fn run_capability_contract_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
     let project_root = infer_bundle_project_root(output);
     let registry = build_bundle_capability_registry(project_root.as_deref());
     let total = registry.capabilities.len();
-    let bad = registry
+    if total == 0 {
+        let summary = "no capability contracts discovered".to_string();
+        let metadata = serde_json::json!({
+            "total": total,
+            "missing": 0,
+            "coverage": 0.0,
+            "evidence": [
+                "capability contract",
+                "no capability contracts discovered",
+            ],
+            "confidence": {
+                "absolute_percent_floor": descriptor.base_percent,
+                "absolute_token_floor": descriptor.base_tokens,
+                "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+                "evidence_count": 0,
+                "absolute_percent_met": false,
+                "absolute_token_met": false,
+                "absolute_floor_met": false,
+            },
+            "warning_reasons": ["no_capability_registry"],
+        });
+        return Ok(build_autoresearch_record_with_status(
+            descriptor,
+            previous_runs + 1,
+            0.0,
+            0.0,
+            summary,
+            vec!["capability contract".to_string()],
+            metadata,
+            "warning",
+        ));
+    }
+    let discovered = registry
+        .capabilities
+        .iter()
+        .filter(|entry| entry.status == "installed" || entry.status == "discovered")
+        .count();
+    let portable = registry
         .capabilities
         .iter()
         .filter(|entry| {
-            entry.status != "installed"
-                || entry.portability_class == "adapter-required"
-                || entry.portability_class == "harness-native"
+            entry.portability_class != "adapter-required"
+                && entry.portability_class != "harness-native"
         })
         .count();
-    let coverage = if total == 0 {
-        1.0
-    } else {
-        (total.saturating_sub(bad)) as f64 / total as f64
-    };
+    let bad = total.saturating_sub(portable);
+    let coverage = portable as f64 / total as f64;
     let percent = coverage * 100.0;
-    let token_savings = coverage * descriptor.base_tokens;
+    let token_savings = portable as f64;
     let summary = format!(
         "{}/{} capability contracts satisfy expectations",
-        total - bad,
-        total
+        portable, total
     );
+    let evidence = vec![
+        "capability contract".to_string(),
+        format!("total={}", total),
+        format!("discovered={}", discovered),
+        format!("portable={}", portable),
+        format!("coverage={}", coverage),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let warning_reasons = {
+        let mut reasons = Vec::new();
+        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+            reasons.extend(loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ));
+        }
+        if !confidence_met {
+            reasons.extend(loop_floor_warning_reasons(
+                descriptor,
+                percent,
+                token_savings,
+                evidence.len(),
+            ));
+        }
+        reasons
+    };
     let metadata = serde_json::json!({
         "total": total,
+        "discovered": discovered,
+        "portable": portable,
         "missing": bad,
         "coverage": coverage,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 5),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        "warning_reasons": warning_reasons,
     });
-    Ok(build_autoresearch_record(
+    let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -10021,6 +10386,7 @@ async fn run_capability_contract_loop(
         summary,
         vec!["capability contract".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -10028,29 +10394,97 @@ async fn run_cross_harness_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
     let project_root = infer_bundle_project_root(output);
     let registry = build_bundle_capability_registry(project_root.as_deref());
     let total = registry.capabilities.len();
+    if total == 0 {
+        let summary = "no cross-harness capabilities discovered".to_string();
+        let metadata = serde_json::json!({
+            "total": total,
+            "portable": 0,
+            "ratio": 0.0,
+            "evidence": [
+                "cross harness",
+                "no cross-harness capabilities discovered",
+            ],
+            "confidence": {
+                "absolute_percent_floor": descriptor.base_percent,
+                "absolute_token_floor": descriptor.base_tokens,
+                "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+                "evidence_count": 0,
+                "absolute_percent_met": false,
+                "absolute_token_met": false,
+                "absolute_floor_met": false,
+            },
+            "warning_reasons": ["no_cross_harness_registry"],
+        });
+        return Ok(build_autoresearch_record_with_status(
+            descriptor,
+            previous_runs + 1,
+            0.0,
+            0.0,
+            summary,
+            vec!["cross harness".to_string()],
+            metadata,
+            "warning",
+        ));
+    }
     let portable = registry
         .capabilities
         .iter()
         .filter(|entry| entry.portability_class != "adapter-required")
         .count();
-    let ratio = if total == 0 {
-        1.0
-    } else {
-        portable as f64 / total as f64
-    };
+    let ratio = portable as f64 / total as f64;
     let percent = ratio * 100.0;
     let token_savings = ratio * descriptor.base_tokens;
     let summary = format!("cross harness ports {}/{}", portable, total);
+    let evidence = vec![
+        "cross harness".to_string(),
+        format!("total={}", total),
+        format!("portable={}", portable),
+        format!("ratio={}", ratio),
+    ];
+    let confidence_met =
+        loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let warning_reasons = {
+        let mut reasons = Vec::new();
+        if loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+            reasons.extend(loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ));
+        }
+        if !confidence_met {
+            reasons.extend(loop_floor_warning_reasons(
+                descriptor,
+                percent,
+                token_savings,
+                evidence.len(),
+            ));
+        }
+        reasons
+    };
     let metadata = serde_json::json!({
         "total": total,
         "portable": portable,
         "ratio": ratio,
+        "evidence": evidence,
+        "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 4),
+        "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+        "warning_reasons": warning_reasons,
     });
-    Ok(build_autoresearch_record(
+    let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+        || !confidence_met
+    {
+        "warning"
+    } else {
+        "success"
+    };
+    Ok(build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -10058,6 +10492,7 @@ async fn run_cross_harness_loop(
         summary,
         vec!["cross harness".to_string()],
         metadata,
+        status,
     ))
 }
 
@@ -10065,47 +10500,151 @@ async fn run_self_evolution_loop(
     output: &Path,
     descriptor: &AutoresearchLoop,
     previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
     let report = read_latest_experiment_report(output)?;
     if let Some(report) = report {
+        let fresh = experiment_report_is_fresh(&report);
+        let usable = fresh && report.accepted && !report.restored && report.composite.max_score > 0;
         let ratio = if report.composite.max_score == 0 {
             0.0
         } else {
             report.composite.score as f64 / report.composite.max_score as f64
         };
-        let percent = ratio * 100.0;
-        let token_savings = ratio * descriptor.base_tokens;
-        let summary = format!(
-            "accepted experiment composite score {}/{} with {} learnings",
-            report.composite.score,
-            report.composite.max_score,
-            report.learnings.len()
-        );
+        let percent = if usable { ratio * 100.0 } else { 0.0 };
+        let token_savings = if usable {
+            ratio * descriptor.base_tokens
+        } else {
+            0.0
+        };
+        let summary = if usable {
+            format!(
+                "accepted experiment composite score {}/{} with {} learnings",
+                report.composite.score,
+                report.composite.max_score,
+                report.learnings.len()
+            )
+        } else {
+            format!(
+                "experiment report not usable (accepted={}, restored={}, fresh={}, max_score={})",
+                report.accepted, report.restored, fresh, report.composite.max_score
+            )
+        };
+        let evidence = if usable {
+            vec![
+                "self evolution".to_string(),
+                format!("accepted={}", report.accepted),
+                format!("fresh={}", fresh),
+                format!("composite_score={}", report.composite.score),
+                format!("composite_max={}", report.composite.max_score),
+            ]
+        } else {
+            vec![
+                "self evolution".to_string(),
+                format!("accepted={}", report.accepted),
+                format!("restored={}", report.restored),
+                format!("fresh={}", fresh),
+            ]
+        };
+        let confidence_met =
+            usable && loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+        let warning_reasons = {
+            let mut reasons = Vec::new();
+            if !fresh {
+                reasons.push("stale_report".to_string());
+            }
+            if report.restored {
+                reasons.push("restored_report".to_string());
+            }
+            if !report.accepted {
+                reasons.push("unaccepted_report".to_string());
+            }
+            if report.composite.max_score == 0 {
+                reasons.push("zero_max_score".to_string());
+            }
+            if usable && loop_is_regressed(descriptor, previous_entry, percent, token_savings) {
+                reasons.extend(loop_trend_warning_reasons(
+                    descriptor,
+                    previous_entry,
+                    percent,
+                    token_savings,
+                ));
+            }
+            if usable && !confidence_met {
+                reasons.extend(loop_floor_warning_reasons(
+                    descriptor,
+                    percent,
+                    token_savings,
+                    evidence.len(),
+                ));
+            }
+            reasons
+        };
         let metadata = serde_json::json!({
             "accepted": report.accepted,
             "restored": report.restored,
+            "fresh": fresh,
+            "usable": usable,
             "composite_score": report.composite.score,
             "composite_max": report.composite.max_score,
+            "evidence": evidence,
+            "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, if usable { 5 } else { 4 }),
+            "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
+            "warning_reasons": warning_reasons,
         });
-        Ok(build_autoresearch_record(
-            descriptor,
-            previous_runs + 1,
-            percent,
-            token_savings,
-            summary,
-            vec!["self evolution".to_string()],
-            metadata,
-        ))
+        if usable {
+            let status = if loop_is_regressed(descriptor, previous_entry, percent, token_savings)
+                || !confidence_met
+            {
+                "warning"
+            } else {
+                "success"
+            };
+            Ok(build_autoresearch_record_with_status(
+                descriptor,
+                previous_runs + 1,
+                percent,
+                token_savings,
+                summary,
+                vec!["self evolution".to_string()],
+                metadata,
+                status,
+            ))
+        } else {
+            Ok(build_autoresearch_record_with_status(
+                descriptor,
+                previous_runs + 1,
+                percent,
+                token_savings,
+                summary,
+                vec!["self evolution".to_string()],
+                metadata,
+                "warning",
+            ))
+        }
     } else {
         let summary = "no experiment recorded yet".to_string();
-        Ok(build_autoresearch_record(
+        Ok(build_autoresearch_record_with_status(
             descriptor,
             previous_runs + 1,
             0.0,
             0.0,
             summary,
             vec!["self evolution".to_string()],
-            serde_json::json!({}),
+            serde_json::json!({
+                "evidence": ["self evolution", "no experiment recorded yet"],
+                "confidence": {
+                    "absolute_percent_floor": descriptor.base_percent,
+                    "absolute_token_floor": descriptor.base_tokens,
+                    "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+                    "evidence_count": 0,
+                    "absolute_percent_met": false,
+                    "absolute_token_met": false,
+                    "absolute_floor_met": false,
+                },
+                "warning_reasons": ["no_experiment_report"],
+            }),
+            "warning",
         ))
     }
 }
@@ -10142,18 +10681,171 @@ fn build_autoresearch_record(
     artifacts: Vec<String>,
     metadata: serde_json::Value,
 ) -> LoopRecord {
+    build_autoresearch_record_with_status(
+        descriptor,
+        iteration,
+        percent_improvement,
+        token_savings,
+        summary,
+        artifacts,
+        metadata,
+        "success",
+    )
+}
+
+fn build_autoresearch_record_with_status(
+    descriptor: &AutoresearchLoop,
+    iteration: usize,
+    percent_improvement: f64,
+    token_savings: f64,
+    summary: String,
+    artifacts: Vec<String>,
+    metadata: serde_json::Value,
+    status: &str,
+) -> LoopRecord {
     LoopRecord {
         slug: Some(descriptor.slug.to_string()),
         name: Some(descriptor.name.to_string()),
         iteration: Some(iteration as u32),
         percent_improvement: Some(percent_improvement.clamp(0.0, 100.0)),
         token_savings: Some(token_savings.max(0.0)),
-        status: Some("success".to_string()),
+        status: Some(status.to_string()),
         summary: Some(summary),
         artifacts: Some(artifacts),
         created_at: Some(Utc::now()),
         metadata,
     }
+}
+
+const AUTORESEARCH_MIN_EVIDENCE_SIGNALS: usize = 3;
+
+fn loop_meets_absolute_floor(
+    descriptor: &AutoresearchLoop,
+    percent: f64,
+    token_savings: f64,
+    evidence_count: usize,
+) -> bool {
+    percent >= descriptor.base_percent
+        && token_savings >= descriptor.base_tokens
+        && evidence_count >= AUTORESEARCH_MIN_EVIDENCE_SIGNALS
+}
+
+fn loop_success_requires_second_signal(
+    primary_ok: bool,
+    secondary_ok: bool,
+    confidence_ok: bool,
+    trend_ok: bool,
+) -> bool {
+    primary_ok && secondary_ok && confidence_ok && trend_ok
+}
+
+fn loop_confidence_metadata(
+    descriptor: &AutoresearchLoop,
+    percent: f64,
+    token_savings: f64,
+    absolute_floor_met: bool,
+    evidence_count: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "absolute_percent_floor": descriptor.base_percent,
+        "absolute_token_floor": descriptor.base_tokens,
+        "min_evidence_signals": AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+        "evidence_count": evidence_count,
+        "absolute_percent_met": percent >= descriptor.base_percent,
+        "absolute_token_met": token_savings >= descriptor.base_tokens,
+        "absolute_floor_met": absolute_floor_met,
+    })
+}
+
+fn loop_floor_warning_reasons(
+    descriptor: &AutoresearchLoop,
+    percent: f64,
+    token_savings: f64,
+    evidence_count: usize,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if percent < descriptor.base_percent {
+        reasons.push("percent_below_floor".to_string());
+    }
+    if token_savings < descriptor.base_tokens {
+        reasons.push("token_savings_below_floor".to_string());
+    }
+    if evidence_count < AUTORESEARCH_MIN_EVIDENCE_SIGNALS {
+        reasons.push("evidence_count_below_floor".to_string());
+    }
+    reasons
+}
+
+const AUTORESEARCH_EXPERIMENT_MAX_AGE_HOURS: i64 = 24;
+
+fn experiment_report_is_fresh(report: &ExperimentReport) -> bool {
+    let age = Utc::now()
+        .signed_duration_since(report.completed_at)
+        .num_hours();
+    age <= AUTORESEARCH_EXPERIMENT_MAX_AGE_HOURS
+}
+
+fn loop_is_regressed(
+    descriptor: &AutoresearchLoop,
+    previous_entry: Option<&LoopSummaryEntry>,
+    percent: f64,
+    token_savings: f64,
+) -> bool {
+    loop_trend_warning_reasons(descriptor, previous_entry, percent, token_savings)
+        .iter()
+        .any(|reason| reason.starts_with("trend_"))
+}
+
+fn loop_trend_metadata(
+    descriptor: &AutoresearchLoop,
+    previous_entry: Option<&LoopSummaryEntry>,
+    percent: f64,
+    token_savings: f64,
+) -> serde_json::Value {
+    match previous_entry {
+        Some(previous) => serde_json::json!({
+            "previous_percent": previous.percent_improvement,
+            "previous_token_savings": previous.token_savings,
+            "trend_percent_floor": descriptor.trend_percent_floor,
+            "trend_token_floor": descriptor.trend_token_floor,
+            "regressed": loop_is_regressed(descriptor, previous_entry, percent, token_savings),
+            "warning_reasons": loop_trend_warning_reasons(
+                descriptor,
+                previous_entry,
+                percent,
+                token_savings,
+            ),
+        }),
+        None => serde_json::json!({
+            "previous_percent": serde_json::Value::Null,
+            "previous_token_savings": serde_json::Value::Null,
+            "trend_percent_floor": descriptor.trend_percent_floor,
+            "trend_token_floor": descriptor.trend_token_floor,
+            "regressed": false,
+            "warning_reasons": Vec::<String>::new(),
+        }),
+    }
+}
+
+fn loop_trend_warning_reasons(
+    descriptor: &AutoresearchLoop,
+    previous_entry: Option<&LoopSummaryEntry>,
+    percent: f64,
+    token_savings: f64,
+) -> Vec<String> {
+    let Some(previous) = previous_entry else {
+        return Vec::new();
+    };
+    let previous_percent = previous.percent_improvement.unwrap_or(0.0);
+    let previous_tokens = previous.token_savings.unwrap_or(0.0);
+    let mut reasons = Vec::new();
+    if percent + descriptor.trend_percent_floor <= previous_percent {
+        reasons.push("trend_percent_regressed".to_string());
+    }
+    if token_savings + descriptor.trend_token_floor <= previous_tokens {
+        reasons.push("trend_token_regressed".to_string());
+    }
+    reasons
 }
 
 fn improvement_less_is_better(measured: f64, baseline: f64) -> f64 {
@@ -10164,6 +10856,19 @@ fn improvement_less_is_better(measured: f64, baseline: f64) -> f64 {
 }
 
 fn autoresearch_resume_args(output: &Path) -> ResumeArgs {
+    autoresearch_resume_args_with_limits(output, 8, 4, true)
+}
+
+fn autoresearch_long_context_resume_args(output: &Path) -> ResumeArgs {
+    autoresearch_resume_args_with_limits(output, 0, 0, false)
+}
+
+fn autoresearch_resume_args_with_limits(
+    output: &Path,
+    limit: usize,
+    rehydration_limit: usize,
+    semantic: bool,
+) -> ResumeArgs {
     ResumeArgs {
         output: output.to_path_buf(),
         project: None,
@@ -10173,9 +10878,9 @@ fn autoresearch_resume_args(output: &Path) -> ResumeArgs {
         visibility: None,
         route: None,
         intent: None,
-        limit: Some(8),
-        rehydration_limit: Some(4),
-        semantic: true,
+        limit: Some(limit),
+        rehydration_limit: Some(rehydration_limit),
+        semantic,
         prompt: false,
         summary: false,
     }
@@ -10203,6 +10908,8 @@ struct AutoresearchLoop {
     risk: &'static str,
     base_percent: f64,
     base_tokens: f64,
+    trend_percent_floor: f64,
+    trend_token_floor: f64,
 }
 
 impl AutoresearchLoop {
@@ -10218,6 +10925,8 @@ impl AutoresearchLoop {
         risk: &'static str,
         base_percent: f64,
         base_tokens: f64,
+        trend_percent_floor: f64,
+        trend_token_floor: f64,
     ) -> AutoresearchLoop {
         AutoresearchLoop {
             slug,
@@ -10230,71 +10939,13 @@ impl AutoresearchLoop {
             risk,
             base_percent,
             base_tokens,
+            trend_percent_floor,
+            trend_token_floor,
         }
     }
 }
 
-static AUTORESEARCH_LOOPS: [AutoresearchLoop; 8] = [
-    AutoresearchLoop::new(
-        "prompt-surface",
-        "prompt-surface",
-        "Prompt Surface Compression",
-        "Compact repeated resumes and handoff text to stay under the hot-lane budget.",
-        "resume/handoff bundles",
-        "chars/tokens reduced",
-        "no improvement 2 cycles",
-        "low",
-        2.5,
-        150.0,
-    ),
-    AutoresearchLoop::new(
-        "live-truth",
-        "live-truth",
-        "Live Truth Freshness",
-        "Avoid re-reading immediately changed files and stale assertions.",
-        "recent file reads",
-        "rereads/stale warnings",
-        "freshness baseline met",
-        "low-medium",
-        1.6,
-        120.0,
-    ),
-    AutoresearchLoop::new(
-        "capability-contract",
-        "capability-contract",
-        "Capability Contract Detection",
-        "Detect mismatches between skills and CLI capabilities before failing.",
-        "skill vs CLI contracts",
-        "wrong-interface failures",
-        "all contracts resolved",
-        "medium",
-        1.1,
-        90.0,
-    ),
-    AutoresearchLoop::new(
-        "event-spine",
-        "event-spine",
-        "Event Spine Compaction",
-        "Filter noisy coordination events to keep token burn low.",
-        "integration events",
-        "event token burn",
-        "cost delta < 5%",
-        "low",
-        1.3,
-        70.0,
-    ),
-    AutoresearchLoop::new(
-        "correction-learning",
-        "correction-learning",
-        "Correction Learning",
-        "Stop repeating user-corrected mistakes by turning them into policy.",
-        "correction recurrence",
-        "correction recurrence rate",
-        "zero recurrence 3 loops",
-        "medium",
-        1.0,
-        60.0,
-    ),
+static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
     AutoresearchLoop::new(
         "long-context",
         "long-context",
@@ -10306,6 +10957,78 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 8] = [
         "low",
         2.1,
         200.0,
+        1.0,
+        10.0,
+    ),
+    AutoresearchLoop::new(
+        "prompt-surface",
+        "prompt-surface",
+        "Prompt Surface Compression",
+        "Compact repeated resumes and handoff text to stay under the hot-lane budget.",
+        "resume/handoff bundles",
+        "chars/tokens reduced",
+        "no improvement 2 cycles",
+        "low",
+        2.5,
+        150.0,
+        1.0,
+        8.0,
+    ),
+    AutoresearchLoop::new(
+        "live-truth",
+        "live-truth",
+        "Live Truth Freshness",
+        "Avoid re-reading immediately changed files and stale assertions.",
+        "recent file reads",
+        "rereads/stale warnings",
+        "freshness baseline met",
+        "low-medium",
+        1.6,
+        39.0,
+        0.5,
+        6.0,
+    ),
+    AutoresearchLoop::new(
+        "capability-contract",
+        "capability-contract",
+        "Capability Contract Detection",
+        "Detect mismatches between skills and CLI capabilities before failing.",
+        "skill vs CLI contracts",
+        "wrong-interface failures",
+        "all contracts resolved",
+        "medium",
+        1.1,
+        10.0,
+        0.5,
+        4.0,
+    ),
+    AutoresearchLoop::new(
+        "event-spine",
+        "event-spine",
+        "Event Spine Compaction",
+        "Filter noisy coordination events to keep token burn low.",
+        "integration events",
+        "event token burn",
+        "cost delta < 5%",
+        "low",
+        1.3,
+        30.0,
+        0.5,
+        4.0,
+    ),
+    AutoresearchLoop::new(
+        "correction-learning",
+        "correction-learning",
+        "Correction Learning",
+        "Stop repeating user-corrected mistakes by turning them into policy.",
+        "correction recurrence",
+        "correction recurrence rate",
+        "zero recurrence 3 loops",
+        "medium",
+        1.0,
+        30.0,
+        0.5,
+        4.0,
     ),
     AutoresearchLoop::new(
         "cross-harness",
@@ -10318,6 +11041,8 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 8] = [
         "medium",
         1.2,
         110.0,
+        0.5,
+        4.0,
     ),
     AutoresearchLoop::new(
         "self-evolution",
@@ -10330,6 +11055,36 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 8] = [
         "high",
         0.7,
         50.0,
+        1.0,
+        6.0,
+    ),
+    AutoresearchLoop::new(
+        "hive-health",
+        "hive-health",
+        "Hive Health",
+        "Track live peers, heartbeat publication, dead sessions, and claim collisions.",
+        "live peers and claims",
+        "heartbeat health",
+        "stable live awareness",
+        "high",
+        1.4,
+        60.0,
+        0.5,
+        4.0,
+    ),
+    AutoresearchLoop::new(
+        "docs-spec-drift",
+        "docs-spec-drift",
+        "Docs Spec Drift",
+        "Keep docs and specs aligned with shipped behavior.",
+        "docs/spec artifacts",
+        "alignment drift",
+        "docs and specs match behavior",
+        "medium",
+        1.0,
+        24.0,
+        0.5,
+        4.0,
     ),
 ];
 
@@ -13091,6 +13846,10 @@ fn resolve_hive_command_base_url(base_url: &str) -> String {
         .unwrap_or_else(|| requested.to_string())
 }
 
+fn default_hive_join_base_url() -> String {
+    SHARED_MEMD_BASE_URL.to_string()
+}
+
 async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     let current_project_root = detect_current_project_root().ok().flatten();
     let inferred_agent = args
@@ -13200,6 +13959,194 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     })
 }
 
+async fn run_hive_join_command(args: &HiveJoinArgs) -> anyhow::Result<HiveJoinResponse> {
+    if args.all_local {
+        run_hive_join_all_local_command(args).await
+    } else if args.all_active {
+        run_hive_join_all_active_command(args).await
+    } else {
+        let response =
+            join_hive_bundle(&args.output, &args.base_url, args.publish_heartbeat).await?;
+        Ok(HiveJoinResponse::Single(response))
+    }
+}
+
+async fn run_hive_join_all_local_command(args: &HiveJoinArgs) -> anyhow::Result<HiveJoinResponse> {
+    let (current_bundle, _, _) = resolve_awareness_paths(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+    let current_runtime = read_bundle_runtime_config_raw(&current_bundle)?
+        .context("hive join requires a readable current bundle runtime config")?;
+    let awareness = read_project_awareness_local(&AwarenessArgs {
+        output: current_bundle.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+    let target_project = current_runtime.project.clone();
+    let target_namespace = current_runtime.namespace.clone();
+
+    let mut bundles = std::collections::BTreeSet::<PathBuf>::new();
+    for entry in awareness.entries {
+        if target_project.as_deref() != entry.project.as_deref() {
+            continue;
+        }
+        if target_namespace.as_deref() != entry.namespace.as_deref() {
+            continue;
+        }
+        if entry.bundle_root.starts_with("remote:") {
+            continue;
+        }
+        bundles.insert(PathBuf::from(entry.bundle_root));
+    }
+    bundles.insert(current_bundle);
+
+    let mut joined = Vec::new();
+    for bundle in bundles {
+        let response = join_hive_bundle(&bundle, &args.base_url, args.publish_heartbeat).await?;
+        joined.push(response);
+    }
+
+    Ok(HiveJoinResponse::Batch(HiveJoinBatchResponse {
+        base_url: resolve_hive_join_base_url(&args.base_url),
+        joined,
+        mode: "all-local".to_string(),
+    }))
+}
+
+async fn run_hive_join_all_active_command(args: &HiveJoinArgs) -> anyhow::Result<HiveJoinResponse> {
+    let (current_bundle, _, _) = resolve_awareness_paths(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+    let current_runtime = read_bundle_runtime_config_raw(&current_bundle)?
+        .context("hive join requires a readable current bundle runtime config")?;
+    let awareness = read_project_awareness_local(&AwarenessArgs {
+        output: current_bundle.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+    let target_project = current_runtime.project.clone();
+    let target_namespace = current_runtime.namespace.clone();
+
+    let mut bundles = std::collections::BTreeSet::<PathBuf>::new();
+    for entry in awareness.entries {
+        if entry.presence != "active" {
+            continue;
+        }
+        if target_project.as_deref() != entry.project.as_deref() {
+            continue;
+        }
+        if target_namespace.as_deref() != entry.namespace.as_deref() {
+            continue;
+        }
+        if entry.bundle_root.starts_with("remote:") {
+            continue;
+        }
+        bundles.insert(PathBuf::from(entry.bundle_root));
+    }
+    bundles.insert(current_bundle);
+
+    let mut joined = Vec::new();
+    for bundle in bundles {
+        let response = join_hive_bundle(&bundle, &args.base_url, args.publish_heartbeat).await?;
+        joined.push(response);
+    }
+
+    Ok(HiveJoinResponse::Batch(HiveJoinBatchResponse {
+        base_url: resolve_hive_join_base_url(&args.base_url),
+        joined,
+        mode: "all-active".to_string(),
+    }))
+}
+
+fn resolve_hive_join_base_url(base_url: &str) -> String {
+    let requested = base_url.trim();
+    if requested.is_empty() {
+        return SHARED_MEMD_BASE_URL.to_string();
+    }
+    requested.to_string()
+}
+
+async fn join_hive_bundle(
+    output: &Path,
+    base_url: &str,
+    publish_heartbeat: bool,
+) -> anyhow::Result<HiveJoinBundleResponse> {
+    let runtime = read_bundle_runtime_config_raw(output)?
+        .context("hive join requires a readable bundle runtime config")?;
+    let join_base_url = resolve_hive_join_base_url(base_url);
+
+    set_bundle_base_url(output, &join_base_url)?;
+    if let Some(project) = runtime.project.as_deref() {
+        set_bundle_project(output, project)?;
+    }
+    if let Some(namespace) = runtime.namespace.as_deref() {
+        set_bundle_namespace(output, namespace)?;
+    }
+    if let Some(agent) = runtime.agent.as_deref() {
+        set_bundle_agent(output, agent)?;
+    }
+    if let Some(session) = runtime.session.as_deref() {
+        set_bundle_session(output, session)?;
+    }
+    if let Some(tab_id) = runtime.tab_id.as_deref() {
+        set_bundle_tab_id(output, tab_id)?;
+    }
+    set_bundle_hive_groups(output, &runtime.hive_groups)?;
+    if let Some(goal) = runtime.hive_group_goal.as_deref() {
+        set_bundle_hive_group_goal(output, goal)?;
+    }
+    if let Some(authority) = runtime.authority.as_deref() {
+        set_bundle_authority(output, authority)?;
+    }
+    if let Some(route) = runtime.route.as_deref() {
+        set_bundle_route(output, route)?;
+    }
+    if let Some(intent) = runtime.intent.as_deref() {
+        set_bundle_intent(output, intent)?;
+    }
+    if let Some(workspace) = runtime.workspace.as_deref() {
+        set_bundle_workspace(output, workspace)?;
+    }
+    if let Some(visibility) = runtime.visibility.as_deref() {
+        set_bundle_visibility(output, visibility)?;
+    }
+    write_agent_profiles(output)?;
+
+    let heartbeat = if publish_heartbeat {
+        Some(serde_json::to_value(
+            refresh_bundle_heartbeat(output, None, false).await?,
+        )?)
+    } else {
+        None
+    };
+    let joined_runtime = read_bundle_runtime_config_raw(output)?
+        .context("reload bundle runtime config after hive join")?;
+
+    Ok(HiveJoinBundleResponse {
+        output: output.display().to_string(),
+        base_url: join_base_url,
+        project: joined_runtime.project,
+        namespace: joined_runtime.namespace,
+        agent: joined_runtime.agent,
+        session: joined_runtime.session,
+        tab_id: joined_runtime.tab_id,
+        hive_system: joined_runtime.hive_system,
+        hive_role: joined_runtime.hive_role,
+        hive_groups: joined_runtime.hive_groups,
+        hive_group_goal: joined_runtime.hive_group_goal,
+        authority: joined_runtime.authority,
+        heartbeat,
+    })
+}
+
 fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
     format!(
         "hive {} bundle={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
@@ -13223,6 +14170,80 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
             "skipped"
         },
     )
+}
+
+fn render_hive_join_summary(response: &HiveJoinResponse) -> String {
+    match response {
+        HiveJoinResponse::Single(response) => format!(
+            "hive join bundle={} base_url={} project={} namespace={} agent={} session={} tab={} hive={} role={} groups={} goal=\"{}\" authority={} heartbeat={}",
+            response.output,
+            response.base_url,
+            response.project.as_deref().unwrap_or("none"),
+            response.namespace.as_deref().unwrap_or("none"),
+            response.agent.as_deref().unwrap_or("none"),
+            response.session.as_deref().unwrap_or("none"),
+            response.tab_id.as_deref().unwrap_or("none"),
+            response.hive_system.as_deref().unwrap_or("none"),
+            response.hive_role.as_deref().unwrap_or("none"),
+            if response.hive_groups.is_empty() {
+                "none".to_string()
+            } else {
+                response.hive_groups.join(",")
+            },
+            response.hive_group_goal.as_deref().unwrap_or("none"),
+            response.authority.as_deref().unwrap_or("none"),
+            if response.heartbeat.is_some() {
+                "published"
+            } else {
+                "skipped"
+            },
+        ),
+        HiveJoinResponse::Batch(response) => {
+            let published = response
+                .joined
+                .iter()
+                .filter(|entry| entry.heartbeat.is_some())
+                .count();
+            format!(
+                "hive join {} base_url={} bundles={} published={}",
+                response.mode,
+                response.base_url,
+                response.joined.len(),
+                published
+            )
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum HiveJoinResponse {
+    Single(HiveJoinBundleResponse),
+    Batch(HiveJoinBatchResponse),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HiveJoinBatchResponse {
+    base_url: String,
+    mode: String,
+    joined: Vec<HiveJoinBundleResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HiveJoinBundleResponse {
+    output: String,
+    base_url: String,
+    project: Option<String>,
+    namespace: Option<String>,
+    agent: Option<String>,
+    session: Option<String>,
+    tab_id: Option<String>,
+    hive_system: Option<String>,
+    hive_role: Option<String>,
+    hive_groups: Vec<String>,
+    hive_group_goal: Option<String>,
+    authority: Option<String>,
+    heartbeat: Option<JsonValue>,
 }
 
 fn maybe_explicit_init_output(args: &InitArgs) -> Option<PathBuf> {
@@ -14361,6 +15382,9 @@ fn build_hive_heartbeat(
         hive_groups: Vec::new(),
         hive_group_goal: None,
         authority: None,
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
         base_url: None,
         route: None,
         intent: None,
@@ -17757,23 +18781,38 @@ async fn sync_recent_repo_live_truth(
         };
 
     if let Some(existing) = search.items.first() {
-        let _ = client
-            .repair(&RepairMemoryRequest {
-                id: existing.id,
-                mode: MemoryRepairMode::CorrectMetadata,
-                confidence: Some(0.98),
-                status: Some(MemoryStatus::Active),
-                workspace: workspace.map(ToOwned::to_owned),
-                visibility,
-                source_agent: Some("memd".to_string()),
-                source_system: Some("memd-live-truth".to_string()),
-                source_path: Some(project_root.display().to_string()),
-                source_quality: Some(memd_schema::SourceQuality::Derived),
-                content: Some(content),
-                tags: Some(live_truth_tags.clone()),
-                supersedes: Vec::new(),
-            })
-            .await?;
+        let repair_request = RepairMemoryRequest {
+            id: existing.id,
+            mode: MemoryRepairMode::CorrectMetadata,
+            confidence: Some(0.98),
+            status: Some(MemoryStatus::Active),
+            workspace: workspace.map(ToOwned::to_owned),
+            visibility,
+            source_agent: Some("memd".to_string()),
+            source_system: Some("memd-live-truth".to_string()),
+            source_path: Some(project_root.display().to_string()),
+            source_quality: Some(memd_schema::SourceQuality::Derived),
+            content: Some(content.clone()),
+            tags: Some(live_truth_tags.clone()),
+            supersedes: Vec::new(),
+        };
+        match client.repair(&repair_request).await {
+            Ok(_) => {}
+            Err(err) if err.to_string().contains("memory item not found") => {
+                store_live_truth_record(
+                    &client,
+                    content,
+                    project,
+                    namespace,
+                    workspace,
+                    visibility,
+                    project_root,
+                    live_truth_tags,
+                )
+                .await?;
+            }
+            Err(err) => return Err(err),
+        }
     } else {
         store_live_truth_record(
             &client,
@@ -20302,6 +21341,10 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
+    script.push_str(&format!(
+        "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
+        SHARED_MEMD_BASE_URL
+    ));
     script.push_str(
         "if [[ -z \"${MEMD_TAB_ID:-}\" ]]; then\n  if [[ -n \"${WT_SESSION:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${WT_SESSION:0:8}\"\n  elif [[ -n \"${TERM_SESSION_ID:-}\" ]]; then\n    export MEMD_TAB_ID=\"tab-${TERM_SESSION_ID:0:8}\"\n  else\n    tty_id=\"$(tty 2>/dev/null || true)\"\n    if [[ -n \"$tty_id\" && \"$tty_id\" != \"not a tty\" ]]; then\n      export MEMD_TAB_ID=\"tab-${tty_id//\\//-}\"\n    else\n      export MEMD_TAB_ID=\"tab-$$\"\n    fi\n  fi\nfi\n",
     );
@@ -20317,6 +21360,9 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         }
     }
     script.push_str(
+        "nohup memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &\n",
+    );
+    script.push_str(
         "memd hive --output \"$MEMD_BUNDLE_ROOT\" --publish-heartbeat --summary >/dev/null 2>&1 || true\n",
     );
     script.push_str(
@@ -20330,6 +21376,10 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
+    script.push_str(&format!(
+        "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
+        escape_ps1(SHARED_MEMD_BASE_URL)
+    ));
     script.push_str(
         "if (-not $env:MEMD_TAB_ID) {\n  if ($env:WT_SESSION) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:WT_SESSION.Substring(0, [Math]::Min(8, $env:WT_SESSION.Length))\n  } elseif ($env:TERM_SESSION_ID) {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $env:TERM_SESSION_ID.Substring(0, [Math]::Min(8, $env:TERM_SESSION_ID.Length))\n  } else {\n    $env:MEMD_TAB_ID = \"tab-{0}\" -f $PID\n  }\n}\n",
     );
@@ -20344,6 +21394,9 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
             );
         }
     }
+    script.push_str(
+        "Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput \"$env:TEMP\\memd-heartbeat.log\" -RedirectStandardError \"$env:TEMP\\memd-heartbeat.err\"\n",
+    );
     script.push_str(
         "try { memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary | Out-Null } catch { }\n",
     );
@@ -21573,6 +22626,13 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             .as_ref()
             .and_then(|config| config.base_url.as_deref()),
     );
+    if runtime
+        .as_ref()
+        .and_then(|config| config.session.as_deref())
+        .is_some()
+    {
+        let _ = refresh_bundle_heartbeat(output, None, false).await;
+    }
     let client = MemdClient::new(&resolved_base_url)?;
     let health = client.healthz().await.ok();
     let heartbeat = read_bundle_heartbeat(output)?.map(|mut state| {
@@ -22099,6 +23159,9 @@ fn read_bundle_runtime_config_raw(output: &Path) -> anyhow::Result<Option<Bundle
         hive_groups: config.hive_groups,
         hive_group_goal: config.hive_group_goal,
         authority: config.authority,
+        hive_project_enabled: config.hive_project_enabled,
+        hive_project_anchor: config.hive_project_anchor,
+        hive_project_joined_at: config.hive_project_joined_at,
         base_url: config.base_url,
         route: config.route,
         intent: config.intent,
@@ -22171,6 +23234,15 @@ fn merge_bundle_runtime_config(
     }
     if overlay.authority.is_some() {
         runtime.authority = overlay.authority;
+    }
+    if overlay.hive_project_enabled {
+        runtime.hive_project_enabled = true;
+    }
+    if overlay.hive_project_anchor.is_some() {
+        runtime.hive_project_anchor = overlay.hive_project_anchor;
+    }
+    if overlay.hive_project_joined_at.is_some() {
+        runtime.hive_project_joined_at = overlay.hive_project_joined_at;
     }
     runtime
 }
@@ -22253,9 +23325,60 @@ fn resolve_awareness_paths(args: &AwarenessArgs) -> anyhow::Result<(PathBuf, Pat
 }
 
 async fn read_project_awareness(args: &AwarenessArgs) -> anyhow::Result<ProjectAwarenessResponse> {
-    let local = read_project_awareness_local(args)?;
-    if let Some(shared) = read_project_awareness_shared(args, &local).await? {
-        return Ok(shared);
+    let (current_bundle, _, _) = resolve_awareness_paths(args)?;
+    let runtime = read_bundle_runtime_config(&current_bundle)?;
+    if runtime
+        .as_ref()
+        .and_then(|config| config.session.as_deref())
+        .is_some()
+    {
+        let _ = refresh_bundle_heartbeat(&current_bundle, None, false).await;
+    }
+    let include_current = args.include_current
+        || runtime
+            .as_ref()
+            .and_then(|config| config.session.as_deref())
+            .is_some();
+    let local = read_project_awareness_local(&AwarenessArgs {
+        include_current,
+        ..args.clone()
+    })?;
+    if let Some(shared) = read_project_awareness_shared(
+        &AwarenessArgs {
+            include_current: args.include_current,
+            ..args.clone()
+        },
+        &local,
+    )
+    .await?
+    {
+        let mut entries = local.entries;
+        for entry in shared.entries {
+            let duplicate = entries.iter().any(|candidate| {
+                candidate.session == entry.session
+                    && candidate.base_url == entry.base_url
+                    && candidate.project == entry.project
+                    && candidate.namespace == entry.namespace
+            });
+            if !duplicate {
+                entries.push(entry);
+            }
+        }
+        entries.sort_by(|left, right| left.bundle_root.cmp(&right.bundle_root));
+
+        let mut collisions = local.collisions;
+        for collision in shared.collisions {
+            if !collisions.contains(&collision) {
+                collisions.push(collision);
+            }
+        }
+
+        return Ok(ProjectAwarenessResponse {
+            root: shared.root,
+            current_bundle: local.current_bundle,
+            collisions,
+            entries,
+        });
     }
     Ok(local)
 }
@@ -22495,6 +23618,9 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             hive_groups: Vec::new(),
             hive_group_goal: None,
             authority: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: None,
             intent: None,
@@ -24286,20 +25412,28 @@ fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<Stri
         "bash" | "zsh" | "sh" => Ok(format!(
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
 source "$MEMD_BUNDLE_ROOT/env"
+if [[ -z "${{MEMD_BASE_URL:-}}" || "${{MEMD_BASE_URL}}" =~ ^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:[0-9]+)?(/|$) ]]; then
+  export MEMD_BASE_URL="{shared_base_url}"
+fi
+nohup memd heartbeat --output "$MEMD_BUNDLE_ROOT" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &
 memd wake --output "$MEMD_BUNDLE_ROOT" --intent current_task --write
 # pre-answer durable recall:
 # .memd/agents/lookup.sh --query "what did we already decide?"
 "#,
             bundle_path = bundle_path.display(),
+            shared_base_url = SHARED_MEMD_BASE_URL,
         )),
         "powershell" | "pwsh" => Ok(format!(
             r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
 . (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
+if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = "{shared_base_url}" }}
+Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput "$env:TEMP\memd-heartbeat.log" -RedirectStandardError "$env:TEMP\memd-heartbeat.err"
 memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write
 # pre-answer durable recall:
 # .memd/agents/lookup.ps1 --query "what did we already decide?"
 "#,
             bundle_path = escape_ps1(&bundle_path.display().to_string()),
+            shared_base_url = escape_ps1(SHARED_MEMD_BASE_URL),
         )),
         other => anyhow::bail!(
             "unsupported shell '{other}'; expected bash, zsh, sh, powershell, or pwsh"
@@ -25052,6 +26186,12 @@ struct BundleConfigFile {
     #[serde(default)]
     authority: Option<String>,
     #[serde(default)]
+    hive_project_enabled: bool,
+    #[serde(default)]
+    hive_project_anchor: Option<String>,
+    #[serde(default)]
+    hive_project_joined_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     base_url: Option<String>,
     #[serde(default)]
     route: Option<String>,
@@ -25071,25 +26211,49 @@ struct BundleConfigFile {
     backend: Option<BundleBackendConfigFile>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BundleRuntimeConfig {
+    #[serde(default)]
     project: Option<String>,
+    #[serde(default)]
     namespace: Option<String>,
+    #[serde(default)]
     agent: Option<String>,
+    #[serde(default)]
     session: Option<String>,
+    #[serde(default)]
     tab_id: Option<String>,
+    #[serde(default)]
     hive_system: Option<String>,
+    #[serde(default)]
     hive_role: Option<String>,
+    #[serde(default)]
     capabilities: Vec<String>,
+    #[serde(default)]
     hive_groups: Vec<String>,
+    #[serde(default)]
     hive_group_goal: Option<String>,
+    #[serde(default)]
     authority: Option<String>,
+    #[serde(default)]
+    hive_project_enabled: bool,
+    #[serde(default)]
+    hive_project_anchor: Option<String>,
+    #[serde(default)]
+    hive_project_joined_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     base_url: Option<String>,
+    #[serde(default)]
     route: Option<String>,
+    #[serde(default)]
     intent: Option<String>,
+    #[serde(default)]
     workspace: Option<String>,
+    #[serde(default)]
     visibility: Option<String>,
+    #[serde(default)]
     heartbeat_model: Option<String>,
+    #[serde(default = "default_auto_short_term_capture")]
     auto_short_term_capture: bool,
 }
 
@@ -25655,8 +26819,30 @@ impl ResumeSnapshot {
             + workflow_capsule_chars
     }
 
+    fn core_prompt_chars(&self) -> usize {
+        let header_chars = self.project.as_deref().map_or(0, str::len)
+            + self.namespace.as_deref().map_or(0, str::len)
+            + self.agent.as_deref().map_or(0, str::len)
+            + self.workspace.as_deref().map_or(0, str::len)
+            + self.visibility.as_deref().map_or(0, str::len)
+            + self.route.len()
+            + self.intent.len();
+        let context_chars: usize = self.compact_context_records().iter().map(String::len).sum();
+        let working_chars: usize = self.compact_working_records().iter().map(String::len).sum();
+        let rehydration_chars: usize = self
+            .compact_rehydration_summaries()
+            .iter()
+            .map(String::len)
+            .sum();
+        header_chars + context_chars + working_chars + rehydration_chars
+    }
+
     fn estimated_prompt_tokens(&self) -> usize {
         self.estimated_prompt_chars().div_ceil(4)
+    }
+
+    fn core_prompt_tokens(&self) -> usize {
+        self.core_prompt_chars().div_ceil(4)
     }
 
     fn context_pressure(&self) -> &'static str {
@@ -29251,6 +30437,12 @@ mod tests {
         assert!(shell.contains("nohup \"$MEMD_BUNDLE_ROOT/agents/watch.sh\""));
         assert!(ps1.contains("Start-Process -WindowStyle Hidden"));
         assert!(attach.contains("--intent current_task"));
+        assert!(shell.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
+        assert!(ps1.contains("$env:MEMD_BASE_URL = \"http://100.104.154.24:8787\""));
+        assert!(attach.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
+        assert!(shell.contains("memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch"));
+        assert!(ps1.contains("FilePath memd -ArgumentList @('heartbeat'"));
+        assert!(attach.contains("memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch"));
         assert!(
             shell
                 .contains("memd hive --output \"$MEMD_BUNDLE_ROOT\" --publish-heartbeat --summary")
@@ -29602,6 +30794,9 @@ mod tests {
             hive_groups: Vec::new(),
             hive_group_goal: None,
             authority: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: Some("auto".to_string()),
             intent: Some("current_task".to_string()),
@@ -30453,6 +31648,80 @@ mod tests {
         assert_eq!(entry.workspace.as_deref(), Some("research"));
         assert_eq!(entry.focus.as_deref(), Some("Finish the sibling task"));
         assert_eq!(entry.pressure.as_deref(), Some("Resolve review comments"));
+
+        fs::remove_dir_all(root).expect("cleanup awareness root");
+    }
+
+    #[tokio::test]
+    async fn project_awareness_includes_current_bundle_when_session_exists() {
+        let root =
+            std::env::temp_dir().join(format!("memd-awareness-live-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let sibling_project = root.join("sibling");
+        fs::create_dir_all(current_project.join(".memd").join("state")).expect("create current");
+        fs::create_dir_all(sibling_project.join(".memd").join("state")).expect("create sibling");
+
+        fs::write(
+            current_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "current",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "current-a",
+  "workspace": "current-lane",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            sibling_project.join(".memd").join("config.json"),
+            r#"{
+  "project": "sibling",
+  "namespace": "main",
+  "agent": "claude-code",
+  "workspace": "research",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write sibling config");
+        fs::write(
+            sibling_project
+                .join(".memd")
+                .join("state")
+                .join("last-resume.json"),
+            r#"{
+  "focus": "Finish the sibling task",
+  "pressure": "Resolve review comments",
+  "next_recovery": "Re-open the last handoff",
+  "lane": "sibling / main / research",
+  "working_records": 2,
+  "inbox_items": 1,
+  "rehydration_items": 1
+}
+"#,
+        )
+        .expect("write sibling state");
+
+        let response = read_project_awareness(&AwarenessArgs {
+            output: current_project.join(".memd"),
+            root: Some(root.clone()),
+            include_current: false,
+            summary: false,
+        })
+        .await
+        .expect("read awareness");
+
+        assert_eq!(response.entries.len(), 2);
+        assert!(response.entries.iter().any(|entry| {
+            entry.project.as_deref() == Some("current")
+                && entry.session.as_deref() == Some("current-a")
+        }));
+        assert!(response.entries.iter().any(|entry| {
+            entry.project.as_deref() == Some("sibling")
+                && entry.agent.as_deref() == Some("claude-code")
+        }));
 
         fs::remove_dir_all(root).expect("cleanup awareness root");
     }
@@ -32854,6 +34123,192 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
+    #[tokio::test]
+    async fn hive_join_forces_shared_base_url_for_stale_bundle() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-join-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task",
+  "hive_groups": ["openclaw-stack"]
+}
+"#,
+        )
+        .expect("write config");
+
+        let response = run_hive_join_command(&HiveJoinArgs {
+            output: dir.clone(),
+            base_url: default_hive_join_base_url(),
+            all_active: false,
+            all_local: false,
+            publish_heartbeat: false,
+            summary: false,
+        })
+        .await
+        .expect("join hive");
+
+        let response = match response {
+            HiveJoinResponse::Single(response) => response,
+            other => panic!("expected single response, got {other:?}"),
+        };
+        assert_eq!(response.base_url, SHARED_MEMD_BASE_URL);
+        assert_eq!(response.session.as_deref(), Some("codex-a"));
+        let config = fs::read_to_string(dir.join("config.json")).expect("read config");
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
+        assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[tokio::test]
+    async fn hive_join_all_active_rewrites_live_bundles_in_project() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-join-all-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("alpha");
+        let sibling_project = root.join("beta");
+        let current_bundle = current_project.join(".memd");
+        let sibling_bundle = sibling_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&sibling_bundle).expect("create sibling bundle");
+
+        for bundle_root in [&current_bundle, &sibling_bundle] {
+            fs::create_dir_all(bundle_root.join("state")).expect("create state dir");
+            fs::write(
+                bundle_root.join("config.json"),
+                format!(
+                    r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "{}",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:8787",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task",
+  "hive_groups": ["openclaw-stack"]
+}}
+"#,
+                    bundle_root
+                        .parent()
+                        .and_then(|path| path.file_name())
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("bundle")
+                ),
+            )
+            .expect("write config");
+            let heartbeat = build_hive_heartbeat(bundle_root, None).expect("build heartbeat");
+            fs::write(
+                bundle_heartbeat_state_path(bundle_root),
+                serde_json::to_string_pretty(&heartbeat).expect("serialize heartbeat") + "\n",
+            )
+            .expect("write heartbeat");
+        }
+
+        let response = run_hive_join_command(&HiveJoinArgs {
+            output: current_bundle.clone(),
+            base_url: default_hive_join_base_url(),
+            all_active: true,
+            all_local: false,
+            publish_heartbeat: false,
+            summary: false,
+        })
+        .await
+        .expect("join all active");
+
+        match response {
+            HiveJoinResponse::Batch(batch) => {
+                assert_eq!(batch.base_url, SHARED_MEMD_BASE_URL);
+                assert_eq!(batch.joined.len(), 2);
+            }
+            other => panic!("expected batch response, got {other:?}"),
+        }
+
+        for bundle_root in [&current_bundle, &sibling_bundle] {
+            let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
+            let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
+            assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
+            assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+        }
+
+        fs::remove_dir_all(root).expect("cleanup project root");
+    }
+
+    #[tokio::test]
+    async fn hive_join_all_local_rewrites_all_local_bundles_in_project() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-join-local-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("alpha");
+        let sibling_project = root.join("beta");
+        let current_bundle = current_project.join(".memd");
+        let sibling_bundle = sibling_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&sibling_bundle).expect("create sibling bundle");
+
+        for (bundle_root, session) in [(&current_bundle, "codex-a"), (&sibling_bundle, "codex-b")] {
+            fs::write(
+                bundle_root.join("config.json"),
+                format!(
+                    r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "{}",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:8787",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task",
+  "hive_groups": ["openclaw-stack"]
+}}
+"#,
+                    session
+                ),
+            )
+            .expect("write config");
+        }
+
+        let response = run_hive_join_command(&HiveJoinArgs {
+            output: current_bundle.clone(),
+            base_url: default_hive_join_base_url(),
+            all_active: false,
+            all_local: true,
+            publish_heartbeat: false,
+            summary: false,
+        })
+        .await
+        .expect("join all local");
+
+        let batch = match response {
+            HiveJoinResponse::Batch(batch) => batch,
+            other => panic!("expected batch response, got {other:?}"),
+        };
+        assert_eq!(batch.base_url, SHARED_MEMD_BASE_URL);
+        assert_eq!(batch.mode, "all-local");
+        assert_eq!(batch.joined.len(), 2);
+
+        for bundle_root in [&current_bundle, &sibling_bundle] {
+            let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
+            let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
+            assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
+            assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+        }
+
+        fs::remove_dir_all(root).expect("cleanup project root");
+    }
+
     #[test]
     fn set_bundle_route_and_intent_update_config_and_env_files() {
         let dir = std::env::temp_dir().join(format!("memd-bundle-intent-{}", uuid::Uuid::new_v4()));
@@ -32997,6 +34452,36 @@ mod tests {
         assert!(env_ps1.contains("$env:MEMD_VISIBILITY = \"workspace\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn hive_project_state_round_trips_through_bundle_runtime_config() {
+        let runtime = BundleRuntimeConfig {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("codex-a".to_string()),
+            tab_id: Some("tab-alpha".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capabilities: vec!["claim".to_string()],
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: Some("coordinate the project hive".to_string()),
+            authority: Some("participant".to_string()),
+            base_url: Some("http://100.104.154.24:8787".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("current_task".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            heartbeat_model: Some("gpt-4.1-mini".to_string()),
+            auto_short_term_capture: true,
+            hive_project_enabled: true,
+            hive_project_anchor: Some("project:demo".to_string()),
+            hive_project_joined_at: Some(Utc::now()),
+        };
+        let json = serde_json::to_string(&runtime).unwrap();
+        assert!(json.contains("\"hive_project_enabled\":true"));
+        assert!(json.contains("\"hive_project_anchor\":\"project:demo\""));
     }
 
     #[test]
@@ -34467,6 +35952,664 @@ mod tests {
             generated_at: Utc::now(),
             completed_at: Utc::now(),
         }
+    }
+
+    fn test_improvement_report(output: &Path, completed_at: DateTime<Utc>) -> ImprovementReport {
+        ImprovementReport {
+            bundle_root: output.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: None,
+            agent: Some("codex".to_string()),
+            session: None,
+            workspace: None,
+            visibility: None,
+            max_iterations: 1,
+            apply: false,
+            started_at: completed_at,
+            completed_at,
+            converged: true,
+            initial_gap: None,
+            final_gap: None,
+            final_changes: Vec::new(),
+            iterations: Vec::new(),
+        }
+    }
+
+    fn test_composite_report(
+        output: &Path,
+        score: u8,
+        max_score: u8,
+        completed_at: DateTime<Utc>,
+    ) -> CompositeReport {
+        CompositeReport {
+            bundle_root: output.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: None,
+            agent: Some("codex".to_string()),
+            session: None,
+            workspace: None,
+            visibility: None,
+            scenario: Some("self_evolution".to_string()),
+            score,
+            max_score,
+            dimensions: Vec::new(),
+            gates: Vec::new(),
+            findings: Vec::new(),
+            recommendations: Vec::new(),
+            evidence: Vec::new(),
+            generated_at: completed_at,
+            completed_at,
+        }
+    }
+
+    fn test_experiment_report(
+        output: &Path,
+        accepted: bool,
+        restored: bool,
+        score: u8,
+        max_score: u8,
+        completed_at: DateTime<Utc>,
+    ) -> ExperimentReport {
+        ExperimentReport {
+            bundle_root: output.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: None,
+            agent: Some("codex".to_string()),
+            session: None,
+            workspace: None,
+            visibility: None,
+            max_iterations: 1,
+            accept_below: 80,
+            apply: false,
+            consolidate: false,
+            accepted,
+            restored,
+            started_at: completed_at,
+            completed_at,
+            improvement: test_improvement_report(output, completed_at),
+            composite: test_composite_report(output, score, max_score, completed_at),
+            trail: Vec::new(),
+            learnings: vec!["tighten the loop".to_string()],
+            findings: Vec::new(),
+            recommendations: Vec::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    fn write_test_bundle_config(output: &Path, base_url: &str) {
+        fs::create_dir_all(output).expect("create bundle root");
+        fs::write(
+            output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write bundle config");
+    }
+
+    fn test_autoresearch_snapshot(
+        refresh_recommended: bool,
+        change_summary: Vec<String>,
+        recent_repo_changes: Vec<String>,
+    ) -> ResumeSnapshot {
+        ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex@codex-a".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "resume context".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "resume focus".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "resume next step".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "resume pressure".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: vec!["checkpoint".to_string()],
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes,
+            change_summary,
+            resume_state_age_minutes: Some(1),
+            refresh_recommended,
+        }
+    }
+
+    fn seed_autoresearch_snapshot_cache(output: &Path, snapshot: &ResumeSnapshot) {
+        let runtime = read_bundle_runtime_config(output)
+            .expect("read runtime")
+            .expect("runtime config");
+        let args = ResumeArgs {
+            output: output.to_path_buf(),
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: Some(8),
+            rehydration_limit: Some(4),
+            semantic: true,
+            prompt: false,
+            summary: false,
+        };
+        let base_url = resolve_bundle_command_base_url(
+            runtime
+                .base_url
+                .as_deref()
+                .unwrap_or("http://127.0.0.1:59999"),
+            runtime.base_url.as_deref(),
+        );
+        let cache_key = build_resume_snapshot_cache_key(&args, Some(&runtime), &base_url);
+        cache::write_resume_snapshot_cache(output, &cache_key, snapshot)
+            .expect("write resume cache");
+    }
+
+    #[tokio::test]
+    async fn run_capability_contract_loop_warns_when_registry_is_empty() {
+        let _home_lock = lock_home_mutation();
+        let home =
+            std::env::temp_dir().join(format!("memd-cap-empty-home-{}", uuid::Uuid::new_v4()));
+        let output =
+            std::env::temp_dir().join(format!("memd-cap-empty-output-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&home).expect("create temp home");
+        fs::create_dir_all(&output).expect("create temp output");
+
+        let original_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "capability-contract")
+            .expect("capability contract descriptor");
+        let record = run_capability_contract_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run capability contract loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert_eq!(record.percent_improvement, Some(0.0));
+        assert_eq!(record.token_savings, Some(0.0));
+        assert!(
+            record
+                .summary
+                .as_deref()
+                .unwrap_or_default()
+                .contains("no capability contracts discovered")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("warning_reasons")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|reasons| reasons.first())
+                .and_then(serde_json::Value::as_str),
+            Some("no_capability_registry")
+        );
+
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(home).expect("cleanup temp home");
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_capability_contract_loop_warns_on_trend_regression() {
+        let project_root =
+            std::env::temp_dir().join(format!("memd-cap-trend-{}", uuid::Uuid::new_v4()));
+        let output = project_root.join(".memd");
+        fs::create_dir_all(&output).expect("create temp output");
+        fs::write(project_root.join("AGENTS.md"), "# agents\n").expect("write agents");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "capability-contract")
+            .expect("capability contract descriptor");
+        let previous_entry = LoopSummaryEntry {
+            slug: "capability-contract".to_string(),
+            percent_improvement: Some(100.0),
+            token_savings: Some(100.0),
+            status: Some("success".to_string()),
+            recorded_at: Utc::now(),
+        };
+        let record = run_capability_contract_loop(&output, descriptor, 1, Some(&previous_entry))
+            .await
+            .expect("run capability contract loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .metadata
+                .get("trend")
+                .and_then(|trend| trend.get("regressed"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+        assert!(
+            record
+                .metadata
+                .get("trend")
+                .and_then(|trend| trend.get("warning_reasons"))
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|reasons| reasons
+                    .iter()
+                    .any(|reason| reason == "trend_token_regressed"))
+        );
+
+        fs::remove_dir_all(project_root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn autoresearch_absolute_floor_requires_enough_evidence() {
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "prompt-surface")
+            .expect("prompt surface descriptor");
+
+        assert!(loop_meets_absolute_floor(
+            descriptor,
+            descriptor.base_percent,
+            descriptor.base_tokens,
+            AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+        ));
+        assert!(!loop_meets_absolute_floor(
+            descriptor,
+            descriptor.base_percent,
+            descriptor.base_tokens,
+            AUTORESEARCH_MIN_EVIDENCE_SIGNALS - 1,
+        ));
+        assert!(!loop_meets_absolute_floor(
+            descriptor,
+            descriptor.base_percent - 0.1,
+            descriptor.base_tokens,
+            AUTORESEARCH_MIN_EVIDENCE_SIGNALS,
+        ));
+        assert_eq!(
+            loop_floor_warning_reasons(
+                descriptor,
+                descriptor.base_percent - 0.1,
+                descriptor.base_tokens - 1.0,
+                AUTORESEARCH_MIN_EVIDENCE_SIGNALS - 1,
+            ),
+            vec![
+                "percent_below_floor".to_string(),
+                "token_savings_below_floor".to_string(),
+                "evidence_count_below_floor".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn autoresearch_trend_reasons_split_percent_and_tokens() {
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "prompt-surface")
+            .expect("prompt surface descriptor");
+        let previous_entry = LoopSummaryEntry {
+            slug: "prompt-surface".to_string(),
+            percent_improvement: Some(10.0),
+            token_savings: Some(100.0),
+            status: Some("success".to_string()),
+            recorded_at: Utc::now(),
+        };
+
+        assert_eq!(
+            loop_trend_warning_reasons(
+                descriptor,
+                Some(&previous_entry),
+                descriptor.trend_percent_floor - 1.0,
+                descriptor.trend_token_floor - 1.0,
+            ),
+            vec![
+                "trend_percent_regressed".to_string(),
+                "trend_token_regressed".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn autoresearch_loop_table_has_ten_unique_slugs() {
+        let slugs = AUTORESEARCH_LOOPS
+            .iter()
+            .map(|descriptor| descriptor.slug)
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(AUTORESEARCH_LOOPS.len(), 10);
+        assert_eq!(slugs.len(), 10);
+        assert!(slugs.contains("hive-health"));
+        assert!(slugs.contains("docs-spec-drift"));
+        assert!(loop_success_requires_second_signal(true, true, true, true));
+    }
+
+    #[tokio::test]
+    async fn run_prompt_surface_loop_warns_when_refresh_is_recommended() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-prompt-surface-refresh-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            true,
+            vec!["summary".to_string()],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "prompt-surface")
+            .expect("prompt surface descriptor");
+        let record =
+            run_prompt_surface_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+                .await
+                .expect("run prompt surface loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .metadata
+                .get("refresh_recommended")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_live_truth_loop_warns_when_snapshot_has_no_signal() {
+        let output =
+            std::env::temp_dir().join(format!("memd-live-truth-empty-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(false, Vec::new(), Vec::new());
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "live-truth")
+            .expect("live truth descriptor");
+        let record = run_live_truth_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            .await
+            .expect("run live truth loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .summary
+                .as_deref()
+                .unwrap_or_default()
+                .contains("0 change_summary")
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_event_spine_loop_warns_when_snapshot_has_no_signal() {
+        let output =
+            std::env::temp_dir().join(format!("memd-event-spine-empty-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(false, Vec::new(), Vec::new());
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "event-spine")
+            .expect("event spine descriptor");
+        let record = run_event_spine_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            .await
+            .expect("run event spine loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .summary
+                .as_deref()
+                .unwrap_or_default()
+                .contains("0 event spine entries")
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_long_context_loop_warns_when_refresh_is_recommended() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-long-context-refresh-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(
+            true,
+            vec!["summary".to_string()],
+            vec!["changed file".to_string()],
+        );
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "long-context")
+            .expect("long context descriptor");
+        let record = run_long_context_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+            .await
+            .expect("run long context loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .metadata
+                .get("refresh_recommended")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_prompt_surface_loop_warns_on_trend_regression() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-prompt-surface-trend-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create temp output");
+        write_test_bundle_config(&output, "http://127.0.0.1:59999");
+        let snapshot = test_autoresearch_snapshot(false, vec!["summary".to_string()], Vec::new());
+        seed_autoresearch_snapshot_cache(&output, &snapshot);
+        let previous_entry = LoopSummaryEntry {
+            slug: "prompt-surface".to_string(),
+            percent_improvement: Some(99.0),
+            token_savings: Some(1300.0),
+            status: Some("success".to_string()),
+            recorded_at: Utc::now(),
+        };
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "prompt-surface")
+            .expect("prompt surface descriptor");
+        let record = run_prompt_surface_loop(
+            &output,
+            "http://127.0.0.1:59999",
+            descriptor,
+            1,
+            Some(&previous_entry),
+        )
+        .await
+        .expect("run prompt surface loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .metadata
+                .get("trend")
+                .and_then(|trend| trend.get("regressed"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
+    }
+
+    #[tokio::test]
+    async fn run_self_evolution_loop_warns_when_report_is_not_usable() {
+        let output =
+            std::env::temp_dir().join(format!("memd-self-evolution-{}", uuid::Uuid::new_v4()));
+        let experiments = output.join("experiments");
+        fs::create_dir_all(&experiments).expect("create experiments dir");
+        let report = test_experiment_report(&output, false, true, 0, 10, Utc::now());
+        fs::write(
+            experiments.join("latest.json"),
+            serde_json::to_string_pretty(&report).expect("serialize report"),
+        )
+        .expect("write latest report");
+
+        let descriptor = AUTORESEARCH_LOOPS
+            .iter()
+            .find(|descriptor| descriptor.slug == "self-evolution")
+            .expect("self-evolution descriptor");
+        let record = run_self_evolution_loop(&output, descriptor, 0, None)
+            .await
+            .expect("run self evolution loop");
+
+        assert_eq!(record.status.as_deref(), Some("warning"));
+        assert!(
+            record
+                .summary
+                .as_deref()
+                .unwrap_or_default()
+                .contains("not usable")
+        );
+        assert_eq!(record.percent_improvement, Some(0.0));
+        assert_eq!(record.token_savings, Some(0.0));
+        assert!(
+            record
+                .metadata
+                .get("warning_reasons")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(
+                    |reasons| reasons.iter().any(|reason| reason == "restored_report")
+                        && reasons.iter().any(|reason| reason == "unaccepted_report")
+                )
+        );
+
+        fs::remove_dir_all(output).expect("cleanup temp output");
     }
 
     #[tokio::test]
