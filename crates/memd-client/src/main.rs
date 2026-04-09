@@ -32086,12 +32086,12 @@ fn work_overlap_warnings(entries: &[&ProjectAwarenessEntry]) -> Vec<String> {
         .collect::<Vec<_>>();
 
     for (idx, left) in active_entries.iter().enumerate() {
-        let left_touches = awareness_touch_points(left);
+        let left_touches = awareness_overlap_touch_points(left);
         if left_touches.is_empty() {
             continue;
         }
         for right in active_entries.iter().skip(idx + 1) {
-            let right_touches = awareness_touch_points(right);
+            let right_touches = awareness_overlap_touch_points(right);
             if right_touches.is_empty() {
                 continue;
             }
@@ -32700,6 +32700,9 @@ fn awareness_touch_quickview(entry: &ProjectAwarenessEntry) -> String {
 
 fn awareness_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {
     let mut touches = Vec::new();
+    for scope in &entry.scope_claims {
+        push_unique_touch_point(&mut touches, scope);
+    }
     for candidate in [
         entry.pressure.as_deref(),
         entry.focus.as_deref(),
@@ -32712,6 +32715,22 @@ fn awareness_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {
     }
     touches.truncate(4);
     touches
+}
+
+fn awareness_overlap_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {
+    awareness_touch_points(entry)
+        .into_iter()
+        .filter(|touch| !is_generic_overlap_touch(touch))
+        .collect()
+}
+
+fn is_generic_overlap_touch(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
+        || matches!(
+            trimmed,
+            "project" | "workspace" | "shared" | "none" | "unknown"
+        )
 }
 
 fn append_awareness_touch_points(value: &str, touches: &mut Vec<String>) {
@@ -43086,6 +43105,89 @@ mod tests {
         assert!(summary.contains(
             "! possible_work_overlap touches=crates/memd-client/src/main.rs sessions=session-current,session-peer"
         ));
+    }
+
+    #[test]
+    fn project_awareness_summary_ignores_generic_project_overlap_noise() {
+        let now = Utc::now();
+        let response = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: "/tmp/projects/current/.memd".to_string(),
+            collisions: Vec::new(),
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-a".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("codex".to_string()),
+                    session: Some("session-a".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-a".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("Parser lane refactor".to_string()),
+                    scope_claims: vec!["project".to_string()],
+                    task_id: Some("bee-a".to_string()),
+                    focus: Some("id=1 | scope=project | ws=shared".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-b".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("codex".to_string()),
+                    session: Some("session-b".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-b".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("Render lane polish".to_string()),
+                    scope_claims: vec!["project".to_string()],
+                    task_id: Some("bee-b".to_string()),
+                    focus: Some("id=2 | scope=project | ws=shared".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(now),
+                },
+            ],
+        };
+
+        let summary = render_project_awareness_summary(&response);
+        assert!(!summary.contains("possible_work_overlap"));
     }
 
     #[test]
