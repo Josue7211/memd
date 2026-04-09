@@ -15076,9 +15076,12 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         }
     }
 
-    let runtime_before_overlay = read_bundle_runtime_config_raw(&output)?;
     let runtime = read_bundle_runtime_config(&output)?
         .context("hive wiring requires a readable bundle runtime config")?;
+    let output = ensure_isolated_hive_bundle_lane(&output, &runtime).await?;
+    let runtime_before_overlay = read_bundle_runtime_config_raw(&output)?;
+    let runtime = read_bundle_runtime_config(&output)?
+        .context("reload bundle runtime config after hive lane isolation")?;
     let resolved_base_url = resolve_project_hive_base_url(Some(&runtime), Some(&args.base_url))
         .unwrap_or_else(|| args.base_url.clone());
     if runtime.base_url.as_deref() != Some(resolved_base_url.as_str()) {
@@ -15414,53 +15417,56 @@ async fn join_hive_bundle(
 ) -> anyhow::Result<HiveJoinBundleResponse> {
     let runtime = read_bundle_runtime_config_raw(output)?
         .context("hive join requires a readable bundle runtime config")?;
+    let output = ensure_isolated_hive_bundle_lane(output, &runtime).await?;
+    let runtime = read_bundle_runtime_config_raw(&output)?
+        .context("reload bundle runtime config after hive lane isolation")?;
     let join_base_url = resolve_hive_join_base_url(Some(&runtime), base_url);
 
-    set_bundle_base_url(output, &join_base_url)?;
+    set_bundle_base_url(&output, &join_base_url)?;
     if let Some(project) = runtime.project.as_deref() {
-        set_bundle_project(output, project)?;
+        set_bundle_project(&output, project)?;
     }
     if let Some(namespace) = runtime.namespace.as_deref() {
-        set_bundle_namespace(output, namespace)?;
+        set_bundle_namespace(&output, namespace)?;
     }
     if let Some(agent) = runtime.agent.as_deref() {
-        set_bundle_agent(output, agent)?;
+        set_bundle_agent(&output, agent)?;
     }
     if let Some(session) = runtime.session.as_deref() {
-        set_bundle_session(output, session)?;
+        set_bundle_session(&output, session)?;
     }
     if let Some(tab_id) = runtime.tab_id.as_deref() {
-        set_bundle_tab_id(output, tab_id)?;
+        set_bundle_tab_id(&output, tab_id)?;
     }
-    set_bundle_hive_groups(output, &runtime.hive_groups)?;
+    set_bundle_hive_groups(&output, &runtime.hive_groups)?;
     if let Some(goal) = runtime.hive_group_goal.as_deref() {
-        set_bundle_hive_group_goal(output, goal)?;
+        set_bundle_hive_group_goal(&output, goal)?;
     }
     if let Some(authority) = runtime.authority.as_deref() {
-        set_bundle_authority(output, authority)?;
+        set_bundle_authority(&output, authority)?;
     }
     if let Some(route) = runtime.route.as_deref() {
-        set_bundle_route(output, route)?;
+        set_bundle_route(&output, route)?;
     }
     if let Some(intent) = runtime.intent.as_deref() {
-        set_bundle_intent(output, intent)?;
+        set_bundle_intent(&output, intent)?;
     }
     if let Some(workspace) = runtime.workspace.as_deref() {
-        set_bundle_workspace(output, workspace)?;
+        set_bundle_workspace(&output, workspace)?;
     }
     if let Some(visibility) = runtime.visibility.as_deref() {
-        set_bundle_visibility(output, visibility)?;
+        set_bundle_visibility(&output, visibility)?;
     }
-    write_agent_profiles(output)?;
+    write_agent_profiles(&output)?;
 
     let heartbeat = if publish_heartbeat {
         Some(serde_json::to_value(
-            refresh_bundle_heartbeat(output, None, false).await?,
+            refresh_bundle_heartbeat(&output, None, false).await?,
         )?)
     } else {
         None
     };
-    let joined_runtime = read_bundle_runtime_config_raw(output)?
+    let joined_runtime = read_bundle_runtime_config_raw(&output)?
         .context("reload bundle runtime config after hive join")?;
 
     Ok(HiveJoinBundleResponse {
@@ -17448,6 +17454,7 @@ async fn run_messages_command(
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
+        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
             .as_ref()
@@ -17809,6 +17816,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
+        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
 
         let existing = client
             .hive_tasks(&HiveTasksRequest {
@@ -17898,6 +17906,7 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
         let target = resolve_target_session_bundle(&args.output, target_session)
             .await?
             .context("target session not found in awareness")?;
+        ensure_target_session_lane_is_safe(&args.output, current_session.as_deref(), &target)?;
         let target_runtime = read_bundle_runtime_config(Path::new(&target.bundle_root))?;
         let target_base_url = target_runtime
             .as_ref()
@@ -24157,8 +24166,11 @@ fn detect_git_worktree_root(root: &Path) -> Option<PathBuf> {
 }
 
 fn detect_git_repo_root(root: &Path) -> Option<PathBuf> {
-    let common_dir = git_stdout(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .map(PathBuf::from)?;
+    let common_dir = git_stdout(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .map(PathBuf::from)?;
     if common_dir
         .file_name()
         .and_then(|value| value.to_str())
@@ -28571,15 +28583,15 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             bundle_root: bundle_root.display().to_string(),
             project: runtime.project,
             namespace: runtime.namespace,
-            repo_root: heartbeat
-                .as_ref()
-                .and_then(|value| value.repo_root.clone()),
+            repo_root: heartbeat.as_ref().and_then(|value| value.repo_root.clone()),
             worktree_root: heartbeat
                 .as_ref()
                 .and_then(|value| value.worktree_root.clone())
                 .or_else(|| Some(project_dir.display().to_string())),
             branch: heartbeat.as_ref().and_then(|value| value.branch.clone()),
-            base_branch: heartbeat.as_ref().and_then(|value| value.base_branch.clone()),
+            base_branch: heartbeat
+                .as_ref()
+                .and_then(|value| value.base_branch.clone()),
             tab_id: heartbeat
                 .as_ref()
                 .and_then(|value| value.tab_id.clone())
@@ -28894,8 +28906,16 @@ fn branch_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> {
             .unwrap_or_else(|| entry.bundle_root.clone());
 
         if let (Some(repo_root), Some(branch)) = (
-            entry.repo_root.as_deref().map(str::trim).filter(|value| !value.is_empty()),
-            entry.branch.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+            entry
+                .repo_root
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            entry
+                .branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
         ) {
             same_branch
                 .entry((repo_root.to_string(), branch.to_string()))
@@ -28943,6 +28963,258 @@ fn branch_collision_warnings(entries: &[ProjectAwarenessEntry]) -> Vec<String> {
             }),
     );
     warnings
+}
+
+#[derive(Debug, Clone)]
+struct BundleLaneIdentity {
+    project_root: PathBuf,
+    repo_root: String,
+    worktree_root: String,
+    branch: String,
+}
+
+fn detect_bundle_lane_identity(output: &Path) -> Option<BundleLaneIdentity> {
+    let project_root = infer_bundle_project_root(output)?;
+    let repo_root = detect_git_repo_root(&project_root)
+        .as_deref()
+        .map(display_path_nonempty)?;
+    let worktree_root = detect_git_worktree_root(&project_root)
+        .as_deref()
+        .map(display_path_nonempty)?;
+    let branch = git_stdout(&project_root, &["branch", "--show-current"])?;
+    Some(BundleLaneIdentity {
+        project_root,
+        repo_root,
+        worktree_root,
+        branch,
+    })
+}
+
+fn awareness_entry_has_same_lane(
+    entry: &ProjectAwarenessEntry,
+    lane: &BundleLaneIdentity,
+    current_bundle: &Path,
+    current_session: Option<&str>,
+) -> bool {
+    if entry.presence != "active" {
+        return false;
+    }
+
+    let entry_bundle = PathBuf::from(&entry.bundle_root);
+    let canonical_entry_bundle = fs::canonicalize(&entry_bundle).unwrap_or(entry_bundle);
+    if canonical_entry_bundle == current_bundle {
+        return false;
+    }
+
+    if current_session.is_some() && entry.session.as_deref() == current_session {
+        return false;
+    }
+
+    let same_worktree = entry
+        .worktree_root
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value == lane.worktree_root);
+    if same_worktree {
+        return true;
+    }
+
+    entry
+        .repo_root
+        .as_deref()
+        .map(str::trim)
+        .zip(entry.branch.as_deref().map(str::trim))
+        .is_some_and(|(repo_root, branch)| repo_root == lane.repo_root && branch == lane.branch)
+}
+
+async fn detect_bundle_lane_collision(
+    output: &Path,
+    current_session: Option<&str>,
+) -> anyhow::Result<Option<ProjectAwarenessEntry>> {
+    let Some(lane) = detect_bundle_lane_identity(output) else {
+        return Ok(None);
+    };
+    let current_bundle = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: output.to_path_buf(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+
+    Ok(awareness.entries.into_iter().find(|entry| {
+        awareness_entry_has_same_lane(entry, &lane, &current_bundle, current_session)
+    }))
+}
+
+fn render_hive_lane_collision(entry: &ProjectAwarenessEntry) -> String {
+    let lane = entry
+        .session
+        .as_deref()
+        .or(entry.effective_agent.as_deref())
+        .or(entry.agent.as_deref())
+        .unwrap_or("unknown");
+    format!(
+        "session={} branch={} worktree={}",
+        lane,
+        entry.branch.as_deref().unwrap_or("none"),
+        entry.worktree_root.as_deref().unwrap_or("none")
+    )
+}
+
+fn sanitize_lane_segment(value: &str) -> String {
+    let mut rendered = String::new();
+    let mut last_dash = false;
+    for ch in value.chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            rendered.push(normalized);
+            last_dash = false;
+        } else if !last_dash {
+            rendered.push('-');
+            last_dash = true;
+        }
+    }
+    let rendered = rendered.trim_matches('-');
+    if rendered.is_empty() {
+        "worker".to_string()
+    } else {
+        rendered.to_string()
+    }
+}
+
+fn allocate_isolated_hive_lane(
+    output: &Path,
+    runtime: &BundleRuntimeConfig,
+) -> anyhow::Result<PathBuf> {
+    let lane = detect_bundle_lane_identity(output)
+        .context("hive cowork isolation requires a git worktree and branch")?;
+    let worktree_parent = lane
+        .project_root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| lane.project_root.clone());
+    let project_name = lane
+        .project_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(sanitize_lane_segment)
+        .unwrap_or_else(|| "worker".to_string());
+    let branch_seed = sanitize_lane_segment(&lane.branch);
+    let session_seed = runtime
+        .session
+        .as_deref()
+        .map(sanitize_lane_segment)
+        .unwrap_or_else(|| "worker".to_string());
+    let branch_prefix = format!("{branch_seed}-bee-{session_seed}");
+
+    for attempt in 0..16 {
+        let suffix = &uuid::Uuid::new_v4().simple().to_string()[..6];
+        let branch_name = if attempt == 0 {
+            format!("{branch_prefix}-{suffix}")
+        } else {
+            format!("{branch_prefix}-{attempt}-{suffix}")
+        };
+        if git_branch_exists(Path::new(&lane.repo_root), &branch_name) {
+            continue;
+        }
+
+        let worktree_name = format!("{project_name}-{branch_name}");
+        let worktree_root = worktree_parent.join(worktree_name);
+        if worktree_root.exists() {
+            continue;
+        }
+
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(&lane.repo_root)
+            .arg("worktree")
+            .arg("add")
+            .arg("-b")
+            .arg(&branch_name)
+            .arg(&worktree_root)
+            .arg(&lane.branch)
+            .status()
+            .with_context(|| format!("create hive worktree {}", worktree_root.display()))?;
+        if !status.success() {
+            continue;
+        }
+
+        let new_output = worktree_root.join(".memd");
+        let new_session = runtime.session.as_deref().map(|value| {
+            format!(
+                "{}-{}",
+                sanitize_lane_segment(value),
+                &uuid::Uuid::new_v4().simple().to_string()[..4]
+            )
+        });
+        write_init_bundle(&InitArgs {
+            project: runtime.project.clone(),
+            namespace: runtime.namespace.clone(),
+            global: false,
+            project_root: Some(worktree_root.clone()),
+            seed_existing: false,
+            agent: runtime.agent.clone().unwrap_or_else(|| "codex".to_string()),
+            session: new_session,
+            tab_id: runtime.tab_id.clone(),
+            hive_system: runtime.hive_system.clone(),
+            hive_role: runtime.hive_role.clone(),
+            capability: runtime.capabilities.clone(),
+            hive_group: runtime.hive_groups.clone(),
+            hive_group_goal: runtime.hive_group_goal.clone(),
+            authority: runtime.authority.clone(),
+            output: new_output.clone(),
+            base_url: runtime.base_url.clone().unwrap_or_else(default_base_url),
+            rag_url: None,
+            route: runtime.route.clone().unwrap_or_else(|| "auto".to_string()),
+            intent: runtime
+                .intent
+                .clone()
+                .unwrap_or_else(|| "current_task".to_string()),
+            workspace: runtime.workspace.clone(),
+            visibility: runtime.visibility.clone(),
+            force: true,
+        })?;
+        return Ok(new_output);
+    }
+
+    anyhow::bail!("failed to allocate an isolated hive lane after multiple attempts");
+}
+
+async fn ensure_isolated_hive_bundle_lane(
+    output: &Path,
+    runtime: &BundleRuntimeConfig,
+) -> anyhow::Result<PathBuf> {
+    let current_session = runtime.session.as_deref();
+    let Some(conflict) = detect_bundle_lane_collision(output, current_session).await? else {
+        return Ok(output.to_path_buf());
+    };
+    allocate_isolated_hive_lane(output, runtime).with_context(|| {
+        format!(
+            "unsafe hive cowork lane collision detected: {}",
+            render_hive_lane_collision(&conflict)
+        )
+    })
+}
+
+fn ensure_target_session_lane_is_safe(
+    current_output: &Path,
+    current_session: Option<&str>,
+    target: &ProjectAwarenessEntry,
+) -> anyhow::Result<()> {
+    let Some(lane) = detect_bundle_lane_identity(current_output) else {
+        return Ok(());
+    };
+    let current_bundle =
+        fs::canonicalize(current_output).unwrap_or_else(|_| current_output.to_path_buf());
+    if awareness_entry_has_same_lane(target, &lane, &current_bundle, current_session) {
+        anyhow::bail!(
+            "unsafe hive cowork target collision: {}",
+            render_hive_lane_collision(target)
+        );
+    }
+    Ok(())
 }
 
 fn push_awareness_section(
@@ -38813,11 +39085,9 @@ mod tests {
             },
         ]);
 
-        assert!(
-            warnings
-                .iter()
-                .any(|value| value.contains("unsafe_same_branch repo=/tmp/repo branch=feature/hive-a"))
-        );
+        assert!(warnings.iter().any(|value| {
+            value.contains("unsafe_same_branch repo=/tmp/repo branch=feature/hive-a")
+        }));
         assert!(
             warnings
                 .iter()
@@ -39362,6 +39632,107 @@ mod tests {
         assert!(acked.messages[0].acknowledged_at.is_some());
 
         fs::remove_dir_all(root).expect("cleanup messages dir");
+    }
+
+    #[tokio::test]
+    async fn messages_send_rejects_colliding_target_session_lane() {
+        let root =
+            std::env::temp_dir().join(format!("memd-messages-collision-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let current_base_url = spawn_mock_hive_server().await;
+
+        write_test_bundle_config(&current_bundle, &current_base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                current_base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(current_base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
+
+        let err = run_messages_command(
+            &MessagesArgs {
+                output: current_bundle.clone(),
+                send: true,
+                inbox: false,
+                ack: None,
+                target_session: Some("claude-b".to_string()),
+                kind: Some("handoff".to_string()),
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: Some("do the overlap work".to_string()),
+                summary: false,
+            },
+            &current_base_url,
+        )
+        .await
+        .expect_err("colliding target lane should fail");
+        assert!(
+            err.to_string()
+                .contains("unsafe hive cowork target collision")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup messages collision dir");
     }
 
     #[tokio::test]
@@ -44715,16 +45086,233 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
+    #[tokio::test]
+    async fn run_tasks_command_rejects_colliding_assignment_target_lane() {
+        let root =
+            std::env::temp_dir().join(format!("memd-tasks-collision-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+
+        write_test_bundle_config(&current_bundle, &base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
+
+        let err = run_tasks_command(
+            &TasksArgs {
+                output: current_bundle.clone(),
+                upsert: false,
+                assign_to_session: Some("claude-b".to_string()),
+                target_session: None,
+                task_id: Some("task-1".to_string()),
+                title: None,
+                description: None,
+                status: None,
+                mode: None,
+                scope: Vec::new(),
+                request_help: false,
+                request_review: false,
+                all: false,
+                view: None,
+                summary: false,
+                json: false,
+            },
+            SHARED_MEMD_BASE_URL,
+        )
+        .await
+        .expect_err("colliding task assignment should fail");
+        assert!(
+            err.to_string()
+                .contains("unsafe hive cowork target collision")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup tasks collision dir");
+    }
+
+    #[tokio::test]
+    async fn hive_join_reroutes_colliding_worker_lane_into_new_worktree() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-lane-reroute-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let target_project = root.join("target");
+        let current_bundle = current_project.join(".memd");
+        let target_bundle = target_project.join(".memd");
+        fs::create_dir_all(&current_bundle).expect("create current bundle");
+        fs::create_dir_all(&target_bundle).expect("create target bundle");
+        fs::create_dir_all(current_project.join(".planning")).expect("create current planning");
+        fs::create_dir_all(target_project.join(".planning")).expect("create target planning");
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+
+        write_test_bundle_config(&current_bundle, &base_url);
+        fs::write(
+            target_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("write target config");
+        fs::write(current_project.join("README.md"), "# current\n").expect("write readme");
+        fs::write(target_project.join("NOTES.md"), "# target\n").expect("write notes");
+        init_test_git_repo(&root);
+        checkout_test_branch(&root, "feature/hive-shared");
+
+        write_test_bundle_heartbeat(
+            &target_bundle,
+            &BundleHeartbeatState {
+                session: Some("claude-b".to_string()),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@claude-b".to_string()),
+                tab_id: None,
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(root.display().to_string()),
+                worktree_root: Some(root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            },
+        );
+        let conflict = detect_bundle_lane_collision(&current_bundle, Some("codex-a"))
+            .await
+            .expect("detect lane collision");
+        assert!(conflict.is_some(), "expected lane collision before join");
+
+        let response = run_hive_join_command(&HiveJoinArgs {
+            output: current_bundle.clone(),
+            base_url: default_hive_join_base_url(),
+            all_active: false,
+            all_local: false,
+            publish_heartbeat: false,
+            summary: false,
+        })
+        .await
+        .expect("reroute join");
+
+        let response = match response {
+            HiveJoinResponse::Single(response) => response,
+            other => panic!("expected single response, got {other:?}"),
+        };
+        let rerouted_output = PathBuf::from(&response.output);
+        assert_ne!(rerouted_output, current_bundle);
+        assert!(rerouted_output.join("config.json").exists());
+
+        let rerouted_project = rerouted_output
+            .parent()
+            .expect("rerouted bundle parent")
+            .to_path_buf();
+        let rerouted_branch =
+            git_stdout(&rerouted_project, &["branch", "--show-current"]).expect("rerouted branch");
+        assert_ne!(rerouted_branch, "feature/hive-shared");
+        assert_ne!(
+            detect_git_worktree_root(&rerouted_project).expect("rerouted worktree root"),
+            detect_git_worktree_root(&current_project).expect("current worktree root")
+        );
+
+        let rerouted_runtime = read_bundle_runtime_config_raw(&rerouted_output)
+            .expect("read rerouted runtime")
+            .expect("rerouted runtime config");
+        assert_ne!(rerouted_runtime.session.as_deref(), Some("codex-a"));
+
+        fs::remove_dir_all(root).expect("cleanup hive reroute dir");
+    }
+
     #[test]
     fn cli_accepts_reload_as_refresh_alias() {
-        let cli = Cli::try_parse_from([
-            "memd",
-            "reload",
-            "--output",
-            ".memd",
-            "--summary",
-        ])
-        .expect("reload alias should parse");
+        let cli = Cli::try_parse_from(["memd", "reload", "--output", ".memd", "--summary"])
+            .expect("reload alias should parse");
 
         match cli.command {
             Commands::Refresh(args) => {
@@ -45150,6 +45738,57 @@ mod tests {
             serde_json::to_string_pretty(state).expect("serialize heartbeat") + "\n",
         )
         .expect("write heartbeat");
+    }
+
+    fn init_test_git_repo(root: &Path) {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("init")
+            .status()
+            .expect("init git repo");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("config")
+            .arg("user.email")
+            .arg("memd@example.com")
+            .status()
+            .expect("git user email");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("config")
+            .arg("user.name")
+            .arg("memd")
+            .status()
+            .expect("git user name");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("add")
+            .arg(".")
+            .status()
+            .expect("git add");
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("commit")
+            .arg("-m")
+            .arg("init")
+            .status()
+            .expect("git commit");
+    }
+
+    fn checkout_test_branch(root: &Path, branch: &str) {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("checkout")
+            .arg("-b")
+            .arg(branch)
+            .status()
+            .expect("checkout branch");
     }
 
     fn test_hive_heartbeat_state(
