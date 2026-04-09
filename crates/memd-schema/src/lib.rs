@@ -871,6 +871,14 @@ pub struct HiveSessionsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveRosterResponse {
+    pub project: String,
+    pub namespace: String,
+    pub queen_session: Option<String>,
+    pub bees: Vec<HiveSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveSessionRetireRequest {
     pub session: String,
     pub project: Option<String>,

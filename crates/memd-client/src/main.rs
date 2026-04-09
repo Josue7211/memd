@@ -42,17 +42,16 @@ use memd_schema::{
     ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, HiveClaimRecoverRequest,
     HiveClaimsRequest, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageRecord, HiveMessageSendRequest, HiveTaskAssignRequest, HiveTaskRecord,
-    HiveTaskUpsertRequest, HiveTasksRequest, MaintainReport, MemoryConsolidationRequest,
-    MemoryInboxRequest, MemoryKind, MemoryMaintenanceReportRequest, MemoryPolicyResponse,
-    MemoryRepairMode, MemoryScope, MemoryStage, MemoryStatus, PromoteMemoryRequest,
-    RepairMemoryRequest, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyActivationRecord, SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse,
-    SkillPolicyApplyRequest, SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest,
-    WorkingMemoryRequest,
+    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveMessageAckRequest, HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest,
+    HiveRosterResponse, HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest,
+    HiveTasksRequest, MaintainReport, MemoryConsolidationRequest, MemoryInboxRequest, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryPolicyResponse, MemoryRepairMode, MemoryScope,
+    MemoryStage, MemoryStatus, PromoteMemoryRequest, RepairMemoryRequest, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyActivationRecord,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SourceMemoryRequest, StoreMemoryRequest, VerifyMemoryRequest, WorkingMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1785,6 +1784,9 @@ struct BundleArgs {
 
 #[derive(Debug, Clone, Args)]
 struct HiveArgs {
+    #[command(subcommand)]
+    command: Option<HiveSubcommand>,
+
     #[arg(long)]
     agent: Option<String>,
 
@@ -1853,6 +1855,23 @@ struct HiveArgs {
 
     #[arg(long)]
     force: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HiveSubcommand {
+    Roster(HiveRosterArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct HiveRosterArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    json: bool,
 
     #[arg(long)]
     summary: bool,
@@ -2803,11 +2822,20 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Hive(args) => {
-            let response = run_hive_command(&args).await?;
-            if args.summary {
-                println!("{}", render_hive_wire_summary(&response));
+            if let Some(HiveSubcommand::Roster(roster_args)) = &args.command {
+                let response = run_hive_roster_command(roster_args).await?;
+                if roster_args.json {
+                    print_json(&response)?;
+                } else {
+                    println!("{}", render_hive_roster_summary(&response));
+                }
             } else {
-                print_json(&response)?;
+                let response = run_hive_command(&args).await?;
+                if args.summary {
+                    println!("{}", render_hive_wire_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
             }
         }
         Commands::HiveProject(args) => {
@@ -15194,6 +15222,134 @@ struct HiveProjectResponse {
     heartbeat: Option<serde_json::Value>,
 }
 
+fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
+    entry
+        .effective_agent
+        .as_deref()
+        .and_then(|value| value.split('@').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            entry
+                .agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn derive_awareness_lane_id(entry: &ProjectAwarenessEntry) -> Option<String> {
+    entry
+        .worktree_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            entry
+                .branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn project_awareness_entry_to_hive_session(
+    entry: &ProjectAwarenessEntry,
+) -> memd_schema::HiveSessionRecord {
+    memd_schema::HiveSessionRecord {
+        session: entry
+            .session
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        tab_id: entry.tab_id.clone(),
+        agent: entry.agent.clone(),
+        effective_agent: entry.effective_agent.clone(),
+        hive_system: entry.hive_system.clone(),
+        hive_role: entry.hive_role.clone(),
+        worker_name: derive_awareness_worker_name(entry),
+        display_name: None,
+        role: entry.hive_role.clone(),
+        capabilities: entry.capabilities.clone(),
+        hive_groups: entry.hive_groups.clone(),
+        lane_id: derive_awareness_lane_id(entry),
+        hive_group_goal: entry.hive_group_goal.clone(),
+        authority: entry.authority.clone(),
+        heartbeat_model: None,
+        project: entry.project.clone(),
+        namespace: entry.namespace.clone(),
+        workspace: entry.workspace.clone(),
+        repo_root: entry.repo_root.clone(),
+        worktree_root: entry.worktree_root.clone(),
+        branch: entry.branch.clone(),
+        base_branch: entry.base_branch.clone(),
+        visibility: entry.visibility.clone(),
+        base_url: entry.base_url.clone(),
+        base_url_healthy: None,
+        host: entry.host.clone(),
+        pid: entry.pid,
+        topic_claim: entry.topic_claim.clone(),
+        scope_claims: entry.scope_claims.clone(),
+        task_id: entry.task_id.clone(),
+        focus: entry.focus.clone(),
+        pressure: entry.pressure.clone(),
+        next_recovery: entry.next_recovery.clone(),
+        next_action: entry
+            .next_recovery
+            .as_deref()
+            .and_then(simplify_awareness_work_text),
+        needs_help: false,
+        needs_review: false,
+        handoff_state: None,
+        confidence: None,
+        risk: None,
+        status: entry.presence.clone(),
+        last_seen: entry.last_updated.unwrap_or_else(Utc::now),
+    }
+}
+
+async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRosterResponse> {
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = project_awareness_visible_entries(&awareness);
+    let queen_session = visible_entries
+        .iter()
+        .find(|entry| {
+            matches!(
+                entry.hive_role.as_deref(),
+                Some("orchestrator" | "memory-control-plane")
+            ) || matches!(
+                entry.authority.as_deref(),
+                Some("coordinator" | "canonical")
+            )
+        })
+        .and_then(|entry| entry.session.clone());
+
+    Ok(HiveRosterResponse {
+        project: visible_entries
+            .iter()
+            .find_map(|entry| entry.project.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        namespace: visible_entries
+            .iter()
+            .find_map(|entry| entry.namespace.clone())
+            .unwrap_or_else(|| "default".to_string()),
+        queen_session,
+        bees: visible_entries
+            .into_iter()
+            .map(project_awareness_entry_to_hive_session)
+            .collect(),
+    })
+}
+
 fn infer_service_agent_from_path(path: &Path) -> Option<String> {
     let normalized = path
         .file_name()
@@ -15930,6 +16086,46 @@ fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
         },
         rebased,
     )
+}
+
+fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
+    let mut lines = vec![format!(
+        "hive_roster project={} namespace={} queen={}",
+        response.project,
+        response.namespace,
+        response.queen_session.as_deref().unwrap_or("none"),
+    )];
+    for bee in &response.bees {
+        let worker = bee
+            .worker_name
+            .as_deref()
+            .or(bee.agent.as_deref())
+            .unwrap_or("unnamed");
+        let lane = bee
+            .lane_id
+            .as_deref()
+            .or(bee.branch.as_deref())
+            .unwrap_or("none");
+        let capabilities = if bee.capabilities.is_empty() {
+            "none".to_string()
+        } else {
+            bee.capabilities.join(",")
+        };
+        lines.push(format!(
+            "- {} ({}) role={} lane={} task={} caps={} status={}",
+            worker,
+            bee.session,
+            bee.role
+                .as_deref()
+                .or(bee.hive_role.as_deref())
+                .unwrap_or("worker"),
+            lane,
+            bee.task_id.as_deref().unwrap_or("none"),
+            capabilities,
+            bee.status,
+        ));
+    }
+    lines.join("\n")
 }
 
 fn render_hive_join_summary(response: &HiveJoinResponse) -> String {
@@ -37495,9 +37691,9 @@ mod tests {
     };
     use memd_schema::{
         BenchmarkEvidenceSummary, BenchmarkFeatureRecord, BenchmarkGateDecision,
-        BenchmarkSubjectMetrics, ContinuityJourneyReport, HiveClaimAcquireRequest,
-        HiveClaimRecord, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-        HiveClaimsResponse, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+        BenchmarkSubjectMetrics, ContinuityJourneyReport, HiveClaimAcquireRequest, HiveClaimRecord,
+        HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
+        HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
         HiveCoordinationReceiptRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
         HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
         HiveTaskRecord, SkillPolicyActivationRecord, SkillPolicyApplyReceipt,
@@ -43337,6 +43533,65 @@ mod tests {
     }
 
     #[test]
+    fn render_hive_roster_summary_prefers_worker_names_and_role_lane_task() {
+        let response = HiveRosterResponse {
+            project: "memd".to_string(),
+            namespace: "main".to_string(),
+            queen_session: Some("session-queen".to_string()),
+            bees: vec![memd_schema::HiveSessionRecord {
+                session: "session-lorentz".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo-review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: Some("Review overlap guard output".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Review overlap guard output".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            }],
+        };
+
+        let summary = render_hive_roster_summary(&response);
+        assert!(summary.contains("Lorentz (session-lorentz)"));
+        assert!(summary.contains("role=reviewer"));
+        assert!(summary.contains("lane=lane-review"));
+        assert!(summary.contains("task=review-parser"));
+        assert!(summary.contains("caps=review,coordination"));
+    }
+
+    #[test]
     fn build_hive_heartbeat_derives_first_class_intent_fields() {
         let dir =
             std::env::temp_dir().join(format!("memd-heartbeat-intent-{}", uuid::Uuid::new_v4()));
@@ -47147,6 +47402,7 @@ mod tests {
         );
 
         let response = run_hive_command(&HiveArgs {
+            command: None,
             global: false,
             project_root: None,
             seed_existing: false,
@@ -48083,6 +48339,7 @@ mod tests {
         std::env::set_current_dir(&repo_root).expect("set repo cwd");
 
         let response = run_hive_command(&HiveArgs {
+            command: None,
             agent: None,
             project: None,
             namespace: None,
@@ -48227,6 +48484,7 @@ mod tests {
         );
 
         let response = run_hive_command(&HiveArgs {
+            command: None,
             agent: None,
             project: None,
             namespace: None,
@@ -48349,6 +48607,7 @@ mod tests {
         let state = MockRuntimeState::default();
         let base_url = spawn_mock_runtime_server(state.clone(), false).await;
         let response = run_hive_command(&HiveArgs {
+            command: None,
             agent: Some("codex".to_string()),
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
@@ -48879,6 +49138,7 @@ mod tests {
         std::env::set_current_dir(&repo_root).expect("set repo cwd");
 
         let wire = run_hive_command(&HiveArgs {
+            command: None,
             agent: None,
             project: None,
             namespace: None,
