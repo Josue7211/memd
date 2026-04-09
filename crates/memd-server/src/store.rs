@@ -2169,6 +2169,24 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            worker_name: request
+                .worker_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            display_name: request
+                .display_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            role: request
+                .role
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             capabilities: request
                 .capabilities
                 .iter()
@@ -2183,6 +2201,12 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
+            lane_id: request
+                .lane_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             hive_group_goal: request
                 .hive_group_goal
                 .as_deref()
@@ -2266,6 +2290,32 @@ impl SqliteStore {
                 .map(str::to_string),
             next_recovery: request
                 .next_recovery
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            next_action: request
+                .next_action
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            needs_help: request.needs_help,
+            needs_review: request.needs_review,
+            handoff_state: request
+                .handoff_state
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            confidence: request
+                .confidence
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            risk: request
+                .risk
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -4318,8 +4368,12 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4342,6 +4396,12 @@ mod tests {
                 focus: Some("work a".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex session");
@@ -4352,8 +4412,12 @@ mod tests {
                 effective_agent: Some("claude-code@shared-session".to_string()),
                 hive_system: Some("claude-code".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("claude-sonnet-4".to_string()),
@@ -4376,6 +4440,12 @@ mod tests {
                 focus: Some("work b".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude session");
@@ -4431,8 +4501,12 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4455,6 +4529,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert branch a session");
@@ -4465,8 +4545,12 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4489,6 +4573,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert branch b session");
@@ -4541,12 +4631,16 @@ mod tests {
                 effective_agent: Some("agent-shell@shell-a".to_string()),
                 hive_system: Some("agent-shell".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-shell".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec![
                     "shell".to_string(),
                     "exec".to_string(),
                     "workspace".to_string(),
                 ],
                 hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4569,6 +4663,12 @@ mod tests {
                 focus: Some("repair runtime dependency".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert service hive");
@@ -4615,8 +4715,12 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4639,6 +4743,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex session");
@@ -4649,8 +4759,12 @@ mod tests {
                 effective_agent: Some("claude-code@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4673,6 +4787,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude session");
@@ -4733,8 +4853,12 @@ mod tests {
                 effective_agent: Some("agent-a@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-a".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["runtime-core".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4757,6 +4881,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex runtime shell session");
@@ -4768,8 +4898,12 @@ mod tests {
                 effective_agent: Some("agent-b@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("agent-b".to_string()),
+                display_name: None,
+                role: Some("orchestrator".to_string()),
                 capabilities: vec!["coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("coordinator".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
@@ -4792,6 +4926,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex orchestrator session");
@@ -4803,8 +4943,12 @@ mod tests {
                 effective_agent: Some("agent-c@shared-session".to_string()),
                 hive_system: Some("claude-code".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-c".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["runtime-core".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("claude-opus".to_string()),
@@ -4827,6 +4971,12 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude runtime shell session");

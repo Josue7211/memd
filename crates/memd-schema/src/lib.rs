@@ -742,9 +742,17 @@ pub struct HiveSessionRecord {
     pub hive_system: Option<String>,
     pub hive_role: Option<String>,
     #[serde(default)]
+    pub worker_name: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub hive_groups: Vec<String>,
+    #[serde(default)]
+    pub lane_id: Option<String>,
     pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
@@ -767,6 +775,18 @@ pub struct HiveSessionRecord {
     pub focus: Option<String>,
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub needs_help: bool,
+    #[serde(default)]
+    pub needs_review: bool,
+    #[serde(default)]
+    pub handoff_state: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
+    #[serde(default)]
+    pub risk: Option<String>,
     pub status: String,
     pub last_seen: DateTime<Utc>,
 }
@@ -780,9 +800,17 @@ pub struct HiveSessionUpsertRequest {
     pub hive_system: Option<String>,
     pub hive_role: Option<String>,
     #[serde(default)]
+    pub worker_name: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub hive_groups: Vec<String>,
+    #[serde(default)]
+    pub lane_id: Option<String>,
     pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
@@ -806,6 +834,18 @@ pub struct HiveSessionUpsertRequest {
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
     pub status: Option<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub needs_help: bool,
+    #[serde(default)]
+    pub needs_review: bool,
+    #[serde(default)]
+    pub handoff_state: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
+    #[serde(default)]
+    pub risk: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1919,6 +1959,65 @@ mod tests {
         let decoded: MemoryEntityRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.entity_type, "repo");
         assert_eq!(decoded.aliases.len(), 2);
+    }
+
+    #[test]
+    fn hive_session_roundtrips_worker_identity_fields() {
+        let session = HiveSessionRecord {
+            session: "session-lorentz".to_string(),
+            tab_id: Some("tab-lorentz".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@session-lorentz".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("reviewer".to_string()),
+            hive_groups: vec!["project:memd".to_string()],
+            hive_group_goal: Some("review parser handoff".to_string()),
+            authority: Some("participant".to_string()),
+            heartbeat_model: Some("codex".to_string()),
+            worker_name: Some("Lorentz".to_string()),
+            display_name: Some("Parser Reviewer".to_string()),
+            role: Some("reviewer".to_string()),
+            capabilities: vec!["review".to_string(), "coordination".to_string()],
+            lane_id: Some("lane-render-review".to_string()),
+            repo_root: Some("/repo".to_string()),
+            worktree_root: Some("/repo-review".to_string()),
+            branch: Some("review/render".to_string()),
+            base_branch: Some("main".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
+            host: Some("workstation".to_string()),
+            pid: Some(4242),
+            topic_claim: Some("Review parser handoff".to_string()),
+            scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+            task_id: Some("review-parser-handoff".to_string()),
+            focus: Some("Review parser handoff".to_string()),
+            pressure: Some("file_edited: crates/memd-client/src/main.rs".to_string()),
+            next_recovery: Some("publish overlap-safe hive quickview".to_string()),
+            next_action: Some("Review overlap guard output".to_string()),
+            status: "active".to_string(),
+            needs_help: false,
+            needs_review: false,
+            handoff_state: Some("none".to_string()),
+            confidence: Some("high".to_string()),
+            risk: Some("low".to_string()),
+            last_seen: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&session).expect("serialize session");
+        let decoded: HiveSessionRecord = serde_json::from_str(&json).expect("deserialize session");
+        assert_eq!(decoded.worker_name.as_deref(), Some("Lorentz"));
+        assert_eq!(decoded.display_name.as_deref(), Some("Parser Reviewer"));
+        assert_eq!(decoded.role.as_deref(), Some("reviewer"));
+        assert_eq!(decoded.lane_id.as_deref(), Some("lane-render-review"));
+        assert_eq!(
+            decoded.next_action.as_deref(),
+            Some("Review overlap guard output")
+        );
+        assert_eq!(decoded.risk.as_deref(), Some("low"));
     }
 
     #[test]
