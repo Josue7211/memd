@@ -1116,6 +1116,9 @@ struct SetupArgs {
     #[arg(long)]
     force: bool,
 
+    #[arg(long, default_value_t = false)]
+    allow_localhost_read_only_fallback: bool,
+
     #[arg(long)]
     summary: bool,
 
@@ -1437,6 +1440,9 @@ struct InitArgs {
 
     #[arg(long)]
     force: bool,
+
+    #[arg(long, default_value_t = false)]
+    allow_localhost_read_only_fallback: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3369,8 +3375,19 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Setup(args) => {
-            let init_args = setup_args_to_init_args(&args);
+            let decision = resolve_bootstrap_authority(setup_args_to_init_args(&args)).await?;
+            let init_args = decision.init_args;
             write_init_bundle(&init_args)?;
+            if decision.fallback_activated {
+                set_bundle_localhost_read_only_authority_state(
+                    &init_args.output,
+                    &decision.shared_base_url,
+                    "setup",
+                    "shared authority unavailable during bootstrap",
+                )?;
+                write_agent_profiles(&init_args.output)?;
+                write_native_agent_bridge_files(&init_args.output)?;
+            }
             if args.json {
                 print_json(&json!({
                     "bundle": init_args.output,
@@ -3378,6 +3395,8 @@ async fn main() -> anyhow::Result<()> {
                     "namespace": init_args.namespace,
                     "agent": init_args.agent,
                     "base_url": init_args.base_url,
+                    "shared_base_url": decision.shared_base_url,
+                    "authority_mode": if decision.fallback_activated { "localhost_read_only" } else { "shared" },
                     "route": init_args.route,
                     "intent": init_args.intent,
                     "workspace": init_args.workspace,
@@ -3386,14 +3405,26 @@ async fn main() -> anyhow::Result<()> {
                 }))?;
             } else if args.summary {
                 println!(
-                    "setup bundle={} project={} namespace={} agent={} ready=true",
+                    "setup bundle={} project={} namespace={} agent={} authority={} ready=true",
                     init_args.output.display(),
                     init_args.project.as_deref().unwrap_or("none"),
                     init_args.namespace.as_deref().unwrap_or("none"),
                     init_args.agent,
+                    if decision.fallback_activated {
+                        "localhost_read_only"
+                    } else {
+                        "shared"
+                    },
                 );
             } else {
                 println!("Initialized memd bundle at {}", init_args.output.display());
+                if decision.fallback_activated {
+                    eprintln!("memd authority warning:");
+                    eprintln!("- shared authority unavailable");
+                    eprintln!("- localhost fallback is lower trust");
+                    eprintln!("- prompt-injection and split-brain risk increased");
+                    eprintln!("- coordination writes blocked");
+                }
             }
         }
         Commands::Doctor(args) => {
@@ -3407,7 +3438,19 @@ async fn main() -> anyhow::Result<()> {
                 let project_root = args.project_root.clone().or(detect_current_project_root()?);
                 let setup_args =
                     doctor_args_to_setup_args(&args, bundle_root.clone(), project_root);
-                write_init_bundle(&setup_args_to_init_args(&setup_args))?;
+                let decision =
+                    resolve_bootstrap_authority(setup_args_to_init_args(&setup_args)).await?;
+                write_init_bundle(&decision.init_args)?;
+                if decision.fallback_activated {
+                    set_bundle_localhost_read_only_authority_state(
+                        &decision.init_args.output,
+                        &decision.shared_base_url,
+                        "doctor",
+                        "shared authority unavailable during repair bootstrap",
+                    )?;
+                    write_agent_profiles(&decision.init_args.output)?;
+                    write_native_agent_bridge_files(&decision.init_args.output)?;
+                }
                 status = read_bundle_status(&bundle_root, &base_url).await?;
             }
             if args.json {
@@ -4490,8 +4533,29 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Init(args) => {
-            write_init_bundle(&args)?;
-            println!("Initialized memd bundle at {}", args.output.display());
+            let decision = resolve_bootstrap_authority(args).await?;
+            write_init_bundle(&decision.init_args)?;
+            if decision.fallback_activated {
+                set_bundle_localhost_read_only_authority_state(
+                    &decision.init_args.output,
+                    &decision.shared_base_url,
+                    "init",
+                    "shared authority unavailable during bootstrap",
+                )?;
+                write_agent_profiles(&decision.init_args.output)?;
+                write_native_agent_bridge_files(&decision.init_args.output)?;
+            }
+            println!(
+                "Initialized memd bundle at {}",
+                decision.init_args.output.display()
+            );
+            if decision.fallback_activated {
+                eprintln!("memd authority warning:");
+                eprintln!("- shared authority unavailable");
+                eprintln!("- localhost fallback is lower trust");
+                eprintln!("- prompt-injection and split-brain risk increased");
+                eprintln!("- coordination writes blocked");
+            }
         }
         Commands::Loops(args) => {
             let entries = read_loop_entries(&args.output)?;
@@ -6185,6 +6249,7 @@ fn setup_args_to_init_args(args: &SetupArgs) -> InitArgs {
         workspace: args.workspace.clone(),
         visibility: args.visibility.clone(),
         force: args.force,
+        allow_localhost_read_only_fallback: args.allow_localhost_read_only_fallback,
     }
 }
 
@@ -6216,6 +6281,7 @@ fn doctor_args_to_setup_args(
         workspace: None,
         visibility: None,
         force: args.repair,
+        allow_localhost_read_only_fallback: false,
         summary: false,
         json: false,
     }
@@ -9601,6 +9667,7 @@ fn default_authority_mode() -> String {
 }
 
 const SHARED_MEMD_BASE_URL: &str = "http://100.104.154.24:8787";
+const LOCALHOST_MEMD_BASE_URL: &str = "http://127.0.0.1:8787";
 
 fn default_base_url() -> String {
     if let Ok(value) = std::env::var("MEMD_BASE_URL") {
@@ -9613,6 +9680,65 @@ fn default_base_url() -> String {
         .and_then(|runtime| runtime.base_url)
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| SHARED_MEMD_BASE_URL.to_string())
+}
+
+#[derive(Debug, Clone)]
+struct BootstrapAuthorityDecision {
+    init_args: InitArgs,
+    shared_base_url: String,
+    fallback_activated: bool,
+}
+
+async fn memd_base_url_reachable(base_url: &str) -> bool {
+    let Ok(client) = MemdClient::new(base_url) else {
+        return false;
+    };
+    timeout_ok(client.healthz()).await.is_some()
+}
+
+async fn resolve_bootstrap_authority(
+    init_args: InitArgs,
+) -> anyhow::Result<BootstrapAuthorityDecision> {
+    let shared_base_url = init_args.base_url.clone();
+    if is_loopback_base_url(&shared_base_url) {
+        return Ok(BootstrapAuthorityDecision {
+            init_args,
+            shared_base_url,
+            fallback_activated: false,
+        });
+    }
+
+    if memd_base_url_reachable(&shared_base_url).await {
+        return Ok(BootstrapAuthorityDecision {
+            init_args,
+            shared_base_url,
+            fallback_activated: false,
+        });
+    }
+
+    if !memd_base_url_reachable(LOCALHOST_MEMD_BASE_URL).await {
+        anyhow::bail!(
+            "shared authority {} is unreachable and localhost fallback {} is not available",
+            shared_base_url,
+            LOCALHOST_MEMD_BASE_URL
+        );
+    }
+
+    if !init_args.allow_localhost_read_only_fallback {
+        anyhow::bail!(
+            "shared authority {} is unreachable. localhost fallback {} is lower trust, read-only, and requires explicit consent via --allow-localhost-read-only-fallback",
+            shared_base_url,
+            LOCALHOST_MEMD_BASE_URL
+        );
+    }
+
+    let mut init_args = init_args;
+    init_args.base_url = LOCALHOST_MEMD_BASE_URL.to_string();
+    Ok(BootstrapAuthorityDecision {
+        init_args,
+        shared_base_url,
+        fallback_activated: true,
+    })
 }
 
 fn default_bundle_root_path() -> PathBuf {
@@ -15060,6 +15186,7 @@ fn hive_args_to_init_args(args: &HiveArgs, agent: String) -> InitArgs {
         intent: args.intent.clone(),
         workspace: args.workspace.clone(),
         visibility: args.visibility.clone(),
+        allow_localhost_read_only_fallback: false,
         force: args.force,
     }
 }
@@ -20617,11 +20744,28 @@ fn compact_inline(value: &str, max_chars: usize) -> String {
 fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
+    let authority_warning = read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .map(|runtime| authority_warning_lines(Some(&runtime)))
+        .unwrap_or_default();
     let claude_imports = agents_dir.join("CLAUDE_IMPORTS.md");
     fs::write(
         &claude_imports,
         format!(
-            "# memd imports for Claude Code\n\nUse this file as the single import target from your project `CLAUDE.md`.\n\nAdd this line to the root `CLAUDE.md` for the workspace:\n\n`@.memd/agents/CLAUDE_IMPORTS.md`\n\nThen run `/memory` inside Claude Code to verify the imported memd files are loaded.\n\n## Imported memd memory files\n\n@../MEMD_WAKEUP.md\n@../MEMD_MEMORY.md\n@../MEMD_EVENTS.md\n@CLAUDE_CODE_WAKEUP.md\n@CLAUDE_CODE_MEMORY.md\n@CLAUDE_CODE_EVENTS.md\n\n## Runtime rules\n\n- Start from the wake-up file before deeper memory surfaces.\n- For prior decisions, preferences, or project history, run `memd lookup --output {bundle} --query \"...\"` before answering.\n- Use the generated lane helpers when you want low-friction memory writes:\n  - `.memd/agents/remember-short.sh --content \"Current blocker: ...\"`\n  - `.memd/agents/remember-decision.sh --content \"decision: ...\"`\n  - `.memd/agents/remember-preference.sh --content \"preference: ...\"`\n  - `.memd/agents/remember-long.sh --content \"fact: ...\"`\n  - `.memd/agents/capture-live.sh --content \"status: ...\"`\n  - `.memd/agents/correct-memory.sh --content \"corrected fact: ...\"`\n  - `.memd/agents/sync-semantic.sh`\n- After `memd reload` (alias: `memd refresh`), use installed `$gsd-*` skills as the GSD interface in Codex.\n- Do not block on standalone `gsd-*` shell binaries unless you verified they are the required interface for this harness and they are missing on `PATH`.\n- If `$gsd-autonomous` is installed as a skill, try that skill path before claiming the autonomous pipeline is unavailable.\n\n## Notes\n\n- `memd wake --output {bundle}` refreshes the startup live-memory surface.\n- `memd lookup --output {bundle} --query \"...\"` is the bundle-aware pre-answer recall path.\n- `memd checkpoint --output {bundle} --content \"...\"` writes current task state into the live backend.\n- `memd hook capture --output {bundle} --stdin` records episodic live-memory updates from hooks.\n- `memd rag sync --project <project> --namespace <namespace>` pushes canonical memory into the configured semantic backend.\n- `memd handoff --output {bundle} --prompt` refreshes the shared handoff view.\n- dream and autodream output should flow back through `memd`, then Claude should pick it up through this import chain.\n- keep `memd` as the source of truth; treat this Claude import surface as a generated bridge.\n- default voice for this repo is caveman ultra, short and direct.\n",
+            "# memd imports for Claude Code\n\nUse this file as the single import target from your project `CLAUDE.md`.\n\nAdd this line to the root `CLAUDE.md` for the workspace:\n\n`@.memd/agents/CLAUDE_IMPORTS.md`\n\nThen run `/memory` inside Claude Code to verify the imported memd files are loaded.\n\n{}## Imported memd memory files\n\n@../MEMD_WAKEUP.md\n@../MEMD_MEMORY.md\n@../MEMD_EVENTS.md\n@CLAUDE_CODE_WAKEUP.md\n@CLAUDE_CODE_MEMORY.md\n@CLAUDE_CODE_EVENTS.md\n\n## Runtime rules\n\n- Start from the wake-up file before deeper memory surfaces.\n- For prior decisions, preferences, or project history, run `memd lookup --output {bundle} --query \"...\"` before answering.\n- Use the generated lane helpers when you want low-friction memory writes:\n  - `.memd/agents/remember-short.sh --content \"Current blocker: ...\"`\n  - `.memd/agents/remember-decision.sh --content \"decision: ...\"`\n  - `.memd/agents/remember-preference.sh --content \"preference: ...\"`\n  - `.memd/agents/remember-long.sh --content \"fact: ...\"`\n  - `.memd/agents/capture-live.sh --content \"status: ...\"`\n  - `.memd/agents/correct-memory.sh --content \"corrected fact: ...\"`\n  - `.memd/agents/sync-semantic.sh`\n- After `memd reload` (alias: `memd refresh`), use installed `$gsd-*` skills as the GSD interface in Codex.\n- Do not block on standalone `gsd-*` shell binaries unless you verified they are the required interface for this harness and they are missing on `PATH`.\n- If `$gsd-autonomous` is installed as a skill, try that skill path before claiming the autonomous pipeline is unavailable.\n\n## Notes\n\n- `memd wake --output {bundle}` refreshes the startup live-memory surface.\n- `memd lookup --output {bundle} --query \"...\"` is the bundle-aware pre-answer recall path.\n- `memd checkpoint --output {bundle} --content \"...\"` writes current task state into the live backend.\n- `memd hook capture --output {bundle} --stdin` records episodic live-memory updates from hooks.\n- `memd rag sync --project <project> --namespace <namespace>` pushes canonical memory into the configured semantic backend.\n- `memd handoff --output {bundle} --prompt` refreshes the shared handoff view.\n- dream and autodream output should flow back through `memd`, then Claude should pick it up through this import chain.\n- keep `memd` as the source of truth; treat this Claude import surface as a generated bridge.\n- default voice for this repo is caveman ultra, short and direct.\n",
+            if authority_warning.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "## Session Start Warning\n\n{}\n\n",
+                    authority_warning
+                        .iter()
+                        .map(|line| format!("- {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            },
             bundle = output.display(),
         ),
     )
@@ -24547,6 +24691,10 @@ fn benchmark_registry_markdown_path(repo_root: &Path, name: &str) -> PathBuf {
     benchmark_registry_docs_dir(repo_root).join(name)
 }
 
+fn benchmark_telemetry_dir(output: &Path) -> PathBuf {
+    output.join("telemetry").join("continuity")
+}
+
 fn load_benchmark_registry_for_output(
     output: &Path,
 ) -> anyhow::Result<Option<(PathBuf, BenchmarkRegistry)>> {
@@ -24561,15 +24709,306 @@ fn load_benchmark_registry_for_output(
     Ok(Some((repo_root, registry)))
 }
 
+fn benchmark_gate_rank(gate: &str) -> u8 {
+    match gate {
+        "ten-star" => 4,
+        "strong" => 3,
+        "acceptable" => 2,
+        "fragile" => 1,
+        _ => 0,
+    }
+}
+
+fn cap_benchmark_gate(current: &str, cap: &str) -> String {
+    if benchmark_gate_rank(current) > benchmark_gate_rank(cap) {
+        cap.to_string()
+    } else {
+        current.to_string()
+    }
+}
+
+fn gate_score(gate: &str) -> u8 {
+    match gate {
+        "ten-star" => 100,
+        "strong" => 90,
+        "acceptable" => 75,
+        "fragile" => 40,
+        _ => 0,
+    }
+}
+
+fn derived_continuity_metrics(benchmark: &FeatureBenchmarkReport) -> BenchmarkSubjectMetrics {
+    let area_scores = benchmark.areas.iter().map(|area| area.score as u16).collect::<Vec<_>>();
+    let average_area_score = if area_scores.is_empty() {
+        benchmark.score
+    } else {
+        (area_scores.iter().sum::<u16>() / area_scores.len() as u16) as u8
+    };
+    let continuity_score = benchmark
+        .areas
+        .iter()
+        .find(|area| area.slug == "bundle_session" || area.slug == "core_memory")
+        .map(|area| area.score)
+        .unwrap_or(average_area_score);
+    let reliability_score = benchmark
+        .areas
+        .iter()
+        .map(|area| area.score)
+        .min()
+        .unwrap_or(benchmark.score);
+    let token_efficiency_score = benchmark
+        .areas
+        .iter()
+        .find(|area| area.slug == "retrieval_context" || area.slug == "visible_memory")
+        .map(|area| area.score)
+        .unwrap_or(average_area_score);
+
+    BenchmarkSubjectMetrics {
+        correctness: benchmark.score,
+        continuity: continuity_score,
+        reliability: reliability_score,
+        token_efficiency: token_efficiency_score,
+        no_memd_delta: None,
+    }
+}
+
+fn evidence_summary_from_feature_benchmark(
+    benchmark: &FeatureBenchmarkReport,
+) -> BenchmarkEvidenceSummary {
+    let has_contract_evidence = benchmark
+        .evidence
+        .iter()
+        .any(|item| item.contains("benchmark_registry root="));
+    let has_workflow_evidence = !benchmark.areas.is_empty() && benchmark.command_count > 0;
+    let has_continuity_evidence = benchmark.memory_pages > 0
+        || benchmark.event_count > 0
+        || benchmark
+            .evidence
+            .iter()
+            .any(|item| item.contains("memory_quality="));
+    let has_comparative_evidence = benchmark
+        .evidence
+        .iter()
+        .any(|item| item.contains("no_memd_delta=") || item.contains("baseline.no-memd"));
+    let has_drift_failure = benchmark
+        .areas
+        .iter()
+        .any(|area| area.status != "pass" && area.recommendations.iter().any(|item| item.contains("drift")))
+        || benchmark
+            .recommendations
+            .iter()
+            .any(|item| item.contains("drift"));
+
+    BenchmarkEvidenceSummary {
+        has_contract_evidence,
+        has_workflow_evidence,
+        has_continuity_evidence,
+        has_comparative_evidence,
+        has_drift_failure,
+    }
+}
+
+fn resolve_benchmark_scorecard(
+    metrics: &BenchmarkSubjectMetrics,
+    evidence: &BenchmarkEvidenceSummary,
+    continuity_critical: bool,
+) -> BenchmarkGateDecision {
+    let mut gate = if metrics.correctness >= 95
+        && metrics.continuity >= 95
+        && metrics.reliability >= 90
+        && metrics.token_efficiency >= 80
+    {
+        "ten-star"
+    } else if metrics.correctness >= 90
+        && metrics.continuity >= 90
+        && metrics.reliability >= 85
+        && metrics.token_efficiency >= 70
+    {
+        "strong"
+    } else if metrics.correctness >= 70
+        && metrics.continuity >= 70
+        && metrics.reliability >= 65
+        && metrics.token_efficiency >= 50
+    {
+        "acceptable"
+    } else {
+        "fragile"
+    }
+    .to_string();
+
+    let mut reasons = Vec::new();
+    if continuity_critical && !evidence.has_continuity_evidence {
+        gate = cap_benchmark_gate(&gate, "fragile");
+        reasons.push("continuity-critical subject is missing continuity evidence".to_string());
+    }
+    if !evidence.has_contract_evidence || !evidence.has_workflow_evidence {
+        gate = cap_benchmark_gate(&gate, "fragile");
+        reasons.push("contract or workflow evidence is missing".to_string());
+    }
+    if evidence.has_drift_failure {
+        gate = cap_benchmark_gate(&gate, "fragile");
+        reasons.push("drift failure detected".to_string());
+    }
+    if metrics.no_memd_delta.unwrap_or_default() < 0 {
+        gate = cap_benchmark_gate(&gate, "acceptable");
+        reasons.push("with-memd underperforms no-memd; cap at acceptable".to_string());
+    }
+    if continuity_critical && !evidence.has_comparative_evidence {
+        reasons.push("comparative evidence not yet available".to_string());
+    }
+
+    BenchmarkGateDecision {
+        resolved_score: gate_score(&gate),
+        gate,
+        reasons,
+    }
+}
+
+fn build_continuity_journey_report(
+    output: &Path,
+    registry: &BenchmarkRegistry,
+    benchmark: &FeatureBenchmarkReport,
+) -> Option<ContinuityJourneyReport> {
+    let journey = registry.journeys.iter().find(|journey| {
+        journey.gate_target == "acceptable"
+            || journey
+                .feature_ids
+                .iter()
+                .any(|feature_id| {
+                    registry
+                        .features
+                        .iter()
+                        .find(|feature| feature.id == *feature_id)
+                        .is_some_and(|feature| feature.continuity_critical)
+                })
+    })?;
+
+    let metrics = derived_continuity_metrics(benchmark);
+    let evidence = evidence_summary_from_feature_benchmark(benchmark);
+    let gate_decision = resolve_benchmark_scorecard(&metrics, &evidence, true);
+    let artifact_dir = benchmark_telemetry_dir(output);
+
+    Some(ContinuityJourneyReport {
+        journey_id: journey.id.clone(),
+        journey_name: journey.name.clone(),
+        gate_decision,
+        metrics,
+        evidence,
+        baseline_modes: journey.baseline_mode_ids.clone(),
+        feature_ids: journey.feature_ids.clone(),
+        artifact_paths: vec![
+            artifact_dir.join("latest.json").display().to_string(),
+            artifact_dir.join("latest.md").display().to_string(),
+        ],
+        summary: format!(
+            "{} resolves to {} with {} evidence signals",
+            journey.name, gate_decision.gate, benchmark.evidence.len()
+        ),
+        generated_at: Some(benchmark.completed_at),
+    })
+}
+
+fn render_continuity_journey_markdown(report: &ContinuityJourneyReport) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# continuity journey evidence\n\n");
+    markdown.push_str(&format!("- Journey: `{}`\n", report.journey_id));
+    markdown.push_str(&format!("- Name: {}\n", report.journey_name));
+    markdown.push_str(&format!(
+        "- Gate: `{}` (score `{}`)\n",
+        report.gate_decision.gate, report.gate_decision.resolved_score
+    ));
+    markdown.push_str(&format!(
+        "- Baseline modes: `{}`\n",
+        report.baseline_modes.join("`, `")
+    ));
+    markdown.push_str(&format!(
+        "- Feature count: `{}`\n",
+        report.feature_ids.len()
+    ));
+    markdown.push_str("\n## Evidence Summary\n");
+    markdown.push_str(&format!(
+        "- contract evidence: `{}`\n",
+        report.evidence.has_contract_evidence
+    ));
+    markdown.push_str(&format!(
+        "- workflow evidence: `{}`\n",
+        report.evidence.has_workflow_evidence
+    ));
+    markdown.push_str(&format!(
+        "- continuity evidence: `{}`\n",
+        report.evidence.has_continuity_evidence
+    ));
+    markdown.push_str(&format!(
+        "- comparative evidence: `{}`\n",
+        report.evidence.has_comparative_evidence
+    ));
+    markdown.push_str(&format!(
+        "- drift failure: `{}`\n",
+        report.evidence.has_drift_failure
+    ));
+    markdown.push_str("\n## Metrics\n");
+    markdown.push_str(&format!("- correctness: `{}`\n", report.metrics.correctness));
+    markdown.push_str(&format!("- continuity: `{}`\n", report.metrics.continuity));
+    markdown.push_str(&format!("- reliability: `{}`\n", report.metrics.reliability));
+    markdown.push_str(&format!(
+        "- token efficiency: `{}`\n",
+        report.metrics.token_efficiency
+    ));
+    markdown.push_str(&format!(
+        "- no-memd delta: `{}`\n",
+        report.metrics
+            .no_memd_delta
+            .map(|delta| delta.to_string())
+            .unwrap_or_else(|| "unset".to_string())
+    ));
+    if !report.gate_decision.reasons.is_empty() {
+        markdown.push_str("\n## Gate Reasons\n");
+        for reason in &report.gate_decision.reasons {
+            markdown.push_str(&format!("- {}\n", reason));
+        }
+    }
+    markdown.push('\n');
+    markdown
+}
+
+fn write_continuity_journey_artifacts(
+    output: &Path,
+    report: &ContinuityJourneyReport,
+) -> anyhow::Result<()> {
+    let continuity_dir = benchmark_telemetry_dir(output);
+    fs::create_dir_all(&continuity_dir)
+        .with_context(|| format!("create {}", continuity_dir.display()))?;
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let baseline_json = continuity_dir.join("latest.json");
+    let baseline_md = continuity_dir.join("latest.md");
+    let timestamp_json = continuity_dir.join(format!("{timestamp}.json"));
+    let timestamp_md = continuity_dir.join(format!("{timestamp}.md"));
+    let json = serde_json::to_string_pretty(report)? + "\n";
+    let markdown = render_continuity_journey_markdown(report);
+
+    fs::write(&baseline_json, &json)
+        .with_context(|| format!("write {}", baseline_json.display()))?;
+    fs::write(&baseline_md, &markdown)
+        .with_context(|| format!("write {}", baseline_md.display()))?;
+    fs::write(&timestamp_json, &json)
+        .with_context(|| format!("write {}", timestamp_json.display()))?;
+    fs::write(&timestamp_md, &markdown)
+        .with_context(|| format!("write {}", timestamp_md.display()))?;
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct BenchmarkRegistryDocsReport {
-    repo_root: PathBuf,
-    registry_path: PathBuf,
-    registry: BenchmarkRegistry,
+    _repo_root: PathBuf,
+    _registry_path: PathBuf,
+    _registry: BenchmarkRegistry,
     benchmarks_markdown: String,
     loops_markdown: String,
     coverage_markdown: String,
     scores_markdown: String,
+    continuity_journey_report: Option<ContinuityJourneyReport>,
+    continuity_journey_markdown: Option<String>,
 }
 
 fn build_benchmark_registry_docs_report(
@@ -24582,16 +25021,24 @@ fn build_benchmark_registry_docs_report(
         render_benchmark_registry_benchmarks_markdown(repo_root, registry, benchmark);
     let loops_markdown = render_benchmark_registry_loops_markdown(registry);
     let coverage_markdown = render_benchmark_registry_coverage_markdown(registry, benchmark);
-    let scores_markdown = render_benchmark_registry_scores_markdown(registry, benchmark);
+    let continuity_journey_report =
+        build_continuity_journey_report(&benchmark.bundle_root.as_str().into(), registry, benchmark);
+    let continuity_journey_markdown = continuity_journey_report
+        .as_ref()
+        .map(render_continuity_journey_markdown);
+    let scores_markdown =
+        render_benchmark_registry_scores_markdown(registry, benchmark, continuity_journey_report.as_ref());
 
     BenchmarkRegistryDocsReport {
-        repo_root: repo_root.to_path_buf(),
-        registry_path,
-        registry: registry.clone(),
+        _repo_root: repo_root.to_path_buf(),
+        _registry_path: registry_path,
+        _registry: registry.clone(),
         benchmarks_markdown,
         loops_markdown,
         coverage_markdown,
         scores_markdown,
+        continuity_journey_report,
+        continuity_journey_markdown,
     }
 }
 
@@ -24618,6 +25065,9 @@ fn write_benchmark_registry_docs(
         .with_context(|| format!("write {}", coverage_path.display()))?;
     fs::write(&scores_path, &report.scores_markdown)
         .with_context(|| format!("write {}", scores_path.display()))?;
+    if let Some(continuity_journey_report) = report.continuity_journey_report.as_ref() {
+        write_continuity_journey_artifacts(Path::new(&benchmark.bundle_root), continuity_journey_report)?;
+    }
     Ok(())
 }
 
@@ -24801,6 +25251,7 @@ fn render_benchmark_registry_coverage_markdown(
 fn render_benchmark_registry_scores_markdown(
     registry: &BenchmarkRegistry,
     benchmark: &FeatureBenchmarkReport,
+    continuity_journey_report: Option<&ContinuityJourneyReport>,
 ) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd benchmark scores\n\n");
@@ -24823,6 +25274,24 @@ fn render_benchmark_registry_scores_markdown(
             "- `{}`: `{}/{}`\n",
             area.name, area.score, area.max_score
         ));
+    }
+    if let Some(report) = continuity_journey_report {
+        markdown.push_str("\n## Continuity Gate\n");
+        markdown.push_str(&format!("- Journey: `{}`\n", report.journey_id));
+        markdown.push_str(&format!(
+            "- Gate: `{}` (score `{}`)\n",
+            report.gate_decision.gate, report.gate_decision.resolved_score
+        ));
+        markdown.push_str(&format!(
+            "- Baseline modes: `{}`\n",
+            report.baseline_modes.join("`, `")
+        ));
+        if !report.gate_decision.reasons.is_empty() {
+            markdown.push_str("- Reasons:\n");
+            for reason in &report.gate_decision.reasons {
+                markdown.push_str(&format!("  - {}\n", reason));
+            }
+        }
     }
     markdown.push('\n');
     markdown
@@ -29850,6 +30319,36 @@ fn set_bundle_shared_authority_state(
     Ok(())
 }
 
+fn set_bundle_localhost_read_only_authority_state(
+    output: &Path,
+    shared_base_url: &str,
+    activated_by: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let (config_path, mut config) = read_bundle_config_file(output)?;
+    config.authority_policy.shared_primary = true;
+    config.authority_policy.localhost_fallback_policy = LocalhostFallbackPolicy::AllowReadOnly;
+    config.authority_state.mode = "localhost_read_only".to_string();
+    config.authority_state.degraded = true;
+    config.authority_state.shared_base_url = Some(shared_base_url.to_string());
+    config.authority_state.fallback_base_url = Some(LOCALHOST_MEMD_BASE_URL.to_string());
+    config.authority_state.activated_at = Some(Utc::now());
+    config.authority_state.activated_by = Some(activated_by.to_string());
+    config.authority_state.reason = Some(reason.to_string());
+    config.authority_state.warning_acknowledged_at = None;
+    config.authority_state.expires_at = None;
+    config.authority_state.blocked_capabilities = vec![
+        "coordination_writes".to_string(),
+        "queen_actions".to_string(),
+        "shared_claim_mutations".to_string(),
+        "shared_task_mutations".to_string(),
+        "shared_message_mutations".to_string(),
+    ];
+    write_bundle_config_file(&config_path, &config)?;
+    write_bundle_authority_env(output, &config.authority_policy, &config.authority_state)?;
+    Ok(())
+}
+
 fn ensure_shared_authority_write_allowed(
     runtime: Option<&BundleRuntimeConfig>,
     operation: &str,
@@ -31074,6 +31573,7 @@ fn allocate_isolated_hive_lane(
             .unwrap_or_else(|| "current_task".to_string()),
         workspace: runtime.workspace.clone(),
         visibility: runtime.visibility.clone(),
+        allow_localhost_read_only_fallback: false,
         force: true,
     })?;
     Ok(new_output)
@@ -33642,6 +34142,11 @@ fn build_bundle_agent_profiles(
 
 fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) -> String {
     let mut output = String::new();
+    let authority_warning = read_bundle_runtime_config(Path::new(&response.bundle_root))
+        .ok()
+        .flatten()
+        .map(|runtime| authority_warning_lines(Some(&runtime)))
+        .unwrap_or_default();
     output.push_str(&format!(
         "bundle={} shell={} current={} session={}\n",
         response.bundle_root,
@@ -33649,6 +34154,12 @@ fn render_bundle_agent_profiles_summary(response: &BundleAgentProfilesResponse) 
         response.current.as_deref().unwrap_or("none"),
         response.current_session.as_deref().unwrap_or("none")
     ));
+    if !authority_warning.is_empty() {
+        output.push_str("! authority warning:\n");
+        for line in authority_warning {
+            output.push_str(&format!("  - {line}\n"));
+        }
+    }
     for agent in &response.agents {
         output.push_str(&format!(
             "- {}{} | effective {} | memory {} | launch {}\n",
@@ -37725,6 +38236,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -37787,6 +38299,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -37847,6 +38360,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -38674,6 +39188,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -38711,6 +39226,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -44852,6 +45368,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: Some("shared".to_string()),
             visibility: Some("workspace".to_string()),
+            allow_localhost_read_only_fallback: false,
             force: true,
         })
         .expect("write init bundle");
@@ -45051,6 +45568,7 @@ mod tests {
             intent: "current_task".to_string(),
             workspace: None,
             visibility: None,
+            allow_localhost_read_only_fallback: false,
             force: false,
         };
 
@@ -48702,29 +49220,33 @@ mod tests {
     async fn run_feature_benchmark_command_scores_feature_inventory_and_writes_artifacts() {
         let dir =
             std::env::temp_dir().join(format!("memd-feature-benchmark-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).expect("create benchmark temp bundle");
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create benchmark temp bundle");
 
         let state = MockRuntimeState::default();
         let base_url = spawn_mock_runtime_server(state, false).await;
-        write_test_bundle_config(&dir, &base_url);
-        write_bundle_command_catalog_files(&dir).expect("write command catalog");
+        write_test_bundle_config(&output, &base_url);
+        write_bundle_command_catalog_files(&output).expect("write command catalog");
+        write_test_benchmark_registry(&repo_root);
 
         let snapshot = test_autoresearch_snapshot(
             false,
             vec!["keep the hive compact".to_string()],
             vec!["crates/memd-client/src/main.rs".to_string()],
         );
-        write_bundle_memory_files(&dir, &snapshot, None, false)
+        write_bundle_memory_files(&output, &snapshot, None, false)
             .await
             .expect("write bundle memory files");
-        refresh_live_bundle_event_pages(&dir, &snapshot, None).expect("refresh event pages");
+        refresh_live_bundle_event_pages(&output, &snapshot, None).expect("refresh event pages");
 
-        let eval = high_scoring_eval(&dir);
-        write_bundle_eval_artifacts(&dir, &eval).expect("write eval artifacts");
-        let scenario = high_scoring_scenario(&dir);
-        write_scenario_artifacts(&dir, &scenario).expect("write scenario artifacts");
+        let eval = high_scoring_eval(&output);
+        write_bundle_eval_artifacts(&output, &eval).expect("write eval artifacts");
+        let scenario = high_scoring_scenario(&output);
+        write_scenario_artifacts(&output, &scenario).expect("write scenario artifacts");
         write_maintain_artifacts(
-            &dir,
+            &output,
             &MaintainReport {
                 mode: "scan".to_string(),
                 receipt_id: Some("maint-1".to_string()),
@@ -48737,8 +49259,8 @@ mod tests {
         )
         .expect("write maintain artifacts");
 
-        let experiment = test_experiment_report(&dir, true, false, 92, 100, Utc::now());
-        let experiments_dir = experiment_reports_dir(&dir);
+        let experiment = test_experiment_report(&output, true, false, 92, 100, Utc::now());
+        let experiments_dir = experiment_reports_dir(&output);
         fs::create_dir_all(&experiments_dir).expect("create experiments dir");
         fs::write(
             experiments_dir.join("latest.json"),
@@ -48746,10 +49268,10 @@ mod tests {
         )
         .expect("write experiment latest");
 
-        let evolution_dir = evolution_reports_dir(&dir);
+        let evolution_dir = evolution_reports_dir(&output);
         fs::create_dir_all(&evolution_dir).expect("create evolution dir");
         let proposal = EvolutionProposalReport {
-            bundle_root: dir.display().to_string(),
+            bundle_root: output.display().to_string(),
             project: Some("demo".to_string()),
             namespace: Some("main".to_string()),
             agent: Some("codex".to_string()),
@@ -48785,7 +49307,7 @@ mod tests {
             proposal_id: "prop-1".to_string(),
             branch: "auto/evolution/feature-benchmark".to_string(),
             branch_prefix: "auto/evolution".to_string(),
-            project_root: Some(dir.display().to_string()),
+            project_root: Some(output.display().to_string()),
             head_sha: Some("abc123".to_string()),
             base_branch: Some("main".to_string()),
             status: "ready".to_string(),
@@ -48804,7 +49326,7 @@ mod tests {
 
         let report = run_feature_benchmark_command(
             &BenchmarkArgs {
-                output: dir.clone(),
+                output: output.clone(),
                 write: false,
                 summary: false,
             },
@@ -48815,6 +49337,12 @@ mod tests {
 
         assert_eq!(report.areas.len(), 10);
         assert!(report.score > 0);
+        assert!(
+            report
+                .evidence
+                .iter()
+                .any(|item| item.contains("benchmark_registry root="))
+        );
         assert!(
             report
                 .areas
@@ -48829,12 +49357,87 @@ mod tests {
                     .any(|item| item.contains("memory_quality="))
         }));
 
-        write_feature_benchmark_artifacts(&dir, &report).expect("write benchmark artifacts");
-        let benchmark_dir = feature_benchmark_reports_dir(&dir);
+        write_feature_benchmark_artifacts(&output, &report).expect("write benchmark artifacts");
+        let benchmark_dir = feature_benchmark_reports_dir(&output);
         assert!(benchmark_dir.join("latest.json").exists());
         assert!(benchmark_dir.join("latest.md").exists());
+        let (loaded_root, registry) = load_benchmark_registry_for_output(&output)
+            .expect("load benchmark registry")
+            .expect("registry present");
+        write_benchmark_registry_docs(&loaded_root, &registry, &report)
+            .expect("write benchmark registry docs");
+        assert!(benchmark_registry_markdown_path(&loaded_root, "BENCHMARKS.md").exists());
+        assert!(benchmark_registry_markdown_path(&loaded_root, "LOOPS.md").exists());
+        assert!(benchmark_registry_markdown_path(&loaded_root, "COVERAGE.md").exists());
+        assert!(benchmark_registry_markdown_path(&loaded_root, "SCORES.md").exists());
 
         fs::remove_dir_all(dir).expect("cleanup benchmark dir");
+    }
+
+    #[tokio::test]
+    async fn load_benchmark_registry_from_output_reads_repo_root_registry() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-benchmark-registry-load-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let (loaded_root, registry) = load_benchmark_registry_for_output(&output)
+            .expect("load benchmark registry")
+            .expect("registry should be discovered");
+        assert_eq!(loaded_root, repo_root);
+        assert_eq!(registry.version, "v1");
+        assert!(!registry.features.is_empty());
+        assert!(!registry.loops.is_empty());
+
+        fs::remove_dir_all(dir).expect("cleanup benchmark registry load dir");
+    }
+
+    #[test]
+    fn write_benchmark_registry_docs_writes_expected_markdown_outputs() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-benchmark-registry-docs-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        write_test_benchmark_registry(&repo_root);
+        let registry = test_benchmark_registry();
+        let benchmark = test_feature_benchmark_report(&repo_root.join(".memd"));
+
+        let report = build_benchmark_registry_docs_report(&repo_root, &registry, &benchmark);
+        assert!(
+            report
+                .benchmarks_markdown
+                .contains("# memd benchmark registry")
+        );
+        assert!(report.loops_markdown.contains("# memd benchmark loops"));
+        assert!(
+            report
+                .coverage_markdown
+                .contains("# memd benchmark coverage")
+        );
+        assert!(report.scores_markdown.contains("# memd benchmark scores"));
+
+        write_benchmark_registry_docs(&repo_root, &registry, &benchmark)
+            .expect("write benchmark registry docs");
+        assert!(benchmark_registry_markdown_path(&repo_root, "BENCHMARKS.md").exists());
+        assert!(benchmark_registry_markdown_path(&repo_root, "LOOPS.md").exists());
+        assert!(benchmark_registry_markdown_path(&repo_root, "COVERAGE.md").exists());
+        assert!(benchmark_registry_markdown_path(&repo_root, "SCORES.md").exists());
+
+        let benchmarks_md = fs::read_to_string(benchmark_registry_markdown_path(
+            &repo_root,
+            "BENCHMARKS.md",
+        ))
+        .expect("read benchmarks md");
+        assert!(benchmarks_md.contains("Current benchmark score"));
+
+        fs::remove_dir_all(dir).expect("cleanup benchmark registry docs dir");
     }
 
     fn high_scoring_eval(output: &Path) -> BundleEvalResponse {
@@ -49002,6 +49605,60 @@ mod tests {
             ),
         )
         .expect("write bundle config");
+    }
+
+    fn test_benchmark_registry() -> BenchmarkRegistry {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let registry_path = manifest_dir
+            .join("../..")
+            .join("docs/verification/benchmark-registry.json");
+        let registry_json = fs::read_to_string(&registry_path).expect("read benchmark registry");
+        serde_json::from_str(&registry_json).expect("parse benchmark registry")
+    }
+
+    fn write_test_benchmark_registry(repo_root: &Path) {
+        fs::create_dir_all(benchmark_registry_docs_dir(repo_root))
+            .expect("create benchmark registry docs dir");
+        fs::write(
+            benchmark_registry_json_path(repo_root),
+            serde_json::to_string_pretty(&test_benchmark_registry()).expect("serialize registry")
+                + "\n",
+        )
+        .expect("write benchmark registry");
+    }
+
+    fn test_feature_benchmark_report(output: &Path) -> FeatureBenchmarkReport {
+        FeatureBenchmarkReport {
+            bundle_root: output.display().to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("codex-a".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            score: 88,
+            max_score: 100,
+            command_count: 4,
+            skill_count: 2,
+            pack_count: 2,
+            memory_pages: 3,
+            event_count: 5,
+            areas: vec![FeatureBenchmarkArea {
+                slug: "core_memory".to_string(),
+                name: "Core Memory".to_string(),
+                score: 90,
+                max_score: 100,
+                status: "pass".to_string(),
+                implemented_commands: 4,
+                expected_commands: 4,
+                evidence: vec!["memory_quality=90".to_string()],
+                recommendations: vec!["keep the current lane tight".to_string()],
+            }],
+            evidence: vec!["benchmark_registry root=repo".to_string()],
+            recommendations: vec!["keep the current lane tight".to_string()],
+            generated_at: Utc::now(),
+            completed_at: Utc::now(),
+        }
     }
 
     fn write_test_bundle_heartbeat(output: &Path, state: &BundleHeartbeatState) {
