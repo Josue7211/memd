@@ -10947,20 +10947,6 @@ impl AutoresearchLoop {
 
 static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
     AutoresearchLoop::new(
-        "long-context",
-        "long-context",
-        "Long-Context Avoidance",
-        "Keep routine work under a short-context budget.",
-        "prompt length",
-        "long-context spikes",
-        "budget maintained",
-        "low",
-        2.1,
-        200.0,
-        1.0,
-        10.0,
-    ),
-    AutoresearchLoop::new(
         "prompt-surface",
         "prompt-surface",
         "Prompt Surface Compression",
@@ -10984,7 +10970,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "freshness baseline met",
         "low-medium",
         1.6,
-        39.0,
+        120.0,
         0.5,
         6.0,
     ),
@@ -10998,7 +10984,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "all contracts resolved",
         "medium",
         1.1,
-        10.0,
+        90.0,
         0.5,
         4.0,
     ),
@@ -11012,7 +10998,7 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "cost delta < 5%",
         "low",
         1.3,
-        30.0,
+        70.0,
         0.5,
         4.0,
     ),
@@ -11026,9 +11012,23 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "zero recurrence 3 loops",
         "medium",
         1.0,
-        30.0,
+        60.0,
         0.5,
         4.0,
+    ),
+    AutoresearchLoop::new(
+        "long-context",
+        "long-context",
+        "Long-Context Avoidance",
+        "Keep routine work under a short-context budget.",
+        "prompt length",
+        "long-context spikes",
+        "budget maintained",
+        "low",
+        2.1,
+        200.0,
+        1.0,
+        10.0,
     ),
     AutoresearchLoop::new(
         "cross-harness",
@@ -11083,8 +11083,8 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "medium",
         1.0,
         24.0,
-        0.5,
-        4.0,
+        1.0,
+        6.0,
     ),
 ];
 
@@ -13158,6 +13158,9 @@ struct HiveProfileDefaults {
     capabilities: Vec<String>,
     hive_groups: Vec<String>,
     hive_group_goal: Option<String>,
+    hive_project_enabled: bool,
+    hive_project_anchor: Option<String>,
+    hive_project_joined_at: Option<DateTime<Utc>>,
     authority: Option<String>,
 }
 
@@ -13177,6 +13180,9 @@ fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
                 "stabilize runtime execution and dependency health across active agent sessions"
                     .to_string(),
             ),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("worker".to_string()),
         },
         "agent-secrets" => HiveProfileDefaults {
@@ -13192,6 +13198,9 @@ fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
                 "keep secret access and auth dependencies reliable for the active product stack"
                     .to_string(),
             ),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("restricted".to_string()),
         },
         "claw-control" => HiveProfileDefaults {
@@ -13207,6 +13216,9 @@ fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
                 "coordinate the OpenClaw stack so hives converge on the proper product-level fix"
                     .to_string(),
             ),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("coordinator".to_string()),
         },
         "memd" => HiveProfileDefaults {
@@ -13222,6 +13234,9 @@ fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
                 "maintain canonical shared memory and coordination for the OpenClaw stack"
                     .to_string(),
             ),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("canonical".to_string()),
         },
         _ => HiveProfileDefaults {
@@ -13230,6 +13245,9 @@ fn default_hive_profile(agent: &str) -> HiveProfileDefaults {
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
             hive_groups: Vec::new(),
             hive_group_goal: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("participant".to_string()),
         },
     }
@@ -13267,6 +13285,9 @@ fn resolve_hive_profile(args: &InitArgs, project: Option<&str>) -> HiveProfileDe
         capabilities,
         hive_groups: effective_hive_groups(hive_groups, project),
         hive_group_goal: args.hive_group_goal.clone().or(defaults.hive_group_goal),
+        hive_project_enabled: defaults.hive_project_enabled,
+        hive_project_anchor: defaults.hive_project_anchor,
+        hive_project_joined_at: defaults.hive_project_joined_at,
         authority: args.authority.clone().or(defaults.authority),
     }
 }
@@ -13320,6 +13341,9 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         capabilities: hive_profile.capabilities.clone(),
         hive_groups: hive_profile.hive_groups.clone(),
         hive_group_goal: hive_profile.hive_group_goal.clone(),
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
         authority: hive_profile.authority.clone(),
         base_url: args.base_url.clone(),
         route: args.route.clone(),
@@ -13620,6 +13644,16 @@ fn build_bundle_turn_placeholder_config(
     let hive_group_goal = runtime
         .as_ref()
         .and_then(|value| value.hive_group_goal.clone());
+    let hive_project_enabled = runtime
+        .as_ref()
+        .map(|value| value.hive_project_enabled)
+        .unwrap_or(false);
+    let hive_project_anchor = runtime
+        .as_ref()
+        .and_then(|value| value.hive_project_anchor.clone());
+    let hive_project_joined_at = runtime
+        .as_ref()
+        .and_then(|value| value.hive_project_joined_at.clone());
     let authority = runtime.as_ref().and_then(|value| value.authority.clone());
     let base_url = runtime
         .as_ref()
@@ -13664,6 +13698,9 @@ fn build_bundle_turn_placeholder_config(
         capabilities,
         hive_groups,
         hive_group_goal,
+        hive_project_enabled,
+        hive_project_anchor,
+        hive_project_joined_at,
         authority,
         base_url,
         route,
@@ -23235,9 +23272,7 @@ fn merge_bundle_runtime_config(
     if overlay.authority.is_some() {
         runtime.authority = overlay.authority;
     }
-    if overlay.hive_project_enabled {
-        runtime.hive_project_enabled = true;
-    }
+    runtime.hive_project_enabled = overlay.hive_project_enabled;
     if overlay.hive_project_anchor.is_some() {
         runtime.hive_project_anchor = overlay.hive_project_anchor;
     }
@@ -26126,6 +26161,9 @@ struct BundleConfig {
     capabilities: Vec<String>,
     hive_groups: Vec<String>,
     hive_group_goal: Option<String>,
+    hive_project_enabled: bool,
+    hive_project_anchor: Option<String>,
+    hive_project_joined_at: Option<DateTime<Utc>>,
     authority: Option<String>,
     base_url: String,
     route: String,
@@ -28443,6 +28481,9 @@ mod tests {
             hive_groups: Vec::new(),
             hive_group_goal: None,
             authority: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: None,
             intent: None,
@@ -28480,6 +28521,9 @@ mod tests {
             hive_groups: Vec::new(),
             hive_group_goal: None,
             authority: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: None,
             intent: None,
@@ -28512,6 +28556,9 @@ mod tests {
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
             hive_groups: vec!["openclaw-stack".to_string()],
             hive_group_goal: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("participant".to_string()),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
@@ -28568,6 +28615,9 @@ mod tests {
             capabilities: vec!["memory".to_string(), "coordination".to_string()],
             hive_groups: vec!["openclaw-stack".to_string()],
             hive_group_goal: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             authority: Some("participant".to_string()),
             base_url: "http://127.0.0.1:8787".to_string(),
             route: "auto".to_string(),
@@ -34498,6 +34548,9 @@ mod tests {
             hive_groups: vec!["openclaw-stack".to_string()],
             hive_group_goal: None,
             authority: Some("participant".to_string()),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: Some("http://127.0.0.1:8787".to_string()),
             route: Some("auto".to_string()),
             intent: Some("general".to_string()),
@@ -34518,6 +34571,9 @@ mod tests {
             hive_groups: vec!["openclaw-stack".to_string(), "control-plane".to_string()],
             hive_group_goal: None,
             authority: Some("coordinator".to_string()),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: Some("lexical".to_string()),
             intent: Some("current_task".to_string()),
@@ -34749,6 +34805,9 @@ mod tests {
             hive_groups: Vec::new(),
             hive_group_goal: None,
             authority: None,
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
             base_url: None,
             route: None,
             intent: None,
