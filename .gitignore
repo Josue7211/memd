@@ -11,3 +11,5 @@
 *.log
 /.monitor
 /.memd/
+/.claw/
+/.watch-smoke-new
