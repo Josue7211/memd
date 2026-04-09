@@ -115,6 +115,7 @@ enum Commands {
     Scenario(ScenarioArgs),
     Composite(CompositeArgs),
     Benchmark(BenchmarkArgs),
+    Verify(VerifyArgs),
     Experiment(ExperimentArgs),
     Agent(AgentArgs),
     Attach(AttachArgs),
@@ -140,7 +141,8 @@ enum Commands {
     Candidate(RequestInput),
     Promote(RequestInput),
     Expire(RequestInput),
-    Verify(RequestInput),
+    #[command(name = "memory-verify")]
+    MemoryVerify(RequestInput),
     Repair(RepairArgs),
     Search(SearchArgs),
     Lookup(LookupArgs),
@@ -2078,6 +2080,112 @@ struct BenchmarkArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct VerifyArgs {
+    #[command(subcommand)]
+    command: VerifyCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum VerifyCommand {
+    Feature(VerifyFeatureArgs),
+    Journey(VerifyJourneyArgs),
+    Adversarial(VerifyAdversarialArgs),
+    Compare(VerifyCompareArgs),
+    Sweep(VerifySweepArgs),
+    Doctor(VerifyDoctorArgs),
+    List(VerifyListArgs),
+    Show(VerifyShowArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyFeatureArgs {
+    feature_id: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyJourneyArgs {
+    journey_id: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyAdversarialArgs {
+    verifier_id: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyCompareArgs {
+    verifier_id: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifySweepArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value = "fast")]
+    lane: String,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyDoctorArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyListArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    lane: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct VerifyShowArgs {
+    item_id: String,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct ExperimentArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -2900,10 +3008,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             None => {
-                let response = run_hive_command(&args).await?;
                 if args.summary {
-                    println!("{}", render_hive_wire_summary(&response));
+                    let response = run_hive_board_command(&args, &default_base_url()).await?;
+                    println!("{}", render_hive_board_summary(&response));
                 } else {
+                    let response = run_hive_command(&args).await?;
                     print_json(&response)?;
                 }
             }
@@ -3000,6 +3109,72 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&response)?;
             }
         }
+        Commands::Verify(args) => match &args.command {
+            VerifyCommand::Feature(verify_args) => {
+                let response = run_verify_feature_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Journey(verify_args) => {
+                let response = run_verify_journey_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Adversarial(verify_args) => {
+                let response = run_verify_adversarial_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Compare(verify_args) => {
+                let response = run_verify_compare_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Sweep(verify_args) => {
+                let response = run_verify_sweep_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Doctor(verify_args) => {
+                let response = run_verify_doctor_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::List(verify_args) => {
+                let response = run_verify_list_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+            VerifyCommand::Show(verify_args) => {
+                let response = run_verify_show_command(verify_args)?;
+                if verify_args.summary {
+                    println!("{}", render_verify_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
+            }
+        },
         Commands::Experiment(args) => {
             let mut response = run_experiment_command(&args, &base_url).await?;
             if args.write {
@@ -3697,7 +3872,7 @@ async fn main() -> anyhow::Result<()> {
             let req = read_request::<ExpireMemoryRequest>(&input)?;
             print_json(&client.expire(&req).await?)?;
         }
-        Commands::Verify(input) => {
+        Commands::MemoryVerify(input) => {
             let req = read_request::<VerifyMemoryRequest>(&input)?;
             print_json(&client.verify(&req).await?)?;
         }
@@ -15316,6 +15491,18 @@ struct HiveQueenResponse {
     recent_receipts: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct HiveBoardResponse {
+    queen_session: Option<String>,
+    active_bees: Vec<memd_schema::HiveSessionRecord>,
+    blocked_bees: Vec<String>,
+    stale_bees: Vec<String>,
+    review_queue: Vec<String>,
+    overlap_risks: Vec<String>,
+    lane_faults: Vec<String>,
+    recommended_actions: Vec<String>,
+}
+
 fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
     entry
         .effective_agent
@@ -15634,6 +15821,109 @@ async fn run_hive_queen_command(
                     receipt.kind, receipt.actor_session, receipt.summary
                 )
             })
+            .collect(),
+    })
+}
+
+async fn run_hive_board_command(
+    args: &HiveArgs,
+    base_url: &str,
+) -> anyhow::Result<HiveBoardResponse> {
+    let roster = run_hive_roster_command(&HiveRosterArgs {
+        output: args.output.clone(),
+        json: false,
+        summary: false,
+    })
+    .await?;
+    let coordination = run_coordination_command(
+        &CoordinationArgs {
+            output: args.output.clone(),
+            view: None,
+            changes_only: false,
+            watch: false,
+            interval_secs: 30,
+            recover_session: None,
+            retire_session: None,
+            to_session: None,
+            deny_session: None,
+            reroute_session: None,
+            handoff_scope: None,
+            summary: false,
+        },
+        base_url,
+    )
+    .await?;
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let review_queue = timeout_ok(client.hive_tasks(&HiveTasksRequest {
+        session: None,
+        project: runtime.as_ref().and_then(|config| config.project.clone()),
+        namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+        workspace: runtime.as_ref().and_then(|config| config.workspace.clone()),
+        active_only: Some(true),
+        limit: Some(256),
+    }))
+    .await
+    .map(|response| {
+        response
+            .tasks
+            .into_iter()
+            .filter(|task| task.review_requested || task.coordination_mode == "shared_review")
+            .map(|task| {
+                format!(
+                    "{} -> {}",
+                    task.task_id,
+                    task.session.as_deref().unwrap_or("unassigned")
+                )
+            })
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+
+    let mut blocked_bees = coordination.policy_conflicts.clone();
+    if let Some(fault) = coordination.lane_fault.as_ref() {
+        blocked_bees.push(render_lane_fault_inline(fault));
+    }
+
+    Ok(HiveBoardResponse {
+        queen_session: roster
+            .queen_session
+            .clone()
+            .or_else(|| Some(coordination.current_session.clone())),
+        active_bees: roster
+            .bees
+            .into_iter()
+            .filter(|bee| bee.status == "active")
+            .collect(),
+        blocked_bees,
+        stale_bees: coordination
+            .recovery
+            .stale_hives
+            .iter()
+            .filter_map(|entry| entry.session.clone())
+            .collect(),
+        review_queue,
+        overlap_risks: coordination
+            .policy_conflicts
+            .iter()
+            .filter(|value| value.contains("overlap") || value.contains("scope"))
+            .cloned()
+            .collect(),
+        lane_faults: coordination
+            .lane_receipts
+            .iter()
+            .map(|receipt| receipt.summary.clone())
+            .collect(),
+        recommended_actions: coordination
+            .suggestions
+            .iter()
+            .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
             .collect(),
     })
 }
@@ -16630,6 +16920,125 @@ fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
         lines.push("## Recent Receipts".to_string());
         for receipt in &response.recent_receipts {
             lines.push(format!("- {}", receipt));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn render_lane_fault_inline(fault: &JsonValue) -> String {
+    format!(
+        "{} session={} branch={} worktree={}",
+        fault
+            .get("kind")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("lane_fault"),
+        fault
+            .get("session")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("none"),
+        fault
+            .get("branch")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("none"),
+        fault
+            .get("worktree_root")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("none"),
+    )
+}
+
+fn render_hive_board_summary(response: &HiveBoardResponse) -> String {
+    let mut lines = vec![format!(
+        "hive_board queen={}",
+        response.queen_session.as_deref().unwrap_or("none")
+    )];
+
+    lines.push(String::new());
+    lines.push("## Active Bees".to_string());
+    if response.active_bees.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for bee in &response.active_bees {
+            let worker = bee
+                .worker_name
+                .as_deref()
+                .or(bee.agent.as_deref())
+                .unwrap_or("unnamed");
+            lines.push(format!(
+                "- {} ({}) role={} lane={} task={}",
+                worker,
+                bee.session,
+                bee.role
+                    .as_deref()
+                    .or(bee.hive_role.as_deref())
+                    .unwrap_or("worker"),
+                bee.lane_id
+                    .as_deref()
+                    .or(bee.branch.as_deref())
+                    .unwrap_or("none"),
+                bee.task_id.as_deref().unwrap_or("none"),
+            ));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Blocked Bees".to_string());
+    if response.blocked_bees.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for blocked in &response.blocked_bees {
+            lines.push(format!("- {}", blocked));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Review Queue".to_string());
+    if response.review_queue.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for item in &response.review_queue {
+            lines.push(format!("- {}", item));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Overlap Risks".to_string());
+    if response.overlap_risks.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for risk in &response.overlap_risks {
+            lines.push(format!("- {}", risk));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Lane Faults".to_string());
+    if response.lane_faults.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for fault in &response.lane_faults {
+            lines.push(format!("- {}", fault));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Stale Bees".to_string());
+    if response.stale_bees.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for stale in &response.stale_bees {
+            lines.push(format!("- {}", stale));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Recommended Actions".to_string());
+    if response.recommended_actions.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for action in &response.recommended_actions {
+            lines.push(format!("- {}", action));
         }
     }
 
@@ -26210,6 +26619,181 @@ fn write_benchmark_registry_docs(
         )?;
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VerifyReport {
+    mode: String,
+    bundle_root: String,
+    repo_root: Option<String>,
+    registry_loaded: bool,
+    registry_version: Option<String>,
+    registry_features: usize,
+    registry_journeys: usize,
+    registry_loops: usize,
+    registry_verifiers: usize,
+    registry_fixtures: usize,
+    lane: Option<String>,
+    subject: Option<String>,
+    baseline: Option<String>,
+    findings: Vec<String>,
+    recommendations: Vec<String>,
+    generated_at: DateTime<Utc>,
+}
+
+fn build_verify_report(
+    mode: &str,
+    output: &Path,
+    lane: Option<String>,
+    subject: Option<String>,
+    baseline: Option<String>,
+) -> anyhow::Result<VerifyReport> {
+    let loaded_registry = load_benchmark_registry_for_output(output)?;
+    let (
+        repo_root,
+        registry_loaded,
+        registry_version,
+        registry_features,
+        registry_journeys,
+        registry_loops,
+        registry_verifiers,
+        registry_fixtures,
+    ) = if let Some((repo_root, registry)) = loaded_registry {
+        (
+            Some(repo_root.display().to_string()),
+            true,
+            Some(registry.version),
+            registry.features.len(),
+            registry.journeys.len(),
+            registry.loops.len(),
+            registry.verifiers.len(),
+            registry.fixtures.len(),
+        )
+    } else {
+        (None, false, None, 0, 0, 0, 0, 0)
+    };
+
+    let mut findings = vec![format!("verify {} placeholder check", mode)];
+    if registry_loaded {
+        findings.push("benchmark registry loaded".to_string());
+    } else {
+        findings.push("benchmark registry unavailable".to_string());
+    }
+    if let Some(lane) = lane.as_ref() {
+        findings.push(format!("lane={lane}"));
+    }
+    if let Some(subject) = subject.as_ref() {
+        findings.push(format!("subject={subject}"));
+    }
+
+    let mut recommendations = vec!["replace stub with concrete verification checks".to_string()];
+    if !registry_loaded {
+        recommendations
+            .push("add docs/verification/benchmark-registry.json to the repo root".to_string());
+    }
+
+    Ok(VerifyReport {
+        mode: mode.to_string(),
+        bundle_root: output.display().to_string(),
+        repo_root,
+        registry_loaded,
+        registry_version,
+        registry_features,
+        registry_journeys,
+        registry_loops,
+        registry_verifiers,
+        registry_fixtures,
+        lane,
+        subject,
+        baseline,
+        findings,
+        recommendations,
+        generated_at: Utc::now(),
+    })
+}
+
+fn render_verify_summary(report: &VerifyReport) -> String {
+    let mut summary = format!(
+        "verify mode={} bundle={} registry_loaded={} version={} features={} journeys={} loops={} verifiers={} fixtures={}",
+        report.mode,
+        report.bundle_root,
+        report.registry_loaded,
+        report.registry_version.as_deref().unwrap_or("none"),
+        report.registry_features,
+        report.registry_journeys,
+        report.registry_loops,
+        report.registry_verifiers,
+        report.registry_fixtures
+    );
+    if let Some(lane) = report.lane.as_deref() {
+        summary.push_str(&format!(" lane={lane}"));
+    }
+    if let Some(subject) = report.subject.as_deref() {
+        summary.push_str(&format!(" subject={subject}"));
+    }
+    if let Some(baseline) = report.baseline.as_deref() {
+        summary.push_str(&format!(" baseline={baseline}"));
+    }
+    if !report.findings.is_empty() {
+        summary.push_str(&format!(" findings={}", report.findings.join("|")));
+    }
+    summary
+}
+
+fn run_verify_feature_command(args: &VerifyFeatureArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report(
+        "feature",
+        &args.output,
+        None,
+        Some(args.feature_id.clone()),
+        None,
+    )
+}
+
+fn run_verify_journey_command(args: &VerifyJourneyArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report(
+        "journey",
+        &args.output,
+        None,
+        Some(args.journey_id.clone()),
+        None,
+    )
+}
+
+fn run_verify_adversarial_command(args: &VerifyAdversarialArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report(
+        "adversarial",
+        &args.output,
+        None,
+        Some(args.verifier_id.clone()),
+        None,
+    )
+}
+
+fn run_verify_compare_command(args: &VerifyCompareArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report(
+        "compare",
+        &args.output,
+        None,
+        Some(args.verifier_id.clone()),
+        None,
+    )
+}
+
+fn run_verify_sweep_command(args: &VerifySweepArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report("sweep", &args.output, Some(args.lane.clone()), None, None)
+}
+
+fn run_verify_doctor_command(args: &VerifyDoctorArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report("doctor", &args.output, None, None, None)
+}
+
+fn run_verify_list_command(args: &VerifyListArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report("list", &args.output, args.lane.clone(), None, None)
+}
+
+fn run_verify_show_command(args: &VerifyShowArgs) -> anyhow::Result<VerifyReport> {
+    build_verify_report("show", &args.output, None, Some(args.item_id.clone()), None)
 }
 
 fn render_benchmark_registry_benchmarks_markdown(
@@ -44296,6 +44880,70 @@ mod tests {
     }
 
     #[test]
+    fn render_hive_board_summary_surfaces_board_sections() {
+        let response = HiveBoardResponse {
+            queen_session: Some("session-queen".to_string()),
+            active_bees: vec![memd_schema::HiveSessionRecord {
+                session: "session-lorentz".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo-review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            }],
+            blocked_bees: vec!["Avicenna overlap on crates/memd-client/src/main.rs".to_string()],
+            stale_bees: vec!["session-old".to_string()],
+            review_queue: vec!["review-parser -> Lorentz".to_string()],
+            overlap_risks: vec![
+                "Lorentz vs Avicenna on crates/memd-client/src/main.rs".to_string(),
+            ],
+            lane_faults: vec!["lane_fault session-avicenna shared worktree".to_string()],
+            recommended_actions: vec!["reroute Avicenna".to_string()],
+        };
+
+        let summary = render_hive_board_summary(&response);
+        assert!(summary.contains("## Active Bees"));
+        assert!(summary.contains("## Review Queue"));
+        assert!(summary.contains("## Recommended Actions"));
+        assert!(summary.contains("Lorentz (session-lorentz)"));
+    }
+
+    #[test]
     fn build_hive_heartbeat_derives_first_class_intent_fields() {
         let dir =
             std::env::temp_dir().join(format!("memd-heartbeat-intent-{}", uuid::Uuid::new_v4()));
@@ -52717,6 +53365,78 @@ mod tests {
             }
             other => panic!("expected benchmark command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn cli_parses_verify_feature_command() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "verify",
+            "feature",
+            "feature.bundle.resume",
+            "--output",
+            ".memd",
+            "--summary",
+        ])
+        .expect("verify feature command should parse");
+
+        match cli.command {
+            Commands::Verify(args) => match args.command {
+                VerifyCommand::Feature(feature_args) => {
+                    assert_eq!(feature_args.feature_id, "feature.bundle.resume");
+                    assert_eq!(feature_args.output, PathBuf::from(".memd"));
+                    assert!(feature_args.summary);
+                }
+                other => panic!("expected verify feature command, got {other:?}"),
+            },
+            other => panic!("expected verify command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_verify_sweep_lane() {
+        let cli = Cli::try_parse_from([
+            "memd", "verify", "sweep", "--lane", "nightly", "--output", ".memd",
+        ])
+        .expect("verify sweep command should parse");
+
+        match cli.command {
+            Commands::Verify(args) => match args.command {
+                VerifyCommand::Sweep(sweep_args) => {
+                    assert_eq!(sweep_args.output, PathBuf::from(".memd"));
+                    assert_eq!(sweep_args.lane, "nightly");
+                }
+                other => panic!("expected verify sweep command, got {other:?}"),
+            },
+            other => panic!("expected verify command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_verify_list_command_reports_registry_verifiers_and_fixtures() {
+        let dir = std::env::temp_dir().join(format!("memd-verify-list-{}", uuid::Uuid::new_v4()));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let report = run_verify_list_command(&VerifyListArgs {
+            output: output.clone(),
+            lane: Some("nightly".to_string()),
+            summary: false,
+        })
+        .expect("run verify list");
+
+        assert!(report.registry_loaded);
+        assert!(report.registry_verifiers > 0);
+        assert!(report.registry_fixtures > 0);
+        assert_eq!(report.lane.as_deref(), Some("nightly"));
+        let summary = render_verify_summary(&report);
+        assert!(summary.contains("verifiers="));
+        assert!(summary.contains("fixtures="));
+
+        fs::remove_dir_all(dir).expect("cleanup verify list dir");
     }
 
     #[tokio::test]
