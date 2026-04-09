@@ -17260,6 +17260,59 @@ async fn retire_superseded_hive_sessions(
     Ok(retired)
 }
 
+async fn enrich_hive_heartbeat_with_runtime_intent(
+    state: &mut BundleHeartbeatState,
+) -> anyhow::Result<()> {
+    let Some(base_url) = state
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let Some(session) = state
+        .session
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+
+    let client = MemdClient::new(base_url)?;
+    let tasks = timeout_ok(client.hive_tasks(&HiveTasksRequest {
+        session: Some(session.to_string()),
+        project: state.project.clone(),
+        namespace: state.namespace.clone(),
+        workspace: state.workspace.clone(),
+        active_only: Some(true),
+        limit: Some(64),
+    }))
+    .await
+    .map(|response| response.tasks)
+    .unwrap_or_default();
+
+    let current_task = tasks
+        .iter()
+        .find(|task| task.status != "done" && task.status != "closed")
+        .or_else(|| tasks.first());
+    if let Some(task) = current_task {
+        state.task_id = Some(task.task_id.clone());
+        if state
+            .topic_claim
+            .as_deref()
+            .is_none_or(|value| value.starts_with("editing "))
+        {
+            state.topic_claim = Some(task.title.clone());
+        }
+        for scope in &task.claim_scopes {
+            push_unique_touch_point(&mut state.scope_claims, scope);
+        }
+    }
+    Ok(())
+}
+
 fn build_hive_heartbeat(
     output: &Path,
     snapshot: Option<&ResumeSnapshot>,
@@ -17417,6 +17470,7 @@ async fn write_bundle_heartbeat(
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     let mut state = build_hive_heartbeat(output, snapshot)?;
+    enrich_hive_heartbeat_with_runtime_intent(&mut state).await?;
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
     }
@@ -17445,6 +17499,7 @@ async fn reconcile_bundle_heartbeat(
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     let mut state = build_hive_heartbeat(output, snapshot)?;
+    enrich_hive_heartbeat_with_runtime_intent(&mut state).await?;
     if probe_base_url && let Some(url) = state.base_url.as_deref() {
         state.base_url_healthy = Some(MemdClient::new(url)?.healthz().await.is_ok());
     }
@@ -18194,6 +18249,7 @@ async fn emit_coordination_receipt(
 
 async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<TasksResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let heartbeat = read_bundle_heartbeat(&args.output)?;
     let current_session = runtime
         .as_ref()
         .and_then(|config| config.session.clone())
@@ -18315,6 +18371,36 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             .await;
             return Err(error);
         }
+        let requested_scopes = existing_task_scopes_for_assignment(
+            &client,
+            &current_project,
+            &current_namespace,
+            &current_workspace,
+            task_id,
+        )
+        .await?;
+        if let Some(error) = confirmed_hive_overlap_reason(
+            &target,
+            Some(task_id),
+            args.title.as_deref().or(heartbeat
+                .as_ref()
+                .and_then(|value| value.topic_claim.as_deref())),
+            &requested_scopes,
+        ) {
+            emit_lane_fault_receipt(
+                &client,
+                session,
+                current_effective_agent.clone(),
+                &target,
+                Some(task_id.to_string()),
+                requested_scopes.first().cloned(),
+                current_project.clone(),
+                current_namespace.clone(),
+                current_workspace.clone(),
+            )
+            .await;
+            anyhow::bail!(error);
+        }
 
         let existing = client
             .hive_tasks(&HiveTasksRequest {
@@ -18428,6 +18514,37 @@ async fn run_tasks_command(args: &TasksArgs, base_url: &str) -> anyhow::Result<T
             .or(target.base_url.clone())
             .unwrap_or_else(|| current_base_url.clone());
         let target_client = MemdClient::new(&target_base_url)?;
+        let requested_scopes = if args.scope.is_empty() {
+            heartbeat
+                .as_ref()
+                .map(|value| value.scope_claims.clone())
+                .unwrap_or_default()
+        } else {
+            args.scope.clone()
+        };
+        let requested_topic = args.title.as_deref().or(heartbeat
+            .as_ref()
+            .and_then(|value| value.topic_claim.as_deref()));
+        if let Some(error) = confirmed_hive_overlap_reason(
+            &target,
+            Some(task_id),
+            requested_topic,
+            &requested_scopes,
+        ) {
+            emit_lane_fault_receipt(
+                &client,
+                from_session,
+                current_effective_agent.clone(),
+                &target,
+                Some(task_id.to_string()),
+                requested_scopes.first().cloned(),
+                current_project.clone(),
+                current_namespace.clone(),
+                current_workspace.clone(),
+            )
+            .await;
+            anyhow::bail!(error);
+        }
 
         let tasks = client
             .upsert_hive_task(&HiveTaskUpsertRequest {
@@ -19609,6 +19726,7 @@ async fn run_coordination_command(
         bundle_root: args.output.display().to_string(),
         current_session: current_session.clone(),
         inbox: response,
+        active_hives: active_hives.clone(),
         recovery: CoordinationRecoverySummary {
             stale_hives: stale_hives.clone(),
             reclaimable_claims: claims
@@ -20078,6 +20196,7 @@ fn append_coordination_sections(
     let show_inbox = show_all || view == "inbox";
     let show_requests = show_all || view == "requests";
     let show_recovery = show_all || view == "recovery";
+    let show_active = show_all || view == "active";
     let show_lanes = show_all || view == "lanes";
     let show_policy = show_all || view == "policy";
     let show_suggestions = show_all || view == "suggestions";
@@ -20098,6 +20217,33 @@ fn append_coordination_sections(
                 task.task_id,
                 task.status,
                 compact_inline(&task.title, 90)
+            ));
+        }
+    }
+    if show_active && !response.active_hives.is_empty() {
+        lines.push("".to_string());
+        lines.push("## Active Hive".to_string());
+        for hive in response.active_hives.iter().take(8) {
+            lines.push(format!(
+                "- session={} task={} work=\"{}\" touches={} branch={} agent={}",
+                hive.session.as_deref().unwrap_or("none"),
+                hive.task_id.as_deref().unwrap_or("none"),
+                compact_inline(
+                    hive.topic_claim
+                        .as_deref()
+                        .unwrap_or_else(|| hive.focus.as_deref().unwrap_or("none")),
+                    72
+                ),
+                if hive.scope_claims.is_empty() {
+                    "none".to_string()
+                } else {
+                    compact_inline(&hive.scope_claims.join(","), 72)
+                },
+                hive.branch.as_deref().unwrap_or("none"),
+                hive.effective_agent
+                    .as_deref()
+                    .or(hive.agent.as_deref())
+                    .unwrap_or("none"),
             ));
         }
     }
@@ -32640,6 +32786,120 @@ fn derive_hive_task_id(scope_claims: &[String], topic_claim: Option<&str>) -> Op
     None
 }
 
+fn confirmed_hive_overlap_reason(
+    target: &ProjectAwarenessEntry,
+    task_id: Option<&str>,
+    topic_claim: Option<&str>,
+    scope_claims: &[String],
+) -> Option<String> {
+    let task_id = task_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let topic_claim = topic_claim
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    if let (Some(current_task), Some(target_task)) = (
+        task_id.as_deref(),
+        target
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) && current_task != target_task
+    {
+        let target_scopes = target
+            .scope_claims
+            .iter()
+            .map(|scope| scope.trim())
+            .filter(|scope| !scope.is_empty())
+            .collect::<Vec<_>>();
+        if !target_scopes.is_empty()
+            && scope_claims
+                .iter()
+                .map(|scope| scope.trim())
+                .filter(|scope| !scope.is_empty())
+                .any(|scope| {
+                    target_scopes
+                        .iter()
+                        .any(|target_scope| target_scope == &scope)
+                })
+        {
+            return Some(format!(
+                "confirmed hive overlap: target session {} already owns scope(s) for task {}",
+                target.session.as_deref().unwrap_or("none"),
+                target_task
+            ));
+        }
+    }
+
+    let shared_scopes = scope_claims
+        .iter()
+        .map(|scope| scope.trim())
+        .filter(|scope| !scope.is_empty())
+        .filter(|scope| {
+            target
+                .scope_claims
+                .iter()
+                .any(|target_scope| target_scope.trim() == *scope)
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if !shared_scopes.is_empty() {
+        return Some(format!(
+            "confirmed hive overlap: target session {} already claims {}",
+            target.session.as_deref().unwrap_or("none"),
+            shared_scopes.join(",")
+        ));
+    }
+
+    if let (Some(current_topic), Some(target_topic)) = (
+        topic_claim.as_deref(),
+        target
+            .topic_claim
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase()),
+    ) && current_topic == target_topic
+    {
+        return Some(format!(
+            "confirmed hive overlap: target session {} already owns topic {}",
+            target.session.as_deref().unwrap_or("none"),
+            target.topic_claim.as_deref().unwrap_or("none")
+        ));
+    }
+
+    None
+}
+
+async fn existing_task_scopes_for_assignment(
+    client: &MemdClient,
+    project: &Option<String>,
+    namespace: &Option<String>,
+    workspace: &Option<String>,
+    task_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let response = client
+        .hive_tasks(&HiveTasksRequest {
+            session: None,
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            active_only: Some(false),
+            limit: Some(256),
+        })
+        .await?;
+    Ok(response
+        .tasks
+        .into_iter()
+        .find(|task| task.task_id == task_id)
+        .map(|task| task.claim_scopes)
+        .unwrap_or_default())
+}
+
 fn simplify_awareness_work_text(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -36915,6 +37175,7 @@ struct CoordinationResponse {
     bundle_root: String,
     current_session: String,
     inbox: HiveCoordinationInboxResponse,
+    active_hives: Vec<ProjectAwarenessEntry>,
     recovery: CoordinationRecoverySummary,
     lane_fault: Option<JsonValue>,
     lane_receipts: Vec<HiveCoordinationReceiptRecord>,
@@ -49598,6 +49859,7 @@ mod tests {
                 help_tasks: Vec::new(),
                 review_tasks: Vec::new(),
             },
+            active_hives: Vec::new(),
             recovery: CoordinationRecoverySummary {
                 stale_hives: Vec::new(),
                 reclaimable_claims: Vec::new(),
@@ -49672,6 +49934,7 @@ mod tests {
                 help_tasks: Vec::new(),
                 review_tasks: Vec::new(),
             },
+            active_hives: Vec::new(),
             recovery: CoordinationRecoverySummary {
                 stale_hives: Vec::new(),
                 reclaimable_claims: Vec::new(),
@@ -49714,6 +49977,43 @@ mod tests {
                     help_tasks: Vec::new(),
                     review_tasks: Vec::new(),
                 },
+                active_hives: vec![ProjectAwarenessEntry {
+                    project_dir: "remote".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:active".to_string(),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: Some("/tmp/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    agent: Some("claude-code".to_string()),
+                    session: Some("active".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("claude-code@active".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:demo".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: Some("workstation".to_string()),
+                    pid: Some(2),
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("Refine parser overlap flow".to_string()),
+                    scope_claims: vec![
+                        "task:parser-refactor".to_string(),
+                        "crates/memd-client/src/main.rs".to_string(),
+                    ],
+                    task_id: Some("parser-refactor".to_string()),
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(Utc::now()),
+                }],
                 recovery: CoordinationRecoverySummary {
                     stale_hives: Vec::new(),
                     reclaimable_claims: Vec::new(),
@@ -49784,6 +50084,126 @@ mod tests {
         assert!(summary.contains("retireable_sessions=1"));
         assert!(summary.contains("lane_fault=yes"));
         assert!(summary.contains("lane_receipts=1"));
+        assert!(summary.contains("## Active Hive"));
+        assert!(summary.contains("task=parser-refactor"));
+        assert!(summary.contains("work=\"Refine parser overlap flow\""));
+    }
+
+    #[test]
+    fn confirmed_hive_overlap_reason_detects_scope_and_topic_conflicts() {
+        let target = ProjectAwarenessEntry {
+            project_dir: "remote".to_string(),
+            bundle_root: "remote:http://127.0.0.1:8787:active".to_string(),
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: Some("/tmp/peer".to_string()),
+            branch: Some("feature/peer".to_string()),
+            base_branch: Some("main".to_string()),
+            agent: Some("claude-code".to_string()),
+            session: Some("active".to_string()),
+            tab_id: None,
+            effective_agent: Some("claude-code@active".to_string()),
+            hive_system: Some("claude-code".to_string()),
+            hive_role: Some("agent".to_string()),
+            capabilities: vec!["memory".to_string()],
+            hive_groups: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            presence: "active".to_string(),
+            host: Some("workstation".to_string()),
+            pid: Some(2),
+            active_claims: 1,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            topic_claim: Some("Refine parser overlap flow".to_string()),
+            scope_claims: vec![
+                "task:parser-refactor".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+            task_id: Some("parser-refactor".to_string()),
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            last_updated: Some(Utc::now()),
+        };
+
+        let scope_conflict = confirmed_hive_overlap_reason(
+            &target,
+            Some("queen-refactor"),
+            Some("Different task"),
+            &["crates/memd-client/src/main.rs".to_string()],
+        )
+        .expect("scope conflict");
+        assert!(scope_conflict.contains("already owns scope"));
+
+        let topic_conflict = confirmed_hive_overlap_reason(
+            &ProjectAwarenessEntry {
+                scope_claims: Vec::new(),
+                task_id: None,
+                ..target
+            },
+            None,
+            Some("Refine parser overlap flow"),
+            &[],
+        )
+        .expect("topic conflict");
+        assert!(topic_conflict.contains("already owns topic"));
+    }
+
+    #[tokio::test]
+    async fn enrich_hive_heartbeat_with_runtime_intent_prefers_owned_task_state() {
+        let state = MockRuntimeState::default();
+        {
+            let mut tasks = state.task_records.lock().expect("lock task records");
+            tasks.push(HiveTaskRecord {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                help_requested: false,
+                review_requested: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        }
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        let mut heartbeat =
+            test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now());
+        heartbeat.base_url = Some(base_url);
+        heartbeat.project = Some("demo".to_string());
+        heartbeat.namespace = Some("main".to_string());
+        heartbeat.workspace = Some("shared".to_string());
+        heartbeat.session = Some("codex-a".to_string());
+        heartbeat.topic_claim = Some("editing fallback".to_string());
+
+        enrich_hive_heartbeat_with_runtime_intent(&mut heartbeat)
+            .await
+            .expect("enrich heartbeat");
+
+        assert_eq!(heartbeat.task_id.as_deref(), Some("parser-refactor"));
+        assert_eq!(
+            heartbeat.topic_claim.as_deref(),
+            Some("Refine parser overlap flow")
+        );
+        assert!(
+            heartbeat
+                .scope_claims
+                .iter()
+                .any(|scope| scope == "task:parser-refactor")
+        );
     }
 
     #[test]
