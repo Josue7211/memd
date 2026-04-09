@@ -6,12 +6,14 @@ Owner: memd
 
 ## Why
 
-`memd` cowork is currently incomplete. Multiple live sessions can share the same project hive without a first-class execution lane contract. That allows unsafe states:
+`memd` hive is supposed to be the agent-team runtime for any harness, not only a local Codex cowork helper. Right now that model is incomplete. Multiple live sessions can share the same project hive without a first-class team contract or execution lane contract. That allows unsafe states:
 
+- the hive behaving like a local session list instead of a real team
 - workerbees sharing a branch
 - workerbees sharing a worktree
 - duplicate topic work starting without arbitration
 - overlapping file edits starting before the hive intervenes
+- wrong harnesses getting assigned work they should never own
 
 That is not a coordination detail. It is a correctness failure. A 10-star hive cannot rely on humans to remember branch hygiene.
 
@@ -21,46 +23,69 @@ The product model must change from:
 
 to:
 
-- "who owns which execution lane, topic, and scopes right now"
+- "which agent team exists, which harnesses are in it, what each member can do, and who owns which execution lane, topic, and scopes right now"
 
 ## Product Thesis
 
-`memd` hive cowork should feel like a live classroom:
+`memd` hive should feel like a live classroom for agent teams across any harness:
 
 - the `queen bee` orchestrates
-- each `workerbee` gets its own lane
+- each `workerbee` is a team member with capabilities
+- each coding workerbee gets its own lane
 - every bee continuously broadcasts what it is doing
 - the hive intervenes before overlap turns into damage
 
 The queen bee is not only a viewer. The queen is the runtime authority for safe cowork.
 
+The stronger product framing is:
+
+- `memd hive = a compressed, capability-aware, queen-routed agent team runtime`
+
+The goal is not to merely match agent teams. The goal is to beat them on:
+
+- coordination quality
+- execution speed
+- routing intelligence
+- token efficiency
+
 ## Core Principles
 
 1. Isolation first
 
-- Every workerbee must have its own branch.
-- Every workerbee should have its own worktree.
+- Every coding workerbee must have its own branch.
+- Every coding workerbee should have its own worktree.
 - Shared branch or shared worktree between workerbees is unsafe by default.
 
-2. Intent must be explicit
+2. Harness-agnostic teams
+
+- Hive is not Codex-specific.
+- Claude, Codex, OpenCode, Claw, OpenClaw, and future harnesses should all join the same team model.
+- Queen decisions must consider harness capability, not just session liveness.
+
+3. Intent must be explicit
 
 - A bee must publish what it is doing before it starts doing it.
 - Topic ownership and scope ownership are separate signals and both matter.
 
-3. The queen bee arbitrates
+4. The queen bee arbitrates
 
 - The queen can approve, deny, reroute, or retire work.
 - Unsafe overlap is blocked, not merely logged.
 
-4. Hive truth is runtime truth
+5. Hive truth is runtime truth
 
 - Coordination state must be persisted and inspectable.
 - The surfaced runtime model must match what the queen uses for decisions.
 
-5. Seamless by default
+6. Seamless by default
 
 - Bees should not need a manual "remember to branch first" step.
 - If the hive can safely allocate an isolated lane, it should do so automatically.
+
+7. Compression over chatter
+
+- Bees should exchange compact state packets, not long transcripts.
+- The hive should share deltas, receipts, and handoff packets instead of replaying full conversation history.
 
 ## Roles
 
@@ -69,6 +94,7 @@ The queen bee is not only a viewer. The queen is the runtime authority for safe 
 The queen bee is the orchestrator session. The queen:
 
 - creates workerbee lanes
+- assigns work by harness suitability
 - assigns topics
 - approves or denies potential overlap
 - requests handoff
@@ -79,8 +105,10 @@ The queen bee is the orchestrator session. The queen:
 
 A workerbee is an execution session with a dedicated lane. A workerbee:
 
-- owns one branch
-- should own one worktree
+- belongs to a harness-specific runtime
+- may own one execution lane when its work touches code
+- owns one branch when acting as a coding bee
+- should own one worktree when acting as a coding bee
 - publishes topic and scope claims
 - reports progress and blockers
 - cannot override queen arbitration
@@ -89,6 +117,8 @@ A workerbee is an execution session with a dedicated lane. A workerbee:
 
 The hive is the coordination plane that stores:
 
+- team membership
+- harness and capability identity
 - live lane identity
 - ownership
 - conflict state
@@ -105,14 +135,19 @@ These are product invariants, not best practices.
 4. Same `worktree_root` across workerbees is a harder fault.
 5. Same topic without queen approval is a soft conflict.
 6. Same file or scope without explicit collaboration is a hard conflict.
-7. A bee without a safe lane cannot start work.
+7. A coding bee without a safe lane cannot start work.
+8. A bee cannot be assigned work its harness cannot actually perform.
 
 ## Runtime Contract
 
 Each live hive session must publish:
 
 - `lane_id`
+- `harness`
 - `role`
+- `capability_class`
+- `assignment_suitability`
+- `transport_surfaces`
 - `repo_root`
 - `worktree_root`
 - `branch`
@@ -123,6 +158,26 @@ Each live hive session must publish:
 - `progress`
 - `blockers`
 - `updated_at`
+
+These fields divide into two layers:
+
+- universal team fields:
+  - `harness`
+  - `role`
+  - `capability_class`
+  - `assignment_suitability`
+  - `transport_surfaces`
+  - `topic_claim`
+  - `status`
+  - `progress`
+  - `blockers`
+- execution lane fields:
+  - `lane_id`
+  - `repo_root`
+  - `worktree_root`
+  - `branch`
+  - `base_branch`
+  - `scope_claims`
 
 ### Lane Identity
 
@@ -141,6 +196,44 @@ It should be derived from:
 - branch
 - worktree root
 
+### Harness Identity
+
+Every bee must publish:
+
+- `harness`
+- `role`
+- `capability_class`
+- `assignment_suitability`
+
+This lets the queen route work correctly across mixed-harness teams.
+
+Examples:
+
+- a Claude bee may be excellent at planning or review
+- a Codex bee may be excellent at direct code execution
+- a lightweight harness may be suitable for search, triage, or watchdog tasks
+
+The hive should know this directly instead of pretending all bees are interchangeable.
+
+### Compressed State Packets
+
+The hive should not be a transcript bus.
+
+Each bee should publish compact packets containing only the runtime state needed for coordination:
+
+- `task`
+- `topic_claim`
+- `scope_claims`
+- `status`
+- `progress`
+- `blockers`
+- `handoff_summary`
+- `delta_since_last_update`
+
+The queen and other bees should consume these packets instead of full raw transcripts whenever possible.
+
+This is the token-efficiency advantage of the system.
+
 ## Conflict Model
 
 ### Soft Conflict
@@ -151,6 +244,7 @@ Examples:
 
 - same topic, different candidate files
 - same task goal, no concrete scope claim yet
+- same request routed to two suitable bees before a queen decision is recorded
 
 Queen action:
 
@@ -168,6 +262,7 @@ Examples:
 - same worktree
 - same file
 - same explicit scope
+- same work assigned to a harness that lacks the required capability
 
 Queen action:
 
@@ -196,6 +291,8 @@ Branch-only isolation is not enough in a shared checkout. Worktree-first workerb
 - cleaner cleanup
 - easier visibility
 
+For non-coding bees, lane creation may omit branch/worktree but must still allocate a durable team identity and assignment record.
+
 ## Ownership Model
 
 The hive must track two distinct ownership tables.
@@ -221,6 +318,29 @@ Use cases:
 - support handoff of touched code
 
 Both are required for a 10-star system.
+
+### Capability Ownership
+
+The hive must also track which bees are suitable for which kinds of work.
+
+This prevents:
+
+- giving coding work to a non-coding bee
+- giving review work to an execution-only bee when a better reviewer exists
+- assigning the same kind of work redundantly across harnesses without reason
+
+### Routing Intelligence
+
+The queen should route work using capability fit, not only availability.
+
+Examples:
+
+- planning goes to the strongest planner
+- code execution goes to the strongest coder
+- review goes to the strongest reviewer
+- search or triage goes to the lightest capable bee
+
+The team should be optimized for correctness-per-token, not just concurrency.
 
 ## Handoff Protocol
 
@@ -264,6 +384,8 @@ Shows:
 
 - queen lane
 - workerbee lanes
+- harness mix
+- capability coverage
 - lane health
 - hard faults
 - soft conflicts
@@ -274,8 +396,10 @@ Shows:
 
 - topic ownership
 - scope ownership
+- assignment suitability
 - overlap table
 - arbitration decisions
+- packet-level handoff summaries
 
 ### `memd tasks`
 
@@ -306,6 +430,17 @@ New command surface:
 - `retire`
 - `ack-conflict`
 
+### `memd team`
+
+New command surface for harness-agnostic teams:
+
+- `summary`
+- `members`
+- `capabilities`
+- `coverage`
+- `route`
+- `packets`
+
 ## Queen Decisions
 
 The queen can respond to a new workerbee action in four ways:
@@ -330,6 +465,7 @@ The queen can respond to a new workerbee action in four ways:
 - same branch
 - same worktree
 - same scope/file without explicit collaboration
+- clearly unsuitable harness assignment
 
 ## Persistence
 
@@ -337,12 +473,16 @@ This must not live only in summaries.
 
 Persisted artifacts are required for:
 
+- team membership
+- capability coverage
 - lane state
 - ownership table
 - overlap table
 - arbitration receipts
 - handoff receipts
 - retirement receipts
+- compressed state packets
+- delta ledgers
 
 ## Failure Modes
 
@@ -388,9 +528,40 @@ Fix:
 
 - scope claims are required before touching files
 
+### Failure: wrong harness assignment
+
+Cause:
+
+- hive does not model capability suitability strongly enough
+
+Fix:
+
+- capability and assignment suitability become first-class runtime fields
+- queen routes by suitability, not just presence
+
+### Failure: transcript-heavy cowork
+
+Cause:
+
+- bees communicate with repeated full-context summaries instead of compact deltas
+
+Fix:
+
+- compressed state packets become the default cowork transport
+- handoffs and updates publish deltas and receipts, not replayed history
+
 ## Migration Plan
 
-### Phase 1: Lane identity
+### Phase 1: Universal team identity
+
+Add to hive heartbeat/schema:
+
+- `harness`
+- `capability_class`
+- `assignment_suitability`
+- `transport_surfaces`
+
+### Phase 2: Lane identity
 
 Add to hive heartbeat/schema:
 
@@ -400,7 +571,7 @@ Add to hive heartbeat/schema:
 - `branch`
 - `base_branch`
 
-### Phase 2: Collision detection
+### Phase 3: Collision detection
 
 Add hard-fault detection for:
 
@@ -408,20 +579,28 @@ Add hard-fault detection for:
 - same worktree
 - same scope
 
-### Phase 3: Auto lane creation
+### Phase 4: Auto lane creation
 
 Workerbee spawn path auto-creates:
 
 - branch
 - worktree
 
-### Phase 4: Topic arbitration
+### Phase 5: Topic arbitration
 
 Add topic ownership and soft-conflict intervention.
 
-### Phase 5: Queen enforcement
+### Phase 6: Queen enforcement
 
 Add block/reroute/handoff receipts and enforce them at runtime.
+
+### Phase 7: Capability routing
+
+Add harness-aware routing so the queen chooses the right bee, not merely an available bee.
+
+### Phase 8: Packetized cowork transport
+
+Add compact state packets and delta-ledger transport so bee-to-bee communication stays token-cheap.
 
 ## Success Criteria
 
@@ -429,10 +608,13 @@ This design is successful when:
 
 1. A workerbee cannot silently start on another workerbee's branch.
 2. A workerbee cannot silently start in another workerbee's worktree.
-3. The queen always knows who owns each topic.
-4. The queen always knows who owns each scope.
-5. The hive intervenes before duplicate work turns into overlapping edits.
-6. Live cowork feels seamless because isolation and arbitration are automatic.
+3. The queen always knows which harnesses are in the team and what they can do.
+4. The queen always knows who owns each topic.
+5. The queen always knows who owns each scope.
+6. The hive intervenes before duplicate work turns into overlapping edits.
+7. The hive routes work to the right harness instead of treating all bees as interchangeable.
+8. The hive uses compressed state packets instead of transcript replay for routine cowork.
+9. Live cowork feels seamless because isolation, routing, and arbitration are automatic.
 
 ## Non-Goals
 
