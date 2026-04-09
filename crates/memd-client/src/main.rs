@@ -10059,7 +10059,7 @@ async fn run_hive_health_loop(
     let warning_reasons = {
         let mut reasons = Vec::new();
         if dead_hives > 0 {
-            reasons.push("dead_hive_peers".to_string());
+            reasons.push("dead_hive_sessions".to_string());
         }
         if !awareness.collisions.is_empty() {
             reasons.push("claim_collisions_detected".to_string());
@@ -11330,10 +11330,10 @@ static AUTORESEARCH_LOOPS: [AutoresearchLoop; 10] = [
         "hive-health",
         "hive-health",
         "Hive Health",
-        "Keep live peers, heartbeat publication, and claim collisions healthy.",
-        "live peers / claims",
-        "dead peers / collisions",
-        "no dead peers",
+        "Keep live sessions, heartbeat publication, and claim collisions healthy.",
+        "live sessions / claims",
+        "dead sessions / collisions",
+        "no dead sessions",
         "low",
         1.0,
         40.0,
@@ -21652,24 +21652,24 @@ fn build_gap_candidates(
     }
 
     if let Some(awareness) = awareness {
-        let active_peers = awareness
+        let active_sessions = awareness
             .entries
             .iter()
             .filter(|entry| entry.presence == "active")
             .collect::<Vec<_>>();
-        let unhived_active_peers = active_peers
+        let unhived_active_sessions = active_sessions
             .iter()
             .filter(|entry| entry.hive_system.as_deref().is_none() || entry.hive_groups.is_empty())
             .count();
-        if unhived_active_peers > 0 {
+        if unhived_active_sessions > 0 {
             add(
                 &mut candidates,
                 "coordination",
-                "unhived_active_peers",
+                "unhived_active_sessions",
                 88,
                 vec![
-                    format!("active peers={}", active_peers.len()),
-                    format!("unhived active peers={}", unhived_active_peers),
+                    format!("active sessions={}", active_sessions.len()),
+                    format!("unhived active sessions={}", unhived_active_sessions),
                     format!("awareness root={}", awareness.root),
                 ],
                 "publish hive metadata for active sessions before assigning new claims",
@@ -21686,14 +21686,14 @@ fn build_gap_candidates(
             );
         }
 
-        let stale_remote_peers = awareness
+        let stale_remote_sessions = awareness
             .entries
             .iter()
             .filter(|entry| entry.project_dir == "remote")
             .filter(|entry| entry.presence == "stale" || entry.presence == "dead")
             .collect::<Vec<_>>();
-        if !stale_remote_peers.is_empty() {
-            let sessions = stale_remote_peers
+        if !stale_remote_sessions.is_empty() {
+            let sessions = stale_remote_sessions
                 .iter()
                 .take(3)
                 .filter_map(|entry| entry.session.as_deref())
@@ -21705,10 +21705,10 @@ fn build_gap_candidates(
             add(
                 &mut candidates,
                 "coordination",
-                "stale_remote_peers",
+                "stale_remote_sessions",
                 87,
                 vec![
-                    format!("stale remote peers={}", stale_remote_peers.len()),
+                    format!("stale remote sessions={}", stale_remote_sessions.len()),
                     format!(
                         "sessions={}",
                         if sessions.is_empty() {
@@ -21719,7 +21719,7 @@ fn build_gap_candidates(
                     ),
                     format!("recovery={recovery_hint}"),
                 ],
-                "recover the stale remote peers or re-hive them before adding new claims",
+                "recover the stale remote sessions or re-hive them before adding new claims",
             );
         }
     }
@@ -24671,11 +24671,12 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         .iter()
         .filter(|entry| entry.project_dir == "remote" && entry.presence == "stale")
         .collect::<Vec<_>>();
-    let active_other_sessions = current_session
+    let active_hive_sessions = current_session
         .map(|current| {
             visible_entries
                 .iter()
                 .filter(|entry| entry.presence == "active")
+                .filter(|entry| !entry.hive_groups.is_empty())
                 .filter_map(|entry| entry.session.as_deref())
                 .filter(|session| *session != current)
                 .collect::<Vec<_>>()
@@ -24688,11 +24689,11 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
         response.collisions.len(),
         hidden_remote_dead,
     )];
-    if !active_other_sessions.is_empty() {
+    if !active_hive_sessions.is_empty() {
         lines.push(format!(
-            "! active_other_sessions={} sessions={}",
-            active_other_sessions.len(),
-            active_other_sessions.join(",")
+            "! active_hive_sessions={} sessions={}",
+            active_hive_sessions.len(),
+            active_hive_sessions.join(",")
         ));
     }
     if !stale_remote_sessions.is_empty() {
@@ -24725,9 +24726,10 @@ fn render_project_awareness_summary(response: &ProjectAwarenessResponse) -> Stri
             "current"
         } else if current_session.is_some()
             && entry.presence == "active"
+            && !entry.hive_groups.is_empty()
             && entry.session.as_deref() != current_session
         {
-            "other-session"
+            "hive-session"
         } else {
             "seen"
         };
@@ -33101,7 +33103,7 @@ mod tests {
     }
 
     #[test]
-    fn project_awareness_summary_marks_current_and_active_other_sessions() {
+    fn project_awareness_summary_marks_current_and_active_hive_sessions() {
         let response = ProjectAwarenessResponse {
             root: "server:http://127.0.0.1:8787".to_string(),
             current_bundle: "/tmp/projects/current/.memd".to_string(),
@@ -33136,13 +33138,13 @@ mod tests {
                 },
                 ProjectAwarenessEntry {
                     project_dir: "remote".to_string(),
-                    bundle_root: "remote:http://127.0.0.1:8787:session-peer".to_string(),
+                    bundle_root: "remote:http://127.0.0.1:8787:session-other".to_string(),
                     project: Some("memd".to_string()),
                     namespace: Some("main".to_string()),
                     agent: Some("codex".to_string()),
-                    session: Some("session-peer".to_string()),
+                    session: Some("session-other".to_string()),
                     tab_id: Some("tab-beta".to_string()),
-                    effective_agent: Some("codex@session-peer".to_string()),
+                    effective_agent: Some("codex@session-other".to_string()),
                     hive_system: Some("codex".to_string()),
                     hive_role: Some("agent".to_string()),
                     capabilities: vec!["memory".to_string()],
@@ -33165,9 +33167,9 @@ mod tests {
         };
 
         let summary = render_project_awareness_summary(&response);
-        assert!(summary.contains("! active_other_sessions=1 sessions=session-peer"));
+        assert!(summary.contains("! active_hive_sessions=1 sessions=session-other"));
         assert!(summary.contains("memd [current] | presence=active"));
-        assert!(summary.contains("memd [other-session] | presence=active"));
+        assert!(summary.contains("memd [hive-session] | presence=active"));
     }
 
     #[test]
@@ -37204,7 +37206,7 @@ mod tests {
     }
 
     #[test]
-    fn build_gap_candidates_surfaces_unhived_active_peers() {
+    fn build_gap_candidates_surfaces_unhived_active_sessions() {
         let output =
             std::env::temp_dir().join(format!("memd-gap-awareness-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&output).expect("create temp output");
@@ -37288,7 +37290,7 @@ mod tests {
         assert!(
             candidates
                 .iter()
-                .any(|value| value.id == "coordination:unhived_active_peers")
+                .any(|value| value.id == "coordination:unhived_active_sessions")
         );
         assert!(
             candidates
@@ -37300,9 +37302,9 @@ mod tests {
     }
 
     #[test]
-    fn build_gap_candidates_surfaces_stale_remote_peers() {
+    fn build_gap_candidates_surfaces_stale_remote_sessions() {
         let output = std::env::temp_dir().join(format!(
-            "memd-gap-stale-peers-test-{}",
+            "memd-gap-stale-sessions-test-{}",
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&output).expect("create temp output");
@@ -37357,7 +37359,7 @@ mod tests {
         assert!(
             candidates
                 .iter()
-                .any(|value| value.id == "coordination:stale_remote_peers")
+                .any(|value| value.id == "coordination:stale_remote_sessions")
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
