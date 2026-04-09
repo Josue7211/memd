@@ -115,6 +115,7 @@ enum Commands {
     Agent(AgentArgs),
     Attach(AttachArgs),
     Resume(ResumeArgs),
+    #[command(visible_alias = "reload")]
     Refresh(ResumeArgs),
     Watch(WatchArgs),
     Handoff(HandoffArgs),
@@ -44712,6 +44713,26 @@ mod tests {
         assert_eq!(response.tasks[0].task_id, "owned-1");
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn cli_accepts_reload_as_refresh_alias() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "reload",
+            "--output",
+            ".memd",
+            "--summary",
+        ])
+        .expect("reload alias should parse");
+
+        match cli.command {
+            Commands::Refresh(args) => {
+                assert_eq!(args.output, PathBuf::from(".memd"));
+                assert!(args.summary);
+            }
+            other => panic!("expected refresh command, got {other:?}"),
+        }
     }
 
     #[test]
