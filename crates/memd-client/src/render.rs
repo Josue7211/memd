@@ -554,6 +554,26 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         " project={} namespace={} session={} tab={} agent={} voice=caveman-ultra",
         project, namespace, session, tab_id, agent
     ));
+    let session_overlay = status
+        .get("session_overlay")
+        .and_then(|value| if value.is_null() { None } else { Some(value) });
+    if let Some(overlay) = session_overlay {
+        let rebased_from = overlay.get("rebased_from").and_then(Value::as_str);
+        if let Some(rebased_from) = rebased_from {
+            let bundle_session = overlay
+                .get("bundle_session")
+                .and_then(Value::as_str)
+                .unwrap_or("none");
+            let live_session = overlay
+                .get("live_session")
+                .and_then(Value::as_str)
+                .unwrap_or("none");
+            output.push_str(&format!(
+                " bundle_session={} live_session={} rebased_from={}",
+                bundle_session, live_session, rebased_from
+            ));
+        }
+    }
 
     if let Some(resume) = resume {
         let pressure = resume
@@ -2742,5 +2762,35 @@ mod tests {
         assert!(summary.contains("tab=tab-a"));
         assert!(summary.contains("agent=codex"));
         assert!(summary.contains("voice=caveman-ultra"));
+    }
+
+    #[test]
+    fn status_summary_surfaces_live_session_rebind_when_present() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-fresh",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "session_overlay": {
+                "bundle_session": "codex-stale",
+                "live_session": "codex-fresh",
+                "rebased_from": "codex-stale"
+            },
+            "resume_preview": null
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("session=codex-fresh"));
+        assert!(summary.contains("bundle_session=codex-stale"));
+        assert!(summary.contains("live_session=codex-fresh"));
+        assert!(summary.contains("rebased_from=codex-stale"));
     }
 }

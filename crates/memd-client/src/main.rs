@@ -23463,7 +23463,16 @@ fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> anyhow::Res
 }
 
 async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<serde_json::Value> {
+    let runtime_before_overlay = read_bundle_runtime_config_raw(output)?;
     let runtime = read_bundle_runtime_config(output)?;
+    let bundle_session = runtime_before_overlay
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let live_session = runtime.as_ref().and_then(|config| config.session.clone());
+    let rebased_from = match (bundle_session.as_deref(), live_session.as_deref()) {
+        (Some(bundle), Some(live)) if bundle != live => Some(bundle.to_string()),
+        _ => None,
+    };
     let resolved_base_url = resolve_bundle_command_base_url(
         base_url,
         runtime
@@ -23708,6 +23717,11 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
             "heartbeat_model": config.heartbeat_model,
             "auto_short_term_capture": config.auto_short_term_capture,
         })),
+        "session_overlay": {
+            "bundle_session": bundle_session,
+            "live_session": live_session,
+            "rebased_from": rebased_from,
+        },
         "heartbeat": heartbeat.as_ref().map(|value| serde_json::json!({
             "session": value.session,
             "agent": value.agent,
@@ -36956,6 +36970,90 @@ mod tests {
             }
         }
         fs::remove_dir_all(temp_root).expect("cleanup hive rebind temp");
+    }
+
+    #[tokio::test]
+    async fn read_bundle_status_reports_live_session_rebind() {
+        let _home_lock = lock_home_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-status-rebind-{}", uuid::Uuid::new_v4()));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(global_root.join("state")).expect("create global state");
+        fs::create_dir_all(local_bundle.join("state")).expect("create local state");
+        fs::write(
+            global_root.join("config.json"),
+            format!(
+                r#"{{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "{SHARED_MEMD_BASE_URL}"
+}}
+"#
+            ),
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            format!(
+                r#"{{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "base_url": "{SHARED_MEMD_BASE_URL}",
+  "route": "auto",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}}
+"#
+            ),
+        )
+        .expect("write local config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let status = read_bundle_status(&local_bundle, SHARED_MEMD_BASE_URL)
+            .await
+            .expect("read bundle status");
+        let overlay = status
+            .get("session_overlay")
+            .expect("session overlay present");
+        assert_eq!(
+            overlay.get("bundle_session").and_then(serde_json::Value::as_str),
+            Some("codex-stale")
+        );
+        assert_eq!(
+            overlay.get("live_session").and_then(serde_json::Value::as_str),
+            Some("codex-fresh")
+        );
+        assert_eq!(
+            overlay.get("rebased_from").and_then(serde_json::Value::as_str),
+            Some("codex-stale")
+        );
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup status rebind temp");
     }
 
     #[test]
