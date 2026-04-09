@@ -14413,6 +14413,8 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     }
     let runtime = read_bundle_runtime_config(&output)?
         .context("reload bundle runtime config after hive wiring")?;
+    propagate_hive_metadata_to_active_project_bundles(&output, &runtime, args.publish_heartbeat)
+        .await?;
     let heartbeat = if args.publish_heartbeat {
         Some(serde_json::to_value(
             refresh_bundle_heartbeat(&output, None, false).await?,
@@ -14435,6 +14437,91 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
         authority: runtime.authority,
         heartbeat,
     })
+}
+
+async fn propagate_hive_metadata_to_active_project_bundles(
+    output: &Path,
+    runtime: &BundleRuntimeConfig,
+    publish_heartbeat: bool,
+) -> anyhow::Result<()> {
+    let Some(project) = runtime.project.as_deref() else {
+        return Ok(());
+    };
+    let awareness = read_project_awareness_local(&AwarenessArgs {
+        output: output.to_path_buf(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })?;
+
+    let current_bundle = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
+    for entry in awareness.entries {
+        if entry.presence != "active" {
+            continue;
+        }
+        if entry.project.as_deref() != Some(project) {
+            continue;
+        }
+        if entry.namespace != runtime.namespace {
+            continue;
+        }
+        if entry.workspace != runtime.workspace {
+            continue;
+        }
+        let bundle_root = PathBuf::from(&entry.bundle_root);
+        let canonical_bundle = fs::canonicalize(&bundle_root).unwrap_or(bundle_root.clone());
+        if canonical_bundle == current_bundle {
+            continue;
+        }
+        if !bundle_root.join("config.json").exists() {
+            continue;
+        }
+
+        if let Some(value) = runtime.project.as_deref() {
+            set_bundle_project(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.namespace.as_deref() {
+            set_bundle_namespace(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.agent.as_deref() {
+            set_bundle_agent(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.hive_system.as_deref() {
+            set_bundle_hive_system(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.hive_role.as_deref() {
+            set_bundle_hive_role(&bundle_root, value)?;
+        }
+        set_bundle_capabilities(&bundle_root, &runtime.capabilities)?;
+        set_bundle_hive_groups(&bundle_root, &runtime.hive_groups)?;
+        if let Some(value) = runtime.hive_group_goal.as_deref() {
+            set_bundle_hive_group_goal(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.authority.as_deref() {
+            set_bundle_authority(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.base_url.as_deref() {
+            set_bundle_base_url(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.route.as_deref() {
+            set_bundle_route(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.intent.as_deref() {
+            set_bundle_intent(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.workspace.as_deref() {
+            set_bundle_workspace(&bundle_root, value)?;
+        }
+        if let Some(value) = runtime.visibility.as_deref() {
+            set_bundle_visibility(&bundle_root, value)?;
+        }
+        write_agent_profiles(&bundle_root)?;
+        if publish_heartbeat {
+            let _ = refresh_bundle_heartbeat(&bundle_root, None, false).await;
+        }
+    }
+
+    Ok(())
 }
 
 async fn run_hive_project_command(args: &HiveProjectArgs) -> anyhow::Result<HiveProjectResponse> {
@@ -19691,6 +19778,14 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
     } else {
         None
     };
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await
+    .ok();
 
     let candidates = build_gap_candidates(
         &args.output,
@@ -19699,6 +19794,7 @@ async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
         snapshot_state.as_ref(),
         eval.as_ref(),
         coordination.as_ref(),
+        awareness.as_ref(),
         &recent_commits,
         &mut evidence,
     );
@@ -21321,6 +21417,7 @@ fn build_gap_candidates(
     state: Option<&BundleResumeState>,
     eval: Option<&BundleEvalResponse>,
     coordination: Option<&CoordinationResponse>,
+    awareness: Option<&ProjectAwarenessResponse>,
     recent_commits: &[String],
     evidence: &mut Vec<String>,
 ) -> Vec<GapCandidate> {
@@ -21549,6 +21646,42 @@ fn build_gap_candidates(
             vec!["coordination snapshot was unavailable".to_string()],
             "configure bundle session/base_url and rerun `memd gap`",
         );
+    }
+
+    if let Some(awareness) = awareness {
+        let active_peers = awareness
+            .entries
+            .iter()
+            .filter(|entry| entry.presence == "active")
+            .collect::<Vec<_>>();
+        let unhived_active_peers = active_peers
+            .iter()
+            .filter(|entry| entry.hive_system.as_deref().is_none() || entry.hive_groups.is_empty())
+            .count();
+        if unhived_active_peers > 0 {
+            add(
+                &mut candidates,
+                "coordination",
+                "unhived_active_peers",
+                88,
+                vec![
+                    format!("active peers={}", active_peers.len()),
+                    format!("unhived active peers={}", unhived_active_peers),
+                    format!("awareness root={}", awareness.root),
+                ],
+                "publish hive metadata for active sessions before assigning new claims",
+            );
+        }
+        if !awareness.collisions.is_empty() {
+            add(
+                &mut candidates,
+                "coordination",
+                "awareness_collisions",
+                74,
+                awareness.collisions.clone(),
+                "resolve bundle/heartbeat collisions so awareness reflects one live owner per session",
+            );
+        }
     }
 
     if let Some(runtime) = runtime {
@@ -34969,6 +35102,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hive_command_propagates_hive_metadata_to_active_sibling_bundles() {
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-propagate-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("alpha");
+        let sibling_project = root.join("beta");
+        let current_bundle = current_project.join(".memd");
+        let sibling_bundle = sibling_project.join(".memd");
+        fs::create_dir_all(current_bundle.join("state")).expect("create current state dir");
+        fs::create_dir_all(sibling_bundle.join("state")).expect("create sibling state dir");
+
+        fs::write(
+            current_bundle.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "tab_id": "tab-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:8787",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            sibling_bundle.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:8787",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write sibling config");
+        write_test_bundle_heartbeat(
+            &current_bundle,
+            &test_hive_heartbeat_state("codex-a", "codex", "tab-a", "live", Utc::now()),
+        );
+        write_test_bundle_heartbeat(
+            &sibling_bundle,
+            &test_hive_heartbeat_state("codex-b", "codex", "tab-b", "live", Utc::now()),
+        );
+
+        let response = run_hive_command(&HiveArgs {
+            global: false,
+            project_root: None,
+            seed_existing: false,
+            project: None,
+            namespace: None,
+            agent: None,
+            session: None,
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: Vec::new(),
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: current_bundle.clone(),
+            base_url: SHARED_MEMD_BASE_URL.to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            publish_heartbeat: true,
+            force: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive command");
+
+        assert_eq!(response.hive_system.as_deref(), Some("codex"));
+        assert_eq!(response.hive_role.as_deref(), Some("agent"));
+
+        let sibling_runtime = read_bundle_runtime_config(&sibling_bundle)
+            .expect("read sibling runtime")
+            .expect("sibling runtime config");
+        assert_eq!(sibling_runtime.hive_system.as_deref(), Some("codex"));
+        assert_eq!(sibling_runtime.hive_role.as_deref(), Some("agent"));
+        assert_eq!(sibling_runtime.authority.as_deref(), Some("participant"));
+        assert_eq!(sibling_runtime.base_url.as_deref(), Some(SHARED_MEMD_BASE_URL));
+        assert!(
+            sibling_runtime
+                .hive_groups
+                .iter()
+                .any(|group| group == "project:demo")
+        );
+
+        let sibling_heartbeat = read_bundle_heartbeat(&sibling_bundle)
+            .expect("read sibling heartbeat")
+            .expect("sibling heartbeat");
+        assert_eq!(sibling_heartbeat.hive_system.as_deref(), Some("codex"));
+        assert_eq!(sibling_heartbeat.hive_role.as_deref(), Some("agent"));
+        assert_eq!(sibling_heartbeat.authority.as_deref(), Some("participant"));
+        assert!(
+            sibling_heartbeat
+                .hive_groups
+                .iter()
+                .any(|group| group == "project:demo")
+        );
+
+        fs::remove_dir_all(root).expect("cleanup project root");
+    }
+
+    #[tokio::test]
     async fn hive_join_all_local_rewrites_all_local_bundles_in_project() {
         let root =
             std::env::temp_dir().join(format!("memd-hive-join-local-{}", uuid::Uuid::new_v4()));
@@ -36237,6 +36487,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &commits,
             &mut evidence,
         );
@@ -36262,6 +36513,103 @@ mod tests {
         assert!(
             !evidence.is_empty(),
             "recent commits should generate at least one evidence string"
+        );
+
+        fs::remove_dir_all(&output).expect("cleanup temp output");
+    }
+
+    #[test]
+    fn build_gap_candidates_surfaces_unhived_active_peers() {
+        let output = std::env::temp_dir().join(format!(
+            "memd-gap-awareness-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&output).expect("create temp output");
+
+        let awareness = ProjectAwarenessResponse {
+            root: "server:http://127.0.0.1:8787".to_string(),
+            current_bundle: output.display().to_string(),
+            collisions: vec!["base_url http://127.0.0.1:8787 used by 2 bundles".to_string()],
+            entries: vec![
+                ProjectAwarenessEntry {
+                    project_dir: output.display().to_string(),
+                    bundle_root: output.display().to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-a".to_string()),
+                    tab_id: Some("tab-a".to_string()),
+                    effective_agent: Some("codex@session-a".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["memory".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    hive_group_goal: Some("coordinate memd".to_string()),
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: None,
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(Utc::now()),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "/tmp/other".to_string(),
+                    bundle_root: "/tmp/other/.memd".to_string(),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    agent: Some("codex".to_string()),
+                    session: Some("session-b".to_string()),
+                    tab_id: None,
+                    effective_agent: Some("codex@session-b".to_string()),
+                    hive_system: None,
+                    hive_role: None,
+                    capabilities: Vec::new(),
+                    hive_groups: Vec::new(),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 0,
+                    workspace: None,
+                    visibility: None,
+                    focus: None,
+                    pressure: None,
+                    next_recovery: None,
+                    last_updated: Some(Utc::now()),
+                },
+            ],
+        };
+
+        let mut evidence = Vec::new();
+        let candidates = build_gap_candidates(
+            &output,
+            &None,
+            &None,
+            None,
+            None,
+            None,
+            Some(&awareness),
+            &[],
+            &mut evidence,
+        );
+
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "coordination:unhived_active_peers")
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|value| value.id == "coordination:awareness_collisions")
         );
 
         fs::remove_dir_all(&output).expect("cleanup temp output");
