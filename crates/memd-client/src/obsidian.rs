@@ -3325,8 +3325,13 @@ mod tests {
 
     #[test]
     fn builds_obsidian_open_uri() {
-        let uri = build_open_uri(Path::new("/tmp/vault/writeback/note.md"), Some("split")).unwrap();
-        assert!(uri.starts_with("obsidian://open?path=%2Ftmp%2Fvault%2Fwriteback%2Fnote.md"));
+        let path = std::env::temp_dir().join(format!(
+            "memd-obsidian-uri-{}/writeback/note.md",
+            uuid::Uuid::new_v4()
+        ));
+        let uri = build_open_uri(&path, Some("split")).unwrap();
+        let encoded_path = encode_uri_component(&path.to_string_lossy());
+        assert!(uri.starts_with(&format!("obsidian://open?path={encoded_path}")));
         assert!(uri.contains("&paneType=split"));
     }
 

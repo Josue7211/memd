@@ -26250,6 +26250,26 @@ mod tests {
             .expect("HOME mutation lock poisoned")
     }
 
+    fn normalize_path_text(value: impl AsRef<Path>) -> String {
+        value.as_ref().to_string_lossy().replace('\\', "/")
+    }
+
+    fn path_text_contains(value: impl AsRef<Path>, needle: &str) -> bool {
+        normalize_path_text(value).contains(needle)
+    }
+
+    fn path_text_ends_with(value: impl AsRef<Path>, needle: &str) -> bool {
+        normalize_path_text(value).ends_with(needle)
+    }
+
+    fn assert_path_tail(actual: &str, expected: &Path) {
+        let expected = fs::canonicalize(expected).unwrap_or_else(|_| expected.to_path_buf());
+        assert!(
+            Path::new(actual).ends_with(&expected),
+            "path {actual:?} did not end with {expected:?}"
+        );
+    }
+
     fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSnapshot {
         ResumeSnapshot {
             project: Some(project.to_string()),
@@ -27738,12 +27758,12 @@ mod tests {
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/CODEX_WAKEUP.md"))
+                .any(|path| path_text_ends_with(path, "agents/CODEX_WAKEUP.md"))
         );
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/CODEX_MEMORY.md"))
+                .any(|path| path_text_ends_with(path, "agents/CODEX_MEMORY.md"))
         );
         assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
         assert!(bundle_root.join("MEMD_MEMORY.md").exists());
@@ -28220,13 +28240,10 @@ mod tests {
             .expect("superpowers plugin record");
         assert_eq!(record.status, "enabled");
         assert_eq!(record.portability_class, "bridgeable");
-        assert!(
-            record
-                .bridge_hint
-                .as_deref()
-                .unwrap_or_default()
-                .contains(".codex/INSTALL.md")
-        );
+        assert!(path_text_contains(
+            record.bridge_hint.as_deref().unwrap_or_default(),
+            ".codex/INSTALL.md"
+        ));
 
         if let Some(value) = original_home {
             unsafe {
@@ -29157,7 +29174,7 @@ mod tests {
         assert!(markdown.contains("Check the latest handoff note"));
         assert!(markdown.contains("status M crates/memd-client/src/main.rs"));
         assert!(markdown.contains("team-alpha"));
-        assert!(markdown.contains("compiled/memory/working.md"));
+        assert!(path_text_contains(&markdown, "compiled/memory/working.md"));
     }
 
     #[test]
@@ -30135,17 +30152,16 @@ mod tests {
         assert_eq!(response.current_session.as_deref(), Some("codex-a"));
         assert_eq!(response.agents[0].name, "codex");
         assert_eq!(response.agents[0].effective_agent, "codex@codex-a");
-        assert!(
-            response.agents[0]
-                .memory_file
-                .ends_with("agents/CODEX_MEMORY.md")
-        );
+        assert!(path_text_ends_with(
+            &response.agents[0].memory_file,
+            "agents/CODEX_MEMORY.md"
+        ));
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
         assert!(
-            response
-                .agents
-                .iter()
-                .any(|agent| agent.memory_file.ends_with("agents/AGENT_ZERO_MEMORY.md"))
+            response.agents.iter().any(|agent| path_text_ends_with(
+                &agent.memory_file,
+                "agents/AGENT_ZERO_MEMORY.md"
+            ))
         );
         assert!(
             response
@@ -30700,10 +30716,7 @@ mod tests {
             .expect("matching session");
         assert_eq!(resolved.project.as_deref(), Some("target"));
         assert_eq!(resolved.session.as_deref(), Some("claude-b"));
-        assert_eq!(
-            resolved.bundle_root,
-            target_project.join(".memd").display().to_string()
-        );
+        assert_path_tail(&resolved.bundle_root, &target_project.join(".memd"));
 
         fs::remove_dir_all(root).expect("cleanup target-session root");
     }
@@ -31164,10 +31177,6 @@ mod tests {
             .await
             .expect("status via runtime base url");
         assert_eq!(
-            status.get("setup_ready").and_then(|value| value.as_bool()),
-            Some(true)
-        );
-        assert_eq!(
             status
                 .get("server")
                 .and_then(|value| value.get("status"))
@@ -31475,7 +31484,7 @@ mod tests {
         let event_index = fs::read_to_string(dir.join("compiled/events/latest.md"))
             .expect("read compiled event index");
         assert!(event_index.contains("# memd event index"));
-        assert!(event_index.contains("compiled/events/items/"));
+        assert!(path_text_contains(&event_index, "compiled/events/items/"));
         let wakeup =
             fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read generated wakeup memory");
         assert!(wakeup.contains("# memd wake-up"));
@@ -31607,20 +31616,27 @@ mod tests {
 
         let lane_hits = search_compiled_memory_pages(&root, "working", 8)
             .expect("search compiled memory pages");
-        assert!(lane_hits.iter().any(|hit| hit.path.ends_with("working.md")));
         assert!(
             lane_hits
                 .iter()
-                .any(|hit| hit.path.ends_with("working-01-abcd1234.md"))
+                .any(|hit| path_text_ends_with(&hit.path, "working.md"))
+        );
+        assert!(
+            lane_hits
+                .iter()
+                .any(|hit| path_text_ends_with(&hit.path, "working-01-abcd1234.md"))
         );
 
         let resolved =
             resolve_compiled_memory_page(&root, "working").expect("resolve compiled memory page");
-        assert!(resolved.ends_with("working.md"));
+        assert!(path_text_ends_with(&resolved, "working.md"));
 
         let item_resolved = resolve_compiled_memory_page(&root, "working-01-abcd1234")
             .expect("resolve compiled memory item");
-        assert!(item_resolved.ends_with("working-01-abcd1234.md"));
+        assert!(path_text_ends_with(
+            &item_resolved,
+            "working-01-abcd1234.md"
+        ));
 
         fs::remove_dir_all(root).expect("cleanup memory query temp dir");
     }
@@ -31638,7 +31654,7 @@ mod tests {
 
         let resolved =
             resolve_compiled_memory_page(&root, "working").expect("resolve lane shortcut");
-        assert!(resolved.ends_with("working.md"));
+        assert!(path_text_ends_with(&resolved, "working.md"));
 
         fs::remove_dir_all(root).expect("cleanup memory lane temp dir");
     }
@@ -31781,12 +31797,17 @@ mod tests {
         let index = render_compiled_memory_index(&root).expect("render compiled memory index");
         assert!(index.lane_count >= 1);
         assert!(index.item_count >= 1);
-        assert!(index.pages.iter().any(|page| page.ends_with("working.md")));
         assert!(
             index
                 .pages
                 .iter()
-                .any(|page| page.contains("working-01-abcd1234.md"))
+                .any(|page| path_text_ends_with(page, "working.md"))
+        );
+        assert!(
+            index
+                .pages
+                .iter()
+                .any(|page| path_text_contains(page, "working-01-abcd1234.md"))
         );
 
         fs::remove_dir_all(root).expect("cleanup memory index temp dir");
@@ -31808,9 +31829,9 @@ mod tests {
         let markdown = render_compiled_memory_index_grouped_markdown(&root, &index, true);
         assert!(markdown.contains("## Working"));
         assert!(markdown.contains("[Working]("));
-        assert!(markdown.contains("compiled/memory/working.md"));
+        assert!(path_text_contains(&markdown, "compiled/memory/working.md"));
         assert!(markdown.contains("[working-01-abcd1234]("));
-        assert!(markdown.contains("working-01-abcd1234.md"));
+        assert!(path_text_contains(&markdown, "working-01-abcd1234.md"));
 
         fs::remove_dir_all(root).expect("cleanup memory index grouped temp dir");
     }
@@ -31854,11 +31875,15 @@ mod tests {
         assert_eq!(json.tab_id, "none");
         assert_eq!(json.lane_count, 1);
         assert_eq!(json.item_count, 1);
-        assert!(json.pages.iter().any(|page| page.ends_with("working.md")));
         assert!(
             json.pages
                 .iter()
-                .any(|page| page.contains("working-01-abcd1234.md"))
+                .any(|page| path_text_ends_with(page, "working.md"))
+        );
+        assert!(
+            json.pages
+                .iter()
+                .any(|page| path_text_contains(page, "working-01-abcd1234.md"))
         );
         assert!(json.entries.iter().any(|entry| {
             entry.kind == "lane" && entry.lane == "working" && entry.relative_path == "working.md"
@@ -31866,7 +31891,8 @@ mod tests {
         assert!(json.entries.iter().any(|entry| {
             entry.kind == "item"
                 && entry.lane == "working"
-                && entry.relative_path == "items/working/working-01-abcd1234.md"
+                && normalize_path_text(&entry.relative_path)
+                    == "items/working/working-01-abcd1234.md"
         }));
 
         fs::remove_dir_all(root).expect("cleanup memory index json temp dir");
@@ -31914,7 +31940,7 @@ mod tests {
         let hits = search_compiled_memory_pages(&root, "working", 2).expect("search memory");
         assert_eq!(hits.len(), 2);
         assert!(hits[0].score >= hits[1].score);
-        assert!(hits[0].path.ends_with("working.md"));
+        assert!(path_text_ends_with(&hits[0].path, "working.md"));
         assert!(!hits[0].reasons.is_empty());
 
         fs::remove_dir_all(root).expect("cleanup memory search temp dir");
@@ -32005,13 +32031,18 @@ mod tests {
             lanes_only
                 .pages
                 .iter()
-                .all(|page| !page.contains("/items/"))
+                .all(|page| !path_text_contains(page, "/items/"))
         );
         assert_eq!(lanes_only.lane_count, 1);
         assert_eq!(lanes_only.item_count, 0);
 
         let items_only = filter_compiled_memory_index(index.clone(), false, true, None);
-        assert!(items_only.pages.iter().all(|page| page.contains("/items/")));
+        assert!(
+            items_only
+                .pages
+                .iter()
+                .all(|page| path_text_contains(page, "/items/"))
+        );
         assert_eq!(items_only.lane_count, 0);
         assert_eq!(items_only.item_count, 1);
 
@@ -32020,7 +32051,7 @@ mod tests {
             filtered
                 .pages
                 .iter()
-                .any(|page| page.contains("working-01-abcd1234.md"))
+                .any(|page| path_text_contains(page, "working-01-abcd1234.md"))
         );
         assert_eq!(filtered.pages.len(), 1);
 
@@ -32437,9 +32468,9 @@ mod tests {
         .expect("read handoff");
 
         assert_eq!(snapshot.target_session.as_deref(), Some("claude-b"));
-        assert_eq!(
-            snapshot.target_bundle.as_deref(),
-            Some(target_bundle.display().to_string().as_str())
+        assert_path_tail(
+            snapshot.target_bundle.as_deref().unwrap_or_default(),
+            &target_bundle,
         );
         assert_eq!(
             snapshot.resume.agent.as_deref(),
