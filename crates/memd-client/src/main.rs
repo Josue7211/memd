@@ -16669,6 +16669,47 @@ async fn run_hive_cowork_command(
     })
 }
 
+async fn dispatch_queen_cowork_actions(
+    args: &HiveQueenArgs,
+    base_url: &str,
+    suggestions: &[CoordinationSuggestion],
+) -> anyhow::Result<Vec<String>> {
+    let mut receipts = Vec::new();
+
+    for suggestion in suggestions
+        .iter()
+        .filter(|suggestion| matches!(suggestion.action.as_str(), "request_cowork" | "ack_cowork"))
+    {
+        let Some(target_session) = suggestion.target_session.as_deref() else {
+            continue;
+        };
+        let cowork_args = HiveCoworkArgs {
+            output: args.output.clone(),
+            to_session: Some(target_session.to_string()),
+            to_worker: None,
+            task_id: suggestion.task_id.clone(),
+            scope: suggestion.scope.clone().into_iter().collect(),
+            reason: Some(suggestion.reason.clone()),
+            note: None,
+            json: false,
+            summary: false,
+        };
+        let response = run_hive_cowork_command(
+            &cowork_args,
+            base_url,
+            if suggestion.action == "ack_cowork" {
+                "ack"
+            } else {
+                "request"
+            },
+        )
+        .await?;
+        receipts.push(response.receipt_summary);
+    }
+
+    Ok(receipts)
+}
+
 async fn run_hive_queen_command(
     args: &HiveQueenArgs,
     base_url: &str,
@@ -16741,6 +16782,23 @@ async fn run_hive_queen_command(
             })
             .collect::<Vec<_>>();
 
+    let mut recent_receipts = coordination
+        .receipts
+        .iter()
+        .filter(|receipt| receipt.kind.starts_with("queen_"))
+        .map(|receipt| {
+            format!(
+                "{} {} {}",
+                receipt.kind, receipt.actor_session, receipt.summary
+            )
+        })
+        .collect::<Vec<_>>();
+    if args.cowork_auto_send {
+        let cowork_receipts =
+            dispatch_queen_cowork_actions(args, base_url, &coordination.suggestions).await?;
+        recent_receipts.extend(cowork_receipts);
+    }
+
     Ok(HiveQueenResponse {
         queen_session: coordination.current_session,
         suggested_actions: coordination
@@ -16749,17 +16807,7 @@ async fn run_hive_queen_command(
             .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
             .collect(),
         action_cards,
-        recent_receipts: coordination
-            .receipts
-            .iter()
-            .filter(|receipt| receipt.kind.starts_with("queen_"))
-            .map(|receipt| {
-                format!(
-                    "{} {} {}",
-                    receipt.kind, receipt.actor_session, receipt.summary
-                )
-            })
-            .collect(),
+        recent_receipts,
     })
 }
 
@@ -18206,13 +18254,22 @@ fn format_hive_queen_cowork_command(suggestion: &CoordinationSuggestion) -> Opti
         "ack_cowork" => "ack",
         _ => return None,
     };
-    Some(format!(
-        "memd hive cowork {action} --to-session {} --task-id {} --scope {} --reason {} --summary",
-        suggestion.target_session.as_ref()?,
-        suggestion.task_id.as_ref()?,
-        suggestion.scope.as_ref()?,
-        suggestion.reason
-    ))
+    let target_session = suggestion.target_session.as_ref()?;
+    let mut command = format!(
+        "memd hive cowork {action} --to-session {}",
+        shell_single_quote(target_session)
+    );
+    if let Some(task_id) = suggestion.task_id.as_deref() {
+        command.push_str(&format!(" --task-id {}", shell_single_quote(task_id)));
+    }
+    if let Some(scope) = suggestion.scope.as_deref() {
+        command.push_str(&format!(" --scope {}", shell_single_quote(scope)));
+    }
+    command.push_str(&format!(
+        " --reason {} --summary",
+        shell_single_quote(&suggestion.reason)
+    ));
+    Some(command)
 }
 
 fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> String {
@@ -54194,6 +54251,8 @@ mod tests {
             "memd",
             "hive",
             "queen",
+            "--output",
+            ".memd",
             "--cowork-auto-send",
             "--summary",
         ])
@@ -54203,6 +54262,7 @@ mod tests {
             Commands::Hive(args) => match args.command {
                 Some(HiveSubcommand::Queen(queen)) => {
                     assert!(queen.cowork_auto_send);
+                    assert_eq!(queen.output, PathBuf::from(".memd"));
                     assert!(queen.summary);
                 }
                 other => panic!("expected hive queen subcommand, got {other:?}"),
@@ -54258,6 +54318,28 @@ mod tests {
 
     #[test]
     fn render_hive_queen_summary_surfaces_cowork_commands() {
+        let request_command = format_hive_queen_cowork_command(&CoordinationSuggestion {
+            action: "request_cowork".to_string(),
+            priority: "high".to_string(),
+            target_session: Some("session-peer".to_string()),
+            task_id: Some("parser-refactor".to_string()),
+            scope: Some("task:parser-refactor".to_string()),
+            message_id: None,
+            reason: "peer is blocked on the same live scope".to_string(),
+            stale_session: None,
+        })
+        .expect("request command should render");
+        let ack_command = format_hive_queen_cowork_command(&CoordinationSuggestion {
+            action: "ack_cowork".to_string(),
+            priority: "medium".to_string(),
+            target_session: Some("session-peer".to_string()),
+            task_id: Some("parser-refactor".to_string()),
+            scope: Some("task:parser-refactor".to_string()),
+            message_id: None,
+            reason: "peer already lists this session in cowork_with".to_string(),
+            stale_session: None,
+        })
+        .expect("ack command should render");
         let response = HiveQueenResponse {
             queen_session: "session-queen".to_string(),
             suggested_actions: vec![
@@ -54277,9 +54359,7 @@ mod tests {
                     deny_command: None,
                     reroute_command: None,
                     retire_command: None,
-                    cowork_command: Some(
-                        "memd hive cowork request --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer is blocked on the same live scope --summary".to_string(),
-                    ),
+                    cowork_command: Some(request_command.clone()),
                 },
                 HiveQueenActionCard {
                     action: "ack_cowork".to_string(),
@@ -54293,9 +54373,7 @@ mod tests {
                     deny_command: None,
                     reroute_command: None,
                     retire_command: None,
-                    cowork_command: Some(
-                        "memd hive cowork ack --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer already lists this session in cowork_with --summary".to_string(),
-                    ),
+                    cowork_command: Some(ack_command.clone()),
                 },
             ],
             recent_receipts: vec![],
@@ -54304,8 +54382,212 @@ mod tests {
         let summary = render_hive_queen_summary(&response);
         assert!(summary.contains("action=request_cowork"));
         assert!(summary.contains("action=ack_cowork"));
-        assert!(summary.contains("cowork=memd hive cowork request --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer is blocked on the same live scope --summary"));
-        assert!(summary.contains("cowork=memd hive cowork ack --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer already lists this session in cowork_with --summary"));
+        assert!(summary.contains(&format!("cowork={request_command}")));
+        assert!(summary.contains(&format!("cowork={ack_command}")));
+    }
+
+    #[tokio::test]
+    async fn run_hive_queen_command_auto_sends_cowork_when_enabled() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-queen-auto-send-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&output, &base_url);
+        fs::write(
+            output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-queen",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite queen bundle config");
+
+        {
+            let mut sessions = state.session_records.lock().expect("lock session records");
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-queen".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Queen@session-queen".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("Queen".to_string()),
+                display_name: None,
+                role: Some("queen".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-queen".to_string()),
+                hive_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/queen".to_string()),
+                branch: Some("queen".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Queen coordination".to_string()),
+                scope_claims: vec![
+                    "task:queen-coordination".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                task_id: Some("queen-coordination".to_string()),
+                focus: Some("coordinate the blocked peer".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Request cowork handshake".to_string()),
+                working: Some("Monitoring peer blockage".to_string()),
+                touches: vec!["task:queen-coordination".to_string()],
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: None,
+                relationship_peer: None,
+                relationship_reason: None,
+                suggested_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-peer".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Peer@session-peer".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Peer".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-peer".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/peer".to_string()),
+                branch: Some("feature/peer".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Peer blocked on queen scope".to_string()),
+                scope_claims: vec!["task:peer-coordination".to_string()],
+                task_id: Some("peer-coordination".to_string()),
+                focus: Some("wait for queen guidance".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Receive cowork request".to_string()),
+                working: Some("Blocked on queen overlap".to_string()),
+                touches: vec!["task:peer-coordination".to_string()],
+                blocked_by: vec!["session-queen".to_string()],
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: None,
+                relationship_peer: None,
+                relationship_reason: None,
+                suggested_action: None,
+                needs_help: true,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+        }
+
+        let response = run_hive_queen_command(
+            &HiveQueenArgs {
+                output: output.clone(),
+                view: None,
+                recover_session: None,
+                retire_session: None,
+                to_session: None,
+                deny_session: None,
+                reroute_session: None,
+                handoff_scope: None,
+                json: false,
+                summary: false,
+                cowork_auto_send: true,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run hive queen");
+
+        assert!(
+            response
+                .recent_receipts
+                .iter()
+                .any(|receipt| receipt.contains("cowork request")),
+            "queen response should include a cowork receipt summary"
+        );
+
+        let messages = state.messages.lock().expect("lock runtime messages");
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.kind == "cowork_request" || message.kind == "cowork_ack"),
+            "queen auto-send should record a cowork message"
+        );
+
+        fs::remove_dir_all(&dir).expect("cleanup queen auto-send temp dir");
+    }
+
+    #[test]
+    fn format_hive_queen_cowork_command_handles_optional_scope_and_task() {
+        let request_command = format_hive_queen_cowork_command(&CoordinationSuggestion {
+            action: "request_cowork".to_string(),
+            priority: "high".to_string(),
+            target_session: Some("session peer".to_string()),
+            task_id: None,
+            scope: None,
+            message_id: None,
+            reason: "peer needs follow-up".to_string(),
+            stale_session: None,
+        })
+        .expect("request command should render");
+
+        assert_eq!(
+            request_command,
+            "memd hive cowork request --to-session 'session peer' --reason 'peer needs follow-up' --summary"
+        );
     }
 
     #[test]
