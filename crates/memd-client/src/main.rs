@@ -34182,6 +34182,27 @@ fn resolve_live_session_overlay(
         return Ok(None);
     }
 
+    let Some(local_runtime) = read_bundle_runtime_config_raw(&local_bundle)? else {
+        return Ok(None);
+    };
+
+    let local_workspace_scoped = local_runtime
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let local_visibility_scoped = matches!(
+        local_runtime
+            .visibility
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        Some("workspace" | "project")
+    );
+    if !local_runtime.hive_project_enabled && !local_workspace_scoped && !local_visibility_scoped {
+        return Ok(None);
+    }
+
     let Some(global_runtime) = read_bundle_runtime_config_raw(&global_root)? else {
         return Ok(None);
     };
@@ -53083,7 +53104,9 @@ mod tests {
   "namespace": "main",
   "agent": "codex",
   "session": "codex-stale",
-  "base_url": "http://100.104.154.24:8787"
+  "base_url": "http://100.104.154.24:8787",
+  "workspace": "shared",
+  "visibility": "workspace"
 }
 "#,
         )
@@ -53114,6 +53137,72 @@ mod tests {
             }
         }
         fs::remove_dir_all(temp_root).expect("cleanup live overlay temp");
+    }
+
+    #[test]
+    fn resolve_live_session_overlay_skips_plain_local_bundle_without_hive_scope() {
+        let _home_lock = lock_home_mutation();
+        let temp_root = std::env::temp_dir().join(format!(
+            "memd-live-overlay-no-scope-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let home = temp_root.join("home");
+        let repo_root = temp_root.join("repo");
+        let global_root = home.join(".memd");
+        let local_bundle = repo_root.join(".memd");
+        fs::create_dir_all(&global_root).expect("create global bundle");
+        fs::create_dir_all(&local_bundle).expect("create local bundle");
+        fs::write(
+            global_root.join("config.json"),
+            r#"{
+  "project": "global",
+  "namespace": "global",
+  "agent": "codex",
+  "session": "codex-fresh",
+  "tab_id": "tab-alpha",
+  "base_url": "http://100.104.154.24:8787"
+}
+"#,
+        )
+        .expect("write global config");
+        fs::write(
+            local_bundle.join("config.json"),
+            r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-stale",
+  "base_url": "http://100.104.154.24:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write local config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_dir = std::env::current_dir().expect("read cwd");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let overlay =
+            resolve_live_session_overlay(&local_bundle, &repo_root, &default_global_bundle_root())
+                .expect("resolve live overlay");
+        assert!(overlay.is_none());
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        if let Some(value) = original_home {
+            unsafe {
+                std::env::set_var("HOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+        fs::remove_dir_all(temp_root).expect("cleanup live overlay no-scope temp");
     }
 
     #[tokio::test]
