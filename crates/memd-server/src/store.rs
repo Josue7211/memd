@@ -3867,11 +3867,10 @@ fn is_active_hive_board_receipt(
     receipt: &HiveCoordinationReceiptRecord,
     active_session_ids: &std::collections::HashSet<String>,
 ) -> bool {
-    active_session_ids.contains(&receipt.actor_session)
-        || receipt
-            .target_session
-            .as_ref()
-            .is_some_and(|session| active_session_ids.contains(session))
+    receipt
+        .target_session
+        .as_ref()
+        .is_some_and(|session| active_session_ids.contains(session))
 }
 
 fn hive_follow_overlap_risk(
@@ -6272,6 +6271,90 @@ mod tests {
             )
             .expect("age receipt row");
         }
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert!(board.blocked_bees.is_empty());
+        assert!(board.lane_faults.is_empty());
+        assert!(board.recommended_actions.is_empty());
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_lane_faults_when_only_actor_session_is_active() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-lane-fault-target-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(501),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert active worker");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_deny".to_string(),
+                actor_session: "worker-1".to_string(),
+                actor_agent: Some("codex".to_string()),
+                target_session: Some("inactive-target".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Queen denied inactive target".to_string(),
+            })
+            .expect("record deny receipt");
 
         let board = store
             .hive_board(&HiveBoardRequest {
