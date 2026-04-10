@@ -3852,15 +3852,15 @@ fn is_low_signal_hive_board_session(session: &HiveSessionRecord, tasks: &[HiveTa
         || session.hive_role.is_some()
         || session.role.is_some()
         || session.authority.is_some()
-        || !session.capabilities.is_empty()
-        || session.lane_id.is_some();
+        || !session.capabilities.is_empty();
     if has_identity {
         return false;
     }
+    let has_task_like_signal = session.task_id.is_some() || !session.scope_claims.is_empty();
     let has_active_task = tasks
         .iter()
         .any(|task| task.session.as_deref() == Some(session_name));
-    !has_active_task
+    !(has_task_like_signal || has_active_task)
 }
 
 fn is_active_hive_board_receipt(
@@ -6171,6 +6171,81 @@ mod tests {
         assert_eq!(board.active_bees[0].session, "worker-1");
         assert_eq!(roster.bees.len(), 1);
         assert_eq!(roster.bees[0].session, "worker-1");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_sender_sessions_with_only_lane_path_and_no_task_signal() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-sender-lane-only-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "sender-lane-only".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@sender-lane-only".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("/tmp/sessions".to_string()),
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/sessions".to_string()),
+                worktree_root: Some("/tmp/sessions".to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(303),
+                topic_claim: Some("focus: task-current-noise".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("focus: task-current-noise".to_string()),
+                pressure: Some("keep continuity tight".to_string()),
+                next_recovery: Some("next: resume next step".to_string()),
+                next_action: Some("focus: task-current-noise".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert lane-only sender");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+        let roster = store
+            .hive_roster(&HiveRosterRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive roster");
+
+        assert!(board.active_bees.is_empty());
+        assert!(roster.bees.is_empty());
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
