@@ -46041,6 +46041,11 @@ mod tests {
             })
             .cloned()
             .collect::<Vec<_>>();
+        let recommended_action = if !messages.is_empty() {
+            "watch_and_coordinate".to_string()
+        } else {
+            "safe_to_continue".to_string()
+        };
         Json(memd_schema::HiveFollowResponse {
             current_session: req.current_session,
             target: target.clone(),
@@ -46057,7 +46062,7 @@ mod tests {
             review_tasks: Vec::new(),
             recent_receipts,
             overlap_risk: None,
-            recommended_action: "safe_to_continue".to_string(),
+            recommended_action,
         })
     }
 
@@ -52035,6 +52040,218 @@ mod tests {
         assert_eq!(receipts[0].task_id.as_deref(), Some("parser-refactor"));
 
         fs::remove_dir_all(&dir).expect("cleanup handoff temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_handoff_is_visible_in_target_inbox_and_follow_surfaces() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-handoff-follow-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let sender_output = dir.join("sender/.memd");
+        let target_output = dir.join("target/.memd");
+        fs::create_dir_all(&sender_output).expect("create sender output dir");
+        fs::create_dir_all(&target_output).expect("create target output dir");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&sender_output, &base_url);
+        write_test_bundle_config(&target_output, &base_url);
+        fs::write(
+            sender_output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "avicenna",
+  "session": "session-avicenna",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite sender bundle config");
+        fs::write(
+            target_output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "noether",
+  "session": "session-noether",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite target bundle config");
+
+        {
+            let mut sessions = state.session_records.lock().expect("lock session records");
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-avicenna".to_string(),
+                tab_id: None,
+                agent: Some("avicenna".to_string()),
+                effective_agent: Some("avicenna@session-avicenna".to_string()),
+                hive_system: Some("avicenna".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-parser".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/parser".to_string()),
+                branch: Some("feature/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Send parser handoff".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-noether".to_string(),
+                tab_id: None,
+                agent: Some("noether".to_string()),
+                effective_agent: Some("noether@session-noether".to_string()),
+                hive_system: Some("noether".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Receive parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Review parser handoff".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+        }
+
+        let handoff = run_hive_handoff_command(
+            &HiveHandoffArgs {
+                output: sender_output.clone(),
+                to_session: None,
+                to_worker: Some("Noether".to_string()),
+                task_id: Some("review-parser".to_string()),
+                topic: Some("Review parser handoff".to_string()),
+                scope: vec!["crates/memd-client/src/main.rs".to_string()],
+                next_action: Some("Reply with review notes".to_string()),
+                blocker: None,
+                note: Some("Stay on parser review.".to_string()),
+                json: false,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("run hive handoff");
+
+        assert!(handoff.message_id.is_some());
+
+        let inbox = run_messages_command(
+            &MessagesArgs {
+                output: target_output.clone(),
+                send: false,
+                inbox: true,
+                ack: None,
+                target_session: None,
+                kind: None,
+                request_help: false,
+                request_review: false,
+                assign_scope: None,
+                scope: None,
+                content: None,
+                summary: false,
+            },
+            &base_url,
+        )
+        .await
+        .expect("read target inbox");
+        assert_eq!(inbox.messages.len(), 1);
+        assert_eq!(inbox.messages[0].kind, "handoff");
+        assert_eq!(inbox.messages[0].to_session, "session-noether");
+        assert!(inbox.messages[0].content.contains("task=review-parser"));
+
+        let follow = run_hive_follow_command(&HiveFollowArgs {
+            output: target_output.clone(),
+            session: Some("session-noether".to_string()),
+            worker: None,
+            watch: false,
+            interval_secs: 5,
+            json: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive follow");
+        assert_eq!(follow.target.session, "session-noether");
+        assert_eq!(follow.messages.len(), 1);
+        assert_eq!(follow.messages[0].id, inbox.messages[0].id);
+        assert_eq!(follow.recent_receipts.len(), 1);
+        assert_eq!(follow.recent_receipts[0].kind, "queen_handoff");
+        assert_eq!(follow.recommended_action, "watch_and_coordinate");
+
+        fs::remove_dir_all(&dir).expect("cleanup handoff follow temp dir");
     }
 
     #[tokio::test]
