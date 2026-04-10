@@ -778,6 +778,18 @@ pub struct HiveSessionRecord {
     #[serde(default)]
     pub next_action: Option<String>,
     #[serde(default)]
+    pub working: Option<String>,
+    #[serde(default)]
+    pub touches: Vec<String>,
+    #[serde(default)]
+    pub relationship_state: Option<String>,
+    #[serde(default)]
+    pub relationship_peer: Option<String>,
+    #[serde(default)]
+    pub relationship_reason: Option<String>,
+    #[serde(default)]
+    pub suggested_action: Option<String>,
+    #[serde(default)]
     pub needs_help: bool,
     #[serde(default)]
     pub needs_review: bool,
@@ -836,6 +848,18 @@ pub struct HiveSessionUpsertRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub next_action: Option<String>,
+    #[serde(default)]
+    pub working: Option<String>,
+    #[serde(default)]
+    pub touches: Vec<String>,
+    #[serde(default)]
+    pub relationship_state: Option<String>,
+    #[serde(default)]
+    pub relationship_peer: Option<String>,
+    #[serde(default)]
+    pub relationship_reason: Option<String>,
+    #[serde(default)]
+    pub suggested_action: Option<String>,
     #[serde(default)]
     pub needs_help: bool,
     #[serde(default)]
