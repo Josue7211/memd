@@ -17518,13 +17518,48 @@ fn render_hive_follow_watch_frame(
             lines.push(render_hive_follow_summary(response));
         }
         Some(previous) => {
-            lines.push("state=changed".to_string());
+            lines.push(format!(
+                "state=changed severity={}",
+                hive_follow_watch_severity(response)
+            ));
             lines.extend(render_hive_follow_watch_changes(previous, response));
             lines.push(String::new());
-            lines.push(render_hive_follow_summary(response));
+            lines.push(render_hive_follow_watch_snapshot(response));
         }
     }
     lines.join("\n")
+}
+
+fn render_hive_follow_watch_snapshot(response: &HiveFollowResponse) -> String {
+    let summary = render_hive_follow_summary(response);
+    summary
+        .lines()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn hive_follow_watch_severity(response: &HiveFollowResponse) -> &'static str {
+    if response
+        .overlap_risk
+        .as_deref()
+        .is_some_and(|risk| risk.starts_with("unsafe hive cowork target collision"))
+    {
+        "urgent"
+    } else if response.overlap_risk.is_some()
+        || response.recommended_action == "coordinate_now"
+        || response.recommended_action == "stop_and_reroute"
+    {
+        "high"
+    } else if !response.messages.is_empty()
+        || !response.help_tasks.is_empty()
+        || !response.review_tasks.is_empty()
+        || response.recommended_action == "watch_and_coordinate"
+    {
+        "medium"
+    } else {
+        "low"
+    }
 }
 
 fn render_hive_follow_watch_changes(
@@ -51811,12 +51846,78 @@ mod tests {
                 .with_timezone(&Utc),
         );
 
-        assert!(frame.contains("state=changed"));
+        assert!(frame.contains("state=changed severity=medium"));
         assert!(frame.contains("change next_action: \"Wait for handoff\" -> \"Reply with review notes\""));
         assert!(frame.contains("change recommended_action: safe_to_continue -> watch_and_coordinate"));
         assert!(frame.contains("new_message handoff from=avicenna@session-avicenna"));
         assert!(frame.contains("new_receipt queen_handoff actor=avicenna@session-avicenna"));
         assert!(frame.contains("hive_follow worker=Noether session=session-noether"));
+        assert!(!frame.contains("## Messages"));
+        assert!(!frame.contains("## Receipts"));
+    }
+
+    #[test]
+    fn hive_follow_watch_severity_marks_overlap_as_high_signal() {
+        let response = HiveFollowResponse {
+            current_session: Some("session-current".to_string()),
+            target: memd_schema::HiveSessionRecord {
+                session: "session-noether".to_string(),
+                tab_id: None,
+                agent: Some("noether".to_string()),
+                effective_agent: Some("Noether@session-noether".to_string()),
+                hive_system: Some("noether".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Reply with review notes".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            },
+            work_summary: "Review parser handoff".to_string(),
+            touch_points: vec!["crates/memd-client/src/main.rs".to_string()],
+            next_action: Some("Reply with review notes".to_string()),
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts: Vec::new(),
+            overlap_risk: Some(
+                "unsafe hive cowork target collision: lane already claimed".to_string(),
+            ),
+            recommended_action: "stop_and_reroute".to_string(),
+        };
+
+        assert_eq!(hive_follow_watch_severity(&response), "urgent");
     }
 
     #[test]
