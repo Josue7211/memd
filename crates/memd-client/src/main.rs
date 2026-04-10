@@ -15962,6 +15962,7 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
 
 async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Result<()> {
     let mut last_snapshot = None::<String>;
+    let mut last_response = None::<HiveFollowResponse>;
     loop {
         let response = run_hive_follow_command(args).await?;
         let snapshot = if args.json {
@@ -15973,10 +15974,14 @@ async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Result<()> {
             if args.json {
                 println!("{snapshot}");
             } else {
-                println!("{}", render_hive_follow_watch_frame(&response, Utc::now()));
+                println!(
+                    "{}",
+                    render_hive_follow_watch_frame(&response, last_response.as_ref(), Utc::now())
+                );
                 println!();
             }
             last_snapshot = Some(snapshot);
+            last_response = Some(response.clone());
         }
         tokio::time::sleep(Duration::from_secs(args.interval_secs.max(1))).await;
     }
@@ -17503,13 +17508,117 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
 
 fn render_hive_follow_watch_frame(
     response: &HiveFollowResponse,
+    previous: Option<&HiveFollowResponse>,
     observed_at: DateTime<Utc>,
 ) -> String {
-    format!(
-        "== hive follow {} ==\n{}",
-        observed_at.to_rfc3339(),
-        render_hive_follow_summary(response)
-    )
+    let mut lines = vec![format!("== hive follow {} ==", observed_at.to_rfc3339())];
+    match previous {
+        None => {
+            lines.push("state=initial".to_string());
+            lines.push(render_hive_follow_summary(response));
+        }
+        Some(previous) => {
+            lines.push("state=changed".to_string());
+            lines.extend(render_hive_follow_watch_changes(previous, response));
+            lines.push(String::new());
+            lines.push(render_hive_follow_summary(response));
+        }
+    }
+    lines.join("\n")
+}
+
+fn render_hive_follow_watch_changes(
+    previous: &HiveFollowResponse,
+    current: &HiveFollowResponse,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if previous.work_summary != current.work_summary {
+        lines.push(format!(
+            "change work: \"{}\" -> \"{}\"",
+            previous.work_summary, current.work_summary
+        ));
+    }
+    if previous.next_action != current.next_action {
+        lines.push(format!(
+            "change next_action: \"{}\" -> \"{}\"",
+            previous.next_action.as_deref().unwrap_or("none"),
+            current.next_action.as_deref().unwrap_or("none")
+        ));
+    }
+    if previous.overlap_risk != current.overlap_risk {
+        lines.push(format!(
+            "change overlap_risk: \"{}\" -> \"{}\"",
+            previous.overlap_risk.as_deref().unwrap_or("none"),
+            current.overlap_risk.as_deref().unwrap_or("none")
+        ));
+    }
+    if previous.recommended_action != current.recommended_action {
+        lines.push(format!(
+            "change recommended_action: {} -> {}",
+            previous.recommended_action, current.recommended_action
+        ));
+    }
+    if previous.touch_points != current.touch_points {
+        lines.push(format!(
+            "change touches: {} -> {}",
+            if previous.touch_points.is_empty() {
+                "none".to_string()
+            } else {
+                previous.touch_points.join(",")
+            },
+            if current.touch_points.is_empty() {
+                "none".to_string()
+            } else {
+                current.touch_points.join(",")
+            }
+        ));
+    }
+
+    for message in current
+        .messages
+        .iter()
+        .filter(|message| !previous.messages.iter().any(|prior| prior.id == message.id))
+    {
+        lines.push(format!(
+            "new_message {} from={} ack={} content=\"{}\"",
+            message.kind,
+            message
+                .from_agent
+                .as_deref()
+                .unwrap_or(message.from_session.as_str()),
+            if message.acknowledged_at.is_some() {
+                "yes"
+            } else {
+                "no"
+            },
+            compact_inline(&message.content, 96),
+        ));
+    }
+
+    for receipt in current.recent_receipts.iter().filter(|receipt| {
+        !previous
+            .recent_receipts
+            .iter()
+            .any(|prior| prior.id == receipt.id)
+    }) {
+        lines.push(format!(
+            "new_receipt {} actor={} target={} summary=\"{}\"",
+            receipt.kind,
+            receipt
+                .actor_agent
+                .as_deref()
+                .unwrap_or(&receipt.actor_session),
+            receipt.target_session.as_deref().unwrap_or("none"),
+            compact_inline(&receipt.summary, 96),
+        ));
+    }
+
+    if lines.is_empty() {
+        lines.push("change snapshot_updated".to_string());
+    }
+
+    lines
 }
 
 fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
@@ -51593,12 +51702,121 @@ mod tests {
 
         let frame = render_hive_follow_watch_frame(
             &response,
+            None,
             DateTime::parse_from_rfc3339("2026-04-09T22:30:00Z")
                 .expect("parse timestamp")
                 .with_timezone(&Utc),
         );
         assert!(frame.contains("== hive follow 2026-04-09T22:30:00+00:00 =="));
+        assert!(frame.contains("state=initial"));
         assert!(frame.contains("hive_follow worker=Lorentz session=session-lorentz"));
+    }
+
+    #[test]
+    fn render_hive_follow_watch_frame_surfaces_delta_lines_for_new_messages_and_receipts() {
+        let previous = HiveFollowResponse {
+            current_session: Some("session-current".to_string()),
+            target: memd_schema::HiveSessionRecord {
+                session: "session-noether".to_string(),
+                tab_id: None,
+                agent: Some("noether".to_string()),
+                effective_agent: Some("Noether@session-noether".to_string()),
+                hive_system: Some("noether".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Wait for handoff".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            },
+            work_summary: "Review parser handoff".to_string(),
+            touch_points: vec!["crates/memd-client/src/main.rs".to_string()],
+            next_action: Some("Wait for handoff".to_string()),
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts: Vec::new(),
+            overlap_risk: None,
+            recommended_action: "safe_to_continue".to_string(),
+        };
+        let current = HiveFollowResponse {
+            next_action: Some("Reply with review notes".to_string()),
+            messages: vec![memd_schema::HiveMessageRecord {
+                id: "message-1".to_string(),
+                kind: "handoff".to_string(),
+                from_session: "session-avicenna".to_string(),
+                from_agent: Some("avicenna@session-avicenna".to_string()),
+                to_session: "session-noether".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "handoff_packet\nfrom=avicenna".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            }],
+            recent_receipts: vec![memd_schema::HiveCoordinationReceiptRecord {
+                id: "receipt-1".to_string(),
+                kind: "queen_handoff".to_string(),
+                actor_session: "session-avicenna".to_string(),
+                actor_agent: Some("avicenna@session-avicenna".to_string()),
+                target_session: Some("session-noether".to_string()),
+                task_id: Some("review-parser".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Handoff to noether".to_string(),
+                created_at: Utc::now(),
+            }],
+            recommended_action: "watch_and_coordinate".to_string(),
+            ..previous.clone()
+        };
+
+        let frame = render_hive_follow_watch_frame(
+            &current,
+            Some(&previous),
+            DateTime::parse_from_rfc3339("2026-04-10T01:00:00Z")
+                .expect("parse timestamp")
+                .with_timezone(&Utc),
+        );
+
+        assert!(frame.contains("state=changed"));
+        assert!(frame.contains("change next_action: \"Wait for handoff\" -> \"Reply with review notes\""));
+        assert!(frame.contains("change recommended_action: safe_to_continue -> watch_and_coordinate"));
+        assert!(frame.contains("new_message handoff from=avicenna@session-avicenna"));
+        assert!(frame.contains("new_receipt queen_handoff actor=avicenna@session-avicenna"));
+        assert!(frame.contains("hive_follow worker=Noether session=session-noether"));
     }
 
     #[test]
