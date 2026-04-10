@@ -17543,7 +17543,13 @@ fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
 }
 
 fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
-    let mut lines = vec![format!("hive_queen queen={}", response.queen_session)];
+    let mut lines = vec![format!(
+        "hive_queen queen={} suggested={} cards={} receipts={}",
+        response.queen_session,
+        response.suggested_actions.len(),
+        response.action_cards.len(),
+        response.recent_receipts.len()
+    )];
 
     if !response.suggested_actions.is_empty() {
         lines.push(String::new());
@@ -17557,29 +17563,38 @@ fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
         lines.push(String::new());
         lines.push("## Action Cards".to_string());
         for card in &response.action_cards {
+            let target = card
+                .target_worker
+                .as_deref()
+                .or(card.target_session.as_deref())
+                .unwrap_or("none");
             lines.push(format!(
-                "- action={} priority={} target={} task={} scope={} reason=\"{}\"",
-                card.action,
+                "- [{}] {} target={} task={} scope={}",
                 card.priority,
-                card.target_worker
-                    .as_deref()
-                    .or(card.target_session.as_deref())
-                    .unwrap_or("none"),
+                card.action,
+                target,
                 card.task_id.as_deref().unwrap_or("none"),
                 card.scope.as_deref().unwrap_or("none"),
-                compact_inline(&card.reason, 96),
             ));
+            lines.push(format!(
+                "  reason=\"{}\"",
+                compact_inline(&card.reason, 96)
+            ));
+            let mut commands = Vec::new();
             if let Some(command) = card.follow_command.as_deref() {
-                lines.push(format!("  follow={command}"));
+                commands.push(format!("follow=`{command}`"));
             }
             if let Some(command) = card.reroute_command.as_deref() {
-                lines.push(format!("  reroute={command}"));
+                commands.push(format!("reroute=`{command}`"));
             }
             if let Some(command) = card.deny_command.as_deref() {
-                lines.push(format!("  deny={command}"));
+                commands.push(format!("deny=`{command}`"));
             }
             if let Some(command) = card.retire_command.as_deref() {
-                lines.push(format!("  retire={command}"));
+                commands.push(format!("retire=`{command}`"));
+            }
+            if !commands.is_empty() {
+                lines.push(format!("  commands: {}", commands.join(" | ")));
             }
         }
     }
@@ -51729,13 +51744,19 @@ mod tests {
         };
 
         let summary = render_hive_queen_summary(&response);
-        assert!(summary.contains("queen=session-queen"));
-        assert!(summary.contains("reroute Lorentz"));
+        assert!(summary.contains("hive_queen queen=session-queen suggested=2 cards=1 receipts=2"));
+        assert!(summary.contains("- reroute Lorentz off crates/memd-client/src/main.rs"));
         assert!(summary.contains("queen_deny session-avicenna"));
         assert!(summary.contains("## Action Cards"));
-        assert!(summary.contains("follow=memd hive follow --session session-lorentz --summary"));
+        assert!(summary.contains("- [high] reroute target=Lorentz task=review-parser scope=crates/memd-client/src/main.rs"));
+        assert!(summary.contains("reason=\"shared scope is colliding\""));
+        assert!(summary.contains("commands:"));
+        assert!(summary.contains("follow=`memd hive follow --session session-lorentz --summary`"));
         assert!(
-            summary.contains("reroute=memd hive queen --reroute-session session-lorentz --summary")
+            summary.contains("reroute=`memd hive queen --reroute-session session-lorentz --summary`")
+        );
+        assert!(
+            summary.contains("deny=`memd hive queen --deny-session session-lorentz --summary`")
         );
     }
 
