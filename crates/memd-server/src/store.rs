@@ -2569,7 +2569,6 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .sessions;
-        let actionable_cutoff = chrono::Utc::now() - chrono::TimeDelta::minutes(15);
         let tasks = self
             .hive_tasks(&HiveTasksRequest {
                 session: None,
@@ -2636,9 +2635,7 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let lane_faults = receipts
             .iter()
-            .filter(|receipt| {
-                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
-            })
+            .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
             .filter(|receipt| receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
@@ -2649,9 +2646,7 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let blocked_bees = receipts
             .iter()
-            .filter(|receipt| {
-                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
-            })
+            .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
             .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
@@ -2661,9 +2656,7 @@ impl SqliteStore {
         }
         for receipt in receipts
             .iter()
-            .filter(|receipt| {
-                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
-            })
+            .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
             .filter(|receipt| receipt.kind == "queen_deny")
         {
             recommended_actions.push(format!("reroute {}", receipt.summary));
@@ -3870,14 +3863,10 @@ fn is_low_signal_hive_board_session(session: &HiveSessionRecord, tasks: &[HiveTa
     !has_active_task
 }
 
-fn is_actionable_hive_board_receipt(
+fn is_active_hive_board_receipt(
     receipt: &HiveCoordinationReceiptRecord,
-    actionable_cutoff: chrono::DateTime<chrono::Utc>,
     active_session_ids: &std::collections::HashSet<String>,
 ) -> bool {
-    if receipt.created_at >= actionable_cutoff {
-        return true;
-    }
     active_session_ids.contains(&receipt.actor_session)
         || receipt
             .target_session
