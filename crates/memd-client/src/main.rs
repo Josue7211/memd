@@ -2019,6 +2019,9 @@ struct HiveQueenArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    cowork_auto_send: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -15711,6 +15714,7 @@ struct HiveQueenActionCard {
     deny_command: Option<String>,
     reroute_command: Option<String>,
     retire_command: Option<String>,
+    cowork_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -16710,6 +16714,7 @@ async fn run_hive_queen_command(
                 let target_worker = target_entry
                     .and_then(derive_awareness_worker_name)
                     .or_else(|| suggestion.target_session.clone());
+                let cowork_command = format_hive_queen_cowork_command(suggestion);
                 HiveQueenActionCard {
                     action: suggestion.action.clone(),
                     priority: suggestion.priority.clone(),
@@ -16731,6 +16736,7 @@ async fn run_hive_queen_command(
                     retire_command: suggestion.stale_session.as_ref().map(|session| {
                         format!("memd hive queen --retire-session {session} --summary")
                     }),
+                    cowork_command,
                 }
             })
             .collect::<Vec<_>>();
@@ -18194,6 +18200,21 @@ fn format_hive_cowork_receipt_summary(packet: &HiveCoworkPacket) -> String {
     )
 }
 
+fn format_hive_queen_cowork_command(suggestion: &CoordinationSuggestion) -> Option<String> {
+    let action = match suggestion.action.as_str() {
+        "request_cowork" => "request",
+        "ack_cowork" => "ack",
+        _ => return None,
+    };
+    Some(format!(
+        "memd hive cowork {action} --to-session {} --task-id {} --scope {} --reason {} --summary",
+        suggestion.target_session.as_ref()?,
+        suggestion.task_id.as_ref()?,
+        suggestion.scope.as_ref()?,
+        suggestion.reason
+    ))
+}
+
 fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> String {
     let lines = vec![
         format!(
@@ -18261,6 +18282,9 @@ fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
             }
             if let Some(command) = card.retire_command.as_deref() {
                 lines.push(format!("  retire={command}"));
+            }
+            if let Some(command) = card.cowork_command.as_deref() {
+                lines.push(format!("  cowork={command}"));
             }
         }
     }
@@ -54165,6 +54189,29 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_hive_queen_cowork_auto_send_flag() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "hive",
+            "queen",
+            "--cowork-auto-send",
+            "--summary",
+        ])
+        .expect("hive queen command should parse");
+
+        match cli.command {
+            Commands::Hive(args) => match args.command {
+                Some(HiveSubcommand::Queen(queen)) => {
+                    assert!(queen.cowork_auto_send);
+                    assert!(queen.summary);
+                }
+                other => panic!("expected hive queen subcommand, got {other:?}"),
+            },
+            other => panic!("expected hive command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn render_hive_queen_summary_surfaces_explicit_actions() {
         let response = HiveQueenResponse {
             queen_session: "session-queen".to_string(),
@@ -54190,6 +54237,7 @@ mod tests {
                     "memd hive queen --reroute-session session-lorentz --summary".to_string(),
                 ),
                 retire_command: None,
+                cowork_command: None,
             }],
             recent_receipts: vec![
                 "queen_assign session-lorentz review-parser".to_string(),
@@ -54206,6 +54254,58 @@ mod tests {
         assert!(
             summary.contains("reroute=memd hive queen --reroute-session session-lorentz --summary")
         );
+    }
+
+    #[test]
+    fn render_hive_queen_summary_surfaces_cowork_commands() {
+        let response = HiveQueenResponse {
+            queen_session: "session-queen".to_string(),
+            suggested_actions: vec![
+                "request_cowork peer is blocked on the same live scope".to_string(),
+                "ack_cowork peer already lists this session in cowork_with".to_string(),
+            ],
+            action_cards: vec![
+                HiveQueenActionCard {
+                    action: "request_cowork".to_string(),
+                    priority: "high".to_string(),
+                    target_session: Some("session-peer".to_string()),
+                    target_worker: Some("Peer".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: Some("task:parser-refactor".to_string()),
+                    reason: "peer is blocked on the same live scope".to_string(),
+                    follow_command: None,
+                    deny_command: None,
+                    reroute_command: None,
+                    retire_command: None,
+                    cowork_command: Some(
+                        "memd hive cowork request --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer is blocked on the same live scope --summary".to_string(),
+                    ),
+                },
+                HiveQueenActionCard {
+                    action: "ack_cowork".to_string(),
+                    priority: "medium".to_string(),
+                    target_session: Some("session-peer".to_string()),
+                    target_worker: Some("Peer".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: Some("task:parser-refactor".to_string()),
+                    reason: "peer already lists this session in cowork_with".to_string(),
+                    follow_command: None,
+                    deny_command: None,
+                    reroute_command: None,
+                    retire_command: None,
+                    cowork_command: Some(
+                        "memd hive cowork ack --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer already lists this session in cowork_with --summary".to_string(),
+                    ),
+                },
+            ],
+            recent_receipts: vec![],
+        };
+
+        let summary = render_hive_queen_summary(&response);
+        assert!(summary.contains("action=request_cowork"));
+        assert!(summary.contains("action=ack_cowork"));
+        assert!(summary.contains("cowork=memd hive cowork request --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer is blocked on the same live scope --summary"));
+        assert!(summary.contains("cowork=memd hive cowork ack --to-session session-peer --task-id parser-refactor --scope task:parser-refactor --reason peer already lists this session in cowork_with --summary"));
     }
 
     #[test]
