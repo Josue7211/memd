@@ -2,19 +2,36 @@
 
 - what changed
 - why it changed
-- what phase, version, or scope this belongs to
+- scope / phase / branch context
 
-## Branch Context
+## Problem
 
-- milestone branch:
-- scoped branch:
-- roadmap or phase reference:
+- what user or developer pain this fixes
+- what was broken, missing, or risky before this change
+
+## Solution
+
+- key implementation choices
+- important tradeoffs or rejected alternatives
 
 ## Verification
 
 - [ ] `cargo fmt --all`
-- [ ] `cargo test`
+- [ ] targeted tests for the changed area
+- [ ] full `cargo test` if behavior or shared contracts changed
 - [ ] docs updated when behavior changed
+
+Commands run:
+
+```text
+# paste the exact commands you ran
+```
+
+## Reviewer Focus
+
+- highest-risk file or codepath:
+- edge cases worth checking:
+- rollout / compatibility concerns:
 
 ## Change Type
 
@@ -22,10 +39,10 @@
 - [ ] fix
 - [ ] docs
 - [ ] refactor
-- [ ] release / workflow
+- [ ] workflow / release
 
-## Notes For Reviewers
+## Notes
 
 - user-visible behavior changes:
 - architectural changes:
-- file splits or branch-management changes:
+- follow-up work intentionally left out:
