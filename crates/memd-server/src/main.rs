@@ -3685,6 +3685,8 @@ mod tests {
         assert!(html.contains("/hive/queen/deny"));
         assert!(html.contains("/hive/queen/reroute"));
         assert!(html.contains("/hive/queen/handoff"));
+        assert!(html.contains("queen auto-retire"));
+        assert!(html.contains("<strong>action</strong>"));
 
         let receipt_response = app
             .clone()
