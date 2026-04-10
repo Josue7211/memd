@@ -790,6 +790,14 @@ pub struct HiveSessionRecord {
     #[serde(default)]
     pub suggested_action: Option<String>,
     #[serde(default)]
+    pub blocked_by: Vec<String>,
+    #[serde(default)]
+    pub cowork_with: Vec<String>,
+    #[serde(default)]
+    pub handoff_target: Option<String>,
+    #[serde(default)]
+    pub offered_to: Vec<String>,
+    #[serde(default)]
     pub needs_help: bool,
     #[serde(default)]
     pub needs_review: bool,
@@ -852,6 +860,14 @@ pub struct HiveSessionUpsertRequest {
     pub working: Option<String>,
     #[serde(default)]
     pub touches: Vec<String>,
+    #[serde(default)]
+    pub blocked_by: Vec<String>,
+    #[serde(default)]
+    pub cowork_with: Vec<String>,
+    #[serde(default)]
+    pub handoff_target: Option<String>,
+    #[serde(default)]
+    pub offered_to: Vec<String>,
     #[serde(default)]
     pub needs_help: bool,
     #[serde(default)]

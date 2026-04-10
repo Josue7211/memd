@@ -15738,6 +15738,10 @@ fn project_awareness_entry_to_hive_session(
         relationship_peer: None,
         relationship_reason: None,
         suggested_action: None,
+        blocked_by: entry.blocked_by.clone(),
+        cowork_with: entry.cowork_with.clone(),
+        handoff_target: entry.handoff_target.clone(),
+        offered_to: entry.offered_to.clone(),
         needs_help: false,
         needs_review: false,
         handoff_state: None,
@@ -15817,20 +15821,11 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
 
 fn annotate_hive_relationships(
     bees: Vec<memd_schema::HiveSessionRecord>,
-    current_session: Option<&str>,
+    _current_session: Option<&str>,
 ) -> Vec<memd_schema::HiveSessionRecord> {
-    let Some(current_session) = current_session.map(str::trim).filter(|value| !value.is_empty())
-    else {
-        return bees;
-    };
-
     let snapshot = bees.clone();
     bees.into_iter()
         .map(|mut bee| {
-            if bee.session != current_session {
-                return bee;
-            }
-
             let best = snapshot
                 .iter()
                 .filter(|peer| peer.session != bee.session)
@@ -15872,9 +15867,11 @@ fn annotate_hive_relationships(
 
 fn hive_relationship_rank(state: &str) -> u8 {
     match state {
-        "conflict" => 3,
-        "near" => 2,
-        "blocked" => 1,
+        "conflict" => 5,
+        "blocked" => 4,
+        "cowork_active" => 3,
+        "handoff_ready" => 2,
+        "near" => 1,
         _ => 0,
     }
 }
@@ -15896,6 +15893,34 @@ fn derive_hive_relationship(
     current: &memd_schema::HiveSessionRecord,
     peer: &memd_schema::HiveSessionRecord,
 ) -> Option<(String, String, String)> {
+    if current.blocked_by.iter().any(|value| value == &peer.session) {
+        return Some((
+            "blocked".to_string(),
+            format!("waiting on peer {}", peer.session),
+            "wait_for_peer".to_string(),
+        ));
+    }
+
+    let current_cowork = current.cowork_with.iter().any(|value| value == &peer.session);
+    let peer_cowork = peer.cowork_with.iter().any(|value| value == &current.session);
+    if current_cowork && peer_cowork {
+        return Some((
+            "cowork_active".to_string(),
+            "mutual cowork coordination".to_string(),
+            "coordinate_live".to_string(),
+        ));
+    }
+
+    if current.handoff_target.as_deref() == Some(peer.session.as_str())
+        || peer.handoff_target.as_deref() == Some(current.session.as_str())
+    {
+        return Some((
+            "handoff_ready".to_string(),
+            "live handoff boundary detected".to_string(),
+            "follow_handoff".to_string(),
+        ));
+    }
+
     let current_touches = current.touches.iter().collect::<BTreeSet<_>>();
     let peer_touches = peer.touches.iter().collect::<BTreeSet<_>>();
 
@@ -15930,14 +15955,6 @@ fn derive_hive_relationship(
             "near".to_string(),
             format!("shared area {}", nearby.join(",")),
             "cowork".to_string(),
-        ));
-    }
-
-    if current.needs_help || current.needs_review {
-        return Some((
-            "blocked".to_string(),
-            "waiting on peer coordination".to_string(),
-            "handoff_or_review".to_string(),
         ));
     }
 
@@ -16089,7 +16106,9 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
             .as_deref()
             .and_then(simplify_awareness_work_text)
     });
-    let recommended_action = if let Some(risk) = overlap_risk.as_deref() {
+    let recommended_action = if let Some(action) = target.suggested_action.clone() {
+        action
+    } else if let Some(risk) = overlap_risk.as_deref() {
         if risk.starts_with("unsafe hive cowork target collision") {
             "stop_and_reroute".to_string()
         } else {
@@ -16541,22 +16560,75 @@ async fn run_hive_board_command(
     if let Some(fault) = coordination.lane_fault.as_ref() {
         blocked_bees.push(render_lane_fault_inline(fault));
     }
+    let active_bees = roster
+        .bees
+        .iter()
+        .filter(|bee| bee.status == "active")
+        .cloned()
+        .collect::<Vec<_>>();
     let roster_sessions = roster
         .bees
         .iter()
         .map(|bee| bee.session.clone())
         .collect::<BTreeSet<_>>();
+    for bee in &active_bees {
+        if bee.relationship_state.as_deref() == Some("blocked") {
+            blocked_bees.push(format!(
+                "{} waiting on {}",
+                bee.worker_name.as_deref().unwrap_or(&bee.session),
+                bee.relationship_peer.as_deref().unwrap_or("peer")
+            ));
+        }
+    }
+    let overlap_risks = active_bees
+        .iter()
+        .filter(|bee| matches!(bee.relationship_state.as_deref(), Some("conflict" | "near")))
+        .map(|bee| {
+            format!(
+                "{} {}",
+                bee.relationship_state.as_deref().unwrap_or("near"),
+                bee.relationship_reason.as_deref().unwrap_or("peer overlap")
+            )
+        })
+        .chain(
+            coordination
+                .policy_conflicts
+                .iter()
+                .filter(|value| value.contains("overlap") || value.contains("scope"))
+                .cloned(),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let recommended_actions = active_bees
+        .iter()
+        .filter_map(|bee| {
+            bee.suggested_action.as_ref().map(|action| {
+                format!(
+                    "{} {}",
+                    action,
+                    bee.relationship_reason
+                        .as_deref()
+                        .unwrap_or(bee.worker_name.as_deref().unwrap_or(&bee.session))
+                )
+            })
+        })
+        .chain(
+            coordination
+                .suggestions
+                .iter()
+                .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason)),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
     Ok(HiveBoardResponse {
         queen_session: roster
             .queen_session
             .clone()
             .or_else(|| Some(coordination.current_session.clone())),
-        active_bees: roster
-            .bees
-            .into_iter()
-            .filter(|bee| bee.status == "active")
-            .collect(),
+        active_bees,
         blocked_bees,
         stale_bees: coordination
             .recovery
@@ -16567,22 +16639,13 @@ async fn run_hive_board_command(
             .filter(|session| !retired_sessions.iter().any(|retired| retired == session))
             .collect(),
         review_queue,
-        overlap_risks: coordination
-            .policy_conflicts
-            .iter()
-            .filter(|value| value.contains("overlap") || value.contains("scope"))
-            .cloned()
-            .collect(),
+        overlap_risks,
         lane_faults: coordination
             .lane_receipts
             .iter()
             .map(|receipt| receipt.summary.clone())
             .collect(),
-        recommended_actions: coordination
-            .suggestions
-            .iter()
-            .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
-            .collect(),
+        recommended_actions,
     })
 }
 
@@ -17572,6 +17635,16 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
         } else {
             bee.touches.join(",")
         };
+        let blocked_by = if bee.blocked_by.is_empty() {
+            "none".to_string()
+        } else {
+            bee.blocked_by.join(",")
+        };
+        let cowork_with = if bee.cowork_with.is_empty() {
+            "none".to_string()
+        } else {
+            bee.cowork_with.join(",")
+        };
         let work = bee
             .working
             .as_deref()
@@ -17595,7 +17668,7 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or("continue");
         lines.push(format!(
-            "- {} ({}) role={} lane={} task={} work=\"{}\" touches={} relation={} action={} status={}",
+            "- {} ({}) role={} lane={} task={} work=\"{}\" touches={} relation={} action={} blocked_by={} cowork_with={} handoff_target={} status={}",
             worker,
             bee.session,
             bee.role
@@ -17608,6 +17681,9 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
             touches,
             relation,
             action,
+            blocked_by,
+            cowork_with,
+            bee.handoff_target.as_deref().unwrap_or("none"),
             bee.status,
         ));
     }
@@ -17643,7 +17719,7 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
             response.target.status,
         ),
         format!(
-            "work=\"{}\" touches={} next=\"{}\" overlap_risk={} recommended_action={}",
+            "work=\"{}\" touches={} next=\"{}\" overlap_risk={} recommended_action={} relation={} blocked_by={} cowork_with={} handoff_target={}",
             response.work_summary,
             if response.touch_points.is_empty() {
                 "none".to_string()
@@ -17653,6 +17729,18 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
             response.next_action.as_deref().unwrap_or("none"),
             response.overlap_risk.as_deref().unwrap_or("none"),
             response.recommended_action,
+            response.target.relationship_state.as_deref().unwrap_or("none"),
+            if response.target.blocked_by.is_empty() {
+                "none".to_string()
+            } else {
+                response.target.blocked_by.join(",")
+            },
+            if response.target.cowork_with.is_empty() {
+                "none".to_string()
+            } else {
+                response.target.cowork_with.join(",")
+            },
+            response.target.handoff_target.as_deref().unwrap_or("none"),
         ),
     ];
 
@@ -17858,7 +17946,7 @@ fn render_hive_board_summary(response: &HiveBoardResponse) -> String {
                 Some(bee.session.as_str()),
             );
             lines.push(format!(
-                "- {} ({}) role={} lane={} task={}",
+                "- {} ({}) role={} lane={} task={} work=\"{}\" relation={} action={} blocked_by={} cowork_with={}",
                 worker,
                 bee.session,
                 bee.role
@@ -17870,6 +17958,19 @@ fn render_hive_board_summary(response: &HiveBoardResponse) -> String {
                     .or(bee.branch.as_deref())
                     .unwrap_or("none"),
                 bee.task_id.as_deref().unwrap_or("none"),
+                bee.working.as_deref().unwrap_or("none"),
+                bee.relationship_state.as_deref().unwrap_or("none"),
+                bee.suggested_action.as_deref().unwrap_or("none"),
+                if bee.blocked_by.is_empty() {
+                    "none".to_string()
+                } else {
+                    bee.blocked_by.join(",")
+                },
+                if bee.cowork_with.is_empty() {
+                    "none".to_string()
+                } else {
+                    bee.cowork_with.join(",")
+                },
             ));
         }
     }
@@ -19322,6 +19423,94 @@ async fn retire_superseded_hive_sessions(
     Ok(retired)
 }
 
+fn latest_receipt_target_for_task<'a>(
+    receipts: &'a [HiveCoordinationReceiptRecord],
+    actor_session: &str,
+    task_id: &str,
+    kind: &str,
+) -> Option<&'a str> {
+    receipts
+        .iter()
+        .rev()
+        .find(|receipt| {
+            receipt.kind == kind
+                && receipt.actor_session == actor_session
+                && receipt.task_id.as_deref() == Some(task_id)
+        })
+        .and_then(|receipt| receipt.target_session.as_deref())
+}
+
+fn derive_live_coordination_fields(
+    state: &mut BundleHeartbeatState,
+    session: &str,
+    tasks: &[HiveTaskRecord],
+    inbox: &HiveCoordinationInboxResponse,
+    receipts: &[HiveCoordinationReceiptRecord],
+) {
+    state.needs_help = tasks.iter().any(|task| task.help_requested);
+    state.needs_review = tasks.iter().any(|task| task.review_requested);
+
+    for task in tasks {
+        if task.help_requested
+            && let Some(target_session) =
+                latest_receipt_target_for_task(receipts, session, &task.task_id, "task_help_request")
+        {
+            push_unique_session_ref(&mut state.blocked_by, target_session);
+            push_unique_session_ref(&mut state.cowork_with, target_session);
+        }
+        if task.review_requested
+            && let Some(target_session) = latest_receipt_target_for_task(
+                receipts,
+                session,
+                &task.task_id,
+                "task_review_request",
+            )
+        {
+            push_unique_session_ref(&mut state.blocked_by, target_session);
+            push_unique_session_ref(&mut state.cowork_with, target_session);
+        }
+    }
+
+    for message in &inbox.messages {
+        match message.kind.as_str() {
+            "help_request" | "review_request" | "handoff" => {
+                push_unique_session_ref(&mut state.cowork_with, &message.from_session);
+            }
+            _ => {}
+        }
+    }
+
+    for receipt in receipts {
+        match receipt.kind.as_str() {
+            "task_assignment" | "queen_handoff" => {
+                if receipt.actor_session == session {
+                    if let Some(target_session) = receipt.target_session.as_deref() {
+                        push_unique_session_ref(&mut state.cowork_with, target_session);
+                        state.handoff_target = Some(target_session.to_string());
+                        state.handoff_state = Some("outgoing".to_string());
+                    }
+                } else if receipt.target_session.as_deref() == Some(session) {
+                    push_unique_session_ref(&mut state.cowork_with, &receipt.actor_session);
+                    push_unique_session_ref(&mut state.offered_to, &receipt.actor_session);
+                    state.handoff_state = Some("incoming".to_string());
+                }
+            }
+            "task_help_request" | "task_review_request" => {
+                if receipt.actor_session == session {
+                    if let Some(target_session) = receipt.target_session.as_deref() {
+                        push_unique_session_ref(&mut state.blocked_by, target_session);
+                        push_unique_session_ref(&mut state.cowork_with, target_session);
+                    }
+                } else if receipt.target_session.as_deref() == Some(session) {
+                    push_unique_session_ref(&mut state.cowork_with, &receipt.actor_session);
+                    push_unique_session_ref(&mut state.offered_to, &receipt.actor_session);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 async fn enrich_hive_heartbeat_with_runtime_intent(
     state: &mut BundleHeartbeatState,
 ) -> anyhow::Result<()> {
@@ -19338,6 +19527,7 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .map(str::to_string)
     else {
         return Ok(());
     };
@@ -19353,6 +19543,30 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
     }))
     .await
     .map(|response| response.tasks)
+    .unwrap_or_default();
+    let inbox = timeout_ok(client.hive_coordination_inbox(&HiveCoordinationInboxRequest {
+        session: session.to_string(),
+        project: state.project.clone(),
+        namespace: state.namespace.clone(),
+        workspace: state.workspace.clone(),
+        limit: Some(32),
+    }))
+    .await
+    .unwrap_or(HiveCoordinationInboxResponse {
+        messages: Vec::new(),
+        owned_tasks: Vec::new(),
+        help_tasks: Vec::new(),
+        review_tasks: Vec::new(),
+    });
+    let receipts = timeout_ok(client.hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+        session: None,
+        project: state.project.clone(),
+        namespace: state.namespace.clone(),
+        workspace: state.workspace.clone(),
+        limit: Some(64),
+    }))
+    .await
+    .map(|response| response.receipts)
     .unwrap_or_default();
 
     let current_task = tasks
@@ -19389,6 +19603,7 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
             push_normalized_hive_touch(&mut state.touches, scope);
         }
     }
+    derive_live_coordination_fields(state, &session, &tasks, &inbox, &receipts);
     Ok(())
 }
 
@@ -19608,6 +19823,10 @@ fn build_hive_heartbeat(
         ),
         working,
         touches,
+        blocked_by: Vec::new(),
+        cowork_with: Vec::new(),
+        handoff_target: None,
+        offered_to: Vec::new(),
         needs_help: false,
         needs_review: false,
         handoff_state: None,
@@ -19734,6 +19953,10 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         next_action: state.next_action.clone(),
         working: state.working.clone(),
         touches: state.touches.clone(),
+        blocked_by: state.blocked_by.clone(),
+        cowork_with: state.cowork_with.clone(),
+        handoff_target: state.handoff_target.clone(),
+        offered_to: state.offered_to.clone(),
         needs_help: state.needs_help,
         needs_review: state.needs_review,
         handoff_state: state.handoff_state.clone(),
@@ -31075,6 +31298,10 @@ fn execute_helper_verifier_step(
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: Some("session-avicenna".to_string()),
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -38403,6 +38630,10 @@ async fn read_project_awareness_shared(
             scope_claims: session.scope_claims.clone(),
             working: session.working.clone(),
             touches: session.touches.clone(),
+            blocked_by: session.blocked_by.clone(),
+            cowork_with: session.cowork_with.clone(),
+            handoff_target: session.handoff_target.clone(),
+            offered_to: session.offered_to.clone(),
             task_id: session.task_id.clone(),
             focus: session.focus.clone(),
             pressure: session.pressure.clone(),
@@ -38681,6 +38912,21 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             touches: heartbeat
                 .as_ref()
                 .map(|value| value.touches.clone())
+                .unwrap_or_default(),
+            blocked_by: heartbeat
+                .as_ref()
+                .map(|value| value.blocked_by.clone())
+                .unwrap_or_default(),
+            cowork_with: heartbeat
+                .as_ref()
+                .map(|value| value.cowork_with.clone())
+                .unwrap_or_default(),
+            handoff_target: heartbeat
+                .as_ref()
+                .and_then(|value| value.handoff_target.clone()),
+            offered_to: heartbeat
+                .as_ref()
+                .map(|value| value.offered_to.clone())
                 .unwrap_or_default(),
             task_id: heartbeat.as_ref().and_then(|value| value.task_id.clone()),
             focus: heartbeat
@@ -39719,6 +39965,14 @@ fn push_unique_touch_point(touches: &mut Vec<String>, value: &str) {
         return;
     }
     touches.push(trimmed.to_string());
+}
+
+fn push_unique_session_ref(peers: &mut Vec<String>, value: &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || peers.iter().any(|existing| existing == trimmed) {
+        return;
+    }
+    peers.push(trimmed.to_string());
 }
 
 fn normalize_hive_touch(value: &str) -> Option<String> {
@@ -44494,6 +44748,10 @@ struct ProjectAwarenessEntry {
     scope_claims: Vec<String>,
     working: Option<String>,
     touches: Vec<String>,
+    blocked_by: Vec<String>,
+    cowork_with: Vec<String>,
+    handoff_target: Option<String>,
+    offered_to: Vec<String>,
     task_id: Option<String>,
     focus: Option<String>,
     pressure: Option<String>,
@@ -44587,6 +44845,14 @@ struct BundleHeartbeatState {
     working: Option<String>,
     #[serde(default)]
     touches: Vec<String>,
+    #[serde(default)]
+    blocked_by: Vec<String>,
+    #[serde(default)]
+    cowork_with: Vec<String>,
+    #[serde(default)]
+    handoff_target: Option<String>,
+    #[serde(default)]
+    offered_to: Vec<String>,
     #[serde(default)]
     needs_help: bool,
     #[serde(default)]
@@ -46193,6 +46459,10 @@ mod tests {
             next_action: req.next_action,
             working: req.working,
             touches: req.touches,
+            blocked_by: req.blocked_by,
+            cowork_with: req.cowork_with,
+            handoff_target: req.handoff_target,
+            offered_to: req.offered_to,
             relationship_state: None,
             relationship_peer: None,
             relationship_reason: None,
@@ -46840,10 +47110,14 @@ mod tests {
                 next_action: Some("continue".to_string()),
                 working: None,
                 touches: Vec::new(),
-                relationship_state: None,
-                relationship_peer: None,
-                relationship_reason: None,
-                suggested_action: None,
+                blocked_by: vec!["session-queen".to_string()],
+                cowork_with: vec!["session-avicenna".to_string()],
+                handoff_target: Some("session-avicenna".to_string()),
+                offered_to: Vec::new(),
+                relationship_state: Some("blocked".to_string()),
+                relationship_peer: Some("Anscombe".to_string()),
+                relationship_reason: Some("waiting on peer session-queen".to_string()),
+                suggested_action: Some("wait_for_peer".to_string()),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -50495,6 +50769,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: Some("session-avicenna".to_string()),
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -50573,6 +50851,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(now),
             }],
         };
@@ -50631,6 +50913,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50667,6 +50953,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50717,6 +51007,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50753,6 +51047,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50808,6 +51106,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50844,6 +51146,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50896,6 +51202,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -50932,6 +51242,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -50986,6 +51300,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -51022,6 +51340,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -51076,6 +51398,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51112,6 +51438,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51148,6 +51478,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(7)),
                 },
                 ProjectAwarenessEntry {
@@ -51184,6 +51518,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(6)),
                 },
                 ProjectAwarenessEntry {
@@ -51220,6 +51558,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(2)),
                 },
                 ProjectAwarenessEntry {
@@ -51256,6 +51598,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(30)),
                 },
             ],
@@ -51312,6 +51658,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51348,6 +51698,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(5)),
                 },
             ],
@@ -51399,6 +51753,10 @@ mod tests {
                 next_recovery: Some("publish overlap-safe hive quickview".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(now),
             }],
         };
@@ -51453,6 +51811,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51489,6 +51851,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -51542,6 +51908,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51578,6 +51948,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -51627,6 +52001,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(now),
         };
 
@@ -51679,10 +52057,14 @@ mod tests {
                 next_action: Some("Review overlap guard output".to_string()),
                 working: None,
                 touches: Vec::new(),
-                relationship_state: None,
-                relationship_peer: None,
-                relationship_reason: None,
-                suggested_action: None,
+                blocked_by: vec!["session-queen".to_string()],
+                cowork_with: vec!["session-avicenna".to_string()],
+                handoff_target: Some("session-avicenna".to_string()),
+                offered_to: Vec::new(),
+                relationship_state: Some("blocked".to_string()),
+                relationship_peer: Some("Anscombe".to_string()),
+                relationship_reason: Some("waiting on peer session-queen".to_string()),
+                suggested_action: Some("wait_for_peer".to_string()),
                 needs_help: false,
                 needs_review: true,
                 handoff_state: None,
@@ -51700,8 +52082,8 @@ mod tests {
         assert!(summary.contains("task=review-parser"));
         assert!(summary.contains("work=\"none\""));
         assert!(summary.contains("touches=none"));
-        assert!(summary.contains("relation=clear"));
-        assert!(summary.contains("action=continue"));
+        assert!(summary.contains("relation=blocked:Anscombe"));
+        assert!(summary.contains("action=wait_for_peer"));
     }
 
     #[test]
@@ -51757,6 +52139,10 @@ mod tests {
                 relationship_peer: Some("Clawcontrol".to_string()),
                 relationship_reason: Some("shared session-merge area".to_string()),
                 suggested_action: Some("cowork".to_string()),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -51821,6 +52207,10 @@ mod tests {
                 relationship_peer: Some("Clawcontrol".to_string()),
                 relationship_reason: None,
                 suggested_action: Some("stop_and_cowork".to_string()),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -51884,6 +52274,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -51936,6 +52330,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52009,6 +52407,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52061,6 +52463,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52110,6 +52516,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52180,6 +52590,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52229,6 +52643,10 @@ mod tests {
                     relationship_peer: None,
                     relationship_reason: None,
                     suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     needs_help: false,
                     needs_review: false,
                     handoff_state: None,
@@ -52249,6 +52667,387 @@ mod tests {
         assert_eq!(current.relationship_peer, None);
         assert_eq!(current.relationship_reason, None);
         assert_eq!(current.suggested_action, None);
+    }
+
+    #[test]
+    fn annotate_hive_relationships_marks_blocked_when_waiting_on_peer_session() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Wait on clawcontrol".to_string()),
+                    scope_claims: vec!["task:hive-awareness".to_string()],
+                    task_id: Some("hive-awareness".to_string()),
+                    focus: Some("Wait on clawcontrol".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: Some("wait for peer".to_string()),
+                    working: Some("waiting on clawcontrol".to_string()),
+                    touches: vec!["task:hive-awareness".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: vec!["session-peer".to_string()],
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-peer".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-peer".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Clawcontrol".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-peer".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/peer".to_string()),
+                    worktree_root: Some("/repo/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Session merge semantics".to_string()),
+                    scope_claims: vec!["task:peer-awareness".to_string()],
+                    task_id: Some("peer-awareness".to_string()),
+                    focus: Some("Session merge semantics".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("session merge semantics".to_string()),
+                    touches: vec!["task:peer-awareness".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("blocked"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("Clawcontrol"));
+        assert_eq!(
+            current.relationship_reason.as_deref(),
+            Some("waiting on peer session-peer")
+        );
+        assert_eq!(current.suggested_action.as_deref(), Some("wait_for_peer"));
+    }
+
+    #[test]
+    fn annotate_hive_relationships_marks_cowork_active_for_mutual_coordination() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Pair on overlap".to_string()),
+                    scope_claims: vec!["task:pairing".to_string()],
+                    task_id: Some("pairing".to_string()),
+                    focus: Some("Pair on overlap".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: Some("coordinate live".to_string()),
+                    working: Some("pairing live".to_string()),
+                    touches: vec!["topic:pairing".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: vec!["session-peer".to_string()],
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-peer".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-peer".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Clawcontrol".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-peer".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/peer".to_string()),
+                    worktree_root: Some("/repo/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Pair on overlap".to_string()),
+                    scope_claims: vec!["task:pairing".to_string()],
+                    task_id: Some("pairing".to_string()),
+                    focus: Some("Pair on overlap".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: Some("coordinate live".to_string()),
+                    working: Some("pairing live".to_string()),
+                    touches: vec!["topic:pairing".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: vec!["session-current".to_string()],
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("cowork_active"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("Clawcontrol"));
+        assert_eq!(
+            current.relationship_reason.as_deref(),
+            Some("mutual cowork coordination")
+        );
+        assert_eq!(current.suggested_action.as_deref(), Some("coordinate_live"));
+    }
+
+    #[test]
+    fn annotate_hive_relationships_marks_handoff_ready_for_live_target_boundary() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Prepare handoff".to_string()),
+                    scope_claims: vec!["task:handoff".to_string()],
+                    task_id: Some("handoff".to_string()),
+                    focus: Some("Prepare handoff".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: Some("handoff to peer".to_string()),
+                    working: Some("prepare handoff".to_string()),
+                    touches: vec!["task:handoff".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: Some("session-peer".to_string()),
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: Some("outgoing".to_string()),
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-peer".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-peer".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Clawcontrol".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-peer".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/peer".to_string()),
+                    worktree_root: Some("/repo/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Receive handoff".to_string()),
+                    scope_claims: vec!["task:handoff".to_string()],
+                    task_id: Some("handoff".to_string()),
+                    focus: Some("Receive handoff".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: Some("follow handoff".to_string()),
+                    working: Some("receive handoff".to_string()),
+                    touches: vec!["task:handoff".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: Some("incoming".to_string()),
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("handoff_ready"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("Clawcontrol"));
+        assert_eq!(
+            current.relationship_reason.as_deref(),
+            Some("live handoff boundary detected")
+        );
+        assert_eq!(current.suggested_action.as_deref(), Some("follow_handoff"));
     }
 
     #[test]
@@ -52294,6 +53093,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -52494,10 +53297,14 @@ mod tests {
                 next_action: Some("Reply with review notes".to_string()),
                 working: None,
                 touches: Vec::new(),
-                relationship_state: None,
+                blocked_by: vec!["session-avicenna".to_string()],
+                cowork_with: vec!["session-avicenna".to_string()],
+                handoff_target: Some("session-avicenna".to_string()),
+                offered_to: Vec::new(),
+                relationship_state: Some("blocked".to_string()),
                 relationship_peer: None,
                 relationship_reason: None,
-                suggested_action: None,
+                suggested_action: Some("wait_for_peer".to_string()),
                 needs_help: false,
                 needs_review: true,
                 handoff_state: None,
@@ -52568,6 +53375,10 @@ mod tests {
         let summary = render_hive_follow_summary(&response);
         assert!(summary.contains("hive_follow worker=Lorentz session=session-lorentz"));
         assert!(summary.contains("recommended_action=coordinate_now"));
+        assert!(summary.contains("relation=blocked"));
+        assert!(summary.contains("blocked_by=session-avicenna"));
+        assert!(summary.contains("cowork_with=session-avicenna"));
+        assert!(summary.contains("handoff_target=session-avicenna"));
         assert!(summary.contains("overlap_risk=confirmed hive overlap"));
         assert!(summary.contains("## Messages"));
         assert!(summary.contains("Stay on parser review and avoid render.rs."));
@@ -52618,10 +53429,14 @@ mod tests {
                 next_action: Some("Reply with review notes".to_string()),
                 working: None,
                 touches: Vec::new(),
-                relationship_state: None,
+                blocked_by: vec!["session-avicenna".to_string()],
+                cowork_with: vec!["session-avicenna".to_string()],
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: Some("blocked".to_string()),
                 relationship_peer: None,
                 relationship_reason: None,
-                suggested_action: None,
+                suggested_action: Some("wait_for_peer".to_string()),
                 needs_help: false,
                 needs_review: true,
                 handoff_state: None,
@@ -52831,10 +53646,14 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
-                relationship_state: None,
+                blocked_by: vec!["session-avicenna".to_string()],
+                cowork_with: vec!["session-avicenna".to_string()],
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: Some("blocked".to_string()),
                 relationship_peer: None,
                 relationship_reason: None,
-                suggested_action: None,
+                suggested_action: Some("wait_for_peer".to_string()),
                 needs_help: false,
                 needs_review: true,
                 handoff_state: None,
@@ -52858,6 +53677,10 @@ mod tests {
         assert!(summary.contains("## Review Queue"));
         assert!(summary.contains("## Recommended Actions"));
         assert!(summary.contains("Lorentz (session-lorentz)"));
+        assert!(summary.contains("relation=blocked"));
+        assert!(summary.contains("action=wait_for_peer"));
+        assert!(summary.contains("blocked_by=session-avicenna"));
+        assert!(summary.contains("cowork_with=session-avicenna"));
     }
 
     #[test]
@@ -52901,6 +53724,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53000,6 +53827,10 @@ mod tests {
                 next_action: Some("finish overlap guard cleanup".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53049,6 +53880,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53212,6 +54047,10 @@ mod tests {
                 next_action: Some("Send parser handoff".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53261,6 +54100,10 @@ mod tests {
                 next_action: Some("Review parser handoff".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53428,6 +54271,10 @@ mod tests {
                     "file:crates/memd-client/src/main.rs".to_string(),
                     "task:hive-awareness".to_string(),
                 ],
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -53643,6 +54490,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53692,6 +54543,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -53877,6 +54732,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -53913,6 +54772,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(10)),
                 },
                 ProjectAwarenessEntry {
@@ -53949,6 +54812,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(9)),
                 },
             ],
@@ -53998,6 +54865,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
             vec![ProjectAwarenessEntry {
@@ -54034,6 +54905,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(10)),
             }],
         );
@@ -54082,6 +54957,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
             vec![ProjectAwarenessEntry {
@@ -54118,6 +54997,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
         );
@@ -54172,6 +55055,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: None,
             },
             ProjectAwarenessEntry {
@@ -54208,6 +55095,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: None,
             },
         ]);
@@ -54258,6 +55149,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: None,
             },
             ProjectAwarenessEntry {
@@ -54294,6 +55189,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: None,
             },
         ]);
@@ -54360,6 +55259,10 @@ mod tests {
             next_action: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             needs_help: false,
             needs_review: false,
             handoff_state: None,
@@ -54486,6 +55389,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -54573,6 +55480,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -54693,6 +55604,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -54764,6 +55679,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -55014,6 +55933,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -55718,6 +56641,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -56051,6 +56978,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 relationship_state: None,
                 relationship_peer: None,
                 relationship_reason: None,
@@ -56100,6 +57031,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(8)),
             },
             "recovered to codex-fresh",
@@ -57334,6 +58269,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -59081,6 +60020,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -59727,6 +60670,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -59822,6 +60769,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(9)),
         });
         awareness.entries.push(ProjectAwarenessEntry {
@@ -59858,6 +60809,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(30)),
         });
         awareness.entries.push(ProjectAwarenessEntry {
@@ -59894,6 +60849,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(12)),
         });
         let summary = render_project_awareness_summary(&awareness);
@@ -60468,6 +61427,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(now),
         }];
         let claims = vec![
@@ -60721,6 +61684,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(Utc::now()),
                 },
                 ProjectAwarenessEntry {
@@ -60757,6 +61724,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(Utc::now()),
                 },
             ],
@@ -60837,6 +61808,10 @@ mod tests {
                 next_recovery: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
         };
@@ -61258,6 +62233,10 @@ mod tests {
                     next_recovery: None,
                     working: None,
                     touches: Vec::new(),
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
                     last_updated: Some(Utc::now()),
                 }],
                 recovery: CoordinationRecoverySummary {
@@ -61298,6 +62277,10 @@ mod tests {
                         next_recovery: None,
                         working: None,
                         touches: Vec::new(),
+                        blocked_by: Vec::new(),
+                        cowork_with: Vec::new(),
+                        handoff_target: None,
+                        offered_to: Vec::new(),
                         last_updated: Some(Utc::now()),
                     }],
                 },
@@ -61376,6 +62359,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(Utc::now()),
         };
 
@@ -61438,6 +62425,10 @@ mod tests {
             next_recovery: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             last_updated: Some(Utc::now()),
         };
 
@@ -62121,6 +63112,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -62246,6 +63241,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -62370,6 +63369,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -62493,6 +63496,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -66672,6 +67679,10 @@ mod tests {
             next_action: None,
             working: None,
             touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
             needs_help: false,
             needs_review: false,
             handoff_state: None,

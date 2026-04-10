@@ -2318,6 +2318,33 @@ impl SqliteStore {
             relationship_peer: None,
             relationship_reason: None,
             suggested_action: None,
+            blocked_by: request
+                .blocked_by
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            cowork_with: request
+                .cowork_with
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            handoff_target: request
+                .handoff_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            offered_to: request
+                .offered_to
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
             needs_help: request.needs_help,
             needs_review: request.needs_review,
             handoff_state: request
@@ -2627,6 +2654,7 @@ impl SqliteStore {
             })
             .map(|session| session.session.clone());
 
+        let visible_sessions = Self::annotate_hive_relationships(visible_sessions);
         let active_session_ids = visible_sessions
             .iter()
             .filter(|session| matches!(session.status.as_str(), "active" | "live"))
@@ -2659,20 +2687,57 @@ impl SqliteStore {
             .filter(|receipt| receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
-        let overlap_risks = receipts
+        let overlap_risks = active_bees
             .iter()
-            .filter(|receipt| is_hive_overlap_receipt(receipt))
-            .map(|receipt| receipt.summary.clone())
+            .filter(|bee| matches!(bee.relationship_state.as_deref(), Some("conflict" | "near")))
+            .map(|bee| {
+                format!(
+                    "{} {}",
+                    bee.relationship_state.as_deref().unwrap_or("near"),
+                    bee.relationship_reason.as_deref().unwrap_or("peer overlap")
+                )
+            })
+            .chain(
+                receipts
+                    .iter()
+                    .filter(|receipt| is_hive_overlap_receipt(receipt))
+                    .map(|receipt| receipt.summary.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
-        let blocked_bees = receipts
+        let blocked_bees = active_bees
             .iter()
-            .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
-            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
-            .map(|receipt| receipt.summary.clone())
+            .filter(|bee| bee.relationship_state.as_deref() == Some("blocked"))
+            .map(|bee| {
+                format!(
+                    "{} waiting on {}",
+                    bee.worker_name.as_deref().unwrap_or(&bee.session),
+                    bee.relationship_peer.as_deref().unwrap_or("peer")
+                )
+            })
+            .chain(
+                receipts
+                    .iter()
+                    .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
+                    .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+                    .map(|receipt| receipt.summary.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
         let mut recommended_actions = Vec::new();
         for session in &stale_bees {
             recommended_actions.push(format!("retire {}", session));
+        }
+        for bee in &active_bees {
+            if let Some(action) = bee.suggested_action.as_deref() {
+                recommended_actions.push(format!(
+                    "{} {}",
+                    action,
+                    bee.relationship_reason.as_deref().unwrap_or("peer coordination")
+                ));
+            }
         }
         for receipt in receipts
             .iter()
@@ -2743,6 +2808,8 @@ impl SqliteStore {
             })
             .map(|session| session.session.clone());
 
+        let visible_sessions = Self::annotate_hive_relationships(visible_sessions);
+
         Ok(HiveRosterResponse {
             project: request
                 .project
@@ -2778,6 +2845,7 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .sessions;
+        let sessions = Self::annotate_hive_relationships(sessions);
         let target = sessions
             .iter()
             .find(|session| session.session == request.session)
@@ -2819,29 +2887,35 @@ impl SqliteStore {
                     .find(|session| session.session == current_session)?;
                 hive_follow_overlap_risk(current, &target)
             });
-        let recommended_action = if overlap_risk.is_some() {
-            "coordinate_now".to_string()
-        } else if !inbox.review_tasks.is_empty()
-            || !inbox.help_tasks.is_empty()
-            || !inbox.messages.is_empty()
-        {
-            "watch_and_coordinate".to_string()
-        } else {
-            "safe_to_continue".to_string()
-        };
+        let recommended_action = target
+            .suggested_action
+            .clone()
+            .unwrap_or_else(|| {
+                if overlap_risk.is_some() {
+                    "coordinate_now".to_string()
+                } else if !inbox.review_tasks.is_empty()
+                    || !inbox.help_tasks.is_empty()
+                    || !inbox.messages.is_empty()
+                {
+                    "watch_and_coordinate".to_string()
+                } else {
+                    "safe_to_continue".to_string()
+                }
+            });
 
         Ok(memd_schema::HiveFollowResponse {
             current_session: request.current_session.clone(),
             target: target.clone(),
             work_summary: target
-                .topic_claim
+                .working
                 .clone()
+                .or_else(|| target.topic_claim.clone())
                 .or_else(|| target.focus.clone())
                 .unwrap_or_else(|| "none".to_string()),
-            touch_points: if target.scope_claims.is_empty() {
-                Vec::new()
-            } else {
+            touch_points: if target.touches.is_empty() {
                 target.scope_claims.clone()
+            } else {
+                target.touches.clone()
             },
             next_action: target.next_action.clone(),
             messages: inbox.messages,
@@ -3165,6 +3239,51 @@ impl SqliteStore {
         }
 
         Ok(HiveSessionAutoRetireResponse { retired })
+    }
+
+    fn annotate_hive_relationships(
+        bees: Vec<HiveSessionRecord>,
+    ) -> Vec<HiveSessionRecord> {
+        let snapshot = bees.clone();
+        bees.into_iter()
+            .map(|mut bee| {
+                let best = snapshot
+                    .iter()
+                    .filter(|peer| peer.session != bee.session)
+                    .filter_map(|peer| {
+                        derive_store_hive_relationship(&bee, peer).map(|(state, reason, action)| {
+                            let peer_label = peer
+                                .display_name
+                                .clone()
+                                .or_else(|| peer.worker_name.clone())
+                                .or_else(|| peer.agent.clone())
+                                .unwrap_or_else(|| peer.session.clone());
+                            (
+                                store_hive_relationship_rank(&state),
+                                peer_label,
+                                state,
+                                reason,
+                                action,
+                            )
+                        })
+                    })
+                    .max_by(|left, right| {
+                        left.0
+                            .cmp(&right.0)
+                            .then_with(|| right.1.cmp(&left.1))
+                            .then_with(|| right.3.cmp(&left.3))
+                    });
+
+                if let Some((_, peer, state, reason, action)) = best {
+                    bee.relationship_state = Some(state);
+                    bee.relationship_peer = Some(peer);
+                    bee.relationship_reason = Some(reason);
+                    bee.suggested_action = Some(action);
+                }
+
+                bee
+            })
+            .collect()
     }
 
     pub fn upsert_hive_task(
@@ -3899,6 +4018,10 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
     merge_option_string(&mut target.next_action, &fallback.next_action);
     merge_option_string(&mut target.working, &fallback.working);
     merge_string_vec(&mut target.touches, &fallback.touches);
+    merge_string_vec(&mut target.blocked_by, &fallback.blocked_by);
+    merge_string_vec(&mut target.cowork_with, &fallback.cowork_with);
+    merge_option_string(&mut target.handoff_target, &fallback.handoff_target);
+    merge_string_vec(&mut target.offered_to, &fallback.offered_to);
     target.needs_help = target.needs_help || fallback.needs_help;
     target.needs_review = target.needs_review || fallback.needs_review;
     merge_option_string(&mut target.handoff_state, &fallback.handoff_state);
@@ -3925,6 +4048,101 @@ fn merge_identity_option_string(target: &mut Option<String>, fallback: &Option<S
         }
         _ => {}
     }
+}
+
+fn store_hive_relationship_rank(state: &str) -> u8 {
+    match state {
+        "conflict" => 5,
+        "blocked" => 4,
+        "cowork_active" => 3,
+        "handoff_ready" => 2,
+        "near" => 1,
+        _ => 0,
+    }
+}
+
+fn store_hive_relationship_annotation(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if let Some(topic) = trimmed.strip_prefix("topic:") {
+        let topic = topic.trim();
+        return (!topic.is_empty()).then(|| topic.to_string());
+    }
+    if let Some(area) = trimmed.strip_prefix("area:") {
+        let area = area.trim();
+        return (!area.is_empty()).then(|| area.to_string());
+    }
+    None
+}
+
+fn derive_store_hive_relationship(
+    current: &HiveSessionRecord,
+    peer: &HiveSessionRecord,
+) -> Option<(String, String, String)> {
+    if current.blocked_by.iter().any(|value| value == &peer.session) {
+        return Some((
+            "blocked".to_string(),
+            format!("waiting on peer {}", peer.session),
+            "wait_for_peer".to_string(),
+        ));
+    }
+
+    let current_cowork = current.cowork_with.iter().any(|value| value == &peer.session);
+    let peer_cowork = peer.cowork_with.iter().any(|value| value == &current.session);
+    if current_cowork && peer_cowork {
+        return Some((
+            "cowork_active".to_string(),
+            "mutual cowork coordination".to_string(),
+            "coordinate_live".to_string(),
+        ));
+    }
+
+    if current.handoff_target.as_deref() == Some(peer.session.as_str())
+        || peer.handoff_target.as_deref() == Some(current.session.as_str())
+    {
+        return Some((
+            "handoff_ready".to_string(),
+            "live handoff boundary detected".to_string(),
+            "follow_handoff".to_string(),
+        ));
+    }
+
+    let current_touches = current.touches.iter().collect::<std::collections::BTreeSet<_>>();
+    let peer_touches = peer.touches.iter().collect::<std::collections::BTreeSet<_>>();
+    let exact = current_touches
+        .intersection(&peer_touches)
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        return Some((
+            "conflict".to_string(),
+            format!("shared touch {}", exact.join(",")),
+            "stop_and_cowork".to_string(),
+        ));
+    }
+
+    let current_annotations = current
+        .touches
+        .iter()
+        .filter_map(|value| store_hive_relationship_annotation(value))
+        .collect::<std::collections::BTreeSet<_>>();
+    let peer_annotations = peer
+        .touches
+        .iter()
+        .filter_map(|value| store_hive_relationship_annotation(value))
+        .collect::<std::collections::BTreeSet<_>>();
+    let nearby = current_annotations
+        .intersection(&peer_annotations)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !nearby.is_empty() {
+        return Some((
+            "near".to_string(),
+            format!("shared area {}", nearby.join(",")),
+            "cowork".to_string(),
+        ));
+    }
+
+    None
 }
 
 fn should_prefer_identity_value(current: &str, candidate: &str) -> bool {
@@ -5185,6 +5403,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5231,6 +5453,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5322,6 +5548,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5368,6 +5598,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5460,6 +5694,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5542,6 +5780,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5588,6 +5830,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5634,6 +5880,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5764,6 +6014,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5911,6 +6165,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -5958,6 +6216,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6005,6 +6267,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6158,6 +6424,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6205,6 +6475,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6291,6 +6565,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6338,6 +6616,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6417,6 +6699,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6464,6 +6750,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6544,6 +6834,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6641,6 +6935,10 @@ mod tests {
                 next_action: Some("focus: task-current-noise".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6688,6 +6986,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6765,6 +7067,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -6898,6 +7204,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -7019,6 +7329,10 @@ mod tests {
                 next_action: Some("focus: task-current-noise".to_string()),
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -7096,6 +7410,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -7210,6 +7528,10 @@ mod tests {
                 next_action: None,
                 working: None,
                 touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -7245,6 +7567,134 @@ mod tests {
         assert!(board.blocked_bees.is_empty());
         assert!(board.lane_faults.is_empty());
         assert!(board.recommended_actions.is_empty());
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_follow_prefers_relationship_derived_recommended_action() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-follow-relation-action-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(601),
+                topic_claim: Some("Wait on peer".to_string()),
+                scope_claims: vec!["task:coordination".to_string()],
+                task_id: Some("coordination".to_string()),
+                focus: Some("Wait on peer".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("wait".to_string()),
+                working: Some("waiting on peer".to_string()),
+                touches: vec!["task:coordination".to_string()],
+                blocked_by: vec!["worker-2".to_string()],
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert blocked worker");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-2".to_string(),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@worker-2".to_string()),
+                hive_system: Some("claude-code".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(602),
+                topic_claim: Some("Unblock peer".to_string()),
+                scope_claims: vec!["task:peer".to_string()],
+                task_id: Some("peer".to_string()),
+                focus: Some("Unblock peer".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                working: Some("unblocking peer".to_string()),
+                touches: vec!["task:peer".to_string()],
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert peer worker");
+
+        let follow = store
+            .hive_follow(&memd_schema::HiveFollowRequest {
+                session: "worker-1".to_string(),
+                current_session: Some("worker-2".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive follow");
+
+        assert_eq!(follow.target.relationship_state.as_deref(), Some("blocked"));
+        assert_eq!(follow.target.relationship_peer.as_deref(), Some("Noether"));
+        assert_eq!(follow.recommended_action, "wait_for_peer");
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
