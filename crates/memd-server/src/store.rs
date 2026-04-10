@@ -3829,8 +3829,8 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
     merge_option_string(&mut target.effective_agent, &fallback.effective_agent);
     merge_option_string(&mut target.hive_system, &fallback.hive_system);
     merge_option_string(&mut target.hive_role, &fallback.hive_role);
-    merge_option_string(&mut target.worker_name, &fallback.worker_name);
-    merge_option_string(&mut target.display_name, &fallback.display_name);
+    merge_identity_option_string(&mut target.worker_name, &fallback.worker_name);
+    merge_identity_option_string(&mut target.display_name, &fallback.display_name);
     merge_option_string(&mut target.role, &fallback.role);
     merge_string_vec(&mut target.capabilities, &fallback.capabilities);
     merge_string_vec(&mut target.hive_groups, &fallback.hive_groups);
@@ -3874,6 +3874,60 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
 fn merge_option_string(target: &mut Option<String>, fallback: &Option<String>) {
     if target.is_none() {
         *target = fallback.clone();
+    }
+}
+
+fn merge_identity_option_string(target: &mut Option<String>, fallback: &Option<String>) {
+    match (target.as_deref(), fallback.as_deref()) {
+        (None, Some(_)) => {
+            *target = fallback.clone();
+        }
+        (Some(current), Some(candidate)) if should_prefer_identity_value(current, candidate) => {
+            *target = Some(candidate.to_string());
+        }
+        _ => {}
+    }
+}
+
+fn should_prefer_identity_value(current: &str, candidate: &str) -> bool {
+    let current = current.trim();
+    let candidate = candidate.trim();
+    if current.is_empty() {
+        return !candidate.is_empty();
+    }
+    if candidate.is_empty() {
+        return false;
+    }
+    if current.eq_ignore_ascii_case(candidate) && current != candidate {
+        return true;
+    }
+    hive_identity_specificity_score(candidate) > hive_identity_specificity_score(current)
+}
+
+fn hive_identity_specificity_score(value: &str) -> u8 {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized == "codex"
+        || normalized == "claude-code"
+        || normalized == "agent-shell"
+        || normalized == "agent"
+        || normalized == "worker"
+    {
+        return 1;
+    }
+    let has_uppercase = trimmed.chars().any(|ch| ch.is_ascii_uppercase());
+    let has_digits = trimmed.chars().any(|ch| ch.is_ascii_digit());
+    let has_symbol = trimmed
+        .chars()
+        .any(|ch| matches!(ch, '-' | '_' | '@' | '/' | '\\'));
+    match (has_uppercase, has_digits || has_symbol) {
+        (true, false) => 4,
+        (true, true) => 3,
+        (false, false) => 2,
+        (false, true) => 1,
     }
 }
 
@@ -6077,6 +6131,129 @@ mod tests {
             session.capabilities,
             vec!["coordination".to_string(), "memory".to_string()]
         );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_collapse_duplicate_rows_prefers_stronger_newer_worker_identity() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-identity-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-openclaw".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("openclaw".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert older generic identity row");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-openclaw".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Openclaw".to_string()),
+                display_name: Some("Openclaw".to_string()),
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(456),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert newer human identity row");
+
+        let response = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-openclaw".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query merged session");
+
+        assert_eq!(response.sessions.len(), 1);
+        let session = &response.sessions[0];
+        assert_eq!(session.worker_name.as_deref(), Some("Openclaw"));
+        assert_eq!(session.display_name.as_deref(), Some("Openclaw"));
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
