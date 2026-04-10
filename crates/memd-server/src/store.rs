@@ -2950,11 +2950,59 @@ impl SqliteStore {
             });
         }
 
+        let mut all_targets = std::collections::BTreeMap::new();
+        for (session_key, record) in targets {
+            all_targets.insert(session_key, record);
+        }
+
+        let scope_keys = all_targets
+            .values()
+            .map(|record| {
+                (
+                    record.session.clone(),
+                    record.project.clone(),
+                    record.namespace.clone(),
+                    record.workspace.clone(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let conn = self.connect()?;
+        for (scope_session, scope_project, scope_namespace, scope_workspace) in scope_keys {
+            let mut sibling_stmt = conn.prepare(
+                r#"
+                SELECT session_key, payload_json
+                FROM hive_sessions
+                WHERE session = ?1
+                  AND ((project IS NULL AND ?2 IS NULL) OR project = ?2)
+                  AND ((namespace IS NULL AND ?3 IS NULL) OR namespace = ?3)
+                  AND ((workspace IS NULL AND ?4 IS NULL) OR workspace = ?4)
+                "#,
+            )?;
+            let sibling_rows = sibling_stmt.query_map(
+                params![
+                    scope_session,
+                    scope_project,
+                    scope_namespace,
+                    scope_workspace,
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?;
+
+            for row in sibling_rows {
+                let (session_key, payload) = row.context("read sibling hive session retire row")?;
+                all_targets.entry(session_key).or_insert(
+                    serde_json::from_str::<HiveSessionRecord>(&payload)
+                        .context("deserialize sibling retired hive session payload")?,
+                );
+            }
+        }
+
         let mut conn = self.connect()?;
         let tx = conn
             .transaction()
             .context("begin hive session retire transaction")?;
-        for (session_key, _) in &targets {
+        for session_key in all_targets.keys() {
             tx.execute(
                 "DELETE FROM hive_session_groups WHERE session_key = ?1",
                 params![session_key],
@@ -2968,8 +3016,8 @@ impl SqliteStore {
             .context("commit hive session retire transaction")?;
 
         Ok(HiveSessionRetireResponse {
-            retired: targets.len(),
-            sessions: targets.into_iter().map(|(_, record)| record).collect(),
+            retired: all_targets.len(),
+            sessions: all_targets.into_values().collect(),
         })
     }
 
@@ -5307,7 +5355,7 @@ mod tests {
     }
 
     #[test]
-    fn retire_hive_session_removes_only_matching_identity() {
+    fn retire_hive_session_removes_scope_sibling_rows_for_same_session() {
         let dir = std::env::temp_dir().join(format!("memd-hive-retire-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
@@ -5400,6 +5448,50 @@ mod tests {
                 status: Some("live".to_string()),
             })
             .expect("insert claude session");
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-c".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("other".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert other workspace session");
 
         let retired = store
             .retire_hive_session(&HiveSessionRetireRequest {
@@ -5418,8 +5510,15 @@ mod tests {
                 reason: Some("superseded".to_string()),
             })
             .expect("retire codex session");
-        assert_eq!(retired.retired, 1);
-        assert_eq!(retired.sessions[0].agent.as_deref(), Some("codex"));
+        assert_eq!(retired.retired, 2);
+        assert!(retired
+            .sessions
+            .iter()
+            .any(|record| record.agent.as_deref() == Some("codex")));
+        assert!(retired
+            .sessions
+            .iter()
+            .any(|record| record.agent.as_deref() == Some("claude-code")));
 
         let sessions = store
             .hive_sessions(&HiveSessionsRequest {
@@ -5438,8 +5537,30 @@ mod tests {
                 limit: Some(8),
             })
             .expect("query remaining sessions");
-        assert_eq!(sessions.sessions.len(), 1);
-        assert_eq!(sessions.sessions[0].agent.as_deref(), Some("claude-code"));
+        assert_eq!(sessions.sessions.len(), 0);
+
+        let other_workspace_sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("other".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("query other workspace sessions");
+        assert_eq!(other_workspace_sessions.sessions.len(), 1);
+        assert_eq!(
+            other_workspace_sessions.sessions[0].workspace.as_deref(),
+            Some("other")
+        );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
