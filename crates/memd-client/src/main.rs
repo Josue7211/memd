@@ -54950,45 +54950,58 @@ mod tests {
             });
         }
 
-        let response = run_hive_cowork_command(
-            &HiveCoworkArgs {
-                output: sender_output.clone(),
-                to_session: None,
-                to_worker: Some("Noether".to_string()),
-                task_id: Some("parser-refactor".to_string()),
-                scope: vec![
-                    "task:parser-refactor".to_string(),
-                    "crates/memd-client/src/main.rs".to_string(),
-                ],
-                reason: Some("align on parser cleanup".to_string()),
-                note: Some("keep render.rs out of scope".to_string()),
-                json: false,
-                summary: false,
-            },
-            &base_url,
-            "request",
-        )
-        .await
-        .expect("run hive cowork");
+        let actions = [
+            ("request", "cowork_request"),
+            ("ack", "cowork_ack"),
+            ("decline", "cowork_decline"),
+        ];
 
-        assert_eq!(response.packet.action, "request");
-        assert_eq!(response.packet.to_session, "session-noether");
-        assert_eq!(response.packet.to_worker.as_deref(), Some("noether"));
-        assert!(response.message_id.is_some());
-        assert_eq!(response.receipt_kind, "cowork_request");
+        for (index, (action, expected_kind)) in actions.iter().enumerate() {
+            let response = run_hive_cowork_command(
+                &HiveCoworkArgs {
+                    output: sender_output.clone(),
+                    to_session: None,
+                    to_worker: Some("Noether".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: vec![
+                        "task:parser-refactor".to_string(),
+                        "crates/memd-client/src/main.rs".to_string(),
+                    ],
+                    reason: Some(format!("align on parser cleanup {action}")),
+                    note: Some("keep render.rs out of scope".to_string()),
+                    json: false,
+                    summary: false,
+                },
+                &base_url,
+                action,
+            )
+            .await
+            .expect("run hive cowork");
 
-        let messages = state.messages.lock().expect("lock runtime messages");
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].kind, "cowork_request");
-        assert_eq!(messages[0].to_session, "session-noether");
-        assert!(messages[0].content.contains("cowork_packet"));
-        assert!(messages[0].content.contains("reason=align on parser cleanup"));
+            assert_eq!(response.packet.action, *action);
+            assert_eq!(response.packet.to_session, "session-noether");
+            assert_eq!(response.packet.to_worker.as_deref(), Some("noether"));
+            assert!(response.message_id.is_some());
+            assert_eq!(response.receipt_kind, *expected_kind);
 
-        let receipts = state.receipts.lock().expect("lock runtime receipts");
-        assert_eq!(receipts.len(), 1);
-        assert_eq!(receipts[0].kind, "cowork_request");
-        assert_eq!(receipts[0].target_session.as_deref(), Some("session-noether"));
-        assert_eq!(receipts[0].task_id.as_deref(), Some("parser-refactor"));
+            let messages = state.messages.lock().expect("lock runtime messages");
+            assert_eq!(messages.len(), index + 1);
+            assert_eq!(messages[index].kind, *expected_kind);
+            assert_eq!(messages[index].to_session, "session-noether");
+            assert!(messages[index].content.contains("cowork_packet"));
+            assert!(messages[index].content.contains(&format!(
+                "reason=align on parser cleanup {action}"
+            )));
+
+            let receipts = state.receipts.lock().expect("lock runtime receipts");
+            assert_eq!(receipts.len(), index + 1);
+            assert_eq!(receipts[index].kind, *expected_kind);
+            assert_eq!(
+                receipts[index].target_session.as_deref(),
+                Some("session-noether")
+            );
+            assert_eq!(receipts[index].task_id.as_deref(), Some("parser-refactor"));
+        }
 
         fs::remove_dir_all(&dir).expect("cleanup cowork temp dir");
     }
@@ -62470,6 +62483,46 @@ mod tests {
                     offered_to: Vec::new(),
                     last_updated: Some(now),
                 },
+                ProjectAwarenessEntry {
+                    project_dir: "peer".to_string(),
+                    bundle_root: "peer/.memd".to_string(),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("agent-shell".to_string()),
+                    session: Some("session-agent-shell".to_string()),
+                    tab_id: Some("tab-shell".to_string()),
+                    effective_agent: Some("Agent Shell@session-agent-shell".to_string()),
+                    hive_system: Some("agent-shell".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["openclaw-stack".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("pair on parser cleanup".to_string()),
+                    scope_claims: vec!["task:parser-refactor".to_string()],
+                    task_id: Some("parser-refactor".to_string()),
+                    focus: Some("already coworking".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    working: Some("Pairing on parser overlap handling".to_string()),
+                    touches: vec!["task:parser-refactor".to_string()],
+                    blocked_by: Vec::new(),
+                    cowork_with: vec!["session-avicenna".to_string()],
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    last_updated: Some(now),
+                },
             ],
             &claims,
             &[],
@@ -62483,6 +62536,11 @@ mod tests {
             suggestion.action == "request_cowork"
                 && suggestion.target_session.as_deref() == Some("session-noether")
                 && suggestion.priority == "low"
+        }));
+        assert!(suggestions.iter().any(|suggestion| {
+            suggestion.action == "ack_cowork"
+                && suggestion.target_session.as_deref() == Some("session-agent-shell")
+                && suggestion.priority == "medium"
         }));
         assert!(suggestions.iter().any(|suggestion| {
             suggestion.action == "request_cowork"
