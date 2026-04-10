@@ -18336,6 +18336,7 @@ async fn write_bundle_memory_files(
         &capability_bridges,
     )?;
     write_bundle_migration_manifest(output, &manifest)?;
+    prune_bundle_compiled_memory_outputs(output)?;
     write_bundle_memory_object_pages(output, snapshot, handoff, hive.as_ref())?;
     write_agent_profiles(output)?;
     write_memory_markdown_files(output, &markdown)?;
@@ -18344,6 +18345,14 @@ async fn write_bundle_memory_files(
     write_bundle_harness_bridge_registry(output)?;
     write_bundle_resume_state(output, snapshot)?;
     write_bundle_heartbeat(output, Some(snapshot), false).await
+}
+
+fn prune_bundle_compiled_memory_outputs(output: &Path) -> anyhow::Result<()> {
+    let compiled = bundle_compiled_memory_dir(output);
+    if compiled.exists() {
+        fs::remove_dir_all(&compiled).with_context(|| format!("remove {}", compiled.display()))?;
+    }
+    Ok(())
 }
 
 fn harness_pack_enabled_for_snapshot(
@@ -50385,9 +50394,43 @@ mod tests {
         let workspace_item_page =
             fs::read_to_string(workspace_item_path).expect("read workspace item page");
         assert!(workspace_item_page.contains("## Hive"));
-        assert!(workspace_item_page.contains("focus=Lorentz") || workspace_item_page.contains("focus=bee-1"));
+        assert!(
+            workspace_item_page.contains("focus=Lorentz")
+                || workspace_item_page.contains("focus=bee-1")
+        );
 
         fs::remove_dir_all(dir).expect("cleanup memory hive page dir");
+    }
+
+    #[tokio::test]
+    async fn write_bundle_memory_files_prunes_stale_compiled_memory_outputs() {
+        let dir = std::env::temp_dir()
+            .join(format!("memd-memory-prune-{}", uuid::Uuid::new_v4()));
+        let compiled = dir.join("compiled").join("memory");
+        let stale_item = compiled.join("items/working/working-99-deadbeef.md");
+        let stale_lane = compiled.join("obsolete.md");
+        fs::create_dir_all(stale_item.parent().expect("stale item parent"))
+            .expect("create stale item dir");
+        fs::write(&stale_item, "# stale compiled item\n").expect("write stale item");
+        fs::write(&stale_lane, "# stale compiled lane\n").expect("write stale lane");
+
+        let snapshot = codex_test_snapshot("demo", "main", "codex");
+        write_bundle_memory_files(&dir, &snapshot, None, false)
+            .await
+            .expect("write bundle memory files");
+
+        assert!(
+            !stale_item.exists(),
+            "stale compiled item page should be pruned on rewrite"
+        );
+        assert!(
+            !stale_lane.exists(),
+            "stale compiled lane page should be pruned on rewrite"
+        );
+        assert!(compiled.join("working.md").exists());
+        assert!(compiled.join("context.md").exists());
+
+        fs::remove_dir_all(dir).expect("cleanup memory prune dir");
     }
 
     #[tokio::test]
