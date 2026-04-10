@@ -15791,6 +15791,16 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
         })
         .and_then(|entry| entry.session.clone());
 
+    let bees = visible_entries
+        .iter()
+        .copied()
+        .map(project_awareness_entry_to_hive_session)
+        .collect::<Vec<_>>();
+    let bees = annotate_hive_relationships(
+        bees,
+        runtime.as_ref().and_then(|config| config.session.as_deref()),
+    );
+
     Ok(HiveRosterResponse {
         project: visible_entries
             .iter()
@@ -15801,11 +15811,125 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
             .find_map(|entry| entry.namespace.clone())
             .unwrap_or_else(|| "default".to_string()),
         queen_session,
-        bees: visible_entries
-            .into_iter()
-            .map(project_awareness_entry_to_hive_session)
-            .collect(),
+        bees,
     })
+}
+
+fn annotate_hive_relationships(
+    bees: Vec<memd_schema::HiveSessionRecord>,
+    current_session: Option<&str>,
+) -> Vec<memd_schema::HiveSessionRecord> {
+    let Some(current_session) = current_session.map(str::trim).filter(|value| !value.is_empty())
+    else {
+        return bees;
+    };
+
+    let snapshot = bees.clone();
+    bees.into_iter()
+        .map(|mut bee| {
+            if bee.session != current_session {
+                return bee;
+            }
+
+            let best = snapshot
+                .iter()
+                .filter(|peer| peer.session != bee.session)
+                .find_map(|peer| {
+                    derive_hive_relationship(&bee, peer).map(|(state, reason, action)| {
+                        (
+                            state,
+                            hive_actor_label(
+                                peer.display_name.as_deref(),
+                                peer.worker_name.as_deref(),
+                                peer.agent.as_deref(),
+                                Some(peer.session.as_str()),
+                            ),
+                            reason,
+                            action,
+                        )
+                    })
+                });
+
+            if let Some((state, peer, reason, action)) = best {
+                bee.relationship_state = Some(state);
+                bee.relationship_peer = Some(peer);
+                bee.relationship_reason = Some(reason);
+                bee.suggested_action = Some(action);
+            } else {
+                bee.relationship_state = Some("clear".to_string());
+                bee.relationship_peer = None;
+                bee.relationship_reason = None;
+                bee.suggested_action = Some("continue".to_string());
+            }
+
+            bee
+        })
+        .collect()
+}
+
+fn hive_relationship_annotation(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if let Some(topic) = trimmed.strip_prefix("topic:") {
+        let topic = topic.trim();
+        return (!topic.is_empty()).then(|| topic.to_string());
+    }
+    if let Some(area) = trimmed.strip_prefix("area:") {
+        let area = area.trim();
+        return (!area.is_empty()).then(|| area.to_string());
+    }
+    None
+}
+
+fn derive_hive_relationship(
+    current: &memd_schema::HiveSessionRecord,
+    peer: &memd_schema::HiveSessionRecord,
+) -> Option<(String, String, String)> {
+    let current_touches = current.touches.iter().collect::<BTreeSet<_>>();
+    let peer_touches = peer.touches.iter().collect::<BTreeSet<_>>();
+
+    let exact = current_touches
+        .intersection(&peer_touches)
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        return Some((
+            "conflict".to_string(),
+            format!("shared touch {}", exact.join(",")),
+            "stop_and_cowork".to_string(),
+        ));
+    }
+
+    let current_annotations = current
+        .touches
+        .iter()
+        .filter_map(|value| hive_relationship_annotation(value))
+        .collect::<BTreeSet<_>>();
+    let peer_annotations = peer
+        .touches
+        .iter()
+        .filter_map(|value| hive_relationship_annotation(value))
+        .collect::<BTreeSet<_>>();
+    let nearby = current_annotations
+        .intersection(&peer_annotations)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !nearby.is_empty() {
+        return Some((
+            "near".to_string(),
+            format!("shared area {}", nearby.join(",")),
+            "cowork".to_string(),
+        ));
+    }
+
+    if current.needs_help || current.needs_review {
+        return Some((
+            "blocked".to_string(),
+            "waiting on peer coordination".to_string(),
+            "handoff_or_review".to_string(),
+        ));
+    }
+
+    None
 }
 
 async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFollowResponse> {
@@ -51639,6 +51763,131 @@ mod tests {
     }
 
     #[test]
+    fn annotate_hive_relationships_marks_near_for_related_touches() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Session merge cleanup".to_string()),
+                    scope_claims: vec!["task:hive-awareness".to_string()],
+                    task_id: Some("hive-awareness".to_string()),
+                    focus: Some("Session merge cleanup".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("session merge cleanup".to_string()),
+                    touches: vec![
+                        "file:crates/memd-client/src/main.rs".to_string(),
+                        "topic:session-merge".to_string(),
+                    ],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-peer".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-peer".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Clawcontrol".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-peer".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/peer".to_string()),
+                    worktree_root: Some("/repo/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Pair on session merge".to_string()),
+                    scope_claims: vec!["task:peer-awareness".to_string()],
+                    task_id: Some("peer-awareness".to_string()),
+                    focus: Some("Pair on session merge".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("pair on session merge".to_string()),
+                    touches: vec![
+                        "file:crates/memd-schema/src/lib.rs".to_string(),
+                        "area:session-merge".to_string(),
+                    ],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("near"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("Clawcontrol"));
+        assert_eq!(
+            current.relationship_reason.as_deref(),
+            Some("shared area session-merge")
+        );
+        assert_eq!(current.suggested_action.as_deref(), Some("cowork"));
+    }
+
+    #[test]
     fn render_hive_roster_summary_prefers_display_name_for_generic_workers() {
         let response = HiveRosterResponse {
             project: "memd".to_string(),
@@ -52874,6 +53123,109 @@ mod tests {
         );
 
         fs::remove_dir_all(&dir).expect("cleanup follow awareness dir");
+    }
+
+    #[tokio::test]
+    async fn run_hive_roster_command_uses_group_awareness_for_cross_project_members() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-hive-roster-cross-project-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let current_project = root.join("current");
+        let peer_project = root.join("peer");
+        let current_bundle = current_project.join(".memd");
+        let peer_bundle = peer_project.join(".memd");
+        fs::create_dir_all(current_bundle.join("state")).expect("create current bundle");
+        fs::create_dir_all(peer_bundle.join("state")).expect("create peer bundle");
+
+        fs::write(
+            current_bundle.join("config.json"),
+            r#"{
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:59999",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            peer_bundle.join("config.json"),
+            r#"{
+  "project": "memd-helper",
+  "namespace": "main",
+  "agent": "claude-code",
+  "session": "claude-b",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:59999",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write peer config");
+
+        fs::write(
+            current_bundle.join("state/last-resume.json"),
+            serde_json::to_string_pretty(&BundleResumeState {
+                focus: Some("session merge cleanup".to_string()),
+                pressure: Some("location=topic:session-merge".to_string()),
+                next_recovery: None,
+                lane: None,
+                working_records: 1,
+                inbox_items: 1,
+                rehydration_items: 0,
+                recorded_at: Utc::now(),
+            })
+            .expect("serialize current resume"),
+        )
+        .expect("write current resume");
+
+        let mut peer_heartbeat =
+            test_hive_heartbeat_state("claude-b", "claude-code", "tab-b", "live", Utc::now());
+        peer_heartbeat.worker_name = Some("Clawcontrol".to_string());
+        peer_heartbeat.display_name = Some("Clawcontrol".to_string());
+        peer_heartbeat.project = Some("memd-helper".to_string());
+        peer_heartbeat.hive_groups = vec!["project:openclaw".to_string()];
+        peer_heartbeat.working = Some("pair on session merge".to_string());
+        peer_heartbeat.touches = vec![
+            "file:crates/memd-schema/src/lib.rs".to_string(),
+            "area:session-merge".to_string(),
+        ];
+        write_test_bundle_heartbeat(&peer_bundle, &peer_heartbeat);
+
+        let response = run_hive_roster_command(&HiveRosterArgs {
+            output: current_bundle.clone(),
+            json: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive roster");
+
+        assert_eq!(response.bees.len(), 2);
+        let current = response
+            .bees
+            .iter()
+            .find(|bee| bee.session == "codex-a")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("near"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("Claude claude-b"));
+        assert_eq!(current.suggested_action.as_deref(), Some("cowork"));
+        assert!(
+            response
+                .bees
+                .iter()
+                .any(|bee| bee.session == "claude-b" && bee.project.as_deref() == Some("memd-helper"))
+        );
+
+        fs::remove_dir_all(&root).expect("cleanup temp dir");
     }
 
     #[tokio::test]
