@@ -17154,11 +17154,12 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
         response.queen_session.as_deref().unwrap_or("none"),
     )];
     for bee in &response.bees {
-        let worker = bee
-            .worker_name
-            .as_deref()
-            .or(bee.agent.as_deref())
-            .unwrap_or("unnamed");
+        let worker = hive_actor_label(
+            bee.display_name.as_deref(),
+            bee.worker_name.as_deref(),
+            bee.agent.as_deref(),
+            Some(bee.session.as_str()),
+        );
         let lane = bee
             .lane_id
             .as_deref()
@@ -17187,12 +17188,12 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
 }
 
 fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
-    let worker = response
-        .target
-        .worker_name
-        .as_deref()
-        .or(response.target.agent.as_deref())
-        .unwrap_or("unnamed");
+    let worker = hive_actor_label(
+        response.target.display_name.as_deref(),
+        response.target.worker_name.as_deref(),
+        response.target.agent.as_deref(),
+        Some(response.target.session.as_str()),
+    );
     let lane = response
         .target
         .lane_id
@@ -17381,11 +17382,12 @@ fn render_hive_board_summary(response: &HiveBoardResponse) -> String {
         lines.push("- none".to_string());
     } else {
         for bee in &response.active_bees {
-            let worker = bee
-                .worker_name
-                .as_deref()
-                .or(bee.agent.as_deref())
-                .unwrap_or("unnamed");
+            let worker = hive_actor_label(
+                bee.display_name.as_deref(),
+                bee.worker_name.as_deref(),
+                bee.agent.as_deref(),
+                Some(bee.session.as_str()),
+            );
             lines.push(format!(
                 "- {} ({}) role={} lane={} task={}",
                 worker,
@@ -18887,6 +18889,15 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
         {
             state.topic_claim = Some(task.title.clone());
         }
+        if state.display_name.is_none()
+            && state
+                .worker_name
+                .as_deref()
+                .is_some_and(hive_worker_name_is_generic)
+        {
+            state.display_name =
+                derive_hive_display_name(state.agent.as_deref(), state.session.as_deref());
+        }
         for scope in &task.claim_scopes {
             push_unique_touch_point(&mut state.scope_claims, scope);
         }
@@ -18992,6 +19003,7 @@ fn build_hive_heartbeat(
     );
     let task_id = derive_hive_task_id(&scope_claims, topic_claim.as_deref());
     let worker_name = derive_hive_worker_name(agent.as_deref(), session.as_deref());
+    let display_name = derive_hive_display_name(agent.as_deref(), session.as_deref());
     let lane_id = derive_hive_lane_id(branch.as_deref(), worktree_root.as_deref());
     Ok(BundleHeartbeatState {
         session: session.clone(),
@@ -19001,7 +19013,7 @@ fn build_hive_heartbeat(
         hive_system: runtime.hive_system,
         hive_role: runtime.hive_role.clone(),
         worker_name,
-        display_name: None,
+        display_name,
         role: runtime.hive_role.clone(),
         capabilities: runtime.capabilities,
         hive_groups: effective_hive_groups(
@@ -27490,37 +27502,47 @@ fn materialize_fixture(
             fs::create_dir_all(&session_bundle)
                 .with_context(|| format!("create {}", session_bundle.display()))?;
             let mut session_seed = seed.clone();
+            let session_agent = fixture_session_agent_name(session_label);
+            let session_identity = format!(
+                "{}-{}",
+                session_label,
+                uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
+            );
             session_seed.insert(
                 "session".to_string(),
-                JsonValue::String(session_label.to_string()),
+                JsonValue::String(session_identity.clone()),
             );
-            if index > 0 {
-                session_seed.insert(
-                    "agent".to_string(),
-                    JsonValue::String(session_label.to_string()),
-                );
+            if index > 0 || seed.get("agent").is_some() {
+                session_seed.insert("agent".to_string(), JsonValue::String(session_agent));
             }
             seed_materialized_fixture(&session_bundle, &session_seed, &fixture_vars, fixture)?;
             fixture_vars.insert(
                 format!("{session_label}_bundle"),
                 session_bundle.display().to_string(),
             );
-            fixture_vars.insert(
-                format!("{session_label}_session"),
-                session_label.to_string(),
-            );
+            fixture_vars.insert(format!("{session_label}_session"), session_identity.clone());
             session_bundles.insert(session_label.to_string(), session_bundle);
         }
         let primary_label = fixture
             .seed_sessions
             .first()
             .context("fixture seed_sessions missing primary session")?;
-        fixture_vars.insert("primary_session".to_string(), primary_label.to_string());
+        if let Some(primary_session) = fixture_vars
+            .get(&format!("{primary_label}_session"))
+            .cloned()
+        {
+            fixture_vars.insert("primary_session".to_string(), primary_session);
+        }
         if let Some(path) = session_bundles.get(primary_label) {
             fixture_vars.insert("sender_bundle".to_string(), path.display().to_string());
         }
         if let Some(target_label) = fixture.seed_sessions.get(1) {
-            fixture_vars.insert("target_session".to_string(), target_label.to_string());
+            if let Some(target_session) = fixture_vars
+                .get(&format!("{target_label}_session"))
+                .cloned()
+            {
+                fixture_vars.insert("target_session".to_string(), target_session);
+            }
             if let Some(path) = session_bundles.get(target_label) {
                 fixture_vars.insert("target_bundle".to_string(), path.display().to_string());
             }
@@ -27547,6 +27569,33 @@ fn sanitize_verifier_artifact_name(id: &str) -> String {
             _ => '-',
         })
         .collect()
+}
+
+fn fixture_session_agent_name(session_label: &str) -> String {
+    let words = session_label
+        .split(['-', '_'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let mut chars = value.chars();
+            match chars.next() {
+                Some(first) => {
+                    format!(
+                        "{}{}",
+                        first.to_uppercase(),
+                        chars.as_str().to_ascii_lowercase()
+                    )
+                }
+                None => String::new(),
+            }
+        })
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if words.is_empty() {
+        "Codex".to_string()
+    } else {
+        words.join(" ")
+    }
 }
 
 fn write_verifier_run_artifacts(
@@ -36151,6 +36200,71 @@ fn derive_hive_worker_name(agent: Option<&str>, _session: Option<&str>) -> Optio
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn hive_worker_name_is_generic(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "codex" | "claude" | "claude-code"
+    )
+}
+
+fn derive_hive_display_name(agent: Option<&str>, session: Option<&str>) -> Option<String> {
+    let agent = agent
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if !hive_worker_name_is_generic(agent) {
+        return None;
+    }
+    let session = session
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let session_suffix = session
+        .strip_prefix("session-")
+        .or_else(|| session.strip_prefix("codex-"))
+        .or_else(|| session.strip_prefix("sender-"))
+        .unwrap_or(session)
+        .trim();
+    if session_suffix.is_empty() {
+        return None;
+    }
+    let base = match agent.to_ascii_lowercase().as_str() {
+        "claude" | "claude-code" => "Claude",
+        _ => "Codex",
+    };
+    Some(format!("{base} {}", session_suffix))
+}
+
+fn hive_actor_label(
+    display_name: Option<&str>,
+    worker_name: Option<&str>,
+    agent: Option<&str>,
+    session: Option<&str>,
+) -> String {
+    display_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| derive_hive_display_name(worker_name.or(agent), session))
+        .or_else(|| {
+            worker_name
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            agent
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            session
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "unnamed".to_string())
 }
 
 fn derive_hive_next_action(
@@ -47132,6 +47246,62 @@ mod tests {
     }
 
     #[test]
+    fn render_hive_roster_summary_prefers_display_name_for_generic_workers() {
+        let response = HiveRosterResponse {
+            project: "memd".to_string(),
+            namespace: "main".to_string(),
+            queen_session: Some("session-queen".to_string()),
+            bees: vec![memd_schema::HiveSessionRecord {
+                session: "session-6d422e56".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@session-6d422e56".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: Some("Codex 6d422e56".to_string()),
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-main".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo".to_string()),
+                branch: Some("main".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Parser refactor".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            }],
+        };
+
+        let summary = render_hive_roster_summary(&response);
+        assert!(summary.contains("Codex 6d422e56 (session-6d422e56)"));
+        assert!(!summary.contains("- codex (session-6d422e56)"));
+    }
+
+    #[test]
     fn cli_parses_hive_follow_subcommand() {
         let cli = Cli::try_parse_from([
             "memd",
@@ -47914,6 +48084,19 @@ mod tests {
         assert_eq!(heartbeat.task_id.as_deref(), Some("queen-bee-awareness"));
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn derive_hive_display_name_uses_session_for_generic_agents() {
+        assert_eq!(
+            derive_hive_display_name(Some("codex"), Some("session-6d422e56")).as_deref(),
+            Some("Codex 6d422e56")
+        );
+        assert_eq!(
+            derive_hive_display_name(Some("claude-code"), Some("codex-fresh")).as_deref(),
+            Some("Claude fresh")
+        );
+        assert_eq!(derive_hive_display_name(Some("Lorentz"), Some("session-x")), None);
     }
 
     #[test]
@@ -55259,6 +55442,7 @@ mod tests {
             heartbeat.topic_claim.as_deref(),
             Some("Refine parser overlap flow")
         );
+        assert_eq!(heartbeat.display_name.as_deref(), Some("Codex a"));
         assert!(
             heartbeat
                 .scope_claims
@@ -55313,6 +55497,7 @@ mod tests {
             heartbeat.topic_claim.as_deref(),
             Some("Remote proof overlap flow")
         );
+        assert_eq!(heartbeat.display_name.as_deref(), Some("Codex a"));
     }
 
     #[test]
