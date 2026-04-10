@@ -3,6 +3,12 @@ name: ci
 on:
   push:
   pull_request:
+    paths-ignore:
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+      - ".github/CODEOWNERS"
+      - ".coderabbit.yaml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/cargo-audit.yml"
 
 jobs:
   test:
