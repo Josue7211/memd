@@ -965,6 +965,28 @@ pub struct HiveSessionAutoRetireResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveQueenActionRequest {
+    pub queen_session: String,
+    pub target_session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub scope: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveQueenActionResponse {
+    pub action: String,
+    pub target_session: Option<String>,
+    pub receipt: Option<HiveCoordinationReceiptRecord>,
+    pub message_id: Option<String>,
+    pub retired: Vec<String>,
+    pub summary: String,
+    pub follow_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveHandoffPacket {
     pub from_session: String,
     pub from_worker: Option<String>,

@@ -533,23 +533,13 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       return selectedHiveFollowSession.value || 'none';
     }}
 
-    async function postHiveReceipt(payload) {{
-      const response = await fetch('/coordination/receipts/record', {{
+    async function postHiveAction(path, payload) {{
+      const response = await fetch(path, {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(payload),
       }});
-      if (!response.ok) throw new Error(`queen receipt failed: ${{response.status}}`);
-      return response.json();
-    }}
-
-    async function postHiveMessage(payload) {{
-      const response = await fetch('/coordination/messages/send', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify(payload),
-      }});
-      if (!response.ok) throw new Error(`queen message failed: ${{response.status}}`);
+      if (!response.ok) throw new Error(`queen action failed: ${{response.status}}`);
       return response.json();
     }}
 
@@ -598,38 +588,28 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       }}
 
       if (action === 'deny-focused') {{
-        await postHiveReceipt({{
-          kind: 'queen_deny',
-          actor_session: selectedHiveBoardState.queenSession,
-          actor_agent: 'dashboard',
+        const result = await postHiveAction('/hive/queen/deny', {{
+          queen_session: selectedHiveBoardState.queenSession,
           target_session: selectedHiveFollowSession.value,
-          task_id: null,
-          scope: null,
           project: selectedHiveBoardState.project,
           namespace: selectedHiveBoardState.namespace,
           workspace: selectedHiveBoardState.workspace,
-          summary: `Queen denied overlapping lane or scope work for session ${{selectedHiveFollowSession.value}}.`,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', `Denied focused bee: ${{focusedHiveBeeLabel()}}`);
+        text('action-status', result.summary || `Denied focused bee: ${{focusedHiveBeeLabel()}}`);
         return;
       }}
 
       if (action === 'reroute-focused') {{
-        await postHiveReceipt({{
-          kind: 'queen_reroute',
-          actor_session: selectedHiveBoardState.queenSession,
-          actor_agent: 'dashboard',
+        const result = await postHiveAction('/hive/queen/reroute', {{
+          queen_session: selectedHiveBoardState.queenSession,
           target_session: selectedHiveFollowSession.value,
-          task_id: null,
-          scope: null,
           project: selectedHiveBoardState.project,
           namespace: selectedHiveBoardState.namespace,
           workspace: selectedHiveBoardState.workspace,
-          summary: `Queen ordered session ${{selectedHiveFollowSession.value}} onto a new isolated lane.`,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', `Reroute recorded for: ${{focusedHiveBeeLabel()}}`);
+        text('action-status', result.summary || `Reroute recorded for: ${{focusedHiveBeeLabel()}}`);
         return;
       }}
 
@@ -639,32 +619,17 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           throw new Error('handoff scope required');
         }}
         const note = window.prompt('Optional handoff note', '') || '';
-        await postHiveReceipt({{
-          kind: 'queen_handoff',
-          actor_session: selectedHiveBoardState.queenSession,
-          actor_agent: 'dashboard',
+        const result = await postHiveAction('/hive/queen/handoff', {{
+          queen_session: selectedHiveBoardState.queenSession,
           target_session: selectedHiveFollowSession.value,
-          task_id: null,
           scope: scope.trim(),
           project: selectedHiveBoardState.project,
           namespace: selectedHiveBoardState.namespace,
           workspace: selectedHiveBoardState.workspace,
-          summary: `Queen handed off scope ${{scope.trim()}} to session ${{selectedHiveFollowSession.value}}.`,
-        }});
-        await postHiveMessage({{
-          kind: 'handoff',
-          from_session: selectedHiveBoardState.queenSession,
-          from_agent: 'dashboard',
-          to_session: selectedHiveFollowSession.value,
-          project: selectedHiveBoardState.project,
-          namespace: selectedHiveBoardState.namespace,
-          workspace: selectedHiveBoardState.workspace,
-          content: note.trim()
-            ? `handoff_scope: ${{scope.trim()}}\\n${{note.trim()}}`
-            : `handoff_scope: ${{scope.trim()}}`,
+          note: note.trim() || null,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', `Handoff recorded for: ${{focusedHiveBeeLabel()}} on ${{scope.trim()}}`);
+        text('action-status', result.summary || `Handoff recorded for: ${{focusedHiveBeeLabel()}} on ${{scope.trim()}}`);
       }}
     }}
 

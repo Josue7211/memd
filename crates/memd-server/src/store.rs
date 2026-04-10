@@ -2420,7 +2420,6 @@ impl SqliteStore {
 
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
         let repo_root = request
             .repo_root
             .as_deref()
@@ -2498,20 +2497,19 @@ impl SqliteStore {
                   AND (?5 IS NULL OR repo_root = ?5)
                   AND (?6 IS NULL OR worktree_root = ?6)
                   AND (?7 IS NULL OR branch = ?7)
-                  AND (?8 = 0 OR last_seen >= ?9)
-                  AND (?10 IS NULL OR hive_system = ?10)
-                  AND (?11 IS NULL OR hive_role = ?11)
-                  AND (?12 IS NULL OR host = ?12)
+                  AND (?8 IS NULL OR hive_system = ?8)
+                  AND (?9 IS NULL OR hive_role = ?9)
+                  AND (?10 IS NULL OR host = ?10)
                   AND (
-                    ?13 IS NULL OR EXISTS (
+                    ?11 IS NULL OR EXISTS (
                       SELECT 1
                       FROM hive_session_groups
                       WHERE hive_session_groups.session_key = hive_sessions.session_key
-                        AND hive_session_groups.hive_group = ?13
+                        AND hive_session_groups.hive_group = ?11
                     )
                   )
                 ORDER BY last_seen DESC
-                LIMIT ?14
+                LIMIT ?12
                 "#,
             )
             .context("prepare hive sessions query")?;
@@ -2525,8 +2523,6 @@ impl SqliteStore {
                     repo_root,
                     worktree_root,
                     branch,
-                    if active_only { 1 } else { 0 },
-                    active_cutoff,
                     hive_system,
                     hive_role,
                     host,
@@ -2546,9 +2542,16 @@ impl SqliteStore {
             );
         }
 
-        Ok(HiveSessionsResponse {
-            sessions: collapse_hive_session_records(sessions),
-        })
+        let now = chrono::Utc::now();
+        let mut sessions = collapse_hive_session_records(sessions);
+        for session in sessions.iter_mut() {
+            refresh_hive_session_presence(session, now);
+        }
+        if active_only {
+            sessions.retain(|session| matches!(session.status.as_str(), "active" | "live"));
+        }
+
+        Ok(HiveSessionsResponse { sessions })
     }
 
     pub fn hive_board(&self, request: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
@@ -3091,19 +3094,29 @@ impl SqliteStore {
             })?
             .receipts;
 
-        let stale_cutoff = now - chrono::TimeDelta::minutes(15);
         let retireable = sessions
             .into_iter()
-            .filter(|session| session.last_seen < stale_cutoff)
+            .filter(|session| !hive_session_is_active_at(session, now))
             .filter(|session| {
+                if is_ephemeral_proof_hive_session(session) {
+                    return true;
+                }
                 !tasks.iter().any(|task| {
                     task.session.as_deref() == Some(session.session.as_str())
                         && task.status != "done"
                         && task.status != "closed"
                 })
             })
-            .filter(|session| !claims.iter().any(|claim| claim.session == session.session))
             .filter(|session| {
+                if is_ephemeral_proof_hive_session(session) {
+                    return true;
+                }
+                !claims.iter().any(|claim| claim.session == session.session)
+            })
+            .filter(|session| {
+                if is_ephemeral_proof_hive_session(session) {
+                    return true;
+                }
                 !receipts.iter().any(|receipt| {
                     receipt.kind == "queen_handoff"
                         && (receipt.actor_session == session.session
@@ -3953,6 +3966,44 @@ fn is_hive_overlap_receipt(receipt: &HiveCoordinationReceiptRecord) -> bool {
     receipt.kind.contains("overlap")
         || receipt.summary.contains("confirmed hive overlap")
         || receipt.summary.contains("possible_work_overlap")
+}
+
+fn is_ephemeral_proof_hive_session(session: &HiveSessionRecord) -> bool {
+    let session_name = session.session.trim();
+    session_name == "codex-fresh"
+        || session_name.starts_with("session-live-")
+        || session_name.starts_with("session-dogfood-")
+}
+
+fn hive_session_live_grace(session: &HiveSessionRecord) -> chrono::TimeDelta {
+    if is_ephemeral_proof_hive_session(session) {
+        chrono::TimeDelta::minutes(5)
+    } else {
+        chrono::TimeDelta::minutes(15)
+    }
+}
+
+fn hive_session_is_active_at(
+    session: &HiveSessionRecord,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    session.last_seen >= now - hive_session_live_grace(session)
+}
+
+fn refresh_hive_session_presence(
+    session: &mut HiveSessionRecord,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let live_grace = hive_session_live_grace(session);
+    let dead_grace = live_grace + live_grace;
+    let age = now - session.last_seen;
+    session.status = if age <= live_grace {
+        "live".to_string()
+    } else if age <= dead_grace {
+        "stale".to_string()
+    } else {
+        "dead".to_string()
+    };
 }
 
 fn is_low_signal_hive_board_session(session: &HiveSessionRecord, tasks: &[HiveTaskRecord]) -> bool {
@@ -5575,14 +5626,18 @@ mod tests {
             })
             .expect("retire codex session");
         assert_eq!(retired.retired, 2);
-        assert!(retired
-            .sessions
-            .iter()
-            .any(|record| record.agent.as_deref() == Some("codex")));
-        assert!(retired
-            .sessions
-            .iter()
-            .any(|record| record.agent.as_deref() == Some("claude-code")));
+        assert!(
+            retired
+                .sessions
+                .iter()
+                .any(|record| record.agent.as_deref() == Some("codex"))
+        );
+        assert!(
+            retired
+                .sessions
+                .iter()
+                .any(|record| record.agent.as_deref() == Some("claude-code"))
+        );
 
         let sessions = store
             .hive_sessions(&HiveSessionsRequest {
@@ -6147,8 +6202,7 @@ mod tests {
 
     #[test]
     fn hive_sessions_collapse_duplicate_rows_prefers_stronger_newer_worker_identity() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-hive-identity-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-hive-identity-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
@@ -6270,8 +6324,7 @@ mod tests {
 
     #[test]
     fn hive_sessions_collapse_does_not_backfill_generic_display_for_named_worker() {
-        let dir = std::env::temp_dir()
-            .join(format!("memd-hive-display-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-hive-display-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
@@ -6602,6 +6655,254 @@ mod tests {
         assert_eq!(board.active_bees[0].session, "worker-1");
         assert_eq!(roster.bees.len(), 1);
         assert_eq!(roster.bees[0].session, "worker-1");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_mark_proof_bees_stale_on_shorter_window() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-proof-presence-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-proof".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-proof".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Openclaw".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(611),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert proof bee");
+
+        let mut session = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(1),
+            })
+            .expect("load proof bee")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("proof bee exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(6);
+        let conn = store.connect().expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize proof bee"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("age proof bee");
+
+        let active = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(true),
+                limit: Some(8),
+            })
+            .expect("list active proof bees");
+        assert!(
+            active
+                .sessions
+                .iter()
+                .all(|session| session.session != "session-live-proof")
+        );
+
+        let all = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(1),
+            })
+            .expect("load proof bee after aging");
+        assert_eq!(all.sessions[0].status, "stale");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn auto_retire_stale_proof_bees_ignores_orphaned_proof_tasks() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-proof-retire-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-dogfood-proof".to_string(),
+                agent: Some("Avicenna".to_string()),
+                effective_agent: Some("Avicenna@session-dogfood-proof".to_string()),
+                hive_system: Some("avicenna".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(612),
+                topic_claim: Some("Dogfood parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("dogfood-parser-proof".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert proof worker");
+
+        store
+            .upsert_hive_task(&HiveTaskUpsertRequest {
+                task_id: "dogfood-parser-proof".to_string(),
+                title: "Dogfood parser lane".to_string(),
+                description: None,
+                status: Some("active".to_string()),
+                coordination_mode: Some("solo".to_string()),
+                session: Some("session-dogfood-proof".to_string()),
+                agent: Some("Avicenna".to_string()),
+                effective_agent: Some("Avicenna@session-dogfood-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: Some(false),
+                review_requested: Some(false),
+            })
+            .expect("insert proof task");
+
+        let mut session = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-dogfood-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(1),
+            })
+            .expect("load proof worker")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("proof worker exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(6);
+        let conn = store.connect().expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize proof worker"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("age proof worker");
+
+        let retired = store
+            .auto_retire_stale_hive_sessions(
+                Some("memd"),
+                Some("main"),
+                Some("shared"),
+                chrono::Utc::now(),
+            )
+            .expect("auto retire proof worker");
+        assert_eq!(retired.retired, vec!["session-dogfood-proof".to_string()]);
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
