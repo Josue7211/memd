@@ -528,6 +528,8 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       namespace: null,
       workspace: null,
     }};
+    let hiveRefreshInFlight = {{ value: false }};
+    const hiveRefreshIntervalMs = 5000;
 
     function focusedHiveBeeLabel() {{
       return selectedHiveFollowSession.value || 'none';
@@ -715,6 +717,11 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
     }}
 
     async function reloadHiveBoard(preferredSession) {{
+      if (hiveRefreshInFlight.value) {{
+        return null;
+      }}
+      hiveRefreshInFlight.value = true;
+      try {{
       const [board, roster] = await Promise.all([loadHiveBoard(), loadHiveRoster()]);
       const rosterSessions = (roster && roster.bees ? roster.bees : []).map((bee) => bee.session);
       const nextSession = preferredSession && rosterSessions.includes(preferredSession)
@@ -722,6 +729,20 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         : ((board && board.active_bees && board.active_bees[0] && board.active_bees[0].session) || null);
       await loadHiveFollow(nextSession);
       return {{ board, roster, nextSession }};
+      }} finally {{
+        hiveRefreshInFlight.value = false;
+      }}
+    }}
+
+    async function refreshHiveBoardIfVisible() {{
+      if (document.hidden) {{
+        return;
+      }}
+      try {{
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+      }} catch (error) {{
+        text('action-status', `hive refresh failed: ${{String(error)}}`);
+      }}
     }}
 
     document.addEventListener('click', (event) => {{
@@ -769,6 +790,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         renderList('hive-roster-list', [`<span class="muted">${{String(error)}}</span>`]);
         renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
       }});
+    window.setInterval(refreshHiveBoardIfVisible, hiveRefreshIntervalMs);
   </script>
 </body>
 </html>

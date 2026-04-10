@@ -3688,6 +3688,8 @@ mod tests {
         assert!(html.contains("<strong>action</strong>"));
         assert!(html.contains("<strong>latest message</strong>"));
         assert!(html.contains("<strong>latest receipt</strong>"));
+        assert!(html.contains("window.setInterval(refreshHiveBoardIfVisible, hiveRefreshIntervalMs)"));
+        assert!(html.contains("const hiveRefreshIntervalMs = 5000;"));
 
         let receipt_response = app
             .clone()
