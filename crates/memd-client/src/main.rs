@@ -15679,13 +15679,18 @@ fn project_awareness_entry_to_hive_session(
     entry: &ProjectAwarenessEntry,
 ) -> memd_schema::HiveSessionRecord {
     let working = entry
-        .topic_claim
+        .working
         .clone()
+        .or_else(|| entry.topic_claim.clone())
         .or_else(|| Some(awareness_work_quickview(entry)));
-    let touches = awareness_touch_points(entry)
-        .into_iter()
-        .filter_map(|value| normalize_hive_touch(&value))
-        .collect::<Vec<_>>();
+    let touches = if entry.touches.is_empty() {
+        awareness_touch_points(entry)
+            .into_iter()
+            .filter_map(|value| normalize_hive_touch(&value))
+            .collect::<Vec<_>>()
+    } else {
+        entry.touches.clone()
+    };
     memd_schema::HiveSessionRecord {
         session: entry
             .session
@@ -15851,7 +15856,7 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
     )
     .await
     {
-        return Ok(response);
+        return Ok(finalize_hive_follow_response(response, Some(target_entry)));
     }
     let server_reachable = timeout_ok(client.healthz()).await.is_some();
     let project = target_entry
@@ -15929,13 +15934,18 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
     );
     let target = project_awareness_entry_to_hive_session(target_entry);
     let work_summary = target
-        .topic_claim
+        .working
         .clone()
+        .or_else(|| target.topic_claim.clone())
         .unwrap_or_else(|| awareness_work_quickview(target_entry));
-    let touch_points = if target.scope_claims.is_empty() {
-        awareness_touch_points(target_entry)
+    let touch_points = if target.touches.is_empty() {
+        if target.scope_claims.is_empty() {
+            awareness_touch_points(target_entry)
+        } else {
+            target.scope_claims.clone()
+        }
     } else {
-        target.scope_claims.clone()
+        target.touches.clone()
     };
     let next_action = target.next_action.clone().or_else(|| {
         target_entry
@@ -15958,7 +15968,8 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
         "safe_to_continue".to_string()
     };
 
-    Ok(HiveFollowResponse {
+    Ok(finalize_hive_follow_response(
+        HiveFollowResponse {
         current_session,
         target,
         work_summary,
@@ -15971,7 +15982,43 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
         recent_receipts,
         overlap_risk,
         recommended_action,
-    })
+    },
+        Some(target_entry),
+    ))
+}
+
+fn finalize_hive_follow_response(
+    mut response: HiveFollowResponse,
+    target_entry: Option<&ProjectAwarenessEntry>,
+) -> HiveFollowResponse {
+    if let Some(working) = response
+        .target
+        .working
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        response.work_summary = working.to_string();
+    } else if response.work_summary.trim().is_empty() || response.work_summary == "none" {
+        if let Some(entry) = target_entry {
+            response.work_summary = entry
+                .working
+                .clone()
+                .or_else(|| response.target.topic_claim.clone())
+                .unwrap_or_else(|| awareness_work_quickview(entry));
+        }
+    }
+
+    if !response.target.touches.is_empty() {
+        response.touch_points = response.target.touches.clone();
+    } else if response.touch_points.is_empty() && let Some(entry) = target_entry {
+        response.touch_points = if entry.touches.is_empty() {
+            awareness_touch_points(entry)
+        } else {
+            entry.touches.clone()
+        };
+    }
+
+    response
 }
 
 async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Result<()> {
@@ -38012,10 +38059,27 @@ fn prefer_project_awareness_entry(
     right: ProjectAwarenessEntry,
 ) -> ProjectAwarenessEntry {
     if project_awareness_entry_rank(&right) > project_awareness_entry_rank(&left) {
-        right
+        preserve_awareness_live_work_fields(right, &left)
     } else {
-        left
+        preserve_awareness_live_work_fields(left, &right)
     }
+}
+
+fn preserve_awareness_live_work_fields(
+    mut preferred: ProjectAwarenessEntry,
+    fallback: &ProjectAwarenessEntry,
+) -> ProjectAwarenessEntry {
+    if preferred
+        .working
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        preferred.working = fallback.working.clone();
+    }
+    if preferred.touches.is_empty() {
+        preferred.touches = fallback.touches.clone();
+    }
+    preferred
 }
 
 fn project_awareness_entry_rank(
@@ -38202,6 +38266,8 @@ async fn read_project_awareness_shared(
             visibility: session.visibility.clone(),
             topic_claim: session.topic_claim.clone(),
             scope_claims: session.scope_claims.clone(),
+            working: session.working.clone(),
+            touches: session.touches.clone(),
             task_id: session.task_id.clone(),
             focus: session.focus.clone(),
             pressure: session.pressure.clone(),
@@ -38475,6 +38541,11 @@ fn read_project_awareness_local(args: &AwarenessArgs) -> anyhow::Result<ProjectA
             scope_claims: heartbeat
                 .as_ref()
                 .map(|value| value.scope_claims.clone())
+                .unwrap_or_default(),
+            working: heartbeat.as_ref().and_then(|value| value.working.clone()),
+            touches: heartbeat
+                .as_ref()
+                .map(|value| value.touches.clone())
                 .unwrap_or_default(),
             task_id: heartbeat.as_ref().and_then(|value| value.task_id.clone()),
             focus: heartbeat
@@ -39403,6 +39474,14 @@ fn render_awareness_entry_line(
 }
 
 fn awareness_work_quickview(entry: &ProjectAwarenessEntry) -> String {
+    if let Some(value) = entry
+        .working
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return compact_inline(value, 56);
+    }
     for candidate in [entry.focus.as_deref(), entry.next_recovery.as_deref()] {
         if let Some(value) = candidate.and_then(simplify_awareness_work_text) {
             return compact_inline(&value, 56);
@@ -39435,6 +39514,11 @@ fn awareness_touch_quickview(entry: &ProjectAwarenessEntry) -> String {
 }
 
 fn awareness_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {
+    let mut touches = entry.touches.clone();
+    if !touches.is_empty() {
+        touches.truncate(4);
+        return touches;
+    }
     let mut touches = Vec::new();
     for scope in &entry.scope_claims {
         push_unique_touch_point(&mut touches, scope);
@@ -44273,6 +44357,8 @@ struct ProjectAwarenessEntry {
     visibility: Option<String>,
     topic_claim: Option<String>,
     scope_claims: Vec<String>,
+    working: Option<String>,
+    touches: Vec<String>,
     task_id: Option<String>,
     focus: Option<String>,
     pressure: Option<String>,
@@ -46239,11 +46325,16 @@ mod tests {
             current_session: req.current_session,
             target: target.clone(),
             work_summary: target
-                .topic_claim
+                .working
                 .clone()
+                .or_else(|| target.topic_claim.clone())
                 .or(target.focus.clone())
                 .unwrap_or_else(|| "none".to_string()),
-            touch_points: target.scope_claims.clone(),
+            touch_points: if target.touches.is_empty() {
+                target.scope_claims.clone()
+            } else {
+                target.touches.clone()
+            },
             next_action: target.next_action.clone(),
             messages,
             owned_tasks,
@@ -50345,6 +50436,8 @@ mod tests {
                 focus: Some("Investigate whether the recall lane is still stale".to_string()),
                 pressure: Some("Repair the shared lane before the next resume".to_string()),
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(now),
             }],
         };
@@ -50401,6 +50494,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50435,6 +50530,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50483,6 +50580,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50517,6 +50616,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50570,6 +50671,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50604,6 +50707,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50654,6 +50759,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -50688,6 +50795,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -50740,6 +50849,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
                 ProjectAwarenessEntry {
@@ -50774,6 +50885,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: None,
                 },
             ],
@@ -50826,6 +50939,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -50860,6 +50975,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -50894,6 +51011,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(7)),
                 },
                 ProjectAwarenessEntry {
@@ -50928,6 +51047,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(6)),
                 },
                 ProjectAwarenessEntry {
@@ -50962,6 +51083,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(2)),
                 },
                 ProjectAwarenessEntry {
@@ -50996,6 +51119,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(30)),
                 },
             ],
@@ -51050,6 +51175,8 @@ mod tests {
                     focus: Some("Finish the lane isolation fix".to_string()),
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51084,6 +51211,8 @@ mod tests {
                     focus: Some("Old stale local bundle".to_string()),
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(5)),
                 },
             ],
@@ -51133,6 +51262,8 @@ mod tests {
                 focus: Some("Finish the queen-bee quickview summary".to_string()),
                 pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness | Avoid overlap in worker lane routing".to_string()),
                 next_recovery: Some("publish overlap-safe hive quickview".to_string()),
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(now),
             }],
         };
@@ -51185,6 +51316,8 @@ mod tests {
                     focus: Some("Refine hive overlap awareness".to_string()),
                     pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:queen-bee-awareness".to_string()),
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51219,6 +51352,8 @@ mod tests {
                     focus: Some("Finish peer awareness lane".to_string()),
                     pressure: Some("file_edited: crates/memd-client/src/main.rs | scope=task:peer-quickview".to_string()),
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -51270,6 +51405,8 @@ mod tests {
                     focus: Some("id=1 | scope=project | ws=shared".to_string()),
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -51304,6 +51441,8 @@ mod tests {
                     focus: Some("id=2 | scope=project | ws=shared".to_string()),
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
             ],
@@ -51351,6 +51490,8 @@ mod tests {
             focus: Some("stale focus fallback".to_string()),
             pressure: Some("stale pressure fallback".to_string()),
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(now),
         };
 
@@ -52582,6 +52723,158 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hive_follow_preserves_canonical_working_and_touches_from_awareness() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-follow-awareness-working-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let current_output = dir.join("current/.memd");
+        let peer_output = dir.join("peer/.memd");
+        fs::create_dir_all(&current_output).expect("create current output dir");
+        fs::create_dir_all(&peer_output).expect("create peer output dir");
+
+        fs::write(
+            current_output.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-current",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:59999",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write current config");
+        fs::write(
+            peer_output.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-peer",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "http://127.0.0.1:59999",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write peer config");
+        write_test_bundle_heartbeat(
+            &peer_output,
+            &BundleHeartbeatState {
+                session: Some("session-peer".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@session-peer".to_string()),
+                tab_id: Some("tab-peer".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Peer".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string(), "coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some(peer_output.display().to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some(dir.display().to_string()),
+                worktree_root: Some(dir.join("peer").display().to_string()),
+                branch: Some("feature/peer".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:59999".to_string()),
+                base_url_healthy: None,
+                host: Some("workstation".to_string()),
+                pid: Some(4242),
+                topic_claim: Some("legacy degraded topic".to_string()),
+                scope_claims: vec!["legacy-scope".to_string()],
+                task_id: Some("peer-task".to_string()),
+                focus: Some("legacy focus".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("reply".to_string()),
+                working: Some("Fix hive group visibility".to_string()),
+                touches: vec![
+                    "file:crates/memd-client/src/main.rs".to_string(),
+                    "task:hive-awareness".to_string(),
+                ],
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
+            },
+        );
+
+        let awareness = read_project_awareness(&AwarenessArgs {
+            output: current_output.clone(),
+            root: None,
+            include_current: true,
+            summary: false,
+        })
+        .await
+        .expect("read awareness");
+        let peer_entry = awareness
+            .entries
+            .iter()
+            .find(|entry| entry.session.as_deref() == Some("session-peer"))
+            .expect("peer entry");
+        assert_eq!(peer_entry.working.as_deref(), Some("Fix hive group visibility"));
+        assert_eq!(
+            peer_entry.touches,
+            vec![
+                "file:crates/memd-client/src/main.rs".to_string(),
+                "task:hive-awareness".to_string(),
+            ]
+        );
+
+        let follow = run_hive_follow_command(&HiveFollowArgs {
+            output: current_output.clone(),
+            session: Some("session-peer".to_string()),
+            worker: None,
+            watch: false,
+            interval_secs: 5,
+            json: false,
+            summary: false,
+        })
+        .await
+        .expect("run hive follow");
+        assert_eq!(follow.target.working.as_deref(), Some("Fix hive group visibility"));
+        assert_eq!(
+            follow.target.touches,
+            vec![
+                "file:crates/memd-client/src/main.rs".to_string(),
+                "task:hive-awareness".to_string(),
+            ]
+        );
+        assert_eq!(follow.work_summary, "Fix hive group visibility");
+        assert_eq!(
+            follow.touch_points,
+            vec![
+                "file:crates/memd-client/src/main.rs".to_string(),
+                "task:hive-awareness".to_string(),
+            ]
+        );
+
+        fs::remove_dir_all(&dir).expect("cleanup follow awareness dir");
+    }
+
+    #[tokio::test]
     async fn run_hive_board_command_prunes_retired_stale_bees_from_default_view() {
         let dir =
             std::env::temp_dir().join(format!("memd-hive-board-retire-{}", uuid::Uuid::new_v4()));
@@ -52860,6 +53153,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now),
                 },
                 ProjectAwarenessEntry {
@@ -52894,6 +53189,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(10)),
                 },
                 ProjectAwarenessEntry {
@@ -52928,6 +53225,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(now - chrono::TimeDelta::minutes(9)),
                 },
             ],
@@ -52975,6 +53274,8 @@ mod tests {
                 focus: Some("Ship the hive fix".to_string()),
                 pressure: Some("Repair awareness".to_string()),
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
             vec![ProjectAwarenessEntry {
@@ -53009,6 +53310,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(10)),
             }],
         );
@@ -53055,6 +53358,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
             vec![ProjectAwarenessEntry {
@@ -53089,6 +53394,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
         );
@@ -53141,6 +53448,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: None,
             },
             ProjectAwarenessEntry {
@@ -53175,6 +53484,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: None,
             },
         ]);
@@ -53223,6 +53534,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: None,
             },
             ProjectAwarenessEntry {
@@ -53257,6 +53570,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: None,
             },
         ]);
@@ -54996,6 +55311,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(8)),
             },
             "recovered to codex-fresh",
@@ -58716,6 +59033,8 @@ mod tests {
             focus: None,
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(9)),
         });
         awareness.entries.push(ProjectAwarenessEntry {
@@ -58750,6 +59069,8 @@ mod tests {
             focus: None,
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(30)),
         });
         awareness.entries.push(ProjectAwarenessEntry {
@@ -58784,6 +59105,8 @@ mod tests {
             focus: None,
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(Utc::now() - chrono::TimeDelta::minutes(12)),
         });
         let summary = render_project_awareness_summary(&awareness);
@@ -59356,6 +59679,8 @@ mod tests {
             focus: Some("repair runtime dependencies".to_string()),
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(now),
         }];
         let claims = vec![
@@ -59607,6 +59932,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(Utc::now()),
                 },
                 ProjectAwarenessEntry {
@@ -59641,6 +59968,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(Utc::now()),
                 },
             ],
@@ -59719,6 +60048,8 @@ mod tests {
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                working: None,
+                touches: Vec::new(),
                 last_updated: Some(Utc::now()),
             }],
         };
@@ -60138,6 +60469,8 @@ mod tests {
                     focus: None,
                     pressure: None,
                     next_recovery: None,
+                    working: None,
+                    touches: Vec::new(),
                     last_updated: Some(Utc::now()),
                 }],
                 recovery: CoordinationRecoverySummary {
@@ -60176,6 +60509,8 @@ mod tests {
                         focus: None,
                         pressure: None,
                         next_recovery: None,
+                        working: None,
+                        touches: Vec::new(),
                         last_updated: Some(Utc::now()),
                     }],
                 },
@@ -60252,6 +60587,8 @@ mod tests {
             focus: None,
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(Utc::now()),
         };
 
@@ -60312,6 +60649,8 @@ mod tests {
             focus: None,
             pressure: None,
             next_recovery: None,
+            working: None,
+            touches: Vec::new(),
             last_updated: Some(Utc::now()),
         };
 
