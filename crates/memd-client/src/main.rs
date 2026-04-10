@@ -27466,7 +27466,8 @@ async fn download_public_benchmark_dataset(
         .with_context(|| format!("read dataset bytes {source_url}"))?;
     fs::write(&dataset_path, &bytes).with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
-    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    let verification_status =
+        validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
     write_public_benchmark_dataset_cache_metadata(
         output,
         &PublicBenchmarkDatasetCacheMetadata {
@@ -27549,8 +27550,7 @@ async fn download_membench_dataset(
     )
     .with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
-    let verification_status =
-        validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
     write_public_benchmark_dataset_cache_metadata(
         output,
         &PublicBenchmarkDatasetCacheMetadata {
