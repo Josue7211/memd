@@ -688,13 +688,27 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       const response = await fetch(`/hive/follow?session=${{encodeURIComponent(session)}}`);
       if (!response.ok) throw new Error(`hive follow failed: ${{response.status}}`);
       const follow = await response.json();
+      const lane = follow.target.lane_id || follow.target.branch || 'none';
+      const role = follow.target.role || follow.target.hive_role || 'worker';
+      const task = follow.target.task_id || 'none';
+      const nextAction = follow.next_action || 'none';
+      const latestMessage = (follow.messages || [])[0];
+      const latestReceipt = (follow.recent_receipts || [])[0];
       const items = [
-        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>work=${{follow.work_summary || 'none'}}</span>`,
+        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>role=${{role}} · lane=${{lane}} · task=${{task}}</span>`,
+        `<strong>work</strong><span>${{follow.work_summary || 'none'}}</span>`,
         `<strong>touches</strong><span>${{(follow.touch_points || []).join(',') || 'none'}}</span>`,
-        `<strong>recommended</strong><span>${{follow.recommended_action}}</span>`,
+        `<strong>action</strong><span>${{follow.recommended_action}}</span>`,
+        `<strong>next</strong><span>${{nextAction}}</span>`,
       ];
       if (follow.overlap_risk) {{
         items.push(`<strong>overlap</strong><span>${{follow.overlap_risk}}</span>`);
+      }}
+      if (latestMessage) {{
+        items.push(`<strong>latest message</strong><span>${{latestMessage.kind}} · ${{latestMessage.from_agent || latestMessage.from_session}} · ${{latestMessage.content.replace(/\\s+/g, ' ').slice(0, 120)}}</span>`);
+      }}
+      if (latestReceipt) {{
+        items.push(`<strong>latest receipt</strong><span>${{latestReceipt.kind}} · ${{latestReceipt.summary}}</span>`);
       }}
       renderList('hive-follow-list', items);
       return follow;
