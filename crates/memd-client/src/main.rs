@@ -17540,6 +17540,10 @@ fn render_hive_follow_watch_snapshot(response: &HiveFollowResponse) -> String {
 }
 
 fn hive_follow_watch_severity(response: &HiveFollowResponse) -> &'static str {
+    let has_unacked_messages = response
+        .messages
+        .iter()
+        .any(|message| message.acknowledged_at.is_none());
     if response
         .overlap_risk
         .as_deref()
@@ -17551,7 +17555,7 @@ fn hive_follow_watch_severity(response: &HiveFollowResponse) -> &'static str {
         || response.recommended_action == "stop_and_reroute"
     {
         "high"
-    } else if !response.messages.is_empty()
+    } else if has_unacked_messages
         || !response.help_tasks.is_empty()
         || !response.review_tasks.is_empty()
         || response.recommended_action == "watch_and_coordinate"
@@ -17582,11 +17586,24 @@ fn render_hive_follow_watch_changes(
         ));
     }
     if previous.overlap_risk != current.overlap_risk {
-        lines.push(format!(
-            "change overlap_risk: \"{}\" -> \"{}\"",
-            previous.overlap_risk.as_deref().unwrap_or("none"),
-            current.overlap_risk.as_deref().unwrap_or("none")
-        ));
+        match (
+            previous.overlap_risk.as_deref(),
+            current.overlap_risk.as_deref(),
+        ) {
+            (Some(previous_risk), None) => {
+                lines.push(format!("risk_cleared \"{}\"", previous_risk));
+            }
+            (None, Some(current_risk)) => {
+                lines.push(format!("risk_detected \"{}\"", current_risk));
+            }
+            _ => {
+                lines.push(format!(
+                    "change overlap_risk: \"{}\" -> \"{}\"",
+                    previous.overlap_risk.as_deref().unwrap_or("none"),
+                    current.overlap_risk.as_deref().unwrap_or("none")
+                ));
+            }
+        }
     }
     if previous.recommended_action != current.recommended_action {
         lines.push(format!(
@@ -17628,6 +17645,42 @@ fn render_hive_follow_watch_changes(
                 "no"
             },
             compact_inline(&message.content, 96),
+        ));
+    }
+
+    for message in current.messages.iter().filter(|message| {
+        previous
+            .messages
+            .iter()
+            .find(|prior| prior.id == message.id)
+            .is_some_and(|prior| prior.acknowledged_at.is_none() && message.acknowledged_at.is_some())
+    }) {
+        lines.push(format!(
+            "message_acked {} from={} acked_at={}",
+            message.kind,
+            message
+                .from_agent
+                .as_deref()
+                .unwrap_or(message.from_session.as_str()),
+            message
+                .acknowledged_at
+                .as_ref()
+                .map(chrono::DateTime::to_rfc3339)
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+    }
+
+    for message in previous.messages.iter().filter(|message| {
+        message.acknowledged_at.is_none()
+            && !current.messages.iter().any(|current_message| current_message.id == message.id)
+    }) {
+        lines.push(format!(
+            "message_resolved {} from={} previous_ack=no",
+            message.kind,
+            message
+                .from_agent
+                .as_deref()
+                .unwrap_or(message.from_session.as_str()),
         ));
     }
 
@@ -51918,6 +51971,96 @@ mod tests {
         };
 
         assert_eq!(hive_follow_watch_severity(&response), "urgent");
+    }
+
+    #[test]
+    fn render_hive_follow_watch_frame_surfaces_ack_and_risk_clear_events() {
+        let previous = HiveFollowResponse {
+            current_session: Some("session-current".to_string()),
+            target: memd_schema::HiveSessionRecord {
+                session: "session-noether".to_string(),
+                tab_id: None,
+                agent: Some("noether".to_string()),
+                effective_agent: Some("Noether@session-noether".to_string()),
+                hive_system: Some("noether".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: None,
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Reply with review notes".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            },
+            work_summary: "Review parser handoff".to_string(),
+            touch_points: vec!["crates/memd-client/src/main.rs".to_string()],
+            next_action: Some("Reply with review notes".to_string()),
+            messages: vec![memd_schema::HiveMessageRecord {
+                id: "message-1".to_string(),
+                kind: "handoff".to_string(),
+                from_session: "session-avicenna".to_string(),
+                from_agent: Some("avicenna@session-avicenna".to_string()),
+                to_session: "session-noether".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "handoff_packet\nfrom=avicenna".to_string(),
+                created_at: Utc::now(),
+                acknowledged_at: None,
+            }],
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts: Vec::new(),
+            overlap_risk: Some("confirmed hive overlap: parser lane collision".to_string()),
+            recommended_action: "coordinate_now".to_string(),
+        };
+        let current = HiveFollowResponse {
+            messages: Vec::new(),
+            overlap_risk: None,
+            recommended_action: "safe_to_continue".to_string(),
+            ..previous.clone()
+        };
+
+        let frame = render_hive_follow_watch_frame(
+            &current,
+            Some(&previous),
+            DateTime::parse_from_rfc3339("2026-04-10T01:06:00Z")
+                .expect("parse timestamp")
+                .with_timezone(&Utc),
+        );
+
+        assert!(frame.contains("risk_cleared \"confirmed hive overlap: parser lane collision\""));
+        assert!(frame.contains("message_resolved handoff from=avicenna@session-avicenna previous_ack=no"));
+        assert!(frame.contains("state=changed severity=low"));
     }
 
     #[test]
