@@ -3776,6 +3776,12 @@ async fn main() -> anyhow::Result<()> {
                     write_native_agent_bridge_files(&decision.init_args.output)?;
                 }
                 status = read_bundle_status(&bundle_root, &base_url).await?;
+            } else if args.repair {
+                let repaired_worker_env = repair_bundle_worker_name_env(&bundle_root)?;
+                if repaired_worker_env {
+                    write_agent_profiles(&bundle_root)?;
+                }
+                status = read_bundle_status(&bundle_root, &base_url).await?;
             }
             if args.json {
                 print_json(&status)?;
@@ -15010,6 +15016,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let rag_enabled = rag_url.is_some();
+    let worker_name = default_bundle_worker_name(&args.agent, Some(&session));
     let config = BundleConfig {
         schema_version: 2,
         project: project.clone(),
@@ -15074,7 +15081,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env"),
         format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_SESSION={}\n{}MEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_HEARTBEAT_MODEL={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
+            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_WORKER_NAME={}\nMEMD_SESSION={}\n{}MEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_HEARTBEAT_MODEL={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
             args.base_url,
             project,
             namespace
@@ -15082,6 +15089,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
                 .map(|value| format!("MEMD_NAMESPACE={value}\n"))
                 .unwrap_or_default(),
             compose_agent_identity(&args.agent, Some(&session)),
+            worker_name,
             session,
             tab_id
                 .as_ref()
@@ -15163,7 +15171,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("env.ps1"),
         format!(
-            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n{}$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_HEARTBEAT_MODEL = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
+            "$env:MEMD_BASE_URL = \"{}\"\n$env:MEMD_PROJECT = \"{}\"\n{}$env:MEMD_AGENT = \"{}\"\n$env:MEMD_WORKER_NAME = \"{}\"\n$env:MEMD_SESSION = \"{}\"\n{}$env:MEMD_ROUTE = \"{}\"\n$env:MEMD_INTENT = \"{}\"\n$env:MEMD_HEARTBEAT_MODEL = \"{}\"\n$env:MEMD_AUTO_SHORT_TERM_CAPTURE = \"{}\"\n{}{}{}",
             escape_ps1(&args.base_url),
             escape_ps1(&project),
             namespace
@@ -15171,6 +15179,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
                 .map(|value| format!("$env:MEMD_NAMESPACE = \"{}\"\n", escape_ps1(value)))
                 .unwrap_or_default(),
             escape_ps1(&compose_agent_identity(&args.agent, Some(&session))),
+            escape_ps1(&worker_name),
             escape_ps1(&session),
             tab_id
                 .as_ref()
@@ -19099,6 +19108,7 @@ async fn write_bundle_heartbeat(
     snapshot: Option<&ResumeSnapshot>,
     probe_base_url: bool,
 ) -> anyhow::Result<()> {
+    let _ = repair_bundle_worker_name_env(output);
     let path = bundle_heartbeat_state_path(output);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -19128,6 +19138,7 @@ async fn reconcile_bundle_heartbeat(
     snapshot: Option<&ResumeSnapshot>,
     probe_base_url: bool,
 ) -> anyhow::Result<(BundleHeartbeatState, usize)> {
+    let _ = repair_bundle_worker_name_env(output);
     let path = bundle_heartbeat_state_path(output);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -31821,12 +31832,22 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
             "export MEMD_AGENT=\"{}\"\n",
             compact_bundle_value(env_agent)
         ));
+        script.push_str(&format!(
+            "export MEMD_WORKER_NAME=\"{}\"\n",
+            compact_bundle_value(&default_bundle_worker_name(
+                env_agent,
+                bundle_session.as_deref()
+            ))
+        ));
         if env_agent == "codex" {
             script.push_str(
                 "if [[ -x \"$MEMD_BUNDLE_ROOT/agents/watch.sh\" ]]; then\n  nohup \"$MEMD_BUNDLE_ROOT/agents/watch.sh\" >/tmp/memd-watch.log 2>&1 &\nfi\n",
             );
         }
     }
+    script.push_str(
+        "memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write >/dev/null 2>&1 || true\n",
+    );
     script.push_str(
         "nohup memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &\n",
     );
@@ -31854,6 +31875,9 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
+    let bundle_session = read_bundle_config_file(output)
+        .ok()
+        .and_then(|(_, config)| config.session);
     if project_hive_enabled {
         script.push_str(&format!(
             "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
@@ -31877,12 +31901,22 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
             "$env:MEMD_AGENT = \"{}\"\n",
             escape_ps1(env_agent)
         ));
+        script.push_str(&format!(
+            "$env:MEMD_WORKER_NAME = \"{}\"\n",
+            escape_ps1(&default_bundle_worker_name(
+                env_agent,
+                bundle_session.as_deref()
+            ))
+        ));
         if env_agent == "codex" {
             script.push_str(
                 "if (Test-Path (Join-Path $env:MEMD_BUNDLE_ROOT \"agents/watch.sh\")) { Start-Process -WindowStyle Hidden -FilePath (Join-Path $env:MEMD_BUNDLE_ROOT \"agents/watch.sh\") -RedirectStandardOutput \"$env:TEMP\\memd-watch.log\" -RedirectStandardError \"$env:TEMP\\memd-watch.err\" }\n",
             );
         }
     }
+    script.push_str(
+        "try { memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write | Out-Null } catch { }\n",
+    );
     script.push_str(
         "Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput \"$env:TEMP\\memd-heartbeat.log\" -RedirectStandardError \"$env:TEMP\\memd-heartbeat.err\"\n",
     );
@@ -33291,6 +33325,10 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     let env_ps1_exists = output.join("env.ps1").exists();
     let hooks_exists = output.join("hooks").exists();
     let agents_exists = output.join("agents").exists();
+    let worker_name_env_ready = read_bundle_config_file(output)
+        .ok()
+        .map(|(_, config)| bundle_worker_name_env_ready(output, &config))
+        .unwrap_or(false);
     let mut missing = Vec::<&str>::new();
     if !config_exists {
         missing.push("config.json");
@@ -33300,6 +33338,9 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
     }
     if !env_ps1_exists {
         missing.push("env.ps1");
+    }
+    if env_exists && env_ps1_exists && !worker_name_env_ready {
+        missing.push("worker_name_env");
     }
     if !hooks_exists {
         missing.push("hooks/");
@@ -33656,6 +33697,7 @@ async fn read_bundle_status(output: &Path, base_url: &str) -> anyhow::Result<ser
         "config": config_exists,
         "env": env_exists,
         "env_ps1": env_ps1_exists,
+        "worker_name_env_ready": worker_name_env_ready,
         "hooks": hooks_exists,
         "agents": agents_exists,
         "setup_ready": setup_ready,
@@ -36227,6 +36269,30 @@ fn derive_hive_worker_name(agent: Option<&str>, _session: Option<&str>) -> Optio
         .map(str::to_string)
 }
 
+fn humanize_worker_label(value: &str) -> String {
+    let parts = value
+        .split(|ch: char| ch == '-' || ch == '_' || ch.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            let Some(first) = chars.next() else {
+                return String::new();
+            };
+            format!(
+                "{}{}",
+                first.to_uppercase(),
+                chars.as_str().to_ascii_lowercase()
+            )
+        })
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        value.trim().to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 fn hive_worker_name_is_generic(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -36258,6 +36324,14 @@ fn derive_hive_display_name(agent: Option<&str>, session: Option<&str>) -> Optio
         _ => "Codex",
     };
     Some(format!("{base} {}", session_suffix))
+}
+
+fn default_bundle_worker_name(agent: &str, session: Option<&str>) -> String {
+    derive_hive_display_name(Some(agent), session)
+        .or_else(|| {
+            derive_hive_worker_name(Some(agent), session).map(|value| humanize_worker_label(&value))
+        })
+        .unwrap_or_else(|| humanize_worker_label(agent))
 }
 
 fn hive_actor_label(
@@ -38193,15 +38267,26 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
 
     let session = config.session.clone();
     let effective_agent = compose_agent_identity(agent, session.as_deref());
+    let worker_name = default_bundle_worker_name(agent, session.as_deref());
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_AGENT=",
         &format!("MEMD_AGENT={effective_agent}\n"),
     )?;
     rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_WORKER_NAME=",
+        &format!("MEMD_WORKER_NAME={worker_name}\n"),
+    )?;
+    rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_AGENT = ",
         &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(&effective_agent)),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_WORKER_NAME = ",
+        &format!("$env:MEMD_WORKER_NAME = \"{}\"\n", escape_ps1(&worker_name)),
     )?;
 
     Ok(())
@@ -38226,6 +38311,7 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
 
     let agent = config.agent.as_deref().unwrap_or("unknown");
     let effective_agent = compose_agent_identity(agent, Some(session));
+    let worker_name = default_bundle_worker_name(agent, Some(session));
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_SESSION=",
@@ -38237,6 +38323,11 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
         &format!("MEMD_AGENT={effective_agent}\n"),
     )?;
     rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_WORKER_NAME=",
+        &format!("MEMD_WORKER_NAME={worker_name}\n"),
+    )?;
+    rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_SESSION = ",
         &format!("$env:MEMD_SESSION = \"{}\"\n", escape_ps1(session)),
@@ -38245,6 +38336,11 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
         &output.join("env.ps1"),
         "$env:MEMD_AGENT = ",
         &format!("$env:MEMD_AGENT = \"{}\"\n", escape_ps1(&effective_agent)),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_WORKER_NAME = ",
+        &format!("$env:MEMD_WORKER_NAME = \"{}\"\n", escape_ps1(&worker_name)),
     )?;
 
     Ok(())
@@ -38507,6 +38603,74 @@ fn write_bundle_config_file(config_path: &Path, config: &BundleConfigFile) -> an
     fs::write(config_path, serde_json::to_string_pretty(config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
     Ok(())
+}
+
+fn expected_bundle_worker_name(config: &BundleConfigFile) -> Option<String> {
+    config
+        .agent
+        .as_deref()
+        .map(|agent| default_bundle_worker_name(agent, config.session.as_deref()))
+}
+
+fn bundle_env_assignment_matches(path: &Path, prefix: &str, expected_value: &str) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .map(|content| {
+            content.lines().any(|line| {
+                line.strip_prefix(prefix)
+                    .map(str::trim)
+                    .is_some_and(|value| value == expected_value)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn bundle_worker_name_env_ready(output: &Path, config: &BundleConfigFile) -> bool {
+    let Some(expected_worker_name) = expected_bundle_worker_name(config) else {
+        return true;
+    };
+    bundle_env_assignment_matches(
+        &output.join("env"),
+        "MEMD_WORKER_NAME=",
+        expected_worker_name.as_str(),
+    ) && bundle_env_assignment_matches(
+        &output.join("env.ps1"),
+        "$env:MEMD_WORKER_NAME = ",
+        format!("\"{}\"", escape_ps1(&expected_worker_name)).as_str(),
+    )
+}
+
+fn repair_bundle_worker_name_env(output: &Path) -> anyhow::Result<bool> {
+    let Ok((_, config)) = read_bundle_config_file(output) else {
+        return Ok(false);
+    };
+    let Some(expected_worker_name) = expected_bundle_worker_name(&config) else {
+        return Ok(false);
+    };
+    let shell_ready =
+        bundle_env_assignment_matches(&output.join("env"), "MEMD_WORKER_NAME=", &expected_worker_name);
+    let ps1_ready = bundle_env_assignment_matches(
+        &output.join("env.ps1"),
+        "$env:MEMD_WORKER_NAME = ",
+        &format!("\"{}\"", escape_ps1(&expected_worker_name)),
+    );
+    if shell_ready && ps1_ready {
+        return Ok(false);
+    }
+    rewrite_env_assignment(
+        &output.join("env"),
+        "MEMD_WORKER_NAME=",
+        &format!("MEMD_WORKER_NAME={expected_worker_name}\n"),
+    )?;
+    rewrite_env_assignment(
+        &output.join("env.ps1"),
+        "$env:MEMD_WORKER_NAME = ",
+        &format!(
+            "$env:MEMD_WORKER_NAME = \"{}\"\n",
+            escape_ps1(&expected_worker_name)
+        ),
+    )?;
+    Ok(true)
 }
 
 fn set_bundle_hive_system(output: &Path, hive_system: &str) -> anyhow::Result<()> {
@@ -45823,7 +45987,50 @@ mod tests {
         let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
         assert!(config.contains(r#""agent": "openclaw""#));
         assert!(env.contains("MEMD_AGENT=openclaw@codex-a"));
+        assert!(env.contains("MEMD_WORKER_NAME=Openclaw"));
         assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw@codex-a\""));
+        assert!(env_ps1.contains("$env:MEMD_WORKER_NAME = \"Openclaw\""));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn repair_bundle_worker_name_env_backfills_missing_worker_name_assignments() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-worker-env-repair-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "openclaw",
+  "session": "session-live-openclaw",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "general"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            dir.join("env"),
+            "MEMD_AGENT=openclaw@session-live-openclaw\nMEMD_SESSION=session-live-openclaw\n",
+        )
+        .expect("write env");
+        fs::write(
+            dir.join("env.ps1"),
+            "$env:MEMD_AGENT = \"openclaw@session-live-openclaw\"\n$env:MEMD_SESSION = \"session-live-openclaw\"\n",
+        )
+        .expect("write env.ps1");
+
+        let repaired = repair_bundle_worker_name_env(&dir).expect("repair env");
+        assert!(repaired);
+
+        let env = fs::read_to_string(dir.join("env")).expect("read env");
+        let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
+        assert!(env.contains("MEMD_WORKER_NAME=Openclaw"));
+        assert!(env_ps1.contains("$env:MEMD_WORKER_NAME = \"Openclaw\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
