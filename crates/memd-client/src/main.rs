@@ -15834,37 +15834,49 @@ fn annotate_hive_relationships(
             let best = snapshot
                 .iter()
                 .filter(|peer| peer.session != bee.session)
-                .find_map(|peer| {
+                .filter_map(|peer| {
                     derive_hive_relationship(&bee, peer).map(|(state, reason, action)| {
+                        let peer_label = hive_actor_label(
+                            peer.display_name.as_deref(),
+                            peer.worker_name.as_deref(),
+                            peer.agent.as_deref(),
+                            Some(peer.session.as_str()),
+                        );
                         (
+                            hive_relationship_rank(&state),
+                            peer_label,
                             state,
-                            hive_actor_label(
-                                peer.display_name.as_deref(),
-                                peer.worker_name.as_deref(),
-                                peer.agent.as_deref(),
-                                Some(peer.session.as_str()),
-                            ),
                             reason,
                             action,
                         )
                     })
+                })
+                .max_by(|left, right| {
+                    left.0
+                        .cmp(&right.0)
+                        .then_with(|| right.1.cmp(&left.1))
+                        .then_with(|| right.3.cmp(&left.3))
                 });
 
-            if let Some((state, peer, reason, action)) = best {
+            if let Some((_, peer, state, reason, action)) = best {
                 bee.relationship_state = Some(state);
                 bee.relationship_peer = Some(peer);
                 bee.relationship_reason = Some(reason);
                 bee.suggested_action = Some(action);
-            } else {
-                bee.relationship_state = Some("clear".to_string());
-                bee.relationship_peer = None;
-                bee.relationship_reason = None;
-                bee.suggested_action = Some("continue".to_string());
             }
 
             bee
         })
         .collect()
+}
+
+fn hive_relationship_rank(state: &str) -> u8 {
+    match state {
+        "conflict" => 3,
+        "near" => 2,
+        "blocked" => 1,
+        _ => 0,
+    }
 }
 
 fn hive_relationship_annotation(value: &str) -> Option<String> {
@@ -51885,6 +51897,296 @@ mod tests {
             Some("shared area session-merge")
         );
         assert_eq!(current.suggested_action.as_deref(), Some("cowork"));
+    }
+
+    #[test]
+    fn annotate_hive_relationships_prefers_conflict_over_earlier_near_peer() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Session merge cleanup".to_string()),
+                    scope_claims: vec!["task:hive-awareness".to_string()],
+                    task_id: Some("hive-awareness".to_string()),
+                    focus: Some("Session merge cleanup".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("session merge cleanup".to_string()),
+                    touches: vec![
+                        "file:crates/memd-client/src/main.rs".to_string(),
+                        "topic:session-merge".to_string(),
+                    ],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-near".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-near".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("NearPeer".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-near".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/near".to_string()),
+                    worktree_root: Some("/repo/near".to_string()),
+                    branch: Some("feature/near".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Pair on session merge".to_string()),
+                    scope_claims: vec!["task:peer-awareness".to_string()],
+                    task_id: Some("peer-awareness".to_string()),
+                    focus: Some("Pair on session merge".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("pair on session merge".to_string()),
+                    touches: vec![
+                        "file:crates/memd-schema/src/lib.rs".to_string(),
+                        "area:session-merge".to_string(),
+                    ],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-conflict".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-conflict".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("ConflictPeer".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-conflict".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/conflict".to_string()),
+                    worktree_root: Some("/repo/conflict".to_string()),
+                    branch: Some("feature/conflict".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Edit same file".to_string()),
+                    scope_claims: vec!["task:peer-conflict".to_string()],
+                    task_id: Some("peer-conflict".to_string()),
+                    focus: Some("Edit same file".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("edit same file".to_string()),
+                    touches: vec!["file:crates/memd-client/src/main.rs".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state.as_deref(), Some("conflict"));
+        assert_eq!(current.relationship_peer.as_deref(), Some("ConflictPeer"));
+        assert_eq!(
+            current.relationship_reason.as_deref(),
+            Some("shared touch file:crates/memd-client/src/main.rs")
+        );
+        assert_eq!(current.suggested_action.as_deref(), Some("stop_and_cowork"));
+    }
+
+    #[test]
+    fn annotate_hive_relationships_leaves_fields_unset_when_no_relation_exists() {
+        let annotated = annotate_hive_relationships(
+            vec![
+                memd_schema::HiveSessionRecord {
+                    session: "session-current".to_string(),
+                    tab_id: None,
+                    agent: Some("codex".to_string()),
+                    effective_agent: Some("codex@session-current".to_string()),
+                    hive_system: Some("codex".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Memd".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-main".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/current".to_string()),
+                    worktree_root: Some("/repo/current".to_string()),
+                    branch: Some("main".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Session merge cleanup".to_string()),
+                    scope_claims: vec!["task:hive-awareness".to_string()],
+                    task_id: Some("hive-awareness".to_string()),
+                    focus: Some("Session merge cleanup".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("session merge cleanup".to_string()),
+                    touches: vec!["file:crates/memd-client/src/main.rs".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+                memd_schema::HiveSessionRecord {
+                    session: "session-peer".to_string(),
+                    tab_id: None,
+                    agent: Some("claude-code".to_string()),
+                    effective_agent: Some("claude-code@session-peer".to_string()),
+                    hive_system: Some("claude-code".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    worker_name: Some("Peer".to_string()),
+                    display_name: None,
+                    role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["project:memd".to_string()],
+                    lane_id: Some("lane-peer".to_string()),
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    heartbeat_model: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    repo_root: Some("/repo/peer".to_string()),
+                    worktree_root: Some("/repo/peer".to_string()),
+                    branch: Some("feature/peer".to_string()),
+                    base_branch: Some("main".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    base_url_healthy: Some(true),
+                    host: None,
+                    pid: None,
+                    topic_claim: Some("Different work".to_string()),
+                    scope_claims: vec!["task:peer-awareness".to_string()],
+                    task_id: Some("peer-awareness".to_string()),
+                    focus: Some("Different work".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    next_action: None,
+                    working: Some("different work".to_string()),
+                    touches: vec!["file:crates/memd-schema/src/lib.rs".to_string()],
+                    relationship_state: None,
+                    relationship_peer: None,
+                    relationship_reason: None,
+                    suggested_action: None,
+                    needs_help: false,
+                    needs_review: false,
+                    handoff_state: None,
+                    confidence: None,
+                    risk: None,
+                    status: "live".to_string(),
+                    last_seen: Utc::now(),
+                },
+            ],
+            Some("session-current"),
+        );
+
+        let current = annotated
+            .iter()
+            .find(|bee| bee.session == "session-current")
+            .expect("current bee exists");
+        assert_eq!(current.relationship_state, None);
+        assert_eq!(current.relationship_peer, None);
+        assert_eq!(current.relationship_reason, None);
+        assert_eq!(current.suggested_action, None);
     }
 
     #[test]
