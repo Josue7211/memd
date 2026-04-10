@@ -2546,7 +2546,9 @@ impl SqliteStore {
             );
         }
 
-        Ok(HiveSessionsResponse { sessions })
+        Ok(HiveSessionsResponse {
+            sessions: collapse_hive_session_records(sessions),
+        })
     }
 
     pub fn hive_board(&self, request: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
@@ -2628,11 +2630,7 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let overlap_risks = receipts
             .iter()
-            .filter(|receipt| {
-                receipt.kind.contains("overlap")
-                    || receipt.summary.contains("overlap")
-                    || receipt.summary.contains("scope")
-            })
+            .filter(|receipt| is_hive_overlap_receipt(receipt))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
         let blocked_bees = receipts
@@ -3727,6 +3725,94 @@ impl SqliteStore {
         .context("insert memory event")?;
         Ok(())
     }
+}
+
+fn collapse_hive_session_records(records: Vec<HiveSessionRecord>) -> Vec<HiveSessionRecord> {
+    let mut order = Vec::new();
+    let mut merged = std::collections::HashMap::<String, HiveSessionRecord>::new();
+
+    for record in records {
+        let session = record.session.clone();
+        if let Some(existing) = merged.get_mut(&session) {
+            merge_hive_session_record(existing, &record);
+        } else {
+            order.push(session.clone());
+            merged.insert(session, record);
+        }
+    }
+
+    order
+        .into_iter()
+        .filter_map(|session| merged.remove(&session))
+        .collect()
+}
+
+fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSessionRecord) {
+    merge_option_string(&mut target.tab_id, &fallback.tab_id);
+    merge_option_string(&mut target.agent, &fallback.agent);
+    merge_option_string(&mut target.effective_agent, &fallback.effective_agent);
+    merge_option_string(&mut target.hive_system, &fallback.hive_system);
+    merge_option_string(&mut target.hive_role, &fallback.hive_role);
+    merge_option_string(&mut target.worker_name, &fallback.worker_name);
+    merge_option_string(&mut target.display_name, &fallback.display_name);
+    merge_option_string(&mut target.role, &fallback.role);
+    merge_string_vec(&mut target.capabilities, &fallback.capabilities);
+    merge_string_vec(&mut target.hive_groups, &fallback.hive_groups);
+    merge_option_string(&mut target.lane_id, &fallback.lane_id);
+    merge_option_string(&mut target.hive_group_goal, &fallback.hive_group_goal);
+    merge_option_string(&mut target.authority, &fallback.authority);
+    merge_option_string(&mut target.heartbeat_model, &fallback.heartbeat_model);
+    merge_option_string(&mut target.project, &fallback.project);
+    merge_option_string(&mut target.namespace, &fallback.namespace);
+    merge_option_string(&mut target.workspace, &fallback.workspace);
+    merge_option_string(&mut target.repo_root, &fallback.repo_root);
+    merge_option_string(&mut target.worktree_root, &fallback.worktree_root);
+    merge_option_string(&mut target.branch, &fallback.branch);
+    merge_option_string(&mut target.base_branch, &fallback.base_branch);
+    merge_option_string(&mut target.visibility, &fallback.visibility);
+    merge_option_string(&mut target.base_url, &fallback.base_url);
+    if target.base_url_healthy.is_none() {
+        target.base_url_healthy = fallback.base_url_healthy;
+    }
+    merge_option_string(&mut target.host, &fallback.host);
+    if target.pid.is_none() {
+        target.pid = fallback.pid;
+    }
+    merge_option_string(&mut target.topic_claim, &fallback.topic_claim);
+    merge_string_vec(&mut target.scope_claims, &fallback.scope_claims);
+    merge_option_string(&mut target.task_id, &fallback.task_id);
+    merge_option_string(&mut target.focus, &fallback.focus);
+    merge_option_string(&mut target.pressure, &fallback.pressure);
+    merge_option_string(&mut target.next_recovery, &fallback.next_recovery);
+    merge_option_string(&mut target.next_action, &fallback.next_action);
+    target.needs_help = target.needs_help || fallback.needs_help;
+    target.needs_review = target.needs_review || fallback.needs_review;
+    merge_option_string(&mut target.handoff_state, &fallback.handoff_state);
+    merge_option_string(&mut target.confidence, &fallback.confidence);
+    merge_option_string(&mut target.risk, &fallback.risk);
+    if fallback.last_seen > target.last_seen {
+        target.last_seen = fallback.last_seen;
+    }
+}
+
+fn merge_option_string(target: &mut Option<String>, fallback: &Option<String>) {
+    if target.is_none() {
+        *target = fallback.clone();
+    }
+}
+
+fn merge_string_vec(target: &mut Vec<String>, fallback: &[String]) {
+    for value in fallback {
+        if !target.iter().any(|existing| existing == value) {
+            target.push(value.clone());
+        }
+    }
+}
+
+fn is_hive_overlap_receipt(receipt: &HiveCoordinationReceiptRecord) -> bool {
+    receipt.kind.contains("overlap")
+        || receipt.summary.contains("confirmed hive overlap")
+        || receipt.summary.contains("possible_work_overlap")
 }
 
 fn hive_follow_overlap_risk(
@@ -5681,6 +5767,230 @@ mod tests {
                 .iter()
                 .any(|value| value == "runtime-core")
         }));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_collapse_duplicate_rows_per_session_and_preserve_richer_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-dedupe-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "codex-fresh".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-fresh".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert richer session row");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "codex-fresh".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-fresh".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: None,
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert newer sparse session row");
+
+        let response = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query deduped sessions");
+
+        assert_eq!(response.sessions.len(), 1);
+        let session = &response.sessions[0];
+        assert_eq!(session.session, "codex-fresh");
+        assert_eq!(session.hive_system.as_deref(), Some("codex"));
+        assert_eq!(session.hive_role.as_deref(), Some("agent"));
+        assert_eq!(session.role.as_deref(), Some("agent"));
+        assert_eq!(session.authority.as_deref(), Some("participant"));
+        assert_eq!(
+            session.capabilities,
+            vec!["coordination".to_string(), "memory".to_string()]
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_ignores_handoff_scope_receipts_in_overlap_risks() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-overlap-noise-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(101),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert session");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_handoff".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Handoff to Avicenna (bee-1) task=parser-refactor scopes=crates/memd-client/src/main.rs".to_string(),
+            })
+            .expect("record handoff receipt");
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "possible_work_overlap".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "possible_work_overlap touches=crates/memd-client/src/main.rs sessions=bee-1,bee-2".to_string(),
+            })
+            .expect("record overlap receipt");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert_eq!(board.overlap_risks.len(), 1);
+        assert!(board.overlap_risks[0].contains("possible_work_overlap"));
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
