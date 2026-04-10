@@ -1872,7 +1872,18 @@ enum HiveSubcommand {
     Roster(HiveRosterArgs),
     Follow(HiveFollowArgs),
     Handoff(HiveHandoffArgs),
+    Cowork {
+        #[command(subcommand)]
+        command: HiveCoworkSubcommand,
+    },
     Queen(HiveQueenArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HiveCoworkSubcommand {
+    Request(HiveCoworkArgs),
+    Ack(HiveCoworkArgs),
+    Decline(HiveCoworkArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1936,6 +1947,36 @@ struct HiveHandoffArgs {
 
     #[arg(long)]
     blocker: Option<String>,
+
+    #[arg(long)]
+    note: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct HiveCoworkArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    to_session: Option<String>,
+
+    #[arg(long)]
+    to_worker: Option<String>,
+
+    #[arg(long)]
+    task_id: Option<String>,
+
+    #[arg(long, value_delimiter = ',')]
+    scope: Vec<String>,
+
+    #[arg(long)]
+    reason: Option<String>,
 
     #[arg(long)]
     note: Option<String>,
@@ -3103,6 +3144,47 @@ async fn main() -> anyhow::Result<()> {
                     println!("{}", render_hive_handoff_summary(&response));
                 }
             }
+            Some(HiveSubcommand::Cowork { command: cowork_args }) => match cowork_args {
+                HiveCoworkSubcommand::Request(cowork_args) => {
+                    let response = run_hive_cowork_command(
+                        cowork_args,
+                        &default_base_url(),
+                        "request",
+                    )
+                    .await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+                HiveCoworkSubcommand::Ack(cowork_args) => {
+                    let response = run_hive_cowork_command(
+                        cowork_args,
+                        &default_base_url(),
+                        "ack",
+                    )
+                    .await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+                HiveCoworkSubcommand::Decline(cowork_args) => {
+                    let response = run_hive_cowork_command(
+                        cowork_args,
+                        &default_base_url(),
+                        "decline",
+                    )
+                    .await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+            },
             Some(HiveSubcommand::Queen(queen_args)) => {
                 let response = run_hive_queen_command(queen_args, &default_base_url()).await?;
                 if queen_args.json {
@@ -15640,6 +15722,29 @@ struct HiveHandoffResponse {
     recommended_follow: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct HiveCoworkResponse {
+    packet: HiveCoworkPacket,
+    receipt_kind: String,
+    receipt_summary: String,
+    message_id: Option<String>,
+    recommended_follow: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HiveCoworkPacket {
+    action: String,
+    from_session: String,
+    from_worker: Option<String>,
+    to_session: String,
+    to_worker: Option<String>,
+    task_id: Option<String>,
+    scope_claims: Vec<String>,
+    reason: Option<String>,
+    note: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
 fn derive_awareness_worker_name(entry: &ProjectAwarenessEntry) -> Option<String> {
     entry
         .effective_agent
@@ -16392,6 +16497,168 @@ async fn run_hive_handoff_command(
     Ok(HiveHandoffResponse {
         packet,
         receipt_kind: "queen_handoff".to_string(),
+        receipt_summary,
+        message_id: message.messages.first().map(|entry| entry.id.clone()),
+        recommended_follow: format!("memd hive follow --session {} --summary", target_session),
+    })
+}
+
+async fn run_hive_cowork_command(
+    args: &HiveCoworkArgs,
+    base_url: &str,
+    action: &str,
+) -> anyhow::Result<HiveCoworkResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    ensure_shared_authority_write_allowed(runtime.as_ref(), "hive cowork")?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty())
+        .context("hive cowork requires a configured bundle session")?;
+    let current_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let project = runtime.as_ref().and_then(|config| config.project.clone());
+    let namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = filter_project_awareness_entries_for_hive_scope(
+        &awareness.current_bundle,
+        &project_awareness_visible_entries(&awareness),
+        runtime.as_ref(),
+    );
+    let current_entry = visible_entries
+        .iter()
+        .copied()
+        .find(|entry| entry.session.as_deref() == Some(current_session.as_str()));
+    let target_entry = resolve_hive_target_entry(
+        &visible_entries,
+        args.to_session.as_deref(),
+        args.to_worker.as_deref(),
+        "hive cowork",
+    )?;
+    let workspace = runtime
+        .as_ref()
+        .and_then(|config| config.workspace.clone())
+        .or_else(|| target_entry.workspace.clone());
+    let target_session = target_entry
+        .session
+        .clone()
+        .context("hive cowork target is missing a session id")?;
+    if target_session == current_session {
+        anyhow::bail!("hive cowork target must be another bee");
+    }
+
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref())
+            .or(target_entry.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let current_session_record = if let Some(entry) = current_entry {
+        Some(project_awareness_entry_to_hive_session(entry))
+    } else {
+        timeout_ok(client.hive_sessions(&memd_schema::HiveSessionsRequest {
+            session: Some(current_session.clone()),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(1),
+        }))
+        .await
+        .and_then(|response| response.sessions.into_iter().next())
+    };
+
+    let packet = HiveCoworkPacket {
+        action: action.to_string(),
+        from_session: current_session.clone(),
+        from_worker: current_session_record
+            .as_ref()
+            .and_then(|record| record.worker_name.clone())
+            .or_else(|| current_entry.and_then(derive_awareness_worker_name))
+            .or_else(|| {
+                current_agent
+                    .as_deref()
+                    .and_then(|value| value.split('@').next())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            }),
+        to_session: target_session.clone(),
+        to_worker: derive_awareness_worker_name(target_entry),
+        task_id: args
+            .task_id
+            .clone()
+            .or_else(|| {
+                current_session_record
+                    .as_ref()
+                    .and_then(|record| record.task_id.clone())
+            })
+            .or_else(|| current_entry.and_then(|entry| entry.task_id.clone())),
+        scope_claims: if args.scope.is_empty() {
+            current_session_record
+                .as_ref()
+                .map(|record| record.scope_claims.clone())
+                .or_else(|| current_entry.map(|entry| entry.scope_claims.clone()))
+                .unwrap_or_default()
+        } else {
+            args.scope.clone()
+        },
+        reason: args.reason.clone(),
+        note: args.note.clone(),
+        created_at: Utc::now(),
+    };
+
+    let kind = format!("cowork_{action}");
+    let receipt_summary = format_hive_cowork_receipt_summary(&packet);
+    let message = client
+        .send_hive_message(&HiveMessageSendRequest {
+            kind: kind.clone(),
+            from_session: current_session.clone(),
+            from_agent: current_agent.clone(),
+            to_session: target_session.clone(),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            content: format_hive_cowork_message(&packet),
+        })
+        .await?;
+    emit_coordination_receipt(
+        &client,
+        &kind,
+        &current_session,
+        current_agent,
+        Some(target_session.clone()),
+        packet.task_id.clone(),
+        packet.scope_claims.first().cloned(),
+        project,
+        namespace,
+        workspace,
+        receipt_summary.clone(),
+    )
+    .await?;
+
+    Ok(HiveCoworkResponse {
+        packet,
+        receipt_kind: kind,
         receipt_summary,
         message_id: message.messages.first().map(|entry| entry.id.clone()),
         recommended_follow: format!("memd hive follow --session {} --summary", target_session),
@@ -17879,6 +18146,74 @@ fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
             },
             response.packet.next_action.as_deref().unwrap_or("none"),
             response.packet.blocker.as_deref().unwrap_or("none"),
+            response.packet.note.as_deref().unwrap_or("none"),
+            response.receipt_kind,
+            response.recommended_follow,
+        ),
+        format!("receipt_summary=\"{}\"", response.receipt_summary),
+    ];
+    lines.join("\n")
+}
+
+fn format_hive_cowork_message(packet: &HiveCoworkPacket) -> String {
+    let mut lines = vec!["cowork_packet".to_string()];
+    lines.push(format!("action={}", packet.action));
+    lines.push(format!("from={}", packet.from_worker.as_deref().unwrap_or("unknown")));
+    lines.push(format!("session={}", packet.from_session));
+    if let Some(task_id) = packet.task_id.as_deref() {
+        lines.push(format!("task={task_id}"));
+    }
+    if !packet.scope_claims.is_empty() {
+        lines.push(format!("scope={}", packet.scope_claims.join(",")));
+    }
+    if let Some(reason) = packet.reason.as_deref() {
+        lines.push(format!("reason={reason}"));
+    }
+    if let Some(note) = packet.note.as_deref() {
+        lines.push(format!("note={note}"));
+    }
+    lines.join("\n")
+}
+
+fn format_hive_cowork_receipt_summary(packet: &HiveCoworkPacket) -> String {
+    format!(
+        "cowork {} from={} ({}) to={} ({}) task={} scope={} reason={} note={}",
+        packet.action,
+        packet.from_worker.as_deref().unwrap_or("unknown"),
+        packet.from_session,
+        packet.to_worker.as_deref().unwrap_or("unknown"),
+        packet.to_session,
+        packet.task_id.as_deref().unwrap_or("none"),
+        if packet.scope_claims.is_empty() {
+            "none".to_string()
+        } else {
+            packet.scope_claims.join(",")
+        },
+        packet.reason.as_deref().unwrap_or("none"),
+        packet.note.as_deref().unwrap_or("none"),
+    )
+}
+
+fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> String {
+    let lines = vec![
+        format!(
+            "hive_cowork action={} from={} ({}) to={} ({}) task={} message_id={}",
+            response.packet.action,
+            response.packet.from_worker.as_deref().unwrap_or("unknown"),
+            response.packet.from_session,
+            response.packet.to_worker.as_deref().unwrap_or("unknown"),
+            response.packet.to_session,
+            response.packet.task_id.as_deref().unwrap_or("none"),
+            response.message_id.as_deref().unwrap_or("none"),
+        ),
+        format!(
+            "scope={} reason=\"{}\" note=\"{}\" receipt_kind={} follow=\"{}\"",
+            if response.packet.scope_claims.is_empty() {
+                "none".to_string()
+            } else {
+                response.packet.scope_claims.join(",")
+            },
+            response.packet.reason.as_deref().unwrap_or("none"),
             response.packet.note.as_deref().unwrap_or("none"),
             response.receipt_kind,
             response.recommended_follow,
@@ -22413,6 +22748,90 @@ fn suggest_coordination_actions(
                 );
             }
         }
+    }
+
+    let current_touch_scopes = claims
+        .iter()
+        .filter_map(|claim| normalize_hive_touch(&claim.scope))
+        .chain(
+            tasks
+                .iter()
+                .flat_map(|task| task.claim_scopes.iter())
+                .filter_map(|scope| normalize_hive_touch(scope)),
+        )
+        .collect::<Vec<_>>();
+
+    for hive in active_hives.iter().filter(|hive| {
+        hive.session
+            .as_deref()
+            .is_some_and(|session| session != current_session)
+    }) {
+        let Some(target_session) = hive.session.clone() else {
+            continue;
+        };
+        let relation = if hive.blocked_by.iter().any(|session| session == current_session) {
+            "blocked"
+        } else if hive.cowork_with.iter().any(|session| session == current_session) {
+            "cowork_active"
+        } else if hive.touches.iter().any(|touch| {
+            let touch = normalize_hive_touch(touch);
+            touch
+                .as_deref()
+                .is_some_and(|normalized| current_touch_scopes.iter().any(|scope| scope == normalized))
+        }) {
+            "near"
+        } else {
+            continue;
+        };
+        let (action, priority, reason) = match relation {
+            "blocked" => (
+                "request_cowork",
+                "high",
+                format!(
+                    "Peer {} is blocked on this session; request a live cowork handshake or handoff.",
+                    hive.effective_agent
+                        .as_deref()
+                        .or(hive.agent.as_deref())
+                        .unwrap_or(target_session.as_str())
+                ),
+            ),
+            "cowork_active" => (
+                "ack_cowork",
+                "medium",
+                format!(
+                    "Peer {} already lists this session in cowork_with; acknowledge the live cowork link.",
+                    hive.effective_agent
+                        .as_deref()
+                        .or(hive.agent.as_deref())
+                        .unwrap_or(target_session.as_str())
+                ),
+            ),
+            _ => (
+                "request_cowork",
+                "low",
+                format!(
+                    "Peer {} is near overlapping touch scopes; request a live cowork handshake before overlap widens.",
+                    hive.effective_agent
+                        .as_deref()
+                        .or(hive.agent.as_deref())
+                        .unwrap_or(target_session.as_str())
+                ),
+            ),
+        };
+        push_unique(
+            CoordinationSuggestion {
+                action: action.to_string(),
+                priority: priority.to_string(),
+                target_session: Some(target_session.clone()),
+                task_id: hive.task_id.clone(),
+                scope: hive.scope_claims.first().cloned(),
+                message_id: None,
+                reason,
+                stale_session: None,
+            },
+            &mut emitted,
+            &mut suggestions,
+        );
     }
 
     if !stale_sessions.is_empty() {
@@ -53223,6 +53642,122 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_hive_cowork_subcommands() {
+        let cases = [
+            (
+                "request",
+                HiveCoworkSubcommand::Request(HiveCoworkArgs {
+                    output: PathBuf::from(".memd"),
+                    to_session: None,
+                    to_worker: Some("Avicenna".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: vec![
+                        "task:parser-refactor".to_string(),
+                        "crates/memd-client/src/main.rs".to_string(),
+                    ],
+                    reason: Some("align on parser cleanup".to_string()),
+                    note: Some("keep render.rs out of scope".to_string()),
+                    json: false,
+                    summary: true,
+                }),
+            ),
+            (
+                "ack",
+                HiveCoworkSubcommand::Ack(HiveCoworkArgs {
+                    output: PathBuf::from(".memd"),
+                    to_session: None,
+                    to_worker: Some("Noether".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: vec!["task:parser-refactor".to_string()],
+                    reason: Some("acknowledge live cowork".to_string()),
+                    note: Some("acknowledge live cowork".to_string()),
+                    json: false,
+                    summary: true,
+                }),
+            ),
+            (
+                "decline",
+                HiveCoworkSubcommand::Decline(HiveCoworkArgs {
+                    output: PathBuf::from(".memd"),
+                    to_session: None,
+                    to_worker: Some("Hermes".to_string()),
+                    task_id: Some("parser-refactor".to_string()),
+                    scope: vec!["task:parser-refactor".to_string()],
+                    reason: Some("wrong lane for this scope".to_string()),
+                    note: Some("reroute to another bee".to_string()),
+                    json: false,
+                    summary: true,
+                }),
+            ),
+        ];
+
+        for (action, expected_variant) in cases {
+            let cli = Cli::try_parse_from([
+                "memd",
+                "hive",
+                "cowork",
+                action,
+                "--output",
+                ".memd",
+                "--to-worker",
+                match action {
+                    "request" => "Avicenna",
+                    "ack" => "Noether",
+                    "decline" => "Hermes",
+                    other => panic!("unexpected action {other}"),
+                },
+                "--task-id",
+                "parser-refactor",
+                "--scope",
+                match action {
+                    "request" => "task:parser-refactor,crates/memd-client/src/main.rs",
+                    _ => "task:parser-refactor",
+                },
+                "--reason",
+                match action {
+                    "request" => "align on parser cleanup",
+                    "ack" => "acknowledge live cowork",
+                    "decline" => "wrong lane for this scope",
+                    other => panic!("unexpected action {other}"),
+                },
+                "--note",
+                match action {
+                    "request" => "keep render.rs out of scope",
+                    "ack" => "acknowledge live cowork",
+                    "decline" => "reroute to another bee",
+                    other => panic!("unexpected action {other}"),
+                },
+                "--summary",
+            ])
+            .expect("hive cowork command should parse");
+
+            match cli.command {
+                Commands::Hive(args) => match args.command {
+                    Some(HiveSubcommand::Cowork { command: cowork }) => {
+                        match (cowork, expected_variant) {
+                        (HiveCoworkSubcommand::Request(actual), HiveCoworkSubcommand::Request(expected))
+                        | (HiveCoworkSubcommand::Ack(actual), HiveCoworkSubcommand::Ack(expected))
+                        | (HiveCoworkSubcommand::Decline(actual), HiveCoworkSubcommand::Decline(expected)) =>
+                        {
+                            assert_eq!(actual.output, expected.output);
+                            assert_eq!(actual.to_worker, expected.to_worker);
+                            assert_eq!(actual.task_id, expected.task_id);
+                            assert_eq!(actual.scope, expected.scope);
+                            assert_eq!(actual.reason, expected.reason);
+                            assert_eq!(actual.note, expected.note);
+                            assert_eq!(actual.summary, expected.summary);
+                        }
+                        other => panic!("expected matching cowork variant, got {other:?}"),
+                    }
+                    }
+                    other => panic!("expected hive cowork subcommand, got {other:?}"),
+                },
+                other => panic!("expected hive command, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn cli_parses_hive_follow_watch_subcommand() {
         let cli = Cli::try_parse_from([
             "memd",
@@ -53287,6 +53822,38 @@ mod tests {
         assert!(
             summary.contains("follow=\"memd hive follow --session session-avicenna --summary\"")
         );
+    }
+
+    #[test]
+    fn render_hive_cowork_summary_surfaces_packet_fields() {
+        let response = HiveCoworkResponse {
+            packet: HiveCoworkPacket {
+                action: "request".to_string(),
+                from_session: "session-anscombe".to_string(),
+                from_worker: Some("Anscombe".to_string()),
+                to_session: "session-avicenna".to_string(),
+                to_worker: Some("Avicenna".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope_claims: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                reason: Some("align on parser cleanup".to_string()),
+                note: Some("keep render.rs out of scope".to_string()),
+                created_at: Utc::now(),
+            },
+            receipt_kind: "cowork_request".to_string(),
+            receipt_summary: "cowork request from=Anscombe (session-anscombe) to=Avicenna (session-avicenna) task=parser-refactor scope=task:parser-refactor,crates/memd-client/src/main.rs reason=align on parser cleanup note=keep render.rs out of scope".to_string(),
+            message_id: Some("msg-1".to_string()),
+            recommended_follow: "memd hive follow --session session-avicenna --summary".to_string(),
+        };
+
+        let summary = render_hive_cowork_summary(&response);
+        assert!(summary.contains("hive_cowork action=request from=Anscombe (session-anscombe)"));
+        assert!(summary.contains("to=Avicenna (session-avicenna)"));
+        assert!(summary.contains("task=parser-refactor"));
+        assert!(summary.contains("receipt_kind=cowork_request"));
+        assert!(summary.contains("follow=\"memd hive follow --session session-avicenna --summary\""));
     }
 
     #[test]
@@ -54218,6 +54785,212 @@ mod tests {
         assert_eq!(follow.recommended_action, "watch_and_coordinate");
 
         fs::remove_dir_all(&dir).expect("cleanup handoff follow temp dir");
+    }
+
+    #[tokio::test]
+    async fn run_hive_cowork_command_emits_message_and_receipt_for_target_worker() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-cowork-{}", uuid::Uuid::new_v4()));
+        let sender_output = dir.join("sender/.memd");
+        let target_output = dir.join("target/.memd");
+        fs::create_dir_all(&sender_output).expect("create sender output dir");
+        fs::create_dir_all(&target_output).expect("create target output dir");
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&sender_output, &base_url);
+        write_test_bundle_config(&target_output, &base_url);
+        fs::write(
+            sender_output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "avicenna",
+  "session": "session-avicenna",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite sender bundle config");
+        fs::write(
+            target_output.join("config.json"),
+            format!(
+                r#"{{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "noether",
+  "session": "session-noether",
+  "workspace": "shared",
+  "visibility": "workspace",
+  "base_url": "{}",
+  "auto_short_term_capture": false,
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                base_url
+            ),
+        )
+        .expect("rewrite target bundle config");
+
+        {
+            let mut sessions = state.session_records.lock().expect("lock session records");
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-avicenna".to_string(),
+                tab_id: None,
+                agent: Some("avicenna".to_string()),
+                effective_agent: Some("avicenna@session-avicenna".to_string()),
+                hive_system: Some("avicenna".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-parser".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/parser".to_string()),
+                branch: Some("feature/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Parser cowork handshake".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: Some("request live cowork".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Ask Noether to cowork".to_string()),
+                working: Some("Refining parser overlap handling".to_string()),
+                touches: vec!["task:parser-refactor".to_string()],
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: None,
+                relationship_peer: None,
+                relationship_reason: None,
+                suggested_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+            sessions.push(memd_schema::HiveSessionRecord {
+                session: "session-noether".to_string(),
+                tab_id: None,
+                agent: Some("noether".to_string()),
+                effective_agent: Some("noether@session-noether".to_string()),
+                hive_system: Some("noether".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some(base_url.clone()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser cowork".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: Some("ack live cowork".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Acknowledge Avicenna".to_string()),
+                working: Some("Reviewing parser overlap handling".to_string()),
+                touches: vec!["task:review-parser".to_string()],
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
+                relationship_state: None,
+                relationship_peer: None,
+                relationship_reason: None,
+                suggested_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            });
+        }
+
+        let response = run_hive_cowork_command(
+            &HiveCoworkArgs {
+                output: sender_output.clone(),
+                to_session: None,
+                to_worker: Some("Noether".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                reason: Some("align on parser cleanup".to_string()),
+                note: Some("keep render.rs out of scope".to_string()),
+                json: false,
+                summary: false,
+            },
+            &base_url,
+            "request",
+        )
+        .await
+        .expect("run hive cowork");
+
+        assert_eq!(response.packet.action, "request");
+        assert_eq!(response.packet.to_session, "session-noether");
+        assert_eq!(response.packet.to_worker.as_deref(), Some("noether"));
+        assert!(response.message_id.is_some());
+        assert_eq!(response.receipt_kind, "cowork_request");
+
+        let messages = state.messages.lock().expect("lock runtime messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].kind, "cowork_request");
+        assert_eq!(messages[0].to_session, "session-noether");
+        assert!(messages[0].content.contains("cowork_packet"));
+        assert!(messages[0].content.contains("reason=align on parser cleanup"));
+
+        let receipts = state.receipts.lock().expect("lock runtime receipts");
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].kind, "cowork_request");
+        assert_eq!(receipts[0].target_session.as_deref(), Some("session-noether"));
+        assert_eq!(receipts[0].task_id.as_deref(), Some("parser-refactor"));
+
+        fs::remove_dir_all(&dir).expect("cleanup cowork temp dir");
     }
 
     #[tokio::test]
@@ -61590,6 +62363,132 @@ mod tests {
                 .iter()
                 .any(|s| s.stale_session.as_deref() == Some("hive-stale"))
         );
+    }
+
+    #[test]
+    fn suggest_coordination_actions_emits_cowork_request_for_nearby_peers() {
+        let now = Utc::now();
+        let claims = vec![SessionClaim {
+            scope: "task:parser-refactor".to_string(),
+            session: Some("session-avicenna".to_string()),
+            tab_id: None,
+            agent: Some("codex".to_string()),
+            effective_agent: Some("Avicenna@session-avicenna".to_string()),
+            project: Some("demo".to_string()),
+            workspace: Some("shared".to_string()),
+            host: None,
+            pid: None,
+            acquired_at: now,
+            expires_at: now,
+        }];
+        let suggestions = suggest_coordination_actions(
+            &HiveCoordinationInboxResponse {
+                messages: Vec::new(),
+                owned_tasks: Vec::new(),
+                help_tasks: Vec::new(),
+                review_tasks: Vec::new(),
+            },
+            &[],
+            &[
+                ProjectAwarenessEntry {
+                    project_dir: "peer".to_string(),
+                    bundle_root: "peer/.memd".to_string(),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("noether".to_string()),
+                    session: Some("session-noether".to_string()),
+                    tab_id: Some("tab-noether".to_string()),
+                    effective_agent: Some("Noether@session-noether".to_string()),
+                    hive_system: Some("noether".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["review".to_string()],
+                    hive_groups: vec!["openclaw-stack".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("review parser handoff".to_string()),
+                    scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                    task_id: Some("parser-refactor".to_string()),
+                    focus: Some("reviewing parser overlap".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    working: Some("Reviewing parser overlap handling".to_string()),
+                    touches: vec!["task:parser-refactor".to_string()],
+                    blocked_by: Vec::new(),
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    last_updated: Some(now),
+                },
+                ProjectAwarenessEntry {
+                    project_dir: "peer".to_string(),
+                    bundle_root: "peer/.memd".to_string(),
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    repo_root: None,
+                    worktree_root: None,
+                    branch: None,
+                    base_branch: None,
+                    agent: Some("clawcontrol".to_string()),
+                    session: Some("session-clawcontrol".to_string()),
+                    tab_id: Some("tab-claw".to_string()),
+                    effective_agent: Some("Clawcontrol@session-clawcontrol".to_string()),
+                    hive_system: Some("clawcontrol".to_string()),
+                    hive_role: Some("agent".to_string()),
+                    capabilities: vec!["coordination".to_string()],
+                    hive_groups: vec!["openclaw-stack".to_string()],
+                    hive_group_goal: None,
+                    authority: Some("participant".to_string()),
+                    base_url: Some("http://127.0.0.1:8787".to_string()),
+                    presence: "active".to_string(),
+                    host: None,
+                    pid: None,
+                    active_claims: 1,
+                    workspace: Some("shared".to_string()),
+                    visibility: Some("workspace".to_string()),
+                    topic_claim: Some("merge session graph".to_string()),
+                    scope_claims: vec!["task:session-graph".to_string()],
+                    task_id: Some("session-graph".to_string()),
+                    focus: Some("blocked on session merge".to_string()),
+                    pressure: None,
+                    next_recovery: None,
+                    working: Some("Merging session graph".to_string()),
+                    touches: vec!["task:session-graph".to_string()],
+                    blocked_by: vec!["session-avicenna".to_string()],
+                    cowork_with: Vec::new(),
+                    handoff_target: None,
+                    offered_to: Vec::new(),
+                    last_updated: Some(now),
+                },
+            ],
+            &claims,
+            &[],
+            "session-avicenna",
+            &[],
+            None,
+            &[],
+        );
+
+        assert!(suggestions.iter().any(|suggestion| {
+            suggestion.action == "request_cowork"
+                && suggestion.target_session.as_deref() == Some("session-noether")
+                && suggestion.priority == "low"
+        }));
+        assert!(suggestions.iter().any(|suggestion| {
+            suggestion.action == "request_cowork"
+                && suggestion.target_session.as_deref() == Some("session-clawcontrol")
+                && suggestion.priority == "high"
+        }));
     }
 
     #[test]
