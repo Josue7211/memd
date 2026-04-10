@@ -19599,6 +19599,8 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         pressure: state.pressure.clone(),
         next_recovery: state.next_recovery.clone(),
         next_action: state.next_action.clone(),
+        working: state.working.clone(),
+        touches: state.touches.clone(),
         needs_help: state.needs_help,
         needs_review: state.needs_review,
         handoff_state: state.handoff_state.clone(),
@@ -46056,8 +46058,8 @@ mod tests {
             pressure: req.pressure,
             next_recovery: req.next_recovery,
             next_action: req.next_action,
-            working: None,
-            touches: Vec::new(),
+            working: req.working,
+            touches: req.touches,
             relationship_state: None,
             relationship_peer: None,
             relationship_reason: None,
@@ -55044,6 +55046,71 @@ mod tests {
 
         let records = state.session_records.lock().expect("lock session records");
         assert!(records.iter().all(|record| record.session != "codex-stale"));
+
+        fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
+    }
+
+    #[tokio::test]
+    async fn write_bundle_heartbeat_publishes_working_and_normalized_touches_through_transport() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-heartbeat-transport-working-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create bundle");
+        let state = MockRuntimeState::default();
+        {
+            let mut tasks = state.task_records.lock().expect("lock task records");
+            tasks.push(HiveTaskRecord {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: None,
+                status: "in_progress".to_string(),
+                coordination_mode: "exclusive_write".to_string(),
+                session: Some("codex-a".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec![
+                    "task:parser-refactor".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                ],
+                help_requested: false,
+                review_requested: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            });
+        }
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        write_test_bundle_config(&output, &base_url);
+
+        write_bundle_heartbeat(&output, None, false)
+            .await
+            .expect("write heartbeat");
+        let heartbeat = read_bundle_heartbeat(&output)
+            .expect("read heartbeat")
+            .expect("heartbeat present");
+        assert_eq!(heartbeat.working.as_deref(), Some("Refine parser overlap flow"));
+        assert_eq!(
+            heartbeat.touches,
+            vec![
+                "task:parser-refactor".to_string(),
+                "file:crates/memd-client/src/main.rs".to_string(),
+            ]
+        );
+
+        let session_upserts = state.session_upserts.lock().expect("lock session upserts");
+        let upsert = session_upserts.last().expect("session upsert recorded");
+        assert_eq!(upsert.working, heartbeat.working);
+        assert_eq!(upsert.touches, heartbeat.touches);
+        drop(session_upserts);
+
+        let records = state.session_records.lock().expect("lock session records");
+        let record = records.last().expect("session record stored");
+        assert_eq!(record.working, heartbeat.working);
+        assert_eq!(record.touches, heartbeat.touches);
 
         fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
     }

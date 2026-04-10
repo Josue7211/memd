@@ -849,6 +849,10 @@ pub struct HiveSessionUpsertRequest {
     #[serde(default)]
     pub next_action: Option<String>,
     #[serde(default)]
+    pub working: Option<String>,
+    #[serde(default)]
+    pub touches: Vec<String>,
+    #[serde(default)]
     pub needs_help: bool,
     #[serde(default)]
     pub needs_review: bool,
