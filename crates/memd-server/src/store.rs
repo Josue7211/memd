@@ -2569,6 +2569,7 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .sessions;
+        let actionable_cutoff = chrono::Utc::now() - chrono::TimeDelta::minutes(15);
         let tasks = self
             .hive_tasks(&HiveTasksRequest {
                 session: None,
@@ -2589,7 +2590,12 @@ impl SqliteStore {
             })?
             .receipts;
 
-        let queen_session = sessions
+        let visible_sessions = sessions
+            .iter()
+            .filter(|session| !is_low_signal_hive_board_session(session, &tasks))
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = visible_sessions
             .iter()
             .find(|session| {
                 matches!(
@@ -2602,12 +2608,17 @@ impl SqliteStore {
             })
             .map(|session| session.session.clone());
 
-        let active_bees = sessions
+        let active_session_ids = visible_sessions
+            .iter()
+            .filter(|session| matches!(session.status.as_str(), "active" | "live"))
+            .map(|session| session.session.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let active_bees = visible_sessions
             .iter()
             .filter(|session| matches!(session.status.as_str(), "active" | "live"))
             .cloned()
             .collect::<Vec<_>>();
-        let stale_bees = sessions
+        let stale_bees = visible_sessions
             .iter()
             .filter(|session| !matches!(session.status.as_str(), "active" | "live"))
             .map(|session| session.session.clone())
@@ -2625,6 +2636,9 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let lane_faults = receipts
             .iter()
+            .filter(|receipt| {
+                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
+            })
             .filter(|receipt| receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
@@ -2635,6 +2649,9 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let blocked_bees = receipts
             .iter()
+            .filter(|receipt| {
+                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
+            })
             .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
@@ -2644,6 +2661,9 @@ impl SqliteStore {
         }
         for receipt in receipts
             .iter()
+            .filter(|receipt| {
+                is_actionable_hive_board_receipt(receipt, actionable_cutoff, &active_session_ids)
+            })
             .filter(|receipt| receipt.kind == "queen_deny")
         {
             recommended_actions.push(format!("reroute {}", receipt.summary));
@@ -2682,7 +2702,22 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .sessions;
-        let queen_session = sessions
+        let tasks = self
+            .hive_tasks(&HiveTasksRequest {
+                session: None,
+                project: request.project.clone(),
+                namespace: request.namespace.clone(),
+                workspace: request.workspace.clone(),
+                active_only: Some(true),
+                limit: Some(256),
+            })?
+            .tasks;
+        let visible_sessions = sessions
+            .iter()
+            .filter(|session| !is_low_signal_hive_board_session(session, &tasks))
+            .cloned()
+            .collect::<Vec<_>>();
+        let queen_session = visible_sessions
             .iter()
             .find(|session| {
                 matches!(
@@ -2705,7 +2740,7 @@ impl SqliteStore {
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
             queen_session,
-            bees: sessions,
+            bees: visible_sessions,
         })
     }
 
@@ -3815,6 +3850,41 @@ fn is_hive_overlap_receipt(receipt: &HiveCoordinationReceiptRecord) -> bool {
         || receipt.summary.contains("possible_work_overlap")
 }
 
+fn is_low_signal_hive_board_session(session: &HiveSessionRecord, tasks: &[HiveTaskRecord]) -> bool {
+    let session_name = session.session.trim();
+    if !session_name.starts_with("sender-") {
+        return false;
+    }
+    let has_identity = session.hive_system.is_some()
+        || session.hive_role.is_some()
+        || session.role.is_some()
+        || session.authority.is_some()
+        || !session.capabilities.is_empty()
+        || session.lane_id.is_some();
+    if has_identity {
+        return false;
+    }
+    let has_active_task = tasks
+        .iter()
+        .any(|task| task.session.as_deref() == Some(session_name));
+    !has_active_task
+}
+
+fn is_actionable_hive_board_receipt(
+    receipt: &HiveCoordinationReceiptRecord,
+    actionable_cutoff: chrono::DateTime<chrono::Utc>,
+    active_session_ids: &std::collections::HashSet<String>,
+) -> bool {
+    if receipt.created_at >= actionable_cutoff {
+        return true;
+    }
+    active_session_ids.contains(&receipt.actor_session)
+        || receipt
+            .target_session
+            .as_ref()
+            .is_some_and(|session| active_session_ids.contains(session))
+}
+
 fn hive_follow_overlap_risk(
     current: &HiveSessionRecord,
     target: &HiveSessionRecord,
@@ -4620,7 +4690,9 @@ fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()>
 mod tests {
     use super::*;
     use crate::canonical_key;
-    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+    use memd_schema::{
+        HiveRosterRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
+    };
 
     fn open_temp_store(prefix: &str) -> (std::path::PathBuf, SqliteStore) {
         let dir = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
@@ -5991,6 +6063,238 @@ mod tests {
 
         assert_eq!(board.overlap_risks.len(), 1);
         assert!(board.overlap_risks[0].contains("possible_work_overlap"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-sender-noise-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "sender-noise".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@sender-noise".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(301),
+                topic_claim: Some("focus: task-current-noise".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("focus: task-current-noise".to_string()),
+                pressure: Some("keep continuity tight".to_string()),
+                next_recovery: Some("next: resume next step".to_string()),
+                next_action: Some("focus: task-current-noise".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert low signal sender");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(302),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert worker");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+        let roster = store
+            .hive_roster(&HiveRosterRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive roster");
+
+        assert_eq!(board.active_bees.len(), 1);
+        assert_eq!(board.active_bees[0].session, "worker-1");
+        assert_eq!(roster.bees.len(), 1);
+        assert_eq!(roster.bees[0].session, "worker-1");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_historical_lane_fault_noise_for_inactive_sessions() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-lane-fault-noise-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(401),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert worker");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "lane_fault".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("old-worker".to_string()),
+                task_id: Some("legacy-task".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Old lane fault for old-worker".to_string(),
+            })
+            .expect("record stale lane fault");
+
+        {
+            let mut receipt = store
+                .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                    session: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    limit: Some(8),
+                })
+                .expect("load receipts")
+                .receipts
+                .into_iter()
+                .next()
+                .expect("stale lane fault receipt");
+            receipt.created_at = chrono::Utc::now() - chrono::TimeDelta::minutes(30);
+            let payload_json = serde_json::to_string(&receipt).expect("serialize aged receipt");
+            let conn = store.connect().expect("connect sqlite store");
+            conn.execute(
+                "UPDATE hive_coordination_receipts SET created_at = ?1, payload_json = ?2 WHERE id = ?3",
+                rusqlite::params![
+                    receipt.created_at.to_rfc3339(),
+                    payload_json,
+                    receipt.id
+                ],
+            )
+            .expect("age receipt row");
+        }
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert!(board.blocked_bees.is_empty());
+        assert!(board.lane_faults.is_empty());
+        assert!(board.recommended_actions.is_empty());
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
