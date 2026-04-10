@@ -17567,36 +17567,35 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
             .as_deref()
             .or(bee.branch.as_deref())
             .unwrap_or("none");
-        let capabilities = if bee.capabilities.is_empty() {
+        let touches = if bee.touches.is_empty() {
             "none".to_string()
         } else {
-            bee.capabilities.join(",")
+            bee.touches.join(",")
         };
-        let mut metadata = Vec::new();
-        if let Some(working) = bee.working.as_deref().filter(|value| !value.trim().is_empty()) {
-            metadata.push(format!("work=\"{}\"", working));
-        }
-        if !bee.touches.is_empty() {
-            metadata.push(format!("touches={}", bee.touches.join(",")));
-        }
-        if let Some(state) = bee.relationship_state.as_deref() {
-            let relation = bee
-                .relationship_peer
+        let work = bee
+            .working
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("none");
+        let relation = match (
+            bee.relationship_state
                 .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .map(|peer| format!("relation={}:{}", state, peer))
-                .unwrap_or_else(|| format!("relation={}", state));
-            metadata.push(relation);
-        }
-        if let Some(action) = bee
+                .filter(|value| !value.trim().is_empty()),
+            bee.relationship_peer
+                .as_deref()
+                .filter(|value| !value.trim().is_empty()),
+        ) {
+            (Some(state), Some(peer)) => format!("{state}:{peer}"),
+            (Some(state), None) => state.to_string(),
+            _ => "clear".to_string(),
+        };
+        let action = bee
             .suggested_action
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-        {
-            metadata.push(format!("action={}", action));
-        }
+            .unwrap_or("continue");
         lines.push(format!(
-            "- {} ({}) role={} lane={} task={} caps={} status={}{}",
+            "- {} ({}) role={} lane={} task={} work=\"{}\" touches={} relation={} action={} status={}",
             worker,
             bee.session,
             bee.role
@@ -17605,13 +17604,11 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
                 .unwrap_or("worker"),
             lane,
             bee.task_id.as_deref().unwrap_or("none"),
-            capabilities,
+            work,
+            touches,
+            relation,
+            action,
             bee.status,
-            if metadata.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", metadata.join(" "))
-            },
         ));
     }
     lines.join("\n")
@@ -51701,7 +51698,10 @@ mod tests {
         assert!(summary.contains("role=reviewer"));
         assert!(summary.contains("lane=lane-review"));
         assert!(summary.contains("task=review-parser"));
-        assert!(summary.contains("caps=review,coordination"));
+        assert!(summary.contains("work=\"none\""));
+        assert!(summary.contains("touches=none"));
+        assert!(summary.contains("relation=clear"));
+        assert!(summary.contains("action=continue"));
     }
 
     #[test]
@@ -51772,6 +51772,68 @@ mod tests {
         assert!(summary.contains("touches=file:crates/memd-client/src/main.rs,task:hive-awareness"));
         assert!(summary.contains("relation=near:Clawcontrol"));
         assert!(summary.contains("action=cowork"));
+    }
+
+    #[test]
+    fn render_hive_roster_summary_surfaces_conflict_action() {
+        let response = HiveRosterResponse {
+            project: "memd".to_string(),
+            namespace: "main".to_string(),
+            queen_session: None,
+            bees: vec![memd_schema::HiveSessionRecord {
+                session: "memd".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Memd@memd".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Memd".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-main".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo".to_string()),
+                branch: Some("main".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("editing parser lane".to_string()),
+                scope_claims: vec!["file:crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-lane".to_string()),
+                focus: Some("editing parser lane".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                working: Some("editing parser lane".to_string()),
+                touches: vec!["file:crates/memd-client/src/main.rs".to_string()],
+                relationship_state: Some("conflict".to_string()),
+                relationship_peer: Some("Clawcontrol".to_string()),
+                relationship_reason: None,
+                suggested_action: Some("stop_and_cowork".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+            }],
+        };
+
+        let summary = render_hive_roster_summary(&response);
+        assert!(summary.contains("relation=conflict:Clawcontrol"));
+        assert!(summary.contains("action=stop_and_cowork"));
     }
 
     #[test]
@@ -52249,6 +52311,10 @@ mod tests {
         let summary = render_hive_roster_summary(&response);
         assert!(summary.contains("Codex 6d422e56 (session-6d422e56)"));
         assert!(!summary.contains("- codex (session-6d422e56)"));
+        assert!(summary.contains("work=\"none\""));
+        assert!(summary.contains("touches=none"));
+        assert!(summary.contains("relation=clear"));
+        assert!(summary.contains("action=continue"));
     }
 
     #[test]
