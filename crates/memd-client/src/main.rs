@@ -15089,7 +15089,7 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
                 .map(|value| format!("MEMD_NAMESPACE={value}\n"))
                 .unwrap_or_default(),
             compose_agent_identity(&args.agent, Some(&session)),
-            worker_name,
+            shell_single_quote(&worker_name),
             session,
             tab_id
                 .as_ref()
@@ -38306,7 +38306,7 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_WORKER_NAME=",
-        &format!("MEMD_WORKER_NAME={worker_name}\n"),
+        &format!("MEMD_WORKER_NAME={}\n", shell_single_quote(&worker_name)),
     )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
@@ -38355,7 +38355,7 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_WORKER_NAME=",
-        &format!("MEMD_WORKER_NAME={worker_name}\n"),
+        &format!("MEMD_WORKER_NAME={}\n", shell_single_quote(&worker_name)),
     )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
@@ -38642,6 +38642,15 @@ fn expected_bundle_worker_name(config: &BundleConfigFile) -> Option<String> {
         .map(|agent| default_bundle_worker_name(agent, config.session.as_deref()))
 }
 
+fn parse_shell_env_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if !(trimmed.starts_with('\'') && trimmed.ends_with('\'')) {
+        return None;
+    }
+    let inner = &trimmed[1..trimmed.len().saturating_sub(1)];
+    Some(inner.replace("'\\''", "'"))
+}
+
 fn bundle_env_assignment_matches(path: &Path, prefix: &str, expected_value: &str) -> bool {
     fs::read_to_string(path)
         .ok()
@@ -38649,7 +38658,12 @@ fn bundle_env_assignment_matches(path: &Path, prefix: &str, expected_value: &str
             content.lines().any(|line| {
                 line.strip_prefix(prefix)
                     .map(str::trim)
-                    .is_some_and(|value| value == expected_value)
+                    .is_some_and(|value| {
+                        value == expected_value
+                            || parse_shell_env_value(value)
+                                .as_deref()
+                                .is_some_and(|parsed| parsed == expected_value)
+                    })
             })
         })
         .unwrap_or(false)
@@ -38690,7 +38704,10 @@ fn repair_bundle_worker_name_env(output: &Path) -> anyhow::Result<bool> {
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_WORKER_NAME=",
-        &format!("MEMD_WORKER_NAME={expected_worker_name}\n"),
+        &format!(
+            "MEMD_WORKER_NAME={}\n",
+            shell_single_quote(&expected_worker_name)
+        ),
     )?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
@@ -46017,7 +46034,7 @@ mod tests {
         let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
         assert!(config.contains(r#""agent": "openclaw""#));
         assert!(env.contains("MEMD_AGENT=openclaw@codex-a"));
-        assert!(env.contains("MEMD_WORKER_NAME=Openclaw"));
+        assert!(env.contains("MEMD_WORKER_NAME='Openclaw'"));
         assert!(env_ps1.contains("$env:MEMD_AGENT = \"openclaw@codex-a\""));
         assert!(env_ps1.contains("$env:MEMD_WORKER_NAME = \"Openclaw\""));
 
@@ -46059,10 +46076,70 @@ mod tests {
 
         let env = fs::read_to_string(dir.join("env")).expect("read env");
         let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
-        assert!(env.contains("MEMD_WORKER_NAME=Openclaw"));
+        assert!(env.contains("MEMD_WORKER_NAME='Openclaw'"));
         assert!(env_ps1.contains("$env:MEMD_WORKER_NAME = \"Openclaw\""));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn write_init_bundle_quotes_worker_name_in_shell_env_for_launcher_source() {
+        let root =
+            std::env::temp_dir().join(format!("memd-worker-source-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create project root");
+        let output = root.join(".memd");
+
+        write_init_bundle(&InitArgs {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: Some(root.clone()),
+            seed_existing: false,
+            agent: "codex".to_string(),
+            session: Some("session-proof-alpha".to_string()),
+            tab_id: None,
+            hive_system: None,
+            hive_role: None,
+            capability: Vec::new(),
+            hive_group: Vec::new(),
+            hive_group_goal: None,
+            authority: None,
+            output: output.clone(),
+            base_url: "http://127.0.0.1:8787".to_string(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: None,
+            visibility: None,
+            force: true,
+            allow_localhost_read_only_fallback: false,
+        })
+        .expect("write init bundle");
+
+        let env_path = output.join("env");
+        let env_contents = fs::read_to_string(&env_path).expect("read env");
+        assert!(env_contents.contains("MEMD_WORKER_NAME='Codex proof-alpha'"));
+
+        let shell_script = format!(
+            ". {}\nprintf '%s' \"$MEMD_WORKER_NAME\"\n",
+            shell_single_quote(env_path.to_string_lossy().as_ref())
+        );
+        let source = Command::new("bash")
+            .arg("-lc")
+            .arg(shell_script)
+            .output()
+            .expect("source env in bash");
+        assert!(
+            source.status.success(),
+            "bash source failed: {}",
+            String::from_utf8_lossy(&source.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&source.stdout),
+            "Codex proof-alpha"
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp project");
     }
 
     #[test]
