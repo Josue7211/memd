@@ -2720,6 +2720,7 @@ async fn main() -> anyhow::Result<()> {
                     set_bundle_tab_id(&args.output, &tab_id)?;
                 }
             }
+            invalidate_bundle_runtime_caches(&args.output)?;
             let codex_pack =
                 harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
             let agent_zero_pack =
@@ -3388,6 +3389,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Refresh(args) => {
+            invalidate_bundle_runtime_caches(&args.output)?;
             let snapshot = read_bundle_resume(&args, &base_url).await?;
             write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "refresh").await?;
@@ -37027,6 +37029,18 @@ fn build_resume_snapshot_cache_key(
     cache::build_turn_key(project, namespace, agent, "resume", &query)
 }
 
+fn invalidate_bundle_runtime_caches(output: &Path) -> anyhow::Result<()> {
+    for path in [
+        cache::resume_snapshot_cache_path(output),
+        cache::handoff_snapshot_cache_path(output),
+    ] {
+        if path.exists() {
+            fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 async fn eval_bundle_memory(args: &EvalArgs, base_url: &str) -> anyhow::Result<BundleEvalResponse> {
     let baseline = read_latest_bundle_eval(&args.output)?;
     let snapshot = read_bundle_resume(
@@ -52144,6 +52158,25 @@ mod tests {
         assert!(resumed.resume.semantic.is_none());
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn invalidate_bundle_runtime_caches_removes_resume_and_handoff_snapshots() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-runtime-cache-prune-{}", uuid::Uuid::new_v4()));
+        let output = dir.join(".memd");
+        fs::create_dir_all(output.join("state")).expect("create state dir");
+        fs::write(output.join("state/resume-snapshot-cache.json"), "{}\n")
+            .expect("write resume cache");
+        fs::write(output.join("state/handoff-snapshot-cache.json"), "{}\n")
+            .expect("write handoff cache");
+
+        invalidate_bundle_runtime_caches(&output).expect("invalidate bundle caches");
+
+        assert!(!output.join("state/resume-snapshot-cache.json").exists());
+        assert!(!output.join("state/handoff-snapshot-cache.json").exists());
+
+        fs::remove_dir_all(dir).expect("cleanup runtime cache dir");
     }
 
     #[test]
