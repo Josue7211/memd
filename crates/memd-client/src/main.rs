@@ -16731,7 +16731,7 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
 async fn propagate_hive_metadata_to_active_project_bundles(
     output: &Path,
     runtime: &BundleRuntimeConfig,
-    publish_heartbeat: bool,
+    _publish_heartbeat: bool,
 ) -> anyhow::Result<()> {
     let Some(project) = runtime.project.as_deref() else {
         return Ok(());
@@ -16772,31 +16772,18 @@ async fn propagate_hive_metadata_to_active_project_bundles(
         if let Some(value) = runtime.namespace.as_deref() {
             set_bundle_namespace(&bundle_root, value)?;
         }
-        if let Some(value) = runtime.agent.as_deref() {
-            set_bundle_agent(&bundle_root, value)?;
-        }
         if let Some(value) = runtime.hive_system.as_deref() {
             set_bundle_hive_system(&bundle_root, value)?;
         }
         if let Some(value) = runtime.hive_role.as_deref() {
             set_bundle_hive_role(&bundle_root, value)?;
         }
-        set_bundle_capabilities(&bundle_root, &runtime.capabilities)?;
         set_bundle_hive_groups(&bundle_root, &runtime.hive_groups)?;
-        if let Some(value) = runtime.hive_group_goal.as_deref() {
-            set_bundle_hive_group_goal(&bundle_root, value)?;
-        }
         if let Some(value) = runtime.authority.as_deref() {
             set_bundle_authority(&bundle_root, value)?;
         }
         if let Some(value) = runtime.base_url.as_deref() {
             set_bundle_base_url(&bundle_root, value)?;
-        }
-        if let Some(value) = runtime.route.as_deref() {
-            set_bundle_route(&bundle_root, value)?;
-        }
-        if let Some(value) = runtime.intent.as_deref() {
-            set_bundle_intent(&bundle_root, value)?;
         }
         if let Some(value) = runtime.workspace.as_deref() {
             set_bundle_workspace(&bundle_root, value)?;
@@ -16804,10 +16791,31 @@ async fn propagate_hive_metadata_to_active_project_bundles(
         if let Some(value) = runtime.visibility.as_deref() {
             set_bundle_visibility(&bundle_root, value)?;
         }
-        write_agent_profiles(&bundle_root)?;
-        if publish_heartbeat {
-            let _ = refresh_bundle_heartbeat(&bundle_root, None, false).await;
+        if let Some(mut heartbeat) = read_bundle_heartbeat(&bundle_root)? {
+            heartbeat.project = runtime.project.clone();
+            heartbeat.namespace = runtime.namespace.clone();
+            heartbeat.hive_system = runtime.hive_system.clone();
+            heartbeat.hive_role = runtime.hive_role.clone();
+            heartbeat.hive_groups = runtime.hive_groups.clone();
+            heartbeat.authority = runtime.authority.clone();
+            heartbeat.base_url = runtime.base_url.clone();
+            heartbeat.workspace = runtime.workspace.clone();
+            heartbeat.visibility = runtime.visibility.clone();
+            fs::write(
+                bundle_heartbeat_state_path(&bundle_root),
+                serde_json::to_string_pretty(&heartbeat)? + "\n",
+            )
+            .with_context(|| {
+                format!(
+                    "write {}",
+                    bundle_heartbeat_state_path(&bundle_root).display()
+                )
+            })?;
         }
+        // Do not republish sibling bundle heartbeats from the current process.
+        // The current bee's env can contain explicit worker identity that would
+        // otherwise leak into sibling heartbeats during the shared-project sync.
+        write_agent_profiles(&bundle_root)?;
     }
 
     Ok(())
@@ -40956,6 +40964,7 @@ mod tests {
     };
 
     static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn lock_home_mutation() -> std::sync::MutexGuard<'static, ()> {
         HOME_LOCK
@@ -40963,6 +40972,14 @@ mod tests {
             .lock()
             .expect("HOME mutation lock poisoned")
     }
+
+    fn lock_env_mutation() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env mutation lock poisoned")
+    }
+
 
     fn normalize_path_text(value: impl AsRef<Path>) -> String {
         value.as_ref().to_string_lossy().replace('\\', "/")
@@ -56805,10 +56822,136 @@ mod tests {
         assert!(sender_bundle.join("config.json").exists());
         assert!(target_bundle.join("config.json").exists());
         assert_eq!(env.bundle_root, sender_bundle);
+        let sender_config = read_bundle_runtime_config(&env.bundle_root)
+            .expect("read sender runtime config")
+            .expect("sender runtime config present");
+        let target_config = read_bundle_runtime_config(&target_bundle)
+            .expect("read target runtime config")
+            .expect("target runtime config present");
+        assert_eq!(sender_config.agent.as_deref(), Some("Sender"));
+        assert_eq!(target_config.agent.as_deref(), Some("Target"));
         assert_eq!(
-            env.fixture_vars.get("target_session").map(String::as_str),
-            Some("target")
+            env.fixture_vars
+                .get("target_session")
+                .is_some_and(|value| value.starts_with("target-")),
+            true
         );
+    }
+
+    #[tokio::test]
+    async fn propagate_hive_metadata_does_not_overwrite_sibling_worker_identity() {
+        let _env_lock = lock_env_mutation();
+        let root =
+            std::env::temp_dir().join(format!("memd-hive-propagate-{}", uuid::Uuid::new_v4()));
+        let current_project = root.join("current");
+        let sibling_project = root.join("sibling");
+        fs::create_dir_all(&current_project).expect("create current project");
+        fs::create_dir_all(&sibling_project).expect("create sibling project");
+
+        let current_bundle = current_project.join(".memd");
+        let sibling_bundle = sibling_project.join(".memd");
+        let base_url = "http://127.0.0.1:9".to_string();
+
+        write_init_bundle(&InitArgs {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: Some(current_project.clone()),
+            seed_existing: false,
+            agent: "openclaw".to_string(),
+            session: Some("session-live-openclaw".to_string()),
+            tab_id: None,
+            hive_system: Some("openclaw".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: vec!["coordination".to_string(), "memory".to_string()],
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: current_bundle.clone(),
+            base_url: base_url.clone(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            allow_localhost_read_only_fallback: false,
+            force: true,
+        })
+        .expect("write current bundle");
+        set_bundle_hive_project_state(
+            &current_bundle,
+            true,
+            Some("project:demo"),
+            Some(Utc::now()),
+        )
+        .expect("enable current project hive");
+
+        write_init_bundle(&InitArgs {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            global: false,
+            project_root: Some(sibling_project.clone()),
+            seed_existing: false,
+            agent: "hermes".to_string(),
+            session: Some("session-live-hermes".to_string()),
+            tab_id: None,
+            hive_system: Some("hermes".to_string()),
+            hive_role: Some("agent".to_string()),
+            capability: vec!["coordination".to_string(), "memory".to_string()],
+            hive_group: vec!["project:demo".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            output: sibling_bundle.clone(),
+            base_url: base_url.clone(),
+            rag_url: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            allow_localhost_read_only_fallback: false,
+            force: true,
+        })
+        .expect("write sibling bundle");
+        set_bundle_hive_project_state(
+            &sibling_bundle,
+            true,
+            Some("project:demo"),
+            Some(Utc::now()),
+        )
+        .expect("enable sibling project hive");
+
+        unsafe {
+            std::env::set_var("MEMD_WORKER_NAME", "Hermes");
+        }
+        refresh_bundle_heartbeat(&sibling_bundle, None, false)
+            .await
+            .expect("refresh sibling heartbeat");
+
+        unsafe {
+            std::env::set_var("MEMD_WORKER_NAME", "Openclaw");
+        }
+        refresh_bundle_heartbeat(&current_bundle, None, false)
+            .await
+            .expect("refresh current heartbeat");
+
+        let runtime = read_bundle_runtime_config(&current_bundle)
+            .expect("read current runtime")
+            .expect("current runtime present");
+
+        propagate_hive_metadata_to_active_project_bundles(&current_bundle, &runtime, true)
+            .await
+            .expect("propagate hive metadata");
+
+        let sibling_heartbeat =
+            read_bundle_heartbeat(&sibling_bundle).expect("read sibling heartbeat file");
+        let sibling_heartbeat = sibling_heartbeat.expect("sibling heartbeat present");
+        assert_eq!(sibling_heartbeat.agent.as_deref(), Some("hermes"));
+        assert_eq!(sibling_heartbeat.worker_name.as_deref(), Some("Hermes"));
+
+        unsafe {
+            std::env::remove_var("MEMD_WORKER_NAME");
+        }
+        fs::remove_dir_all(root).expect("cleanup propagation test root");
     }
 
     #[tokio::test]
