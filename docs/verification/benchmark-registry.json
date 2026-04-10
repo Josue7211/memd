@@ -55,7 +55,10 @@
       "commands": ["memd wake"],
       "routes": [],
       "files": ["crates/memd-client/src/main.rs"],
-      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
       "loop_ids": ["loop.feature.wake.correctness"],
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "drift_risks": ["continuity-drift", "surface-drift"],
@@ -78,7 +81,10 @@
       "commands": ["memd resume"],
       "routes": [],
       "files": ["crates/memd-client/src/main.rs"],
-      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
       "loop_ids": ["loop.feature.resume.correctness"],
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "drift_risks": ["continuity-drift", "memory-drift"],
@@ -98,7 +104,10 @@
       "commands": ["memd handoff"],
       "routes": [],
       "files": ["crates/memd-client/src/main.rs"],
-      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
       "loop_ids": ["loop.feature.handoff.correctness"],
       "quality_dimensions": ["continuity", "token_efficiency", "inspectability"],
       "drift_risks": ["continuity-drift", "surface-drift"],
@@ -239,6 +248,62 @@
       "failure_modes": ["handoff messages fail to reach the intended hive session"],
       "coverage_status": "auditing",
       "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.claims",
+      "name": "Hive Claims",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "claims mark ownership and can transfer scope safely across hive sessions",
+      "source_contract_refs": [],
+      "commands": [
+        "memd claims --acquire",
+        "memd claims --release",
+        "memd claims --transfer-to-session"
+      ],
+      "routes": [
+        "POST /coordination/claims/acquire",
+        "POST /coordination/claims/release",
+        "POST /coordination/claims/transfer"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-claims.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["scope ownership remains on the wrong session after transfer"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.tasks",
+      "name": "Hive Tasks",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "shared tasks can be assigned across hive sessions without losing ownership state",
+      "source_contract_refs": [],
+      "commands": [
+        "memd tasks --upsert",
+        "memd tasks --assign-to-session",
+        "memd tasks --request-help",
+        "memd tasks --request-review"
+      ],
+      "routes": [
+        "POST /coordination/tasks/upsert",
+        "POST /coordination/tasks/assign"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-tasks.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["task ownership does not move to the assigned hive session"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
     }
   ],
   "journeys": [
@@ -268,6 +333,28 @@
         "drift_resistance"
       ],
       "baseline_mode_ids": ["baseline.no-memd", "baseline.with-memd"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "gate_target": "acceptable"
+    },
+    {
+      "id": "journey.hive.transfer-assign",
+      "name": "Hive Message To Claim Transfer To Task Assignment",
+      "goal": "a live hive handoff moves message intent, scope ownership, and task ownership onto the target session",
+      "feature_ids": [
+        "feature.hive.messages",
+        "feature.hive.claims",
+        "feature.hive.tasks"
+      ],
+      "loop_ids": [
+        "loop.journey.hive-transfer-assign.correctness",
+        "loop.adversarial.hive-claim-collision.containment"
+      ],
+      "quality_dimensions": [
+        "continuity",
+        "correctness",
+        "inspectability"
+      ],
+      "baseline_mode_ids": ["baseline.with-memd"],
       "drift_risks": ["continuity-drift", "surface-drift"],
       "gate_target": "acceptable"
     }
@@ -432,7 +519,10 @@
       "family": "coordination-hive",
       "loop_type": "feature-contract",
       "covers_features": ["feature.hive.messages"],
-      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
       "quality_dimensions": ["continuity", "correctness", "inspectability"],
       "baseline_mode": "baseline.with-memd",
       "workflow_probe": "send a hive message, read it from the target inbox, and acknowledge it",
@@ -442,6 +532,50 @@
       "guardrails": ["message delivery and acknowledgement must remain attributable to the target session"],
       "stop_condition": "three consecutive passes",
       "artifacts_written": [".memd/loops/hive-messages-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-claims.correctness",
+      "name": "Hive Claims Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.claims"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "acquire a scope claim and transfer it to the target hive session",
+      "adversarial_probe": "move claim ownership across a shared hive fixture and confirm the holder changes",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "claim_count"],
+      "guardrails": ["claim ownership must move cleanly to the target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-claims-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-tasks.correctness",
+      "name": "Hive Tasks Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.tasks"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "upsert a shared task and assign it to a target hive session",
+      "adversarial_probe": "handoff task ownership across the fixture and confirm the task holder changes",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "task_count"],
+      "guardrails": ["task assignment must point at the intended target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-tasks-correctness.json"],
       "status": "active"
     },
     {
@@ -527,9 +661,118 @@
       "stop_condition": "drift count returns to zero",
       "artifacts_written": [".memd/loops/resume-handoff-attach-drift.json"],
       "status": "active"
+    },
+    {
+      "id": "loop.journey.hive-transfer-assign.correctness",
+      "name": "Hive Transfer Assign Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": [
+        "feature.hive.messages",
+        "feature.hive.claims",
+        "feature.hive.tasks"
+      ],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "send a hive handoff, acknowledge it, transfer the claim, then assign the task to the target session",
+      "adversarial_probe": "repeat the transfer flow under shared hive state and confirm ownership stays attributable",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "delivery_count", "claim_count", "task_count"],
+      "guardrails": ["the same target session must own the acknowledged handoff, transferred claim, and assigned task"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-transfer-assign-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-claim-collision.containment",
+      "name": "Hive Claim Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.claims"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "acquire a claim in one hive session and retry acquisition from a competing session",
+      "adversarial_probe": "confirm the competing session sees the incumbent holder instead of stealing the scope",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "claim_count"],
+      "guardrails": ["a colliding acquire must preserve the original owner"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-claim-collision-containment.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-task-lane-collision.containment",
+      "name": "Hive Task Lane Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.tasks"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "seed a colliding target lane and attempt shared task assignment",
+      "adversarial_probe": "confirm the target lane collision is rejected before ownership moves",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "expected_error_count"],
+      "guardrails": ["assignment into the same lane must be blocked explicitly"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-task-lane-collision-containment.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-message-lane-collision.containment",
+      "name": "Hive Message Lane Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.messages"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "seed a colliding target lane and attempt a direct handoff message send",
+      "adversarial_probe": "confirm the target lane collision is rejected before the message routes to the stale target session",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "expected_error_count"],
+      "guardrails": ["handoff messaging into the same lane must be blocked explicitly"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-message-lane-collision-containment.json"],
+      "status": "active"
     }
   ],
   "verifiers": [
+    {
+      "id": "verifier.feature.bundle.wake",
+      "name": "Wake feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.wake"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd wake --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "file_contains",
+          "path": "MEMD_WAKEUP.md",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
     {
       "id": "verifier.feature.bundle.resume",
       "name": "Resume feature contract",
@@ -562,6 +805,151 @@
         }
       ],
       "metrics": ["latency_ms", "prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.bundle.handoff",
+      "name": "Handoff feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.handoff"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd handoff --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "handoff.current_task.id",
+          "equals_fixture": "task.id"
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.bundle.attach",
+      "name": "Attach feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd attach --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "attach.snippet",
+          "exists": true
+        }
+      ],
+      "metrics": [],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.capture.checkpoint",
+      "name": "Checkpoint feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "subject_ids": ["feature.capture.checkpoint"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "checkpoint.ok",
+          "exists": true
+        }
+      ],
+      "metrics": [],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.memory.working-context",
+      "name": "Working context feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.working-context"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.context.records.0.record",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.memory.working-memory",
+      "name": "Working memory feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.working-memory"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.working.rehydration_queue.0.summary",
+          "equals_fixture": "task.next_action"
+        }
+      ],
+      "metrics": ["prompt_tokens", "reconstruction_steps"],
       "evidence_requirements": ["live_primary"],
       "gate_target": "acceptable",
       "status": "declared",
@@ -669,6 +1057,75 @@
       ]
     },
     {
+      "id": "verifier.journey.hive-transfer-assign",
+      "name": "Hive transfer assign journey",
+      "type": "journey",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["journey.hive.transfer-assign"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\""
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --inbox"
+        },
+        {
+          "kind": "helper",
+          "name": "capture_message_id"
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --ack {{message_id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_message_acknowledged"
+        },
+        {
+          "kind": "json_path",
+          "path": "claims_transfer.claims.0.session",
+          "equals_fixture": "target_session"
+        },
+        {
+          "kind": "json_path",
+          "path": "tasks_assign.tasks.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["delivery_count", "claim_count", "task_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "capture_message_id",
+        "assert_message_acknowledged"
+      ]
+    },
+    {
       "id": "verifier.feature.hive.messages-send-ack",
       "name": "Hive messages send and ack",
       "type": "feature_contract",
@@ -709,6 +1166,193 @@
       "helper_hooks": [
         "capture_message_id",
         "assert_message_acknowledged"
+      ]
+    },
+    {
+      "id": "verifier.feature.hive.claims-transfer",
+      "name": "Hive claims transfer",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.claims"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:{{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "claims_transfer.claims.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["claim_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.hive.tasks-assign",
+      "name": "Hive tasks assign",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.tasks"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "tasks_assign.tasks.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["task_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.adversarial.hive-claim-collision",
+      "name": "Hive claim collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.claims",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd claims --output {{target_bundle}} --acquire --scope task:{{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        },
+        {
+          "kind": "json_path",
+          "path": "claims_acquire.claims.0.session",
+          "equals_fixture": "sender_session"
+        }
+      ],
+      "metrics": ["claim_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.adversarial.hive-task-lane-collision",
+      "name": "Hive task lane collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.tasks",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "setup_target_lane_collision"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        }
+      ],
+      "metrics": ["task_count", "expected_error_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "setup_target_lane_collision"
+      ]
+    },
+    {
+      "id": "verifier.adversarial.hive-message-lane-collision",
+      "name": "Hive message lane collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.messages",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "setup_target_lane_collision"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\""
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        }
+      ],
+      "metrics": ["expected_error_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "setup_target_lane_collision"
       ]
     }
   ],

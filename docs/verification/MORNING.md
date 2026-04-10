@@ -9,6 +9,16 @@
 - feature.bundle.attach [bundle-runtime] coverage=auditing drift=continuity-drift|harness-drift
 - feature.capture.checkpoint [capture-compaction] coverage=auditing drift=continuity-drift|capture-drift
 
+## Verification Regressions
+- nightly verify lane nightly is green at 16/16
+
+## Verification Pressure
+- verifier.adversarial.hive-claim-collision status=passing gate=acceptable target=acceptable continuity_critical=true
+- verifier.adversarial.hive-message-lane-collision status=passing gate=acceptable target=acceptable continuity_critical=true
+- verifier.adversarial.hive-task-lane-collision status=passing gate=acceptable target=acceptable continuity_critical=true
+- verifier.feature.bundle.attach status=passing gate=acceptable target=acceptable continuity_critical=true
+- verifier.feature.bundle.handoff status=passing gate=acceptable target=acceptable continuity_critical=true
+
 ## Drift Risks
 - capture-drift
 - continuity-drift

@@ -1,0 +1,31 @@
+{
+  "benchmark_id": "convomem",
+  "benchmark_name": "ConvoMem",
+  "version": "mini",
+  "split": "test",
+  "description": "Tiny vendored fixture reserved for ConvoMem parity plumbing.",
+  "items": [
+    {
+      "item_id": "convomem-mini-001",
+      "question_id": "cm-mini-001",
+      "query": "What should the agent remember from the conversation?",
+      "claim_class": "raw",
+      "gold_answer": "remember the conversation detail",
+      "metadata": {
+        "topic": "conversation",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "item_id": "convomem-mini-002",
+      "question_id": "cm-mini-002",
+      "query": "Which answer should be ranked first?",
+      "claim_class": "hybrid",
+      "gold_answer": "rank the first answer",
+      "metadata": {
+        "topic": "ranking",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}

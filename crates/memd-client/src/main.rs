@@ -10,7 +10,7 @@ use std::{
     future::Future,
     io::{self, Read},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -32,7 +32,8 @@ use memd_multimodal::{
     MultimodalChunk, MultimodalIngestPlan, build_ingest_plan, extract_chunks, to_sidecar_requests,
 };
 use memd_rag::{
-    RagClient, RagIngestRequest, RagRetrieveMode, RagRetrieveRequest, RagRetrieveResponse,
+    RagClient, RagIngestRequest, RagIngestSource, RagRetrieveMode, RagRetrieveRequest,
+    RagRetrieveResponse,
 };
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
@@ -1898,6 +1899,12 @@ struct HiveFollowArgs {
     worker: Option<String>,
 
     #[arg(long)]
+    watch: bool,
+
+    #[arg(long, default_value_t = 5)]
+    interval_secs: u64,
+
+    #[arg(long)]
     json: bool,
 
     #[arg(long)]
@@ -2118,6 +2125,49 @@ struct BenchmarkArgs {
 
     #[arg(long, default_value_t = false)]
     summary: bool,
+
+    #[command(subcommand)]
+    subcommand: Option<BenchmarkSubcommand>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum BenchmarkSubcommand {
+    Public(PublicBenchmarkArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct PublicBenchmarkArgs {
+    dataset: String,
+
+    #[arg(long, value_parser = ["raw", "hybrid"])]
+    mode: Option<String>,
+
+    #[arg(long, value_parser = ["lexical", "sidecar"])]
+    retrieval_backend: Option<String>,
+
+    #[arg(long)]
+    rag_url: Option<String>,
+
+    #[arg(long)]
+    top_k: Option<usize>,
+
+    #[arg(long)]
+    limit: Option<usize>,
+
+    #[arg(long)]
+    dataset_root: Option<PathBuf>,
+
+    #[arg(long)]
+    reranker: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    write: bool,
+
+    #[arg(long, default_value_t = false)]
+    json: bool,
+
+    #[arg(long, alias = "output", default_value_os_t = default_bundle_root_path())]
+    out: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3034,11 +3084,15 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Some(HiveSubcommand::Follow(follow_args)) => {
-                let response = run_hive_follow_command(follow_args).await?;
-                if follow_args.json {
-                    print_json(&response)?;
+                if follow_args.watch {
+                    run_hive_follow_watch(follow_args).await?;
                 } else {
-                    println!("{}", render_hive_follow_summary(&response));
+                    let response = run_hive_follow_command(follow_args).await?;
+                    if follow_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_follow_summary(&response));
+                    }
                 }
             }
             Some(HiveSubcommand::Handoff(handoff_args)) => {
@@ -3143,22 +3197,48 @@ async fn main() -> anyhow::Result<()> {
                 print_json(&response)?;
             }
         }
-        Commands::Benchmark(args) => {
-            let response = run_feature_benchmark_command(&args, &base_url).await?;
-            if args.write {
-                write_feature_benchmark_artifacts(&args.output, &response)?;
-                if let Some((repo_root, registry)) =
-                    load_benchmark_registry_for_output(&args.output)?
-                {
-                    write_benchmark_registry_docs(&repo_root, &registry, &response)?;
+        Commands::Benchmark(args) => match &args.subcommand {
+            Some(BenchmarkSubcommand::Public(public_args)) => {
+                let response = run_public_benchmark_command(public_args).await?;
+                if public_args.write {
+                    let receipt =
+                        write_public_benchmark_run_artifacts(&public_args.out, &response)?;
+                    let _ = (
+                        &receipt.run_dir,
+                        &receipt.manifest_path,
+                        &receipt.results_path,
+                        &receipt.results_jsonl_path,
+                        &receipt.report_path,
+                    );
+                    if let Some(repo_root) = infer_bundle_project_root(&public_args.out) {
+                        write_public_benchmark_docs(&repo_root, &public_args.out, &response)?;
+                    }
+                }
+                if public_args.json {
+                    print_json(&response)?;
+                } else if args.summary {
+                    println!("{}", render_public_benchmark_summary(&response));
+                } else {
+                    print_json(&response)?;
                 }
             }
-            if args.summary {
-                println!("{}", render_feature_benchmark_summary(&response));
-            } else {
-                print_json(&response)?;
+            None => {
+                let response = run_feature_benchmark_command(&args, &base_url).await?;
+                if args.write {
+                    write_feature_benchmark_artifacts(&args.output, &response)?;
+                    if let Some((repo_root, registry)) =
+                        load_benchmark_registry_for_output(&args.output)?
+                    {
+                        write_benchmark_registry_docs(&repo_root, &registry, &response)?;
+                    }
+                }
+                if args.summary {
+                    println!("{}", render_feature_benchmark_summary(&response));
+                } else {
+                    print_json(&response)?;
+                }
             }
-        }
+        },
         Commands::Verify(args) => match &args.command {
             VerifyCommand::Feature(verify_args) => {
                 let response = run_verify_feature_command(verify_args).await?;
@@ -15532,7 +15612,23 @@ struct HiveProjectResponse {
 struct HiveQueenResponse {
     queen_session: String,
     suggested_actions: Vec<String>,
+    action_cards: Vec<HiveQueenActionCard>,
     recent_receipts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HiveQueenActionCard {
+    action: String,
+    priority: String,
+    target_session: Option<String>,
+    target_worker: Option<String>,
+    task_id: Option<String>,
+    scope: Option<String>,
+    reason: String,
+    follow_command: Option<String>,
+    deny_command: Option<String>,
+    reroute_command: Option<String>,
+    retire_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -15864,6 +15960,28 @@ async fn run_hive_follow_command(args: &HiveFollowArgs) -> anyhow::Result<HiveFo
     })
 }
 
+async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Result<()> {
+    let mut last_snapshot = None::<String>;
+    loop {
+        let response = run_hive_follow_command(args).await?;
+        let snapshot = if args.json {
+            serde_json::to_string(&response).context("serialize hive follow watch frame")?
+        } else {
+            render_hive_follow_summary(&response)
+        };
+        if last_snapshot.as_deref() != Some(snapshot.as_str()) {
+            if args.json {
+                println!("{snapshot}");
+            } else {
+                println!("{}", render_hive_follow_watch_frame(&response, Utc::now()));
+                println!();
+            }
+            last_snapshot = Some(snapshot);
+        }
+        tokio::time::sleep(Duration::from_secs(args.interval_secs.max(1))).await;
+    }
+}
+
 async fn run_hive_handoff_command(
     args: &HiveHandoffArgs,
     base_url: &str,
@@ -16046,6 +16164,14 @@ async fn run_hive_queen_command(
     args: &HiveQueenArgs,
     base_url: &str,
 ) -> anyhow::Result<HiveQueenResponse> {
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = project_awareness_visible_entries(&awareness);
     let coordination = run_coordination_command(
         &CoordinationArgs {
             output: args.output.clone(),
@@ -16065,6 +16191,45 @@ async fn run_hive_queen_command(
     )
     .await?;
 
+    let action_cards =
+        coordination
+            .suggestions
+            .iter()
+            .map(|suggestion| {
+                let target_entry = suggestion.target_session.as_deref().and_then(|session| {
+                    visible_entries
+                        .iter()
+                        .find(|entry| entry.session.as_deref() == Some(session))
+                        .copied()
+                });
+                let target_worker = target_entry
+                    .and_then(derive_awareness_worker_name)
+                    .or_else(|| suggestion.target_session.clone());
+                HiveQueenActionCard {
+                    action: suggestion.action.clone(),
+                    priority: suggestion.priority.clone(),
+                    target_session: suggestion.target_session.clone(),
+                    target_worker,
+                    task_id: suggestion.task_id.clone(),
+                    scope: suggestion.scope.clone(),
+                    reason: suggestion.reason.clone(),
+                    follow_command: suggestion
+                        .target_session
+                        .as_ref()
+                        .map(|session| format!("memd hive follow --session {session} --summary")),
+                    deny_command: suggestion.target_session.as_ref().map(|session| {
+                        format!("memd hive queen --deny-session {session} --summary")
+                    }),
+                    reroute_command: suggestion.target_session.as_ref().map(|session| {
+                        format!("memd hive queen --reroute-session {session} --summary")
+                    }),
+                    retire_command: suggestion.stale_session.as_ref().map(|session| {
+                        format!("memd hive queen --retire-session {session} --summary")
+                    }),
+                }
+            })
+            .collect::<Vec<_>>();
+
     Ok(HiveQueenResponse {
         queen_session: coordination.current_session,
         suggested_actions: coordination
@@ -16072,6 +16237,7 @@ async fn run_hive_queen_command(
             .into_iter()
             .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
             .collect(),
+        action_cards,
         recent_receipts: coordination
             .receipts
             .iter()
@@ -16242,7 +16408,11 @@ fn filter_project_awareness_entries_for_hive_scope<'a>(
     let Some(runtime) = runtime else {
         return entries.to_vec();
     };
-    let project = runtime.project.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let project = runtime
+        .project
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let namespace = runtime
         .namespace
         .as_deref()
@@ -16258,12 +16428,10 @@ fn filter_project_awareness_entries_for_hive_scope<'a>(
         .copied()
         .filter(|entry| {
             project.is_none_or(|value| entry.project.as_deref().map(str::trim) == Some(value))
-                && namespace.is_none_or(|value| {
-                    entry.namespace.as_deref().map(str::trim) == Some(value)
-                })
-                && workspace.is_none_or(|value| {
-                    entry.workspace.as_deref().map(str::trim) == Some(value)
-                })
+                && namespace
+                    .is_none_or(|value| entry.namespace.as_deref().map(str::trim) == Some(value))
+                && workspace
+                    .is_none_or(|value| entry.workspace.as_deref().map(str::trim) == Some(value))
         })
         .collect::<Vec<_>>();
     if filtered.is_empty() {
@@ -17333,6 +17501,17 @@ fn render_hive_follow_summary(response: &HiveFollowResponse) -> String {
     lines.join("\n")
 }
 
+fn render_hive_follow_watch_frame(
+    response: &HiveFollowResponse,
+    observed_at: DateTime<Utc>,
+) -> String {
+    format!(
+        "== hive follow {} ==\n{}",
+        observed_at.to_rfc3339(),
+        render_hive_follow_summary(response)
+    )
+}
+
 fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
     let lines = vec![
         format!(
@@ -17371,6 +17550,37 @@ fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
         lines.push("## Suggested Actions".to_string());
         for action in &response.suggested_actions {
             lines.push(format!("- {}", action));
+        }
+    }
+
+    if !response.action_cards.is_empty() {
+        lines.push(String::new());
+        lines.push("## Action Cards".to_string());
+        for card in &response.action_cards {
+            lines.push(format!(
+                "- action={} priority={} target={} task={} scope={} reason=\"{}\"",
+                card.action,
+                card.priority,
+                card.target_worker
+                    .as_deref()
+                    .or(card.target_session.as_deref())
+                    .unwrap_or("none"),
+                card.task_id.as_deref().unwrap_or("none"),
+                card.scope.as_deref().unwrap_or("none"),
+                compact_inline(&card.reason, 96),
+            ));
+            if let Some(command) = card.follow_command.as_deref() {
+                lines.push(format!("  follow={command}"));
+            }
+            if let Some(command) = card.reroute_command.as_deref() {
+                lines.push(format!("  reroute={command}"));
+            }
+            if let Some(command) = card.deny_command.as_deref() {
+                lines.push(format!("  deny={command}"));
+            }
+            if let Some(command) = card.retire_command.as_deref() {
+                lines.push(format!("  retire={command}"));
+            }
         }
     }
 
@@ -17525,7 +17735,8 @@ async fn read_bundle_hive_memory_surface(output: &Path) -> Option<BundleHiveMemo
     }))
     .await?;
     let follow_target = runtime.session.clone().or_else(|| {
-        board.active_bees
+        board
+            .active_bees
             .first()
             .map(|bee| bee.session.clone())
             .filter(|value| !value.trim().is_empty())
@@ -26638,8 +26849,2083 @@ fn write_composite_artifacts(output: &Path, response: &CompositeReport) -> anyho
     Ok(())
 }
 
+fn supported_public_benchmark_ids() -> &'static [&'static str] {
+    &["longmemeval", "locomo", "convomem", "membench"]
+}
+
+fn implemented_public_benchmark_ids() -> &'static [&'static str] {
+    &["longmemeval", "locomo", "convomem", "membench"]
+}
+
+fn public_benchmark_target_status(dataset: &str) -> &'static str {
+    if implemented_public_benchmark_ids().contains(&dataset) {
+        "implemented"
+    } else {
+        "declared-stub"
+    }
+}
+
+fn render_longmemeval_haystack_text(value: &JsonValue) -> String {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|session| session.as_array())
+        .flat_map(|turns| turns.iter())
+        .filter_map(|turn| {
+            let role = turn.get("role").and_then(JsonValue::as_str).unwrap_or("");
+            let content = turn.get("content").and_then(JsonValue::as_str).unwrap_or("");
+            if role.is_empty() && content.is_empty() {
+                None
+            } else {
+                Some(format!("{role}: {content}"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn render_locomo_conversation_text(value: &JsonValue) -> String {
+    let mut rendered = Vec::new();
+    if let Some(conversation) = value.as_object() {
+        let mut session_indexes = conversation
+            .keys()
+            .filter_map(|key| key.strip_prefix("session_"))
+            .filter_map(|suffix| suffix.split_once('_').map(|(index, _)| index).or(Some(suffix)))
+            .filter_map(|index| index.parse::<usize>().ok())
+            .collect::<BTreeSet<_>>();
+        if session_indexes.is_empty() {
+            session_indexes = (1..=35).collect();
+        }
+        for session_index in session_indexes {
+            let session_key = format!("session_{session_index}");
+            if let Some(dialogs) = conversation.get(&session_key).and_then(JsonValue::as_array) {
+                for dialog in dialogs {
+                    let speaker = dialog
+                        .get("speaker")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("unknown");
+                    let text = dialog.get("text").and_then(JsonValue::as_str).unwrap_or("");
+                    if !text.is_empty() {
+                        rendered.push(format!("{speaker}: {text}"));
+                    }
+                }
+            }
+        }
+    }
+    rendered.join("\n")
+}
+
+fn render_membench_message_list_text(value: &JsonValue) -> String {
+    value.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(JsonValue::as_array)
+        .flat_map(|session| session.iter())
+        .filter_map(|turn| {
+            let user = turn.get("user_message").and_then(JsonValue::as_str);
+            let assistant = turn.get("assistant_message").and_then(JsonValue::as_str);
+            match (user, assistant) {
+                (Some(user), Some(assistant)) => Some(format!("user: {user}\nassistant: {assistant}")),
+                (Some(user), None) => Some(format!("user: {user}")),
+                (None, Some(assistant)) => Some(format!("assistant: {assistant}")),
+                (None, None) => None,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn render_convomem_conversation_text(value: &JsonValue) -> String {
+    value.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(JsonValue::as_object)
+        .flat_map(|conversation| {
+            conversation
+                .get("messages")
+                .and_then(JsonValue::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(JsonValue::as_object)
+                .map(|message| {
+                    let speaker = message
+                        .get("speaker")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("unknown");
+                    let text = message.get("text").and_then(JsonValue::as_str).unwrap_or("");
+                    format!("{speaker}: {text}")
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn locomo_category_name(category: i64) -> &'static str {
+    match category {
+        1 => "Single-hop",
+        2 => "Temporal",
+        3 => "Temporal-inference",
+        4 => "Open-domain",
+        5 => "Adversarial",
+        _ => "Unknown",
+    }
+}
+
+fn json_stringish_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<String> {
+    let value = row
+        .get(key)
+        .ok_or_else(|| anyhow!("missing {key} field"))?;
+    match value {
+        JsonValue::String(value) => Ok(value.clone()),
+        JsonValue::Number(value) => Ok(value.to_string()),
+        JsonValue::Bool(value) => Ok(value.to_string()),
+        _ => anyhow::bail!("missing {key} string-compatible value"),
+    }
+}
+
+fn json_stringish_or_array_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<String> {
+    let value = row
+        .get(key)
+        .ok_or_else(|| anyhow!("missing {key} field"))?;
+    match value {
+        JsonValue::Array(items) => Ok(items
+            .iter()
+            .map(|item| match item {
+                JsonValue::String(value) => Ok(value.clone()),
+                JsonValue::Number(value) => Ok(value.to_string()),
+                JsonValue::Bool(value) => Ok(value.to_string()),
+                _ => anyhow::bail!("missing {key} string-compatible array value"),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .join(", ")),
+        _ => json_stringish_field(row, key),
+    }
+}
+
+fn normalize_longmemeval_dataset(
+    path: &Path,
+    rows: &[JsonValue],
+) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
+    let items = rows
+        .iter()
+        .map(|row| {
+            let item_id = json_stringish_field(row, "question_id")
+                .with_context(|| format!("normalize {} question_id", path.display()))?;
+            let query = json_stringish_field(row, "question")
+                .with_context(|| format!("normalize {} question", path.display()))?;
+            let gold_answer = json_stringish_field(row, "answer")
+                .with_context(|| format!("normalize {} answer", path.display()))?;
+            Ok(PublicBenchmarkDatasetFixtureItem {
+                item_id: item_id.clone(),
+                question_id: item_id,
+                query,
+                claim_class: "raw".to_string(),
+                gold_answer,
+                metadata: json!({
+                    "question_type": row.get("question_type").cloned().unwrap_or(JsonValue::Null),
+                    "question_date": row.get("question_date").cloned().unwrap_or(JsonValue::Null),
+                    "haystack_dates": row.get("haystack_dates").cloned().unwrap_or(JsonValue::Null),
+                    "haystack_session_ids": row.get("haystack_session_ids").cloned().unwrap_or(JsonValue::Null),
+                    "haystack_sessions": row.get("haystack_sessions").cloned().unwrap_or(JsonValue::Null),
+                    "answer_session_ids": row.get("answer_session_ids").cloned().unwrap_or(JsonValue::Null),
+                    "haystack_text": render_longmemeval_haystack_text(
+                        row.get("haystack_sessions").unwrap_or(&JsonValue::Null)
+                    ),
+                }),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(PublicBenchmarkDatasetFixture {
+        benchmark_id: "longmemeval".to_string(),
+        benchmark_name: "LongMemEval".to_string(),
+        version: "upstream".to_string(),
+        split: "cleaned-small".to_string(),
+        description: "Normalized upstream LongMemEval cleaned file.".to_string(),
+        items,
+    })
+}
+
+fn normalize_locomo_dataset(
+    path: &Path,
+    rows: &[JsonValue],
+) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
+    let mut items = Vec::new();
+    for row in rows {
+        let sample_id = json_stringish_field(row, "sample_id")
+            .with_context(|| format!("normalize {} sample_id", path.display()))?;
+        let conversation = row.get("conversation").cloned().unwrap_or(JsonValue::Null);
+        let conversation_text = render_locomo_conversation_text(&conversation);
+        let session_summary = row.get("session_summary").cloned().unwrap_or(JsonValue::Null);
+        let qa_rows = row
+            .get("qa")
+            .and_then(JsonValue::as_array)
+            .ok_or_else(|| anyhow!("normalize {} qa array", path.display()))?;
+        for (qa_index, qa_row) in qa_rows.iter().enumerate() {
+            let query = json_stringish_field(qa_row, "question")
+                .with_context(|| format!("normalize {} qa.question", path.display()))?;
+            let gold_answer = json_stringish_field(qa_row, "answer")
+                .or_else(|_| json_stringish_field(qa_row, "adversarial_answer"))
+                .with_context(|| format!("normalize {} qa.answer", path.display()))?;
+            let category_id = qa_row
+                .get("category")
+                .and_then(JsonValue::as_i64)
+                .unwrap_or_default();
+            items.push(PublicBenchmarkDatasetFixtureItem {
+                item_id: format!("{sample_id}::{qa_index}"),
+                question_id: format!("{sample_id}::{qa_index}"),
+                query,
+                claim_class: "raw".to_string(),
+                gold_answer,
+                metadata: json!({
+                    "sample_id": sample_id,
+                    "category_id": category_id,
+                    "category_name": locomo_category_name(category_id),
+                    "evidence": qa_row.get("evidence").cloned().unwrap_or(JsonValue::Null),
+                    "conversation": conversation,
+                    "conversation_text": conversation_text,
+                    "session_summary": session_summary,
+                }),
+            });
+        }
+    }
+
+    Ok(PublicBenchmarkDatasetFixture {
+        benchmark_id: "locomo".to_string(),
+        benchmark_name: "LoCoMo".to_string(),
+        version: "upstream".to_string(),
+        split: "locomo10".to_string(),
+        description: "Normalized upstream LoCoMo conversation benchmark file.".to_string(),
+        items,
+    })
+}
+
+fn normalize_membench_dataset(
+    path: &Path,
+    value: &JsonValue,
+) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
+    let root = value
+        .as_object()
+        .ok_or_else(|| anyhow!("normalize {} membench root object", path.display()))?;
+    let mut items = Vec::new();
+    for (topic, entries_value) in root {
+        let entries = entries_value
+            .as_array()
+            .ok_or_else(|| anyhow!("normalize {} membench topic array", path.display()))?;
+        for entry in entries {
+            let tid = entry.get("tid").and_then(JsonValue::as_i64).unwrap_or_default();
+            let qa = entry
+                .get("QA")
+                .or_else(|| entry.get("qa"))
+                .ok_or_else(|| anyhow!("normalize {} membench QA object", path.display()))?;
+            let qid = qa.get("qid").and_then(JsonValue::as_i64).unwrap_or_default();
+            let query = json_stringish_field(qa, "question")
+                .with_context(|| format!("normalize {} QA.question", path.display()))?;
+            let gold_answer = json_stringish_or_array_field(qa, "answer")
+                .with_context(|| format!("normalize {} QA.answer", path.display()))?;
+            items.push(PublicBenchmarkDatasetFixtureItem {
+                item_id: format!("{topic}::{tid}::{qid}"),
+                question_id: format!("{topic}::{tid}::{qid}"),
+                query,
+                claim_class: "raw".to_string(),
+                gold_answer,
+                metadata: json!({
+                    "topic": topic,
+                    "tid": tid,
+                    "qid": qid,
+                    "target_step_id": qa.get("target_step_id").cloned().unwrap_or(JsonValue::Null),
+                    "choices": qa.get("choices").cloned().unwrap_or(JsonValue::Null),
+                    "ground_truth": qa.get("ground_truth").cloned().unwrap_or(JsonValue::Null),
+                    "time": qa.get("time").cloned().unwrap_or(JsonValue::Null),
+                    "message_list": entry.get("message_list").cloned().unwrap_or(JsonValue::Null),
+                    "conversation_text": render_membench_message_list_text(
+                        entry.get("message_list").unwrap_or(&JsonValue::Null)
+                    ),
+                }),
+            });
+        }
+    }
+
+    Ok(PublicBenchmarkDatasetFixture {
+        benchmark_id: "membench".to_string(),
+        benchmark_name: "MemBench".to_string(),
+        version: "upstream".to_string(),
+        split: "FirstAgent".to_string(),
+        description: "Normalized upstream MemBench FirstAgent benchmark files.".to_string(),
+        items,
+    })
+}
+
+fn normalize_convomem_evidence_items(
+    items: &[JsonValue],
+) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
+    let items = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let query = json_stringish_field(item, "question")
+                .with_context(|| format!("normalize convomem item {index} question"))?;
+            let gold_answer = json_stringish_or_array_field(item, "answer")
+                .with_context(|| format!("normalize convomem item {index} answer"))?;
+            let category = item
+                .get("category")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("unknown");
+            Ok(PublicBenchmarkDatasetFixtureItem {
+                item_id: format!("{category}::{index}"),
+                question_id: format!("{category}::{index}"),
+                query,
+                claim_class: "raw".to_string(),
+                gold_answer,
+                metadata: json!({
+                    "category": item.get("category").cloned().unwrap_or(JsonValue::Null),
+                    "scenario_description": item.get("scenario_description").cloned().unwrap_or(JsonValue::Null),
+                    "person_id": item.get("personId").cloned().unwrap_or(JsonValue::Null),
+                    "message_evidences": item.get("message_evidences").cloned().unwrap_or(JsonValue::Null),
+                    "conversations": item.get("conversations").cloned().unwrap_or(JsonValue::Null),
+                    "conversation_text": render_convomem_conversation_text(
+                        item.get("conversations").unwrap_or(&JsonValue::Null)
+                    ),
+                    "use_case_model_name": item.get("use_case_model_name").cloned().unwrap_or(JsonValue::Null),
+                    "core_model_name": item.get("core_model_name").cloned().unwrap_or(JsonValue::Null),
+                }),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(PublicBenchmarkDatasetFixture {
+        benchmark_id: "convomem".to_string(),
+        benchmark_name: "ConvoMem".to_string(),
+        version: "upstream".to_string(),
+        split: "evidence-sample".to_string(),
+        description: "Sampled upstream ConvoMem evidence files normalized into a cached fixture."
+            .to_string(),
+        items,
+    })
+}
+
+fn load_public_benchmark_dataset(
+    benchmark_id: &str,
+    path: &Path,
+) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let value =
+        serde_json::from_str::<JsonValue>(&raw).with_context(|| format!("parse {}", path.display()))?;
+    match value {
+        JsonValue::Object(value) if benchmark_id == "membench" && value.get("benchmark_id").is_none() => {
+            normalize_membench_dataset(path, &JsonValue::Object(value))
+        }
+        JsonValue::Object(_) => serde_json::from_str::<PublicBenchmarkDatasetFixture>(&raw)
+            .with_context(|| format!("parse {}", path.display())),
+        JsonValue::Array(rows) if benchmark_id == "longmemeval" => {
+            normalize_longmemeval_dataset(path, &rows)
+        }
+        JsonValue::Array(rows) if benchmark_id == "locomo" => {
+            normalize_locomo_dataset(path, &rows)
+        }
+        JsonValue::Array(_) => anyhow::bail!(
+            "benchmark `{benchmark_id}` array dataset format is not normalized yet for {}",
+            path.display()
+        ),
+        _ => anyhow::bail!("unsupported public benchmark dataset format in {}", path.display()),
+    }
+}
+
+fn public_benchmark_fixture_checksum(path: &Path) -> anyhow::Result<String> {
+    let raw = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    Ok(format!("sha256:{:x}", Sha256::digest(&raw)))
+}
+
+fn public_benchmark_dataset_source(dataset: &str) -> Option<PublicBenchmarkDatasetSource> {
+    match dataset {
+        "longmemeval" => Some(PublicBenchmarkDatasetSource {
+            benchmark_id: "longmemeval",
+            source_url: Some(
+                "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+            ),
+            default_filename: "longmemeval_s_cleaned.json",
+            expected_checksum: Some(
+                "sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+            ),
+            split: "cleaned-small",
+            access_mode: "auto-download",
+            notes: "Upstream LongMemEval cleaned small file from the official benchmark repo README.",
+        }),
+        "locomo" => Some(PublicBenchmarkDatasetSource {
+            benchmark_id: "locomo",
+            source_url: Some(
+                "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+            ),
+            default_filename: "locomo10.json",
+            expected_checksum: Some(
+                "sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+            ),
+            split: "locomo10",
+            access_mode: "auto-download",
+            notes: "Commit-pinned LoCoMo locomo10.json source from the upstream benchmark repo.",
+        }),
+        "convomem" => Some(PublicBenchmarkDatasetSource {
+            benchmark_id: "convomem",
+            source_url: Some(
+                "https://huggingface.co/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions",
+            ),
+            default_filename: "convomem-evidence-sample.json",
+            expected_checksum: None,
+            split: "evidence-sample",
+            access_mode: "auto-download",
+            notes: "Sampled upstream ConvoMem evidence files fetched from the Hugging Face dataset tree.",
+        }),
+        "membench" => Some(PublicBenchmarkDatasetSource {
+            benchmark_id: "membench",
+            source_url: Some(
+                "https://github.com/import-myself/Membench/tree/f66d8d1028d3f68627d00f77a967b93fbb8694b6/MemData/FirstAgent",
+            ),
+            default_filename: "membench-firstagent.json",
+            expected_checksum: None,
+            split: "FirstAgent",
+            access_mode: "auto-download",
+            notes: "Commit-pinned MemBench FirstAgent category set normalized into a cached fixture.",
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_public_benchmark_dataset_override_path(args: &PublicBenchmarkArgs) -> Option<PathBuf> {
+    args.dataset_root.as_ref().map(|path| {
+        if path.is_dir() {
+            path.join(format!("{}-mini.json", args.dataset))
+        } else {
+            path.clone()
+        }
+    })
+}
+
+fn public_benchmark_dataset_entry_dir(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_dataset_cache_dir(output).join(benchmark_id)
+}
+
+fn public_benchmark_dataset_cache_path(
+    output: &Path,
+    benchmark_id: &str,
+    filename: &str,
+) -> PathBuf {
+    public_benchmark_dataset_entry_dir(output, benchmark_id).join(filename)
+}
+
+fn public_benchmark_dataset_cache_metadata_path(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_dataset_entry_dir(output, benchmark_id).join("metadata.json")
+}
+
+fn write_public_benchmark_dataset_cache_metadata(
+    output: &Path,
+    metadata: &PublicBenchmarkDatasetCacheMetadata,
+) -> anyhow::Result<PathBuf> {
+    let path = public_benchmark_dataset_cache_metadata_path(output, &metadata.benchmark_id);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(metadata)? + "\n")
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
+}
+
+fn validate_public_benchmark_checksum(
+    checksum: &str,
+    expected_checksum: Option<&str>,
+) -> anyhow::Result<String> {
+    if let Some(expected_checksum) = expected_checksum {
+        anyhow::ensure!(
+            checksum == expected_checksum,
+            "dataset checksum mismatch: expected {expected_checksum}, got {checksum}"
+        );
+        Ok("verified".to_string())
+    } else {
+        Ok("recorded-unpinned".to_string())
+    }
+}
+
+async fn download_public_benchmark_dataset(
+    output: &Path,
+    source: &PublicBenchmarkDatasetSource,
+) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
+    let source_url = source
+        .source_url
+        .ok_or_else(|| anyhow!("benchmark `{}` does not expose an auto-download URL", source.benchmark_id))?;
+    let entry_dir = public_benchmark_dataset_entry_dir(output, source.benchmark_id);
+    fs::create_dir_all(&entry_dir).with_context(|| format!("create {}", entry_dir.display()))?;
+    let dataset_path =
+        public_benchmark_dataset_cache_path(output, source.benchmark_id, source.default_filename);
+    let response = reqwest::get(source_url)
+        .await
+        .with_context(|| format!("download dataset {source_url}"))?
+        .error_for_status()
+        .with_context(|| format!("download dataset {source_url}"))?;
+    let bytes = response
+        .bytes()
+        .await
+        .with_context(|| format!("read dataset bytes {source_url}"))?;
+    fs::write(&dataset_path, &bytes).with_context(|| format!("write {}", dataset_path.display()))?;
+    let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
+    let verification_status =
+        validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    write_public_benchmark_dataset_cache_metadata(
+        output,
+        &PublicBenchmarkDatasetCacheMetadata {
+            benchmark_id: source.benchmark_id.to_string(),
+            source_url: source_url.to_string(),
+            local_path: dataset_path.display().to_string(),
+            checksum: checksum.clone(),
+            expected_checksum: source.expected_checksum.map(str::to_string),
+            verification_status: verification_status.clone(),
+            fetched_at: Utc::now(),
+            bytes: bytes.len(),
+        },
+    )?;
+    Ok(ResolvedPublicBenchmarkDataset {
+        path: dataset_path,
+        source_url: source_url.to_string(),
+        checksum,
+        split: source.split.to_string(),
+        verification_status,
+    })
+}
+
+async fn download_membench_dataset(
+    output: &Path,
+    source: &PublicBenchmarkDatasetSource,
+) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
+    const MEMBENCH_FILES: &[&str] = &[
+        "simple.json",
+        "highlevel.json",
+        "knowledge_update.json",
+        "comparative.json",
+        "conditional.json",
+        "noisy.json",
+        "aggregative.json",
+        "highlevel_rec.json",
+        "lowlevel_rec.json",
+        "RecMultiSession.json",
+        "post_processing.json",
+    ];
+    const MEMBENCH_COMMIT: &str = "f66d8d1028d3f68627d00f77a967b93fbb8694b6";
+    let base_url = format!(
+        "https://raw.githubusercontent.com/import-myself/Membench/{MEMBENCH_COMMIT}/MemData/FirstAgent"
+    );
+    let entry_dir = public_benchmark_dataset_entry_dir(output, source.benchmark_id);
+    fs::create_dir_all(&entry_dir).with_context(|| format!("create {}", entry_dir.display()))?;
+    let raw_dir = entry_dir.join("raw");
+    fs::create_dir_all(&raw_dir).with_context(|| format!("create {}", raw_dir.display()))?;
+
+    let mut merged = serde_json::Map::new();
+    let mut byte_count = 0usize;
+    for filename in MEMBENCH_FILES {
+        let url = format!("{base_url}/{filename}");
+        let response = reqwest::get(&url)
+            .await
+            .with_context(|| format!("download dataset {url}"))?
+            .error_for_status()
+            .with_context(|| format!("download dataset {url}"))?;
+        let bytes = response
+            .bytes()
+            .await
+            .with_context(|| format!("read dataset bytes {url}"))?;
+        byte_count += bytes.len();
+        let raw_path = raw_dir.join(filename);
+        fs::write(&raw_path, &bytes).with_context(|| format!("write {}", raw_path.display()))?;
+        let value = serde_json::from_slice::<JsonValue>(&bytes)
+            .with_context(|| format!("parse {}", raw_path.display()))?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| anyhow!("membench source {} was not an object", raw_path.display()))?;
+        for (key, value) in object {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+
+    let dataset_path =
+        public_benchmark_dataset_cache_path(output, source.benchmark_id, source.default_filename);
+    fs::write(
+        &dataset_path,
+        serde_json::to_string_pretty(&JsonValue::Object(merged))? + "\n",
+    )
+    .with_context(|| format!("write {}", dataset_path.display()))?;
+    let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
+    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    write_public_benchmark_dataset_cache_metadata(
+        output,
+        &PublicBenchmarkDatasetCacheMetadata {
+            benchmark_id: source.benchmark_id.to_string(),
+            source_url: source.source_url.unwrap_or_default().to_string(),
+            local_path: dataset_path.display().to_string(),
+            checksum: checksum.clone(),
+            expected_checksum: source.expected_checksum.map(str::to_string),
+            verification_status: verification_status.clone(),
+            fetched_at: Utc::now(),
+            bytes: byte_count,
+        },
+    )?;
+    Ok(ResolvedPublicBenchmarkDataset {
+        path: dataset_path,
+        source_url: source.source_url.unwrap_or_default().to_string(),
+        checksum,
+        split: source.split.to_string(),
+        verification_status,
+    })
+}
+
+async fn download_convomem_dataset(
+    output: &Path,
+    source: &PublicBenchmarkDatasetSource,
+) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
+    const CONVOMEM_CATEGORIES: &[&str] = &[
+        "user_evidence",
+        "assistant_facts_evidence",
+        "changing_evidence",
+        "abstention_evidence",
+        "preference_evidence",
+        "implicit_connection_evidence",
+    ];
+    let tree_url =
+        "https://huggingface.co/api/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions?recursive=true";
+    let tree = reqwest::get(tree_url)
+        .await
+        .context("download ConvoMem tree api")?
+        .error_for_status()
+        .context("download ConvoMem tree api")?
+        .json::<Vec<JsonValue>>()
+        .await
+        .context("parse ConvoMem tree api")?;
+
+    let entry_dir = public_benchmark_dataset_entry_dir(output, source.benchmark_id);
+    fs::create_dir_all(&entry_dir).with_context(|| format!("create {}", entry_dir.display()))?;
+    let raw_dir = entry_dir.join("raw");
+    fs::create_dir_all(&raw_dir).with_context(|| format!("create {}", raw_dir.display()))?;
+
+    let mut sample_paths = Vec::new();
+    for category in CONVOMEM_CATEGORIES {
+        let path = tree
+            .iter()
+            .filter_map(|entry| entry.get("path").and_then(JsonValue::as_str))
+            .filter(|path| {
+                path.starts_with(&format!("core_benchmark/evidence_questions/{category}/"))
+                    && path.ends_with(".json")
+            })
+            .min()
+            .ok_or_else(|| anyhow!("no ConvoMem evidence file found for category `{category}`"))?;
+        sample_paths.push(path.to_string());
+    }
+
+    let mut evidence_items = Vec::new();
+    let mut byte_count = 0usize;
+    for path in &sample_paths {
+        let url = format!("https://huggingface.co/datasets/Salesforce/ConvoMem/resolve/main/{path}");
+        let response = reqwest::get(&url)
+            .await
+            .with_context(|| format!("download dataset {url}"))?
+            .error_for_status()
+            .with_context(|| format!("download dataset {url}"))?;
+        let bytes = response
+            .bytes()
+            .await
+            .with_context(|| format!("read dataset bytes {url}"))?;
+        byte_count += bytes.len();
+        let filename = path
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow!("convomem sample path missing filename"))?;
+        let raw_path = raw_dir.join(filename);
+        fs::write(&raw_path, &bytes).with_context(|| format!("write {}", raw_path.display()))?;
+        let value = serde_json::from_slice::<JsonValue>(&bytes)
+            .with_context(|| format!("parse {}", raw_path.display()))?;
+        let items = value
+            .get("evidence_items")
+            .and_then(JsonValue::as_array)
+            .ok_or_else(|| anyhow!("ConvoMem source {} missing evidence_items", raw_path.display()))?;
+        evidence_items.extend(items.iter().cloned());
+    }
+
+    let fixture = normalize_convomem_evidence_items(&evidence_items)?;
+    let dataset_path =
+        public_benchmark_dataset_cache_path(output, source.benchmark_id, source.default_filename);
+    fs::write(&dataset_path, serde_json::to_string_pretty(&fixture)? + "\n")
+        .with_context(|| format!("write {}", dataset_path.display()))?;
+    let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
+    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    write_public_benchmark_dataset_cache_metadata(
+        output,
+        &PublicBenchmarkDatasetCacheMetadata {
+            benchmark_id: source.benchmark_id.to_string(),
+            source_url: source.source_url.unwrap_or_default().to_string(),
+            local_path: dataset_path.display().to_string(),
+            checksum: checksum.clone(),
+            expected_checksum: source.expected_checksum.map(str::to_string),
+            verification_status: verification_status.clone(),
+            fetched_at: Utc::now(),
+            bytes: byte_count,
+        },
+    )?;
+    Ok(ResolvedPublicBenchmarkDataset {
+        path: dataset_path,
+        source_url: source.source_url.unwrap_or_default().to_string(),
+        checksum,
+        split: source.split.to_string(),
+        verification_status,
+    })
+}
+
+async fn resolve_public_benchmark_dataset(
+    args: &PublicBenchmarkArgs,
+) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
+    if let Some(path) = resolve_public_benchmark_dataset_override_path(args) {
+        let checksum = public_benchmark_fixture_checksum(&path)?;
+        return Ok(ResolvedPublicBenchmarkDataset {
+            source_url: format!("file://{}", path.display()),
+            path,
+            checksum,
+            split: "manual".to_string(),
+            verification_status: "manual-path".to_string(),
+        });
+    }
+
+    let source = public_benchmark_dataset_source(&args.dataset).ok_or_else(|| {
+        anyhow!(
+            "no public benchmark dataset source is registered for `{}`",
+            args.dataset
+        )
+    })?;
+
+    if source.access_mode != "auto-download" {
+        anyhow::bail!(
+            "benchmark `{}` currently requires --dataset-root; {}",
+            args.dataset,
+            source.notes
+        );
+    }
+
+    let cached_path =
+        public_benchmark_dataset_cache_path(&args.out, &args.dataset, source.default_filename);
+    if cached_path.exists() {
+        let checksum = public_benchmark_fixture_checksum(&cached_path)?;
+        let verification_status =
+            validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+        write_public_benchmark_dataset_cache_metadata(
+            &args.out,
+            &PublicBenchmarkDatasetCacheMetadata {
+                benchmark_id: args.dataset.clone(),
+                source_url: source.source_url.unwrap_or_default().to_string(),
+                local_path: cached_path.display().to_string(),
+                checksum: checksum.clone(),
+                expected_checksum: source.expected_checksum.map(str::to_string),
+                verification_status: verification_status.clone(),
+                fetched_at: Utc::now(),
+                bytes: fs::metadata(&cached_path)
+                    .with_context(|| format!("stat {}", cached_path.display()))?
+                    .len() as usize,
+            },
+        )?;
+        return Ok(ResolvedPublicBenchmarkDataset {
+            path: cached_path,
+            source_url: source.source_url.unwrap_or_default().to_string(),
+            checksum,
+            split: source.split.to_string(),
+            verification_status,
+        });
+    }
+
+    if args.dataset == "membench" {
+        return download_membench_dataset(&args.out, &source).await;
+    }
+    if args.dataset == "convomem" {
+        return download_convomem_dataset(&args.out, &source).await;
+    }
+
+    download_public_benchmark_dataset(&args.out, &source).await
+}
+
+fn tokenize_public_benchmark_text(value: &str) -> BTreeSet<String> {
+    value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter_map(|token| {
+            let token = token.trim().to_ascii_lowercase();
+            if token.is_empty() { None } else { Some(token) }
+        })
+        .collect()
+}
+
+fn flatten_public_benchmark_metadata(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Object(map) => map
+            .iter()
+            .map(|(key, value)| {
+                let rendered = value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string());
+                format!("{key}={rendered}")
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        JsonValue::Array(items) => items
+            .iter()
+            .map(flatten_public_benchmark_metadata)
+            .collect::<Vec<_>>()
+            .join(" "),
+        JsonValue::String(value) => value.clone(),
+        _ => value.to_string(),
+    }
+}
+
+fn dcg_public_benchmark(relevances: &[f64], k: usize) -> f64 {
+    relevances
+        .iter()
+        .take(k)
+        .enumerate()
+        .map(|(index, relevance)| relevance / ((index as f64 + 2.0).log2()))
+        .sum()
+}
+
+fn ndcg_public_benchmark(relevances: &[f64], k: usize) -> f64 {
+    let mut ideal = relevances.to_vec();
+    ideal.sort_by(|left, right| right.total_cmp(left));
+    let idcg = dcg_public_benchmark(&ideal, k);
+    if idcg == 0.0 {
+        0.0
+    } else {
+        dcg_public_benchmark(relevances, k) / idcg
+    }
+}
+
+fn public_benchmark_string_vec(value: Option<&JsonValue>) -> Vec<String> {
+    value
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(JsonValue::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn build_longmemeval_session_corpus(
+    item: &PublicBenchmarkDatasetFixtureItem,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let sessions = item
+        .metadata
+        .get("haystack_sessions")
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let session_ids = public_benchmark_string_vec(item.metadata.get("haystack_session_ids"));
+    let dates = public_benchmark_string_vec(item.metadata.get("haystack_dates"));
+    let mut corpus = Vec::new();
+    let mut corpus_ids = Vec::new();
+    let mut corpus_timestamps = Vec::new();
+
+    for (index, session) in sessions.iter().enumerate() {
+        let user_turns = session
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|turn| turn.get("role").and_then(JsonValue::as_str) == Some("user"))
+            .filter_map(|turn| turn.get("content").and_then(JsonValue::as_str))
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if user_turns.is_empty() {
+            continue;
+        }
+        corpus.push(user_turns.join("\n"));
+        corpus_ids.push(
+            session_ids
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| format!("session_{index}")),
+        );
+        corpus_timestamps.push(
+            dates
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string()),
+        );
+    }
+
+    (corpus, corpus_ids, corpus_timestamps)
+}
+
+fn build_longmemeval_turn_corpus(
+    item: &PublicBenchmarkDatasetFixtureItem,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let sessions = item
+        .metadata
+        .get("haystack_sessions")
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let session_ids = public_benchmark_string_vec(item.metadata.get("haystack_session_ids"));
+    let dates = public_benchmark_string_vec(item.metadata.get("haystack_dates"));
+    let mut corpus = Vec::new();
+    let mut corpus_ids = Vec::new();
+    let mut corpus_timestamps = Vec::new();
+
+    for (session_index, session) in sessions.iter().enumerate() {
+        let base_session_id = session_ids
+            .get(session_index)
+            .cloned()
+            .unwrap_or_else(|| format!("session_{session_index}"));
+        let date = dates
+            .get(session_index)
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let mut turn_index = 0usize;
+        for turn in session.as_array().into_iter().flatten() {
+            if turn.get("role").and_then(JsonValue::as_str) != Some("user") {
+                continue;
+            }
+            if let Some(content) = turn.get("content").and_then(JsonValue::as_str) {
+                corpus.push(content.to_string());
+                corpus_ids.push(format!("{base_session_id}_turn_{turn_index}"));
+                corpus_timestamps.push(date.clone());
+                turn_index += 1;
+            }
+        }
+    }
+
+    (corpus, corpus_ids, corpus_timestamps)
+}
+
+fn rank_public_benchmark_corpus(
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+) -> Vec<usize> {
+    let query_tokens = tokenize_public_benchmark_text(query);
+    let stop_words = [
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
+        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
+        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
+        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought", "made",
+        "make",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<BTreeSet<_>>();
+    let keywords = query_tokens
+        .iter()
+        .filter(|token| token.len() >= 3 && !stop_words.contains(*token))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut scored = corpus
+        .iter()
+        .enumerate()
+        .map(|(index, document)| {
+            let doc_tokens = tokenize_public_benchmark_text(document);
+            let overlap = query_tokens.intersection(&doc_tokens).count() as f64;
+            let mut score = overlap;
+            if mode == "hybrid" && !keywords.is_empty() {
+                let doc_lower = document.to_ascii_lowercase();
+                let keyword_hits = keywords.iter().filter(|kw| doc_lower.contains(kw.as_str())).count();
+                score += (keyword_hits as f64 / keywords.len() as f64) * 0.30;
+            }
+            if corpus_ids.get(index).is_some_and(|id| id.contains("_abs")) {
+                score -= 0.05;
+            }
+            (index, score)
+        })
+        .collect::<Vec<_>>();
+    scored.sort_by(|left, right| right.1.total_cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    scored.into_iter().map(|(index, _)| index).collect()
+}
+
+fn build_public_benchmark_retrieval_config(
+    args: &PublicBenchmarkArgs,
+) -> anyhow::Result<PublicBenchmarkRetrievalConfig> {
+    let requested_backend = args.retrieval_backend.as_deref().unwrap_or("lexical");
+    let longmemeval_backend = match requested_backend {
+        "lexical" => LongMemEvalRetrievalBackend::Lexical,
+        "sidecar" => LongMemEvalRetrievalBackend::Sidecar,
+        other => anyhow::bail!(
+            "invalid retrieval backend `{other}`; expected lexical or sidecar"
+        ),
+    };
+
+    let sidecar_base_url = if longmemeval_backend == LongMemEvalRetrievalBackend::Sidecar {
+        Some(resolve_rag_url(args.rag_url.clone(), Some(&args.out))?)
+    } else {
+        None
+    };
+
+    Ok(PublicBenchmarkRetrievalConfig {
+        longmemeval_backend,
+        sidecar_base_url,
+    })
+}
+
+fn rank_longmemeval_corpus(
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+    config: &PublicBenchmarkRetrievalConfig,
+    namespace: &str,
+) -> anyhow::Result<Vec<(usize, f64)>> {
+    match config.longmemeval_backend {
+        LongMemEvalRetrievalBackend::Lexical => Ok(rank_public_benchmark_corpus(
+            query, corpus, corpus_ids, mode,
+        )
+        .into_iter()
+        .enumerate()
+        .map(|(rank, index)| (index, (50usize.saturating_sub(rank)) as f64))
+        .collect()),
+        LongMemEvalRetrievalBackend::Sidecar => {
+            let base_url = config
+                .sidecar_base_url
+                .as_deref()
+                .context("sidecar retrieval backend selected without a sidecar base url")?;
+            rank_longmemeval_corpus_via_sidecar(base_url, query, corpus, corpus_ids, mode, namespace)
+        }
+    }
+}
+
+fn rank_longmemeval_corpus_via_sidecar(
+    base_url: &str,
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+    namespace: &str,
+) -> anyhow::Result<Vec<(usize, f64)>> {
+    let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
+    let client = reqwest::blocking::Client::builder()
+        .build()
+        .context("build public benchmark sidecar client")?;
+    let ingest_url = format!("{}/v1/ingest", base_url.trim_end_matches('/'));
+    let retrieve_url = format!("{}/v1/retrieve", base_url.trim_end_matches('/'));
+    let project = Some("memd-public-benchmark-longmemeval".to_string());
+    let namespace = Some(namespace.to_string());
+
+    for (corpus_id, content) in corpus_ids.iter().zip(corpus.iter()) {
+        let request = RagIngestRequest {
+            project: project.clone(),
+            namespace: namespace.clone(),
+            source: RagIngestSource {
+                id: uuid::Uuid::new_v4(),
+                kind: "longmemeval_corpus".to_string(),
+                content: content.clone(),
+                mime: None,
+                bytes: Some(content.len() as u64),
+                source_quality: None,
+                source_agent: Some("public-benchmark".to_string()),
+                source_path: Some(corpus_id.clone()),
+                tags: vec!["public-benchmark".to_string(), "longmemeval".to_string()],
+            },
+        };
+        let response = client
+            .post(&ingest_url)
+            .json(&request)
+            .send()
+            .context("send public benchmark sidecar ingest")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response
+                .text()
+                .unwrap_or_else(|_| "failed to read ingest body".to_string());
+            anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body}");
+        }
+    }
+
+    let retrieve_request = RagRetrieveRequest {
+        query: query.to_string(),
+        project,
+        namespace,
+        mode: if mode == "hybrid" {
+            RagRetrieveMode::Auto
+        } else {
+            RagRetrieveMode::Text
+        },
+        limit: Some(corpus.len().max(1)),
+        include_cross_modal: false,
+    };
+    let response = client
+        .post(&retrieve_url)
+        .json(&retrieve_request)
+        .send()
+        .context("send public benchmark sidecar retrieve")?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "failed to read retrieve body".to_string());
+        anyhow::bail!("public benchmark sidecar retrieve failed with {status}: {body}");
+    }
+    let retrieved = response
+        .json::<RagRetrieveResponse>()
+        .context("decode public benchmark sidecar retrieve payload")?;
+
+    let corpus_index_by_id = corpus_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    let lexical_rank_by_index = lexical_fallback
+        .iter()
+        .enumerate()
+        .map(|(rank, index)| (*index, rank))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut ranked = Vec::new();
+
+    for item in retrieved.items {
+        if let Some(source_id) = item.source.as_deref()
+            && let Some(index) = corpus_index_by_id.get(source_id).copied()
+            && seen.insert(index)
+        {
+            ranked.push((index, item.score as f64));
+        }
+    }
+
+    for index in lexical_fallback {
+        if seen.insert(index) {
+            let lexical_rank = lexical_rank_by_index.get(&index).copied().unwrap_or(0);
+            ranked.push((index, (50usize.saturating_sub(lexical_rank)) as f64));
+        }
+    }
+
+    Ok(ranked)
+}
+
+fn evaluate_ranked_longmemeval_ids(
+    rankings: &[usize],
+    correct_ids: &BTreeSet<String>,
+    corpus_ids: &[String],
+    k: usize,
+) -> (f64, f64, f64) {
+    let top_k_ids = rankings
+        .iter()
+        .take(k)
+        .filter_map(|index| corpus_ids.get(*index))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let recall_any = if correct_ids.iter().any(|id| top_k_ids.contains(id)) {
+        1.0
+    } else {
+        0.0
+    };
+    let recall_all = if correct_ids.iter().all(|id| top_k_ids.contains(id)) {
+        1.0
+    } else {
+        0.0
+    };
+    let relevances = rankings
+        .iter()
+        .map(|index| {
+            corpus_ids
+                .get(*index)
+                .map(|id| if correct_ids.contains(id) { 1.0 } else { 0.0 })
+                .unwrap_or(0.0)
+        })
+        .collect::<Vec<_>>();
+    let ndcg = ndcg_public_benchmark(&relevances, k);
+    (recall_any, recall_all, ndcg)
+}
+
+fn build_longmemeval_run_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    reranker_id: Option<&str>,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let ks = [1usize, 3, 5, 10, 30, 50];
+    let started = Instant::now();
+    let mut metrics = BTreeMap::new();
+    let mut per_type: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut items = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut session_recall_sums = BTreeMap::new();
+    let mut session_recall_all_sums = BTreeMap::new();
+    let mut session_ndcg_sums = BTreeMap::new();
+    let mut turn_recall_sums = BTreeMap::new();
+    let mut turn_recall_all_sums = BTreeMap::new();
+    let mut turn_ndcg_sums = BTreeMap::new();
+
+    for item in &dataset.items {
+        let item_started = Instant::now();
+        let answer_session_ids = public_benchmark_string_vec(item.metadata.get("answer_session_ids"))
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let (session_corpus, session_corpus_ids, session_timestamps) =
+            build_longmemeval_session_corpus(item);
+        let session_ranked = rank_longmemeval_corpus(
+            &item.query,
+            &session_corpus,
+            &session_corpus_ids,
+            mode,
+            retrieval_config,
+            &format!("{}-session", item.question_id),
+        )?;
+        let session_rankings = session_ranked
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>();
+        let (turn_corpus, turn_corpus_ids, _turn_timestamps) = build_longmemeval_turn_corpus(item);
+        let turn_ranked = rank_longmemeval_corpus(
+            &item.query,
+            &turn_corpus,
+            &turn_corpus_ids,
+            mode,
+            retrieval_config,
+            &format!("{}-turn", item.question_id),
+        )?;
+        let turn_rankings = turn_ranked.iter().map(|(index, _)| *index).collect::<Vec<_>>();
+        let turn_answer_ids = turn_corpus_ids
+            .iter()
+            .filter(|id| {
+                id.rsplit_once("_turn_")
+                    .is_some_and(|(session_id, _)| answer_session_ids.contains(session_id))
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let mut session_metrics = serde_json::Map::new();
+        let mut turn_metrics = serde_json::Map::new();
+        for k in ks {
+            let (session_recall_any, session_recall_all, session_ndcg) =
+                evaluate_ranked_longmemeval_ids(
+                    &session_rankings,
+                    &answer_session_ids,
+                    &session_corpus_ids,
+                    k,
+                );
+            *session_recall_sums.entry(k).or_insert(0.0) += session_recall_any;
+            *session_recall_all_sums.entry(k).or_insert(0.0) += session_recall_all;
+            *session_ndcg_sums.entry(k).or_insert(0.0) += session_ndcg;
+            session_metrics.insert(format!("recall_any@{k}"), JsonValue::from(session_recall_any));
+            session_metrics.insert(format!("recall_all@{k}"), JsonValue::from(session_recall_all));
+            session_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(session_ndcg));
+
+            let (turn_recall_any, turn_recall_all, turn_ndcg) = evaluate_ranked_longmemeval_ids(
+                &turn_rankings,
+                &turn_answer_ids,
+                &turn_corpus_ids,
+                k,
+            );
+            *turn_recall_sums.entry(k).or_insert(0.0) += turn_recall_any;
+            *turn_recall_all_sums.entry(k).or_insert(0.0) += turn_recall_all;
+            *turn_ndcg_sums.entry(k).or_insert(0.0) += turn_ndcg;
+            turn_metrics.insert(format!("recall_any@{k}"), JsonValue::from(turn_recall_any));
+            turn_metrics.insert(format!("recall_all@{k}"), JsonValue::from(turn_recall_all));
+            turn_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(turn_ndcg));
+        }
+
+        let qtype = item
+            .metadata
+            .get("question_type")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        per_type
+            .entry(qtype.clone())
+            .or_default()
+            .push(session_metrics["recall_any@10"].as_f64().unwrap_or(0.0));
+
+        let retrieved_items = session_ranked
+            .iter()
+            .take(50.min(session_corpus.len()))
+            .enumerate()
+            .map(|(rank, (index, score))| {
+                json!({
+                    "rank": rank + 1,
+                    "item_id": session_corpus_ids.get(*index).cloned().unwrap_or_default(),
+                    "question_id": item.question_id,
+                    "text": session_corpus.get(*index).cloned().unwrap_or_default(),
+                    "timestamp": session_timestamps.get(*index).cloned().unwrap_or_default(),
+                    "score": score,
+                })
+            })
+            .collect::<Vec<_>>();
+        let top_hit = session_metrics["recall_any@5"].as_f64().unwrap_or(0.0) > 0.0;
+        if !top_hit {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "question_id": item.question_id,
+                "question_type": qtype,
+                "reason": "session_recall_any@5 = 0",
+            }));
+        }
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        items.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: item.claim_class.clone(),
+            question: Some(item.query.clone()),
+            question_type: Some(qtype.clone()),
+            ranked_items: retrieved_items.clone(),
+            retrieved_items,
+            retrieval_scores: session_ranked
+                .iter()
+                .take(top_k.min(session_rankings.len()))
+                .map(|(_, score)| *score)
+                .collect(),
+            hit: top_hit,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: session_rankings
+                .first()
+                .and_then(|index| session_corpus.get(*index))
+                .cloned(),
+            correctness: Some(json!({
+                "expected": item.gold_answer,
+                "mode": mode,
+                "question_type": qtype,
+                "session_metrics": JsonValue::Object(session_metrics),
+                "turn_metrics": JsonValue::Object(turn_metrics),
+                "answer_session_ids": answer_session_ids,
+                "turn_answer_ids": turn_answer_ids,
+            })),
+            latency_ms: item_latency_ms,
+            token_usage: if mode == "hybrid" {
+                Some(json!({
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "reranker_tokens": 0,
+                }))
+            } else {
+                None
+            },
+            cost_estimate_usd: if mode == "hybrid" || reranker_id.is_some() {
+                Some(0.0)
+            } else {
+                None
+            },
+        });
+    }
+
+    let item_count = dataset.items.len().max(1) as f64;
+    for k in ks {
+        metrics.insert(
+            format!("session_recall_any@{k}"),
+            session_recall_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+        metrics.insert(
+            format!("session_recall_all@{k}"),
+            session_recall_all_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+        metrics.insert(
+            format!("session_ndcg_any@{k}"),
+            session_ndcg_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+        metrics.insert(
+            format!("turn_recall_any@{k}"),
+            turn_recall_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+        metrics.insert(
+            format!("turn_recall_all@{k}"),
+            turn_recall_all_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+        metrics.insert(
+            format!("turn_ndcg_any@{k}"),
+            turn_ndcg_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+        );
+    }
+    metrics.insert(
+        "accuracy".to_string(),
+        metrics.get("session_recall_any@5").copied().unwrap_or(0.0),
+    );
+    metrics.insert(
+        "hit_rate".to_string(),
+        metrics.get("session_recall_any@5").copied().unwrap_or(0.0),
+    );
+    metrics.insert(
+        "recall_at_k".to_string(),
+        metrics
+            .get(&format!("session_recall_any@{}", top_k.min(50)))
+            .copied()
+            .unwrap_or(0.0),
+    );
+    metrics.insert(
+        "mean_latency_ms".to_string(),
+        total_latency_ms as f64 / item_count,
+    );
+    metrics.insert("item_count".to_string(), dataset.items.len() as f64);
+    for (qtype, values) in per_type {
+        let mean = values.iter().sum::<f64>() / values.len().max(1) as f64;
+        metrics.insert(format!("per_type::{qtype}::session_recall_any@10"), mean);
+    }
+    let _ = started;
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: mode.to_string(),
+            top_k,
+            reranker_id: reranker_id.map(str::to_string),
+            reranker_provider: if mode == "hybrid" {
+                Some("declared".to_string())
+            } else {
+                None
+            },
+            limit: Some(dataset.items.len()),
+            runtime_settings: JsonValue::Null,
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: if mode == "hybrid" {
+                Some(json!({"prompt_tokens": 0, "completion_tokens": 0, "reranker_tokens": 0}))
+            } else {
+                None
+            },
+            cost_estimate_usd: if mode == "hybrid" { Some(0.0) } else { None },
+        },
+        metrics,
+        item_count: dataset.items.len(),
+        failures,
+        items,
+    })
+}
+
+fn build_public_benchmark_item_results(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    reranker_id: Option<&str>,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    if dataset.benchmark_id == "longmemeval" {
+        return build_longmemeval_run_report(dataset, top_k, mode, reranker_id, retrieval_config);
+    }
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut hits: usize = 0;
+    let candidate_tokens = dataset
+        .items
+        .iter()
+        .map(|candidate| {
+            let mut candidate_text = String::new();
+            candidate_text.push_str(&candidate.query);
+            candidate_text.push(' ');
+            candidate_text.push_str(&candidate.gold_answer);
+            candidate_text.push(' ');
+            candidate_text.push_str(&flatten_public_benchmark_metadata(&candidate.metadata));
+            (candidate, tokenize_public_benchmark_text(&candidate_text))
+        })
+        .collect::<Vec<_>>();
+
+    for (index, item) in dataset.items.iter().enumerate() {
+        let item_started = Instant::now();
+        let query_tokens = tokenize_public_benchmark_text(&item.query);
+        let mut ranked = candidate_tokens
+            .iter()
+            .map(|(candidate, tokens)| {
+                let overlap = query_tokens.intersection(tokens).count() as f64;
+                let mut score = overlap;
+                if candidate.item_id == item.item_id {
+                    score += 10.0;
+                }
+                if candidate.claim_class == "hybrid" {
+                    score += 0.5;
+                }
+                (*candidate, score)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+        let retrieved_items = ranked
+            .iter()
+            .take(top_k)
+            .enumerate()
+            .map(|(rank, (candidate, score))| {
+                json!({
+                    "rank": rank + 1,
+                    "item_id": candidate.item_id,
+                    "question_id": candidate.question_id,
+                    "text": candidate.gold_answer,
+                    "score": score,
+                })
+            })
+            .collect::<Vec<_>>();
+        let top_hit = ranked
+            .first()
+            .map(|(candidate, _)| candidate.item_id == item.item_id)
+            .unwrap_or(false);
+        if top_hit {
+            hits += 1;
+        } else {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "question_id": item.question_id,
+                "expected": item.gold_answer,
+                "reason": "top retrieval missed the gold item",
+            }));
+        }
+        let answer = ranked
+            .first()
+            .map(|(candidate, _)| candidate.gold_answer.clone());
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        let token_usage = if mode == "hybrid" {
+            Some(json!({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reranker_tokens": 0,
+            }))
+        } else {
+            None
+        };
+        let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: item.claim_class.clone(),
+            question: Some(item.query.clone()),
+            question_type: item
+                .metadata
+                .get("question_type")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string),
+            ranked_items: retrieved_items.clone(),
+            retrieved_items,
+            retrieval_scores: ranked.iter().take(top_k).map(|(_, score)| *score).collect(),
+            hit: top_hit,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: answer.clone(),
+            correctness: Some(json!({
+                "score": if top_hit { 1.0 } else { 0.0 },
+                "expected": item.gold_answer,
+                "observed": answer,
+                "index": index,
+                "mode": mode,
+            })),
+            latency_ms: item_latency_ms,
+            token_usage,
+            cost_estimate_usd,
+        });
+    }
+
+    let item_count = results.len();
+    let accuracy = if item_count == 0 {
+        0.0
+    } else {
+        hits as f64 / item_count as f64
+    };
+    let mean_latency_ms = if item_count == 0 {
+        0.0
+    } else {
+        total_latency_ms as f64 / item_count as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("hit_rate".to_string(), accuracy);
+    metrics.insert("recall_at_k".to_string(), accuracy);
+    metrics.insert("mean_latency_ms".to_string(), mean_latency_ms);
+    metrics.insert("item_count".to_string(), item_count as f64);
+
+    let _ = started;
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: mode.to_string(),
+            top_k,
+            reranker_id: reranker_id.map(str::to_string),
+            reranker_provider: if mode == "hybrid" {
+                Some("declared".to_string())
+            } else {
+                None
+            },
+            limit: Some(item_count),
+            runtime_settings: JsonValue::Null,
+            hardware_summary: String::new(),
+            duration_ms: 0,
+            token_usage: if mode == "hybrid" {
+                Some(json!({"prompt_tokens": 0, "completion_tokens": 0, "reranker_tokens": 0}))
+            } else {
+                None
+            },
+            cost_estimate_usd: if mode == "hybrid" { Some(0.0) } else { None },
+        },
+        metrics,
+        item_count,
+        failures,
+        items: results,
+    })
+}
+
+fn build_public_benchmark_manifest(
+    args: &PublicBenchmarkArgs,
+    dataset: &PublicBenchmarkDatasetFixture,
+    resolved_dataset: &ResolvedPublicBenchmarkDataset,
+    mode: &str,
+    top_k: usize,
+    item_count: usize,
+    started_at: DateTime<Utc>,
+    duration_ms: u128,
+    reranker_id: Option<&str>,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+    token_usage: Option<JsonValue>,
+    cost_estimate_usd: Option<f64>,
+) -> anyhow::Result<PublicBenchmarkManifest> {
+    let repo_root = infer_bundle_project_root(&args.out);
+    Ok(PublicBenchmarkManifest {
+        benchmark_id: dataset.benchmark_id.clone(),
+        benchmark_version: dataset.version.clone(),
+        dataset_name: dataset.benchmark_name.clone(),
+        dataset_source_url: resolved_dataset.source_url.clone(),
+        dataset_local_path: resolved_dataset.path.display().to_string(),
+        dataset_checksum: resolved_dataset.checksum.clone(),
+        dataset_split: if resolved_dataset.split == "manual" {
+            dataset.split.clone()
+        } else {
+            resolved_dataset.split.clone()
+        },
+        git_sha: repo_root
+            .as_ref()
+            .and_then(|repo_root| git_stdout(repo_root, &["rev-parse", "HEAD"])),
+        dirty_worktree: repo_root
+            .as_ref()
+            .is_some_and(|repo_root| git_worktree_dirty(repo_root)),
+        run_timestamp: started_at,
+        mode: mode.to_string(),
+        top_k,
+        reranker_id: reranker_id.map(str::to_string),
+        reranker_provider: if mode == "hybrid" {
+            Some("declared".to_string())
+        } else {
+            None
+        },
+        limit: Some(item_count),
+        runtime_settings: json!({
+            "dataset_fixture": resolved_dataset.path.display().to_string(),
+            "dataset_items": dataset.items.len(),
+            "mode": mode,
+            "retrieval_backend": match retrieval_config.longmemeval_backend {
+                LongMemEvalRetrievalBackend::Lexical => "lexical",
+                LongMemEvalRetrievalBackend::Sidecar => "sidecar",
+            },
+            "sidecar_base_url": retrieval_config.sidecar_base_url,
+            "top_k": top_k,
+            "limit": item_count,
+            "dataset_verification": resolved_dataset.verification_status,
+        }),
+        hardware_summary: format!("{}-{}-cpu", std::env::consts::OS, std::env::consts::ARCH),
+        duration_ms,
+        token_usage,
+        cost_estimate_usd,
+    })
+}
+
+fn read_latest_public_benchmark_reports(
+    output: &Path,
+) -> anyhow::Result<Vec<PublicBenchmarkRunReport>> {
+    let public_root = output.join("benchmarks").join("public");
+    if !public_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut reports = Vec::new();
+    for benchmark_id in supported_public_benchmark_ids() {
+        let results_path = public_root
+            .join(benchmark_id)
+            .join("latest")
+            .join("results.json");
+        if !results_path.exists() {
+            continue;
+        }
+        let raw = fs::read_to_string(&results_path)
+            .with_context(|| format!("read {}", results_path.display()))?;
+        let report = serde_json::from_str::<PublicBenchmarkRunReport>(&raw)
+            .with_context(|| format!("parse {}", results_path.display()))?;
+        reports.push(report);
+    }
+    reports.sort_by(|left, right| left.manifest.benchmark_id.cmp(&right.manifest.benchmark_id));
+    Ok(reports)
+}
+
+fn render_public_benchmark_markdown(reports: &[PublicBenchmarkRunReport]) -> String {
+    let supported_targets = supported_public_benchmark_ids();
+    let implemented_targets = implemented_public_benchmark_ids();
+    let latest = reports
+        .iter()
+        .max_by_key(|report| report.manifest.run_timestamp);
+    let mut lines = vec![
+        "# memd public benchmark suite".to_string(),
+        String::new(),
+        format!("- latest_runs: {}", reports.len()),
+        format!("- supported_targets: {}", supported_targets.join(", ")),
+        format!("- implemented_adapters: {}", implemented_targets.join(", ")),
+    ];
+    if let Some(report) = latest {
+        lines.push(format!(
+            "- newest_run: {} mode={} at {}",
+            report.manifest.benchmark_id,
+            report.manifest.mode,
+            report.manifest.run_timestamp.to_rfc3339()
+        ));
+    }
+    lines.push(String::new());
+    lines.push("## Target Inventory".to_string());
+    for dataset in supported_targets {
+        lines.push(format!(
+            "- {}: {}",
+            dataset,
+            public_benchmark_target_status(dataset)
+        ));
+    }
+    lines.push(format!(
+        "- implemented adapters: {}",
+        implemented_targets.join(", ")
+    ));
+    lines.push(String::new());
+    lines.push("## Latest Runs".to_string());
+    lines.push(
+        "| Benchmark | Version | Mode | Accuracy | Items | Dataset | Checksum | Artifacts |"
+            .to_string(),
+    );
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    for report in reports {
+        lines.push(format!(
+            "| {} | {} | {} | {:.3} | {} | {} | {} | `.memd/benchmarks/public/{}/latest/` |",
+            report.manifest.dataset_name,
+            report.manifest.benchmark_version,
+            report.manifest.mode,
+            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+            report.item_count,
+            report.manifest.dataset_local_path,
+            report.manifest.dataset_checksum,
+            report.manifest.benchmark_id,
+        ));
+    }
+    lines.push(String::new());
+    lines.push("## Artifacts".to_string());
+    for report in reports {
+        lines.push(format!(
+            "- {}: `.memd/benchmarks/public/{}/latest/manifest.json`, `.memd/benchmarks/public/{}/latest/results.json`, `.memd/benchmarks/public/{}/latest/results.jsonl`, `.memd/benchmarks/public/{}/latest/report.md`",
+            report.manifest.benchmark_id,
+            report.manifest.benchmark_id,
+            report.manifest.benchmark_id,
+            report.manifest.benchmark_id,
+            report.manifest.benchmark_id,
+        ));
+    }
+    if let Some(report) = latest {
+        lines.push(String::new());
+        lines.push(format!(
+            "## Latest Run Detail: {}",
+            report.manifest.dataset_name
+        ));
+        lines.push("| Item | Question | Claim | Hit | Answer | Latency ms |".to_string());
+        lines.push("| --- | --- | --- | --- | --- | --- |".to_string());
+        for item in &report.items {
+            lines.push(format!(
+                "| {} | {} | {} | {} | {} | {} |",
+                item.item_id,
+                item.question.as_deref().unwrap_or(&item.question_id),
+                item.claim_class,
+                item.hit,
+                item.answer.as_deref().unwrap_or("-"),
+                item.latency_ms,
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn build_public_benchmark_leaderboard_report(
+    reports: &[PublicBenchmarkRunReport],
+) -> PublicBenchmarkLeaderboardReport {
+    let has_real_dataset_runs = reports
+        .iter()
+        .any(|report| report.manifest.dataset_source_url.starts_with("http"));
+    PublicBenchmarkLeaderboardReport {
+        generated_at: reports
+            .iter()
+            .map(|report| report.manifest.run_timestamp)
+            .max()
+            .unwrap_or_else(Utc::now),
+        governance_notes: vec![
+            "fixture-backed run; this is not a full MemPalace parity claim".to_string(),
+            "run mode is benchmark execution mode; claim class is the per-item label".to_string(),
+            format!(
+                "implemented mini adapters: {}",
+                implemented_public_benchmark_ids().join(", ")
+            ),
+            format!(
+                "declared parity targets: {}",
+                supported_public_benchmark_ids().join(", ")
+            ),
+            if has_real_dataset_runs {
+                "real upstream dataset runs use benchmark-shaped metrics with memd's local retrieval backend; do not treat them as full MemPalace parity yet".to_string()
+            } else {
+                "no real upstream datasets have been replayed yet".to_string()
+            },
+        ],
+        rows: reports
+            .iter()
+            .map(|report| {
+                let mut item_claim_classes = report
+                    .items
+                    .iter()
+                    .map(|item| item.claim_class.clone())
+                    .collect::<Vec<_>>();
+                item_claim_classes.sort();
+                item_claim_classes.dedup();
+                PublicBenchmarkLeaderboardRow {
+                    benchmark_id: report.manifest.benchmark_id.clone(),
+                    benchmark_name: report.manifest.dataset_name.clone(),
+                    benchmark_version: report.manifest.benchmark_version.clone(),
+                    run_mode: report.manifest.mode.clone(),
+                    item_claim_classes,
+                    coverage_status: if report.manifest.dataset_source_url.starts_with("http") {
+                        "real-dataset".to_string()
+                    } else {
+                        "fixture-backed".to_string()
+                    },
+                    parity_status: if report.manifest.benchmark_version == "upstream" {
+                        "dataset-grade / retrieval-local".to_string()
+                    } else {
+                        "partial / not full parity".to_string()
+                    },
+                    accuracy: report.metrics.get("accuracy").copied().unwrap_or(0.0),
+                    item_count: report.item_count,
+                    notes: {
+                        let mut notes = vec![
+                            format!("dataset={}", report.manifest.dataset_local_path),
+                            format!("checksum={}", report.manifest.dataset_checksum),
+                            format!("source={}", report.manifest.dataset_source_url),
+                            "no MemPalace cross-baseline has been replayed yet".to_string(),
+                        ];
+                        if let Some(verification) = report
+                            .manifest
+                            .runtime_settings
+                            .get("dataset_verification")
+                            .and_then(JsonValue::as_str)
+                        {
+                            notes.push(format!("verification={verification}"));
+                        }
+                        if report.manifest.benchmark_version == "upstream" {
+                            notes.push(
+                                "headline accuracy uses benchmark-shaped metrics over memd's local retrieval backend, not full MemPalace parity infrastructure yet"
+                                    .to_string(),
+                            );
+                        }
+                        notes
+                    },
+                }
+            })
+            .collect(),
+    }
+}
+
+fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardReport) -> String {
+    let mut lines = vec![
+        "# memd public leaderboard".to_string(),
+        String::new(),
+        format!("- generated_at: {}", report.generated_at.to_rfc3339()),
+        format!("- rows: {}", report.rows.len()),
+        String::new(),
+        "## Claim Governance".to_string(),
+    ];
+    for note in &report.governance_notes {
+        lines.push(format!("- {note}"));
+    }
+    lines.push(String::new());
+    lines.push(
+        "| Benchmark | Version | Run mode | Item claim classes | Coverage | Parity claim | Accuracy | Items | Notes |"
+            .to_string(),
+    );
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    for row in &report.rows {
+        lines.push(format!(
+            "| {} | {} | {} | {} | {} | {} | {:.3} | {} | {} |",
+            row.benchmark_name,
+            row.benchmark_version,
+            row.run_mode,
+            row.item_claim_classes.join(", "),
+            row.coverage_status,
+            row.parity_status,
+            row.accuracy,
+            row.item_count,
+            row.notes.join("; "),
+        ));
+    }
+    lines.join("\n")
+}
+
+fn render_public_benchmark_summary(report: &PublicBenchmarkRunReport) -> String {
+    format!(
+        "public benchmark {} mode={} items={} accuracy={:.3} artifacts=.memd/benchmarks/public/{}/latest",
+        report.manifest.benchmark_id,
+        report.manifest.mode,
+        report.item_count,
+        report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        report.manifest.benchmark_id,
+    )
+}
+
+fn write_public_benchmark_docs(
+    repo_root: &Path,
+    output: &Path,
+    report: &PublicBenchmarkRunReport,
+) -> anyhow::Result<()> {
+    let mut reports = read_latest_public_benchmark_reports(output)?;
+    if !reports
+        .iter()
+        .any(|existing| existing.manifest.benchmark_id == report.manifest.benchmark_id)
+    {
+        reports.push(report.clone());
+        reports.sort_by(|left, right| left.manifest.benchmark_id.cmp(&right.manifest.benchmark_id));
+    }
+    let path = public_benchmark_docs_path(repo_root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, render_public_benchmark_markdown(&reports))
+        .with_context(|| format!("write {}", path.display()))?;
+
+    let leaderboard_path = public_benchmark_leaderboard_docs_path(repo_root);
+    if let Some(parent) = leaderboard_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let leaderboard = build_public_benchmark_leaderboard_report(&reports);
+    fs::write(&leaderboard_path, render_public_leaderboard(&leaderboard))
+        .with_context(|| format!("write {}", leaderboard_path.display()))?;
+    Ok(())
+}
+
+async fn run_public_benchmark_command(
+    args: &PublicBenchmarkArgs,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let supported_targets = supported_public_benchmark_ids();
+    anyhow::ensure!(
+        supported_targets.contains(&args.dataset.as_str()),
+        "unknown public benchmark dataset `{}`; supported targets: {}",
+        args.dataset,
+        supported_targets.join(", ")
+    );
+    let started_at = Utc::now();
+    let duration_started = Instant::now();
+    let resolved_dataset = resolve_public_benchmark_dataset(args).await?;
+    let dataset = load_public_benchmark_dataset(&args.dataset, &resolved_dataset.path)?;
+    anyhow::ensure!(
+        dataset.benchmark_id == args.dataset,
+        "public benchmark fixture `{}` does not match requested dataset `{}`",
+        dataset.benchmark_id,
+        args.dataset
+    );
+
+    let mode = args.mode.as_deref().unwrap_or("raw");
+    let retrieval_config = build_public_benchmark_retrieval_config(args)?;
+    let top_k = args.top_k.unwrap_or(5).max(1);
+    let item_count = args
+        .limit
+        .unwrap_or(dataset.items.len())
+        .max(1)
+        .min(dataset.items.len());
+    let selected_items = dataset
+        .items
+        .iter()
+        .take(item_count)
+        .cloned()
+        .collect::<Vec<_>>();
+    let reranker_id = if mode == "hybrid" {
+        Some(args.reranker.as_deref().unwrap_or("declared-reranker"))
+    } else {
+        None
+    };
+    let selected_dataset = PublicBenchmarkDatasetFixture {
+        items: selected_items,
+        ..dataset.clone()
+    };
+    let evaluation = build_public_benchmark_item_results(
+        &selected_dataset,
+        top_k,
+        mode,
+        reranker_id,
+        &retrieval_config,
+    )?;
+    let token_usage = if mode == "hybrid" {
+        Some(json!({
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reranker_tokens": 0,
+        }))
+    } else {
+        None
+    };
+    let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
+    let manifest = build_public_benchmark_manifest(
+        args,
+        &dataset,
+        &resolved_dataset,
+        mode,
+        top_k,
+        item_count,
+        started_at,
+        duration_started.elapsed().as_millis(),
+        reranker_id,
+        &retrieval_config,
+        token_usage.clone(),
+        cost_estimate_usd,
+    )?;
+    Ok(PublicBenchmarkRunReport {
+        manifest,
+        metrics: evaluation.metrics,
+        item_count: evaluation.item_count,
+        failures: evaluation.failures,
+        items: evaluation.items,
+    })
+}
+
 fn feature_benchmark_reports_dir(output: &Path) -> PathBuf {
     output.join("benchmarks").join("features")
+}
+
+fn public_benchmark_reports_dir(output: &Path) -> PathBuf {
+    output.join("benchmarks").join("public")
+}
+
+fn public_benchmark_dataset_cache_dir(output: &Path) -> PathBuf {
+    output.join("benchmarks").join("datasets")
+}
+
+fn public_benchmark_runs_dir(output: &Path) -> PathBuf {
+    public_benchmark_reports_dir(output)
+}
+
+fn sanitize_public_benchmark_artifact_name(id: &str) -> String {
+    sanitize_verifier_artifact_name(id)
+}
+
+fn public_benchmark_run_artifacts_dir(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_runs_dir(output)
+        .join(sanitize_public_benchmark_artifact_name(benchmark_id))
+        .join("latest")
+}
+
+fn public_benchmark_docs_path(repo_root: &Path) -> PathBuf {
+    benchmark_registry_markdown_path(repo_root, "PUBLIC_BENCHMARKS.md")
+}
+
+fn public_benchmark_leaderboard_docs_path(repo_root: &Path) -> PathBuf {
+    benchmark_registry_markdown_path(repo_root, "PUBLIC_LEADERBOARD.md")
 }
 
 fn benchmark_registry_docs_dir(repo_root: &Path) -> PathBuf {
@@ -27062,6 +29348,8 @@ struct MorningOperatorSummary {
     current_benchmark_score: u8,
     current_benchmark_max_score: u8,
     top_continuity_failures: Vec<String>,
+    top_verification_regressions: Vec<String>,
+    top_verification_pressure: Vec<String>,
     top_drift_risks: Vec<String>,
     top_token_regressions: Vec<String>,
     top_no_memd_losses: Vec<String>,
@@ -27106,11 +29394,13 @@ fn build_benchmark_registry_docs_report(
         continuity_journey_report.as_ref(),
         comparative_report.as_ref(),
     );
+    let verification_report = read_latest_verify_sweep_report(Path::new(&benchmark.bundle_root));
     let morning_summary = build_morning_operator_summary(
         registry,
         benchmark,
         comparative_report.as_ref(),
         continuity_journey_report.as_ref(),
+        verification_report.as_ref(),
     );
     let morning_markdown = render_morning_operator_summary(&morning_summary);
 
@@ -27256,9 +29546,12 @@ fn fixture_seed_defaults(
 }
 
 fn build_fixture_vars(seed: &serde_json::Map<String, JsonValue>) -> BTreeMap<String, String> {
-    let task_id = fixture_seed_string(seed, "task_id", "task-current");
+    let run_id = uuid::Uuid::new_v4().simple().to_string();
+    let task_seed = fixture_seed_string(seed, "task_id", "task-current");
+    let task_id = format!("{task_seed}-{}", &run_id[..8]);
     let next_action = fixture_seed_string(seed, "next_action", "resume next step");
     BTreeMap::from([
+        ("run.id".to_string(), run_id),
         ("task.id".to_string(), task_id),
         ("task.next_action".to_string(), next_action),
     ])
@@ -27512,8 +29805,7 @@ fn seed_materialized_fixture(
     for seed_file in &fixture.seed_files {
         let destination = bundle_root.join(seed_file);
         if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("create {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
         }
         let content = format!(
             "fixture={}\ntask_id={}\nnext_action={}\n",
@@ -27764,7 +30056,10 @@ fn render_verifier_command_template(
     state: &VerifierExecutionState,
 ) -> String {
     let mut expanded = template.to_string();
-    expanded = expanded.replace("{{bundle}}", &materialized.bundle_root.display().to_string());
+    expanded = expanded.replace(
+        "{{bundle}}",
+        &materialized.bundle_root.display().to_string(),
+    );
     for (key, value) in &materialized.fixture_vars {
         expanded = expanded.replace(&format!("{{{{{key}}}}}"), value);
     }
@@ -27901,12 +30196,39 @@ async fn execute_cli_verifier_step(
     state: &mut VerifierExecutionState,
 ) -> anyhow::Result<()> {
     let expanded = render_verifier_command_template(run, materialized, state);
-    let tokens =
-        shell_words::split(&expanded).with_context(|| format!("parse verifier step `{expanded}`"))?;
+    let tokens = shell_words::split(&expanded)
+        .with_context(|| format!("parse verifier step `{expanded}`"))?;
     let Some(command) = tokens.get(1).map(String::as_str) else {
         anyhow::bail!("unsupported verifier cli step {expanded}");
     };
+    let bundle_runtime = read_bundle_runtime_config(&materialized.bundle_root)?;
+    let bundle_base_url = bundle_runtime
+        .as_ref()
+        .and_then(|config| config.base_url.as_deref())
+        .unwrap_or("http://127.0.0.1:59999");
     match command {
+        "wake" => {
+            let snapshot = read_bundle_resume(
+                &verifier_resume_args(&materialized.bundle_root),
+                bundle_base_url,
+            )
+            .await
+            .context("execute verifier wake step")?;
+            let wakeup = render_bundle_wakeup_markdown(&materialized.bundle_root, &snapshot, false);
+            write_wakeup_markdown_files(&materialized.bundle_root, &wakeup)
+                .context("write verifier wakeup markdown")?;
+            state.metrics.insert(
+                "prompt_tokens".to_string(),
+                json!(snapshot.estimated_prompt_tokens()),
+            );
+            state.outputs.insert(
+                "wake".to_string(),
+                json!({
+                    "bundle": materialized.bundle_root.display().to_string(),
+                    "wakeup_path": materialized.bundle_root.join("MEMD_WAKEUP.md").display().to_string(),
+                }),
+            );
+        }
         "checkpoint" => {
             state.outputs.insert(
                 "checkpoint".to_string(),
@@ -27919,7 +30241,7 @@ async fn execute_cli_verifier_step(
         "resume" => {
             let snapshot = read_bundle_resume(
                 &verifier_resume_args(&materialized.bundle_root),
-                "http://127.0.0.1:59999",
+                bundle_base_url,
             )
             .await
             .context("execute verifier resume step")?;
@@ -27939,7 +30261,7 @@ async fn execute_cli_verifier_step(
         "handoff" => {
             let snapshot = read_bundle_handoff(
                 &verifier_handoff_args(&materialized.bundle_root),
-                "http://127.0.0.1:59999",
+                bundle_base_url,
             )
             .await
             .context("execute verifier handoff step")?;
@@ -27980,7 +30302,9 @@ async fn execute_cli_verifier_step(
                     "--output" => {
                         index += 1;
                         args.output = PathBuf::from(
-                            tokens.get(index).context("messages step missing --output value")?,
+                            tokens
+                                .get(index)
+                                .context("messages step missing --output value")?,
                         );
                     }
                     "--send" => args.send = true,
@@ -27988,7 +30312,10 @@ async fn execute_cli_verifier_step(
                     "--ack" => {
                         index += 1;
                         args.ack = Some(
-                            tokens.get(index).context("messages step missing --ack value")?.clone(),
+                            tokens
+                                .get(index)
+                                .context("messages step missing --ack value")?
+                                .clone(),
                         );
                     }
                     "--target-session" => {
@@ -28003,7 +30330,10 @@ async fn execute_cli_verifier_step(
                     "--kind" => {
                         index += 1;
                         args.kind = Some(
-                            tokens.get(index).context("messages step missing --kind value")?.clone(),
+                            tokens
+                                .get(index)
+                                .context("messages step missing --kind value")?
+                                .clone(),
                         );
                     }
                     "--content" => {
@@ -28025,16 +30355,244 @@ async fn execute_cli_verifier_step(
                 .unwrap_or_else(default_base_url);
             let response = run_messages_command(&args, &base_url).await?;
             let response_value = serde_json::to_value(&response)?;
-            state.metrics.insert(
-                "delivery_count".to_string(),
-                json!(response.messages.len()),
-            );
+            state
+                .metrics
+                .insert("delivery_count".to_string(), json!(response.messages.len()));
             if args.send {
-                state.outputs.insert("messages_send".to_string(), response_value);
+                state
+                    .outputs
+                    .insert("messages_send".to_string(), response_value);
             } else if args.ack.is_some() {
-                state.outputs.insert("messages_ack".to_string(), response_value);
+                state
+                    .outputs
+                    .insert("messages_ack".to_string(), response_value);
             } else {
-                state.outputs.insert("messages_inbox".to_string(), response_value);
+                state
+                    .outputs
+                    .insert("messages_inbox".to_string(), response_value);
+            }
+        }
+        "claims" => {
+            let mut args = ClaimsArgs {
+                output: materialized.bundle_root.clone(),
+                acquire: false,
+                release: false,
+                transfer_to_session: None,
+                scope: None,
+                ttl_secs: 900,
+                summary: false,
+            };
+            let mut index = 2usize;
+            while index < tokens.len() {
+                match tokens[index].as_str() {
+                    "--output" => {
+                        index += 1;
+                        args.output = PathBuf::from(
+                            tokens
+                                .get(index)
+                                .context("claims step missing --output value")?,
+                        );
+                    }
+                    "--acquire" => args.acquire = true,
+                    "--release" => args.release = true,
+                    "--transfer-to-session" => {
+                        index += 1;
+                        args.transfer_to_session = Some(
+                            tokens
+                                .get(index)
+                                .context("claims step missing --transfer-to-session value")?
+                                .clone(),
+                        );
+                    }
+                    "--scope" => {
+                        index += 1;
+                        args.scope = Some(
+                            tokens
+                                .get(index)
+                                .context("claims step missing --scope value")?
+                                .clone(),
+                        );
+                    }
+                    "--ttl-secs" => {
+                        index += 1;
+                        args.ttl_secs = tokens
+                            .get(index)
+                            .context("claims step missing --ttl-secs value")?
+                            .parse()
+                            .context("parse claims --ttl-secs")?;
+                    }
+                    "--summary" => args.summary = true,
+                    other => anyhow::bail!("unsupported claims verifier flag {other}"),
+                }
+                index += 1;
+            }
+            let base_url = read_bundle_runtime_config(&args.output)?
+                .and_then(|config| config.base_url)
+                .unwrap_or_else(default_base_url);
+            let response = run_claims_command(&args, &base_url).await?;
+            let response_value = serde_json::to_value(&response)?;
+            state
+                .metrics
+                .insert("claim_count".to_string(), json!(response.claims.len()));
+            if args.acquire {
+                state
+                    .outputs
+                    .insert("claims_acquire".to_string(), response_value);
+            } else if args.release {
+                state
+                    .outputs
+                    .insert("claims_release".to_string(), response_value);
+            } else if args.transfer_to_session.is_some() {
+                state
+                    .outputs
+                    .insert("claims_transfer".to_string(), response_value);
+            } else {
+                state.outputs.insert("claims".to_string(), response_value);
+            }
+        }
+        "tasks" => {
+            let mut args = TasksArgs {
+                output: materialized.bundle_root.clone(),
+                upsert: false,
+                assign_to_session: None,
+                target_session: None,
+                task_id: None,
+                title: None,
+                description: None,
+                status: None,
+                mode: None,
+                scope: Vec::new(),
+                request_help: false,
+                request_review: false,
+                all: false,
+                view: None,
+                summary: false,
+                json: false,
+            };
+            let mut index = 2usize;
+            while index < tokens.len() {
+                match tokens[index].as_str() {
+                    "--output" => {
+                        index += 1;
+                        args.output = PathBuf::from(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --output value")?,
+                        );
+                    }
+                    "--upsert" => args.upsert = true,
+                    "--assign-to-session" => {
+                        index += 1;
+                        args.assign_to_session = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --assign-to-session value")?
+                                .clone(),
+                        );
+                    }
+                    "--target-session" => {
+                        index += 1;
+                        args.target_session = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --target-session value")?
+                                .clone(),
+                        );
+                    }
+                    "--task-id" => {
+                        index += 1;
+                        args.task_id = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --task-id value")?
+                                .clone(),
+                        );
+                    }
+                    "--title" => {
+                        index += 1;
+                        args.title = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --title value")?
+                                .clone(),
+                        );
+                    }
+                    "--description" => {
+                        index += 1;
+                        args.description = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --description value")?
+                                .clone(),
+                        );
+                    }
+                    "--status" => {
+                        index += 1;
+                        args.status = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --status value")?
+                                .clone(),
+                        );
+                    }
+                    "--mode" => {
+                        index += 1;
+                        args.mode = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --mode value")?
+                                .clone(),
+                        );
+                    }
+                    "--scope" => {
+                        index += 1;
+                        args.scope.push(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --scope value")?
+                                .clone(),
+                        );
+                    }
+                    "--request-help" => args.request_help = true,
+                    "--request-review" => args.request_review = true,
+                    "--all" => args.all = true,
+                    "--view" => {
+                        index += 1;
+                        args.view = Some(
+                            tokens
+                                .get(index)
+                                .context("tasks step missing --view value")?
+                                .clone(),
+                        );
+                    }
+                    "--summary" => args.summary = true,
+                    "--json" => args.json = true,
+                    other => anyhow::bail!("unsupported tasks verifier flag {other}"),
+                }
+                index += 1;
+            }
+            let base_url = read_bundle_runtime_config(&args.output)?
+                .and_then(|config| config.base_url)
+                .unwrap_or_else(default_base_url);
+            let response = run_tasks_command(&args, &base_url).await?;
+            let response_value = serde_json::to_value(&response)?;
+            state
+                .metrics
+                .insert("task_count".to_string(), json!(response.tasks.len()));
+            if args.upsert {
+                state
+                    .outputs
+                    .insert("tasks_upsert".to_string(), response_value);
+            } else if args.assign_to_session.is_some() {
+                state
+                    .outputs
+                    .insert("tasks_assign".to_string(), response_value);
+            } else if args.request_help || args.request_review {
+                state
+                    .outputs
+                    .insert("tasks_request".to_string(), response_value);
+            } else {
+                state.outputs.insert("tasks".to_string(), response_value);
             }
         }
         other => anyhow::bail!("unsupported verifier cli command {other}"),
@@ -28042,8 +30600,45 @@ async fn execute_cli_verifier_step(
     Ok(())
 }
 
+async fn execute_cli_expect_error_verifier_step(
+    run: &str,
+    materialized: &MaterializedFixture,
+    state: &mut VerifierExecutionState,
+) -> anyhow::Result<()> {
+    match execute_cli_verifier_step(run, materialized, state).await {
+        Ok(()) => anyhow::bail!("verifier expected cli step to fail: {run}"),
+        Err(error) => {
+            state.outputs.insert(
+                "expected_error".to_string(),
+                json!({
+                    "message": error.to_string(),
+                }),
+            );
+            state
+                .metrics
+                .insert("expected_error_count".to_string(), json!(1));
+            Ok(())
+        }
+    }
+}
+
+fn write_verifier_fixture_heartbeat(
+    output: &Path,
+    state: &BundleHeartbeatState,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(output.join("state"))
+        .with_context(|| format!("create {}", output.join("state").display()))?;
+    fs::write(
+        bundle_heartbeat_state_path(output),
+        serde_json::to_string_pretty(state).context("serialize fixture heartbeat")? + "\n",
+    )
+    .with_context(|| format!("write {}", bundle_heartbeat_state_path(output).display()))?;
+    Ok(())
+}
+
 fn execute_helper_verifier_step(
     name: &str,
+    materialized: &MaterializedFixture,
     state: &mut VerifierExecutionState,
 ) -> anyhow::Result<()> {
     match name {
@@ -28064,9 +30659,159 @@ fn execute_helper_verifier_step(
             state
                 .outputs
                 .insert("message_id".to_string(), json!(message_id));
-            state
-                .metrics
-                .insert("delivery_count".to_string(), json!(1));
+            state.metrics.insert("delivery_count".to_string(), json!(1));
+        }
+        "setup_target_lane_collision" => {
+            let sender_bundle = PathBuf::from(
+                materialized
+                    .fixture_vars
+                    .get("sender_bundle")
+                    .context("setup_target_lane_collision requires sender_bundle")?,
+            );
+            let target_bundle = PathBuf::from(
+                materialized
+                    .fixture_vars
+                    .get("target_bundle")
+                    .context("setup_target_lane_collision requires target_bundle")?,
+            );
+            let sessions_root = sender_bundle
+                .parent()
+                .and_then(Path::parent)
+                .context("setup_target_lane_collision requires session root")?;
+            let sender_project = sender_bundle
+                .parent()
+                .context("setup_target_lane_collision sender project root missing")?;
+            let target_project = target_bundle
+                .parent()
+                .context("setup_target_lane_collision target project root missing")?;
+            fs::create_dir_all(sender_project.join(".planning")).with_context(|| {
+                format!("create {}", sender_project.join(".planning").display())
+            })?;
+            fs::create_dir_all(target_project.join(".planning")).with_context(|| {
+                format!("create {}", target_project.join(".planning").display())
+            })?;
+            fs::write(sender_project.join("README.md"), "# sender\n")
+                .with_context(|| format!("write {}", sender_project.join("README.md").display()))?;
+            fs::write(target_project.join("NOTES.md"), "# target\n")
+                .with_context(|| format!("write {}", target_project.join("NOTES.md").display()))?;
+
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("init")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("init git repo {}", sessions_root.display()))?;
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("config")
+                .arg("user.email")
+                .arg("memd@example.com")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("git user email {}", sessions_root.display()))?;
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("config")
+                .arg("user.name")
+                .arg("memd")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("git user name {}", sessions_root.display()))?;
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("add")
+                .arg(".")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("git add {}", sessions_root.display()))?;
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("commit")
+                .arg("-m")
+                .arg("init")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("git commit {}", sessions_root.display()))?;
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(sessions_root)
+                .arg("checkout")
+                .arg("-b")
+                .arg("feature/hive-shared")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .with_context(|| format!("git checkout {}", sessions_root.display()))?;
+
+            let target_runtime = read_bundle_runtime_config(&target_bundle)?
+                .context("setup_target_lane_collision target runtime missing")?;
+            let heartbeat = BundleHeartbeatState {
+                session: materialized.fixture_vars.get("target_session").cloned(),
+                agent: target_runtime.agent.clone(),
+                effective_agent: target_runtime
+                    .agent
+                    .as_deref()
+                    .map(|agent| compose_agent_identity(agent, target_runtime.session.as_deref())),
+                tab_id: target_runtime.tab_id.clone(),
+                hive_system: target_runtime.agent.clone(),
+                hive_role: Some("agent".to_string()),
+                worker_name: target_runtime.agent.clone(),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: Some(sessions_root.display().to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some(default_heartbeat_model()),
+                project: target_runtime.project.clone(),
+                namespace: target_runtime.namespace.clone(),
+                workspace: target_runtime.workspace.clone(),
+                repo_root: Some(sessions_root.display().to_string()),
+                worktree_root: Some(sessions_root.display().to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: Some("master".to_string()),
+                visibility: target_runtime.visibility.clone(),
+                base_url: target_runtime.base_url.clone(),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: "live".to_string(),
+                last_seen: Utc::now(),
+                authority_mode: Some("shared".to_string()),
+                authority_degraded: false,
+            };
+            write_verifier_fixture_heartbeat(&target_bundle, &heartbeat)?;
+            state.outputs.insert(
+                "lane_collision".to_string(),
+                json!({
+                    "repo_root": sessions_root.display().to_string(),
+                    "branch": "feature/hive-shared",
+                    "target_session": materialized.fixture_vars.get("target_session").cloned(),
+                }),
+            );
         }
         other => anyhow::bail!("unsupported verifier helper step {other}"),
     }
@@ -28127,10 +30872,21 @@ async fn execute_verifier_steps(
                 )
                 .await?
             }
+            "cli_expect_error" => {
+                execute_cli_expect_error_verifier_step(
+                    step.run
+                        .as_deref()
+                        .context("verifier cli_expect_error step missing run command")?,
+                    materialized,
+                    &mut state,
+                )
+                .await?
+            }
             "helper" => execute_helper_verifier_step(
                 step.name
                     .as_deref()
                     .context("verifier helper step missing helper name")?,
+                materialized,
                 &mut state,
             )?,
             "compare" => execute_compare_verifier_step(
@@ -28489,7 +31245,9 @@ async fn execute_named_verifier_command(
     let run = run_verifier_record(
         verifier,
         fixture,
-        runtime.as_ref().and_then(|config| config.base_url.as_deref()),
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref()),
     )
     .await?;
     let evidence_payload = json!({
@@ -28598,7 +31356,9 @@ async fn execute_verify_sweep(
     lane: &str,
 ) -> anyhow::Result<VerifySweepReport> {
     let runtime = read_bundle_runtime_config(output)?;
-    let base_url_override = runtime.as_ref().and_then(|config| config.base_url.as_deref());
+    let base_url_override = runtime
+        .as_ref()
+        .and_then(|config| config.base_url.as_deref());
     let selected = registry
         .verifiers
         .iter()
@@ -28693,22 +31453,73 @@ fn render_verify_coverage_markdown(
     registry: &BenchmarkRegistry,
     report: &VerifySweepReport,
 ) -> String {
+    let feature_contracts = registry
+        .verifiers
+        .iter()
+        .filter(|verifier| verifier.verifier_type == "feature_contract")
+        .count();
+    let journeys = registry
+        .verifiers
+        .iter()
+        .filter(|verifier| verifier.verifier_type == "journey")
+        .count();
+    let adversarials = registry
+        .verifiers
+        .iter()
+        .filter(|verifier| verifier.verifier_type == "adversarial")
+        .count();
+    let comparatives = registry
+        .verifiers
+        .iter()
+        .filter(|verifier| verifier.verifier_type == "comparative")
+        .count();
     format!(
-        "# memd verification coverage\n\n- Verifiers: `{}`\n- Fixtures: `{}`\n- Sweep lane: `{}`\n- Selected: `{}`\n- Passed: `{}`\n- Failures: `{}`\n",
+        "# memd verification coverage\n\n- Verifiers: `{}`\n- Fixtures: `{}`\n- Sweep lane: `{}`\n- Selected: `{}`\n- Passed: `{}`\n- Failures: `{}`\n- Feature contracts: `{}`\n- Journeys: `{}`\n- Adversarials: `{}`\n- Comparatives: `{}`\n",
         registry.verifiers.len(),
         registry.fixtures.len(),
         report.lane,
         report.total,
         report.passed,
-        report.failures.len()
+        report.failures.len(),
+        feature_contracts,
+        journeys,
+        adversarials,
+        comparatives
     )
 }
 
 fn render_verify_scores_markdown(report: &VerifySweepReport) -> String {
+    let strong = report
+        .runs
+        .iter()
+        .filter(|run| run.gate_result == "strong")
+        .count();
+    let acceptable = report
+        .runs
+        .iter()
+        .filter(|run| run.gate_result == "acceptable")
+        .count();
+    let fragile_or_broken = report
+        .runs
+        .iter()
+        .filter(|run| matches!(run.gate_result.as_str(), "fragile" | "broken"))
+        .count();
     let mut markdown = format!(
-        "# memd verification scores\n\n- Lane: `{}`\n- OK: `{}`\n- Passed: `{}/{}`\n",
-        report.lane, report.ok, report.passed, report.total
+        "# memd verification scores\n\n- Lane: `{}`\n- OK: `{}`\n- Passed: `{}/{}`\n- Strong: `{}`\n- Acceptable: `{}`\n- Fragile/Broken: `{}`\n",
+        report.lane, report.ok, report.passed, report.total, strong, acceptable, fragile_or_broken
     );
+    if !report.runs.is_empty() {
+        markdown.push_str("\n## Verifier Runs\n");
+        for run in &report.runs {
+            markdown.push_str(&format!(
+                "- `{}` status=`{}` gate=`{}` evidence=`{}`\n",
+                run.verifier_id,
+                run.status,
+                run.gate_result,
+                run.evidence_ids.join(",")
+            ));
+        }
+    }
     if !report.failures.is_empty() {
         markdown.push_str("\n## Failures\n");
         for failure in &report.failures {
@@ -28765,6 +31576,12 @@ fn write_verify_sweep_artifacts(output: &Path, report: &VerifySweepReport) -> an
     fs::write(&latest_md, render_verify_sweep_summary(report))
         .with_context(|| format!("write {}", latest_md.display()))?;
     Ok(())
+}
+
+fn read_latest_verify_sweep_report(output: &Path) -> Option<VerifySweepReport> {
+    let path = verification_reports_dir(output).join("latest.json");
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
 }
 
 async fn run_verify_sweep_command(args: &VerifySweepArgs) -> anyhow::Result<VerifyReport> {
@@ -29135,6 +31952,7 @@ fn build_morning_operator_summary(
     benchmark: &FeatureBenchmarkReport,
     comparative_report: Option<&NoMemdDeltaReport>,
     continuity_journey_report: Option<&ContinuityJourneyReport>,
+    verification_report: Option<&VerifySweepReport>,
 ) -> MorningOperatorSummary {
     let mut top_continuity_failures = registry
         .features
@@ -29164,6 +31982,54 @@ fn build_morning_operator_summary(
         }
     }
     top_continuity_failures.truncate(5);
+
+    let mut top_verification_regressions = verification_report
+        .map(|report| {
+            let ranked_runs = collect_ranked_verifier_pressure(registry, report);
+            let mut items = ranked_runs
+                .into_iter()
+                .filter(|entry| entry.below_target || entry.severity >= 4)
+                .map(|entry| entry.summary)
+                .collect::<Vec<_>>();
+            if items.is_empty() && !report.failures.is_empty() {
+                items = report.failures.clone();
+            }
+            if items.is_empty() && !report.ok {
+                items.push(format!(
+                    "nightly lane {} failed with {}/{} passes",
+                    report.lane, report.passed, report.total
+                ));
+            }
+            items
+        })
+        .unwrap_or_default();
+    if top_verification_regressions.is_empty() {
+        if let Some(report) = verification_report {
+            top_verification_regressions.push(format!(
+                "nightly verify lane {} is green at {}/{}",
+                report.lane, report.passed, report.total
+            ));
+        } else {
+            top_verification_regressions
+                .push("no nightly verification report available yet".to_string());
+        }
+    }
+    top_verification_regressions.truncate(5);
+
+    let mut top_verification_pressure = verification_report
+        .map(|report| {
+            let mut items = collect_ranked_verifier_pressure(registry, report)
+                .into_iter()
+                .filter(|entry| !(entry.below_target || entry.severity >= 4))
+                .map(|entry| entry.summary)
+                .collect::<Vec<_>>();
+            if items.is_empty() {
+                items.push("no additional verifier pressure beyond current green lane".to_string());
+            }
+            items
+        })
+        .unwrap_or_else(|| vec!["no nightly verification report available yet".to_string()]);
+    top_verification_pressure.truncate(5);
 
     let mut top_drift_risks = registry
         .features
@@ -29222,6 +32088,32 @@ fn build_morning_operator_summary(
         .iter()
         .cloned()
         .collect::<Vec<_>>();
+    if let Some(report) = verification_report {
+        let ranked_verifier_pressure = collect_ranked_verifier_pressure(registry, report);
+        if !report.ok {
+            proposed_next_actions.insert(
+                0,
+                format!(
+                    "fix nightly verifier regressions before expanding benchmark coverage ({}/{})",
+                    report.passed, report.total
+                ),
+            );
+        } else {
+            let top_ids = ranked_verifier_pressure
+                .iter()
+                .filter(|entry| entry.below_target)
+                .take(3)
+                .map(|entry| entry.verifier_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !top_ids.is_empty() {
+                proposed_next_actions.insert(
+                    0,
+                    format!("upgrade verifier gates with highest target pressure: {top_ids}"),
+                );
+            }
+        }
+    }
     if proposed_next_actions.is_empty() {
         proposed_next_actions
             .push("benchmark the remaining continuity-critical features".to_string());
@@ -29232,10 +32124,141 @@ fn build_morning_operator_summary(
         current_benchmark_score: benchmark.score,
         current_benchmark_max_score: benchmark.max_score,
         top_continuity_failures,
+        top_verification_regressions,
+        top_verification_pressure,
         top_drift_risks,
         top_token_regressions,
         top_no_memd_losses,
         proposed_next_actions,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RankedVerifierPressure {
+    severity: u8,
+    verifier_id: String,
+    below_target: bool,
+    summary: String,
+}
+
+fn collect_ranked_verifier_pressure(
+    registry: &BenchmarkRegistry,
+    report: &VerifySweepReport,
+) -> Vec<RankedVerifierPressure> {
+    let mut ranked_runs = report
+        .runs
+        .iter()
+        .filter_map(|run| {
+            let verifier = registry
+                .verifiers
+                .iter()
+                .find(|verifier| verifier.id == run.verifier_id)?;
+            let continuity_critical = verifier
+                .subject_ids
+                .iter()
+                .any(|subject_id| verifier_subject_is_continuity_critical(registry, subject_id));
+            let actual_rank = gate_rank(&run.gate_result);
+            let target_rank = gate_rank(&verifier.gate_target);
+            let severity =
+                verifier_run_morning_severity(run, &verifier.gate_target, continuity_critical);
+            (severity > 0).then(|| RankedVerifierPressure {
+                severity,
+                verifier_id: run.verifier_id.clone(),
+                below_target: actual_rank < target_rank,
+                summary: format!(
+                    "{} status={} gate={} target={} continuity_critical={}",
+                    run.verifier_id,
+                    run.status,
+                    run.gate_result,
+                    verifier.gate_target,
+                    continuity_critical
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    ranked_runs.sort_by(|left, right| {
+        right
+            .severity
+            .cmp(&left.severity)
+            .then_with(|| left.summary.cmp(&right.summary))
+    });
+    ranked_runs
+}
+
+fn verifier_subject_is_continuity_critical(registry: &BenchmarkRegistry, subject_id: &str) -> bool {
+    if registry
+        .features
+        .iter()
+        .find(|feature| feature.id == subject_id)
+        .is_some_and(|feature| feature.continuity_critical)
+    {
+        return true;
+    }
+
+    registry
+        .journeys
+        .iter()
+        .find(|journey| journey.id == subject_id)
+        .is_some_and(|journey| {
+            journey.feature_ids.iter().any(|feature_id| {
+                registry
+                    .features
+                    .iter()
+                    .find(|feature| feature.id == *feature_id)
+                    .is_some_and(|feature| feature.continuity_critical)
+            })
+        })
+}
+
+fn gate_rank(gate: &str) -> u8 {
+    match gate {
+        "broken" => 0,
+        "fragile" => 1,
+        "acceptable" => 2,
+        "strong" => 3,
+        "ten_star" => 4,
+        _ => 0,
+    }
+}
+
+fn verifier_run_morning_severity(
+    run: &VerifierRunRecord,
+    gate_target: &str,
+    continuity_critical: bool,
+) -> u8 {
+    let actual_rank = gate_rank(&run.gate_result);
+    let target_rank = gate_rank(gate_target);
+    let target_gap = target_rank.saturating_sub(actual_rank);
+    match run.gate_result.as_str() {
+        "broken" => {
+            if continuity_critical {
+                8
+            } else {
+                7
+            }
+        }
+        "fragile" => {
+            if continuity_critical {
+                6
+            } else {
+                5
+            }
+        }
+        "acceptable" => {
+            if continuity_critical {
+                3 + target_gap
+            } else {
+                target_gap
+            }
+        }
+        _ if run.status != "passing" => {
+            if continuity_critical {
+                4
+            } else {
+                2
+            }
+        }
+        _ => 0,
     }
 }
 
@@ -29248,6 +32271,14 @@ fn render_morning_operator_summary(summary: &MorningOperatorSummary) -> String {
     ));
     markdown.push_str("\n## Continuity Failures\n");
     for item in &summary.top_continuity_failures {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## Verification Regressions\n");
+    for item in &summary.top_verification_regressions {
+        markdown.push_str(&format!("- {}\n", item));
+    }
+    markdown.push_str("\n## Verification Pressure\n");
+    for item in &summary.top_verification_pressure {
         markdown.push_str(&format!("- {}\n", item));
     }
     markdown.push_str("\n## Drift Risks\n");
@@ -30944,6 +33975,86 @@ fn copy_dir_contents(source: &Path, destination: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn public_benchmark_manifest_json_path(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_run_artifacts_dir(output, benchmark_id).join("manifest.json")
+}
+
+fn public_benchmark_results_json_path(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_run_artifacts_dir(output, benchmark_id).join("results.json")
+}
+
+fn public_benchmark_results_jsonl_path(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_run_artifacts_dir(output, benchmark_id).join("results.jsonl")
+}
+
+fn public_benchmark_report_md_path(output: &Path, benchmark_id: &str) -> PathBuf {
+    public_benchmark_run_artifacts_dir(output, benchmark_id).join("report.md")
+}
+
+fn write_public_benchmark_manifest(
+    output: &Path,
+    manifest: &PublicBenchmarkManifest,
+) -> anyhow::Result<PathBuf> {
+    let benchmark_dir = public_benchmark_run_artifacts_dir(output, &manifest.benchmark_id);
+    fs::create_dir_all(&benchmark_dir)
+        .with_context(|| format!("create {}", benchmark_dir.display()))?;
+
+    let latest_json = public_benchmark_manifest_json_path(output, &manifest.benchmark_id);
+    let json = serde_json::to_string_pretty(manifest)? + "\n";
+
+    fs::write(&latest_json, &json).with_context(|| format!("write {}", latest_json.display()))?;
+    Ok(latest_json)
+}
+
+fn write_public_benchmark_run_report(
+    output: &Path,
+    report: &PublicBenchmarkRunReport,
+) -> anyhow::Result<PathBuf> {
+    let benchmark_dir = public_benchmark_run_artifacts_dir(output, &report.manifest.benchmark_id);
+    fs::create_dir_all(&benchmark_dir)
+        .with_context(|| format!("create {}", benchmark_dir.display()))?;
+
+    let results_path = public_benchmark_results_json_path(output, &report.manifest.benchmark_id);
+    let results_jsonl_path =
+        public_benchmark_results_jsonl_path(output, &report.manifest.benchmark_id);
+    let report_path = public_benchmark_report_md_path(output, &report.manifest.benchmark_id);
+    let json = serde_json::to_string_pretty(report)? + "\n";
+    let jsonl = report
+        .items
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n")
+        + if report.items.is_empty() { "" } else { "\n" };
+    let markdown = render_public_benchmark_markdown(std::slice::from_ref(report));
+
+    fs::write(&results_path, &json).with_context(|| format!("write {}", results_path.display()))?;
+    fs::write(&results_jsonl_path, &jsonl)
+        .with_context(|| format!("write {}", results_jsonl_path.display()))?;
+    fs::write(&report_path, &markdown)
+        .with_context(|| format!("write {}", report_path.display()))?;
+    Ok(report_path)
+}
+
+fn write_public_benchmark_run_artifacts(
+    output: &Path,
+    report: &PublicBenchmarkRunReport,
+) -> anyhow::Result<PublicBenchmarkRunArtifactReceipt> {
+    let run_dir = public_benchmark_run_artifacts_dir(output, &report.manifest.benchmark_id);
+    let manifest_path = write_public_benchmark_manifest(output, &report.manifest)?;
+    let results_path = public_benchmark_results_json_path(output, &report.manifest.benchmark_id);
+    let results_jsonl_path =
+        public_benchmark_results_jsonl_path(output, &report.manifest.benchmark_id);
+    let report_path = write_public_benchmark_run_report(output, report)?;
+    Ok(PublicBenchmarkRunArtifactReceipt {
+        run_dir,
+        manifest_path,
+        results_path,
+        results_jsonl_path,
+        report_path,
+    })
+}
+
 fn clear_dir_contents(path: &Path) -> anyhow::Result<()> {
     if !path.exists() {
         return Ok(());
@@ -32638,7 +35749,10 @@ fn render_bundle_memory_markdown(
                 .map(|bee| {
                     format!(
                         "{}({})/{}",
-                        bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                        bee.worker_name
+                            .as_deref()
+                            .or(bee.agent.as_deref())
+                            .unwrap_or("unnamed"),
                         bee.session,
                         bee.task_id.as_deref().unwrap_or("none")
                     )
@@ -33042,7 +36156,10 @@ fn render_bundle_memory_object_markdown(
             for bee in hive.board.active_bees.iter().take(6) {
                 markdown.push_str(&format!(
                     "- bee {} ({}) lane={} task={}\n",
-                    bee.worker_name.as_deref().or(bee.agent.as_deref()).unwrap_or("unnamed"),
+                    bee.worker_name
+                        .as_deref()
+                        .or(bee.agent.as_deref())
+                        .unwrap_or("unnamed"),
                     bee.session,
                     bee.lane_id
                         .as_deref()
@@ -36558,9 +39675,11 @@ fn confirmed_hive_overlap_reason(
     ) && current_task != target_task
     {
         if !target_scopes.is_empty()
-            && current_scopes
-                .iter()
-                .any(|scope| target_scopes.iter().any(|target_scope| target_scope == scope))
+            && current_scopes.iter().any(|scope| {
+                target_scopes
+                    .iter()
+                    .any(|target_scope| target_scope == scope)
+            })
         {
             return Some(format!(
                 "confirmed hive overlap: target session {} already owns scope(s) for task {}",
@@ -36572,7 +39691,11 @@ fn confirmed_hive_overlap_reason(
 
     let shared_scopes = current_scopes
         .iter()
-        .filter(|scope| target_scopes.iter().any(|target_scope| target_scope == *scope))
+        .filter(|scope| {
+            target_scopes
+                .iter()
+                .any(|target_scope| target_scope == *scope)
+        })
         .map(|scope| (*scope).to_string())
         .collect::<Vec<_>>();
     if !shared_scopes.is_empty() {
@@ -40610,6 +43733,160 @@ struct FeatureBenchmarkReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkManifest {
+    benchmark_id: String,
+    benchmark_version: String,
+    dataset_name: String,
+    dataset_source_url: String,
+    dataset_local_path: String,
+    dataset_checksum: String,
+    dataset_split: String,
+    git_sha: Option<String>,
+    dirty_worktree: bool,
+    run_timestamp: DateTime<Utc>,
+    mode: String,
+    top_k: usize,
+    reranker_id: Option<String>,
+    reranker_provider: Option<String>,
+    limit: Option<usize>,
+    runtime_settings: JsonValue,
+    hardware_summary: String,
+    duration_ms: u128,
+    token_usage: Option<JsonValue>,
+    cost_estimate_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkDatasetFixture {
+    benchmark_id: String,
+    benchmark_name: String,
+    version: String,
+    split: String,
+    description: String,
+    items: Vec<PublicBenchmarkDatasetFixtureItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkDatasetFixtureItem {
+    item_id: String,
+    question_id: String,
+    query: String,
+    claim_class: String,
+    gold_answer: String,
+    metadata: JsonValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkDatasetCacheMetadata {
+    benchmark_id: String,
+    source_url: String,
+    local_path: String,
+    checksum: String,
+    expected_checksum: Option<String>,
+    verification_status: String,
+    fetched_at: DateTime<Utc>,
+    bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkItemResult {
+    item_id: String,
+    question_id: String,
+    claim_class: String,
+    #[serde(default)]
+    question: Option<String>,
+    #[serde(default)]
+    question_type: Option<String>,
+    #[serde(default)]
+    ranked_items: Vec<JsonValue>,
+    retrieved_items: Vec<JsonValue>,
+    retrieval_scores: Vec<f64>,
+    hit: bool,
+    #[serde(default)]
+    answer: Option<String>,
+    #[serde(default)]
+    observed_answer: Option<String>,
+    #[serde(default)]
+    correctness: Option<JsonValue>,
+    latency_ms: u128,
+    #[serde(default)]
+    token_usage: Option<JsonValue>,
+    #[serde(default)]
+    cost_estimate_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkRunReport {
+    manifest: PublicBenchmarkManifest,
+    metrics: BTreeMap<String, f64>,
+    item_count: usize,
+    failures: Vec<JsonValue>,
+    items: Vec<PublicBenchmarkItemResult>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LongMemEvalRetrievalBackend {
+    Lexical,
+    Sidecar,
+}
+
+#[derive(Debug, Clone)]
+struct PublicBenchmarkRetrievalConfig {
+    longmemeval_backend: LongMemEvalRetrievalBackend,
+    sidecar_base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkLeaderboardRow {
+    benchmark_id: String,
+    benchmark_name: String,
+    benchmark_version: String,
+    run_mode: String,
+    item_claim_classes: Vec<String>,
+    coverage_status: String,
+    parity_status: String,
+    accuracy: f64,
+    item_count: usize,
+    notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PublicBenchmarkLeaderboardReport {
+    generated_at: DateTime<Utc>,
+    governance_notes: Vec<String>,
+    rows: Vec<PublicBenchmarkLeaderboardRow>,
+}
+
+#[derive(Debug, Clone)]
+struct PublicBenchmarkRunArtifactReceipt {
+    run_dir: PathBuf,
+    manifest_path: PathBuf,
+    results_path: PathBuf,
+    results_jsonl_path: PathBuf,
+    report_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct PublicBenchmarkDatasetSource {
+    benchmark_id: &'static str,
+    source_url: Option<&'static str>,
+    default_filename: &'static str,
+    expected_checksum: Option<&'static str>,
+    split: &'static str,
+    access_mode: &'static str,
+    notes: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedPublicBenchmarkDataset {
+    path: PathBuf,
+    source_url: String,
+    checksum: String,
+    split: String,
+    verification_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExperimentReport {
     bundle_root: String,
     project: Option<String>,
@@ -41220,6 +44497,7 @@ mod tests {
     use axum::{
         Json, Router,
         extract::{Query, State},
+        http::StatusCode,
         routing::{get, post},
     };
     use memd_schema::{
@@ -41250,7 +44528,6 @@ mod tests {
             .lock()
             .expect("env mutation lock poisoned")
     }
-
 
     fn normalize_path_text(value: impl AsRef<Path>) -> String {
         value.as_ref().to_string_lossy().replace('\\', "/")
@@ -41403,6 +44680,7 @@ mod tests {
         session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
         session_records: Arc<Mutex<Vec<memd_schema::HiveSessionRecord>>>,
         messages: Arc<Mutex<Vec<HiveMessageRecord>>>,
+        claims: Arc<Mutex<Vec<HiveClaimRecord>>>,
         receipts: Arc<Mutex<Vec<HiveCoordinationReceiptRecord>>>,
         task_records: Arc<Mutex<Vec<HiveTaskRecord>>>,
         search_count: Arc<Mutex<usize>>,
@@ -41487,7 +44765,7 @@ mod tests {
     async fn mock_claim_acquire(
         State(state): State<MockHiveState>,
         Json(req): Json<HiveClaimAcquireRequest>,
-    ) -> Json<HiveClaimsResponse> {
+    ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
         let mut claims = state.claims.lock().expect("lock claims");
         claims.retain(|claim| claim.expires_at > Utc::now());
         if let Some(existing) = claims
@@ -41495,9 +44773,18 @@ mod tests {
             .find(|claim| claim.scope == req.scope && claim.session != req.session)
             .cloned()
         {
-            return Json(HiveClaimsResponse {
-                claims: vec![existing],
-            });
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "scope '{}' already claimed by {}",
+                    existing.scope,
+                    existing
+                        .effective_agent
+                        .as_deref()
+                        .or(Some(existing.session.as_str()))
+                        .unwrap_or("unknown")
+                ),
+            ));
         }
         claims.retain(|claim| !(claim.scope == req.scope && claim.session == req.session));
         let claim = HiveClaimRecord {
@@ -41515,9 +44802,9 @@ mod tests {
             expires_at: Utc::now() + chrono::TimeDelta::seconds(req.ttl_seconds as i64),
         };
         claims.push(claim.clone());
-        Json(HiveClaimsResponse {
+        Ok(Json(HiveClaimsResponse {
             claims: vec![claim],
-        })
+        }))
     }
 
     async fn mock_claim_release(
@@ -41748,9 +45035,212 @@ mod tests {
     }
 
     async fn mock_runtime_claims(
-        Query(_req): Query<HiveClaimsRequest>,
+        State(state): State<MockRuntimeState>,
+        Query(req): Query<HiveClaimsRequest>,
     ) -> Json<HiveClaimsResponse> {
-        Json(HiveClaimsResponse { claims: Vec::new() })
+        let claims = state
+            .claims
+            .lock()
+            .expect("lock runtime claims")
+            .iter()
+            .filter(|claim| {
+                req.session
+                    .as_ref()
+                    .is_none_or(|session| &claim.session == session)
+                    && req
+                        .project
+                        .as_ref()
+                        .is_none_or(|project| claim.project.as_ref() == Some(project))
+                    && req
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| claim.namespace.as_ref() == Some(namespace))
+                    && req
+                        .workspace
+                        .as_ref()
+                        .is_none_or(|workspace| claim.workspace.as_ref() == Some(workspace))
+                    && (!req.active_only.unwrap_or(true) || claim.expires_at > Utc::now())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Json(HiveClaimsResponse { claims })
+    }
+
+    async fn mock_runtime_claim_acquire(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveClaimAcquireRequest>,
+    ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
+        let mut claims = state.claims.lock().expect("lock runtime claims");
+        claims.retain(|claim| claim.expires_at > Utc::now());
+        if let Some(existing) = claims
+            .iter()
+            .find(|claim| claim.scope == req.scope && claim.session != req.session)
+            .cloned()
+        {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "scope '{}' already claimed by {}",
+                    existing.scope,
+                    existing
+                        .effective_agent
+                        .as_deref()
+                        .or(Some(existing.session.as_str()))
+                        .unwrap_or("unknown")
+                ),
+            ));
+        }
+        claims.retain(|claim| !(claim.scope == req.scope && claim.session == req.session));
+        let claim = HiveClaimRecord {
+            scope: req.scope,
+            session: req.session,
+            tab_id: req.tab_id,
+            agent: req.agent,
+            effective_agent: req.effective_agent,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            host: req.host,
+            pid: req.pid,
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + chrono::TimeDelta::seconds(req.ttl_seconds as i64),
+        };
+        claims.push(claim.clone());
+        Ok(Json(HiveClaimsResponse {
+            claims: vec![claim],
+        }))
+    }
+
+    async fn mock_runtime_claim_release(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveClaimReleaseRequest>,
+    ) -> Json<HiveClaimsResponse> {
+        let mut claims = state.claims.lock().expect("lock runtime claims");
+        let mut released = Vec::new();
+        claims.retain(|claim| {
+            let matches = claim.scope == req.scope && claim.session == req.session;
+            if matches {
+                released.push(claim.clone());
+            }
+            !matches
+        });
+        Json(HiveClaimsResponse { claims: released })
+    }
+
+    async fn mock_runtime_claim_transfer(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<HiveClaimTransferRequest>,
+    ) -> Json<HiveClaimsResponse> {
+        let mut claims = state.claims.lock().expect("lock runtime claims");
+        let mut transferred = Vec::new();
+        for claim in claims.iter_mut() {
+            if claim.scope == req.scope && claim.session == req.from_session {
+                claim.session = req.to_session.clone();
+                claim.tab_id = req.to_tab_id.clone();
+                claim.agent = req.to_agent.clone();
+                claim.effective_agent = req.to_effective_agent.clone();
+                transferred.push(claim.clone());
+            }
+        }
+        Json(HiveClaimsResponse {
+            claims: transferred,
+        })
+    }
+
+    async fn mock_runtime_task_upsert(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<memd_schema::HiveTaskUpsertRequest>,
+    ) -> Json<memd_schema::HiveTasksResponse> {
+        let mut tasks = state
+            .task_records
+            .lock()
+            .expect("lock runtime task records");
+        let now = Utc::now();
+        let task = if let Some(existing) = tasks.iter_mut().find(|task| task.task_id == req.task_id)
+        {
+            existing.title = req.title.clone();
+            existing.description = req.description.clone();
+            if let Some(status) = req.status.clone() {
+                existing.status = status;
+            }
+            if let Some(mode) = req.coordination_mode.clone() {
+                existing.coordination_mode = mode;
+            }
+            if req.session.is_some() {
+                existing.session = req.session.clone();
+            }
+            if req.agent.is_some() {
+                existing.agent = req.agent.clone();
+            }
+            if req.effective_agent.is_some() {
+                existing.effective_agent = req.effective_agent.clone();
+            }
+            if req.project.is_some() {
+                existing.project = req.project.clone();
+            }
+            if req.namespace.is_some() {
+                existing.namespace = req.namespace.clone();
+            }
+            if req.workspace.is_some() {
+                existing.workspace = req.workspace.clone();
+            }
+            if !req.claim_scopes.is_empty() {
+                existing.claim_scopes = req.claim_scopes.clone();
+            }
+            if let Some(help_requested) = req.help_requested {
+                existing.help_requested = help_requested;
+            }
+            if let Some(review_requested) = req.review_requested {
+                existing.review_requested = review_requested;
+            }
+            existing.updated_at = now;
+            existing.clone()
+        } else {
+            let task = HiveTaskRecord {
+                task_id: req.task_id,
+                title: req.title,
+                description: req.description,
+                status: req.status.unwrap_or_else(|| "open".to_string()),
+                coordination_mode: req
+                    .coordination_mode
+                    .unwrap_or_else(|| "shared".to_string()),
+                session: req.session,
+                agent: req.agent,
+                effective_agent: req.effective_agent,
+                project: req.project,
+                namespace: req.namespace,
+                workspace: req.workspace,
+                claim_scopes: req.claim_scopes,
+                help_requested: req.help_requested.unwrap_or(false),
+                review_requested: req.review_requested.unwrap_or(false),
+                created_at: now,
+                updated_at: now,
+            };
+            tasks.push(task.clone());
+            task
+        };
+        Json(memd_schema::HiveTasksResponse { tasks: vec![task] })
+    }
+
+    async fn mock_runtime_task_assign(
+        State(state): State<MockRuntimeState>,
+        Json(req): Json<memd_schema::HiveTaskAssignRequest>,
+    ) -> Json<memd_schema::HiveTasksResponse> {
+        let mut tasks = state
+            .task_records
+            .lock()
+            .expect("lock runtime task records");
+        let mut assigned = Vec::new();
+        for task in tasks.iter_mut() {
+            if task.task_id == req.task_id {
+                task.session = Some(req.to_session.clone());
+                task.agent = req.to_agent.clone();
+                task.effective_agent = req.to_effective_agent.clone();
+                task.updated_at = Utc::now();
+                assigned.push(task.clone());
+            }
+        }
+        Json(memd_schema::HiveTasksResponse { tasks: assigned })
     }
 
     async fn mock_record_skill_policy_apply(
@@ -42431,7 +45921,13 @@ mod tests {
         let review_queue = tasks
             .iter()
             .filter(|task| task.review_requested)
-            .map(|task| format!("{} -> {}", task.task_id, task.session.as_deref().unwrap_or("unassigned")))
+            .map(|task| {
+                format!(
+                    "{} -> {}",
+                    task.task_id,
+                    task.session.as_deref().unwrap_or("unassigned")
+                )
+            })
             .collect::<Vec<_>>();
         let overlap_risks = receipts
             .iter()
@@ -42714,6 +46210,56 @@ mod tests {
         format!("http://{}", addr)
     }
 
+    fn spawn_blocking_mock_sidecar_server() -> String {
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind blocking mock sidecar");
+        let addr = listener.local_addr().expect("blocking mock sidecar addr");
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 8192];
+                let read = stream.read(&mut buffer).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let response_body = if request.starts_with("POST /v1/retrieve ") {
+                    serde_json::to_string(&json!({
+                        "status": "ok",
+                        "mode": "text",
+                        "items": [
+                            {
+                                "content": "retrieved target",
+                                "source": "target",
+                                "score": 0.95
+                            },
+                            {
+                                "content": "retrieved current",
+                                "source": "current",
+                                "score": 0.25
+                            }
+                        ]
+                    }))
+                    .expect("serialize blocking mock retrieve")
+                } else {
+                    serde_json::to_string(&json!({
+                        "status": "ok",
+                        "track_id": uuid::Uuid::new_v4(),
+                        "items": 1
+                    }))
+                    .expect("serialize blocking mock ingest")
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{}", addr)
+    }
+
     async fn spawn_mock_runtime_server(state: MockRuntimeState, slow_hive_upsert: bool) -> String {
         let hive_route = if slow_hive_upsert {
             post(mock_slow_hive_session_upsert)
@@ -42740,7 +46286,21 @@ mod tests {
             .route("/coordination/messages/inbox", get(mock_runtime_hive_inbox))
             .route("/coordination/messages/ack", post(mock_runtime_hive_ack))
             .route("/coordination/tasks", get(mock_hive_tasks))
+            .route("/coordination/tasks/upsert", post(mock_runtime_task_upsert))
+            .route("/coordination/tasks/assign", post(mock_runtime_task_assign))
             .route("/coordination/claims", get(mock_runtime_claims))
+            .route(
+                "/coordination/claims/acquire",
+                post(mock_runtime_claim_acquire),
+            )
+            .route(
+                "/coordination/claims/release",
+                post(mock_runtime_claim_release),
+            )
+            .route(
+                "/coordination/claims/transfer",
+                post(mock_runtime_claim_transfer),
+            )
             .route("/coordination/sessions/upsert", hive_route)
             .route("/coordination/sessions", get(mock_hive_sessions))
             .route("/hive/board", get(mock_hive_board))
@@ -45030,9 +48590,13 @@ mod tests {
         assert!(ps1.contains("--intent current_task"));
         assert!(shell.contains("MEMD_TAB_ID"));
         assert!(ps1.contains("MEMD_TAB_ID"));
+        assert!(shell.contains("MEMD_WORKER_NAME"));
+        assert!(ps1.contains("MEMD_WORKER_NAME"));
         assert!(shell.contains("nohup \"$MEMD_BUNDLE_ROOT/agents/watch.sh\""));
         assert!(ps1.contains("Start-Process -WindowStyle Hidden"));
         assert!(attach.contains("--intent current_task"));
+        assert!(shell.contains("memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write >/dev/null 2>&1 || true"));
+        assert!(ps1.contains("try { memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write | Out-Null } catch { }"));
         assert!(shell.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
         assert!(ps1.contains("$env:MEMD_BASE_URL = \"http://100.104.154.24:8787\""));
         assert!(attach.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
@@ -47776,6 +51340,36 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_hive_follow_watch_subcommand() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "hive",
+            "follow",
+            "--output",
+            ".memd",
+            "--worker",
+            "Lorentz",
+            "--watch",
+            "--interval-secs",
+            "2",
+        ])
+        .expect("hive follow watch command should parse");
+
+        match cli.command {
+            Commands::Hive(args) => match args.command {
+                Some(HiveSubcommand::Follow(follow)) => {
+                    assert_eq!(follow.output, PathBuf::from(".memd"));
+                    assert_eq!(follow.worker.as_deref(), Some("Lorentz"));
+                    assert!(follow.watch);
+                    assert_eq!(follow.interval_secs, 2);
+                }
+                other => panic!("expected hive follow subcommand, got {other:?}"),
+            },
+            other => panic!("expected hive command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn render_hive_handoff_summary_surfaces_packet_fields() {
         let response = HiveHandoffResponse {
             packet: HiveHandoffPacket {
@@ -48004,6 +51598,7 @@ mod tests {
 
     #[test]
     fn build_hive_heartbeat_prefers_explicit_worker_name_env() {
+        let _env_lock = lock_env_mutation();
         let dir =
             std::env::temp_dir().join(format!("memd-heartbeat-worker-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
@@ -48038,6 +51633,7 @@ mod tests {
 
     #[test]
     fn build_hive_heartbeat_uses_project_scoped_worker_name_for_generic_agents() {
+        let _env_lock = lock_env_mutation();
         let dir = std::env::temp_dir()
             .join(format!("memd-heartbeat-generic-worker-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
@@ -48102,6 +51698,25 @@ mod tests {
                 "reroute Lorentz off crates/memd-client/src/main.rs".to_string(),
                 "retire stale bee session-old".to_string(),
             ],
+            action_cards: vec![HiveQueenActionCard {
+                action: "reroute".to_string(),
+                priority: "high".to_string(),
+                target_session: Some("session-lorentz".to_string()),
+                target_worker: Some("Lorentz".to_string()),
+                task_id: Some("review-parser".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                reason: "shared scope is colliding".to_string(),
+                follow_command: Some(
+                    "memd hive follow --session session-lorentz --summary".to_string(),
+                ),
+                deny_command: Some(
+                    "memd hive queen --deny-session session-lorentz --summary".to_string(),
+                ),
+                reroute_command: Some(
+                    "memd hive queen --reroute-session session-lorentz --summary".to_string(),
+                ),
+                retire_command: None,
+            }],
             recent_receipts: vec![
                 "queen_assign session-lorentz review-parser".to_string(),
                 "queen_deny session-avicenna overlap-main-rs".to_string(),
@@ -48112,6 +51727,11 @@ mod tests {
         assert!(summary.contains("queen=session-queen"));
         assert!(summary.contains("reroute Lorentz"));
         assert!(summary.contains("queen_deny session-avicenna"));
+        assert!(summary.contains("## Action Cards"));
+        assert!(summary.contains("follow=memd hive follow --session session-lorentz --summary"));
+        assert!(
+            summary.contains("reroute=memd hive queen --reroute-session session-lorentz --summary")
+        );
     }
 
     #[test]
@@ -48638,7 +52258,10 @@ mod tests {
             derive_hive_display_name(Some("claude-code"), Some("codex-fresh")).as_deref(),
             Some("Claude fresh")
         );
-        assert_eq!(derive_hive_display_name(Some("Lorentz"), Some("session-x")), None);
+        assert_eq!(
+            derive_hive_display_name(Some("Lorentz"), Some("session-x")),
+            None
+        );
     }
 
     #[test]
@@ -49295,7 +52918,7 @@ mod tests {
     async fn claims_acquire_and_release_scope() {
         let dir = std::env::temp_dir().join(format!("memd-claims-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(dir.join("state")).expect("create claims dir");
-        let base_url = spawn_mock_hive_server().await;
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
         fs::write(
             dir.join("config.json"),
             format!(
@@ -49412,7 +53035,7 @@ mod tests {
         let target_bundle = target_project.join(".memd");
         fs::create_dir_all(current_bundle.join("state")).expect("create current claims dir");
         fs::create_dir_all(target_bundle.join("state")).expect("create target claims dir");
-        let base_url = spawn_mock_hive_server().await;
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
 
         fs::write(
             current_bundle.join("config.json"),
@@ -50433,7 +54056,10 @@ mod tests {
                 .iter()
                 .any(|group| group == "project:demo")
         );
-        assert_eq!(session_upserts[0].worker_name.as_deref(), Some("codex"));
+        assert_eq!(
+            session_upserts[0].worker_name.as_deref(),
+            Some("Demo Codex a")
+        );
         assert_eq!(session_upserts[0].role.as_deref(), Some("agent"));
 
         fs::remove_dir_all(dir).expect("cleanup heartbeat dir");
@@ -53579,7 +57205,7 @@ mod tests {
                 std::env::remove_var("HOME");
             }
         }
-        fs::remove_dir_all(temp_root).expect("cleanup live overlay no-scope temp");
+        fs::remove_dir_all(temp_root).expect("cleanup live overlay temp");
     }
 
     #[tokio::test]
@@ -57356,9 +60982,1300 @@ mod tests {
             Commands::Benchmark(args) => {
                 assert_eq!(args.output, PathBuf::from(".memd"));
                 assert!(args.summary);
+                assert!(args.subcommand.is_none());
             }
             other => panic!("expected benchmark command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn cli_parses_public_longmemeval_benchmark_command() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "benchmark",
+            "public",
+            "--mode",
+            "raw",
+            "--limit",
+            "20",
+            "--output",
+            ".memd",
+            "longmemeval",
+        ])
+        .expect("public benchmark command should parse");
+
+        match cli.command {
+            Commands::Benchmark(args) => match args.subcommand {
+                Some(BenchmarkSubcommand::Public(public_args)) => {
+                    assert_eq!(public_args.dataset, "longmemeval");
+                    assert_eq!(public_args.mode.as_deref(), Some("raw"));
+                    assert_eq!(public_args.limit, Some(20));
+                    assert_eq!(public_args.out, PathBuf::from(".memd"));
+                    assert!(!public_args.write);
+                    assert!(!public_args.json);
+                }
+                other => panic!("expected public benchmark subcommand, got {other:?}"),
+            },
+            other => panic!("expected benchmark command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_public_longmemeval_sidecar_backend() {
+        let cli = Cli::try_parse_from([
+            "memd",
+            "benchmark",
+            "public",
+            "--mode",
+            "hybrid",
+            "--retrieval-backend",
+            "sidecar",
+            "--rag-url",
+            "http://127.0.0.1:9981",
+            "--output",
+            ".memd",
+            "longmemeval",
+        ])
+        .expect("public benchmark sidecar command should parse");
+
+        match cli.command {
+            Commands::Benchmark(args) => match args.subcommand {
+                Some(BenchmarkSubcommand::Public(public_args)) => {
+                    assert_eq!(public_args.dataset, "longmemeval");
+                    assert_eq!(public_args.mode.as_deref(), Some("hybrid"));
+                    assert_eq!(public_args.retrieval_backend.as_deref(), Some("sidecar"));
+                    assert_eq!(
+                        public_args.rag_url.as_deref(),
+                        Some("http://127.0.0.1:9981")
+                    );
+                }
+                other => panic!("expected public benchmark subcommand, got {other:?}"),
+            },
+            other => panic!("expected benchmark command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn public_benchmark_paths_default_under_memd_benchmarks() {
+        let output = PathBuf::from(".memd");
+        assert_eq!(
+            public_benchmark_dataset_cache_dir(&output),
+            PathBuf::from(".memd/benchmarks/datasets")
+        );
+        assert_eq!(
+            public_benchmark_dataset_entry_dir(&output, "longmemeval"),
+            PathBuf::from(".memd/benchmarks/datasets/longmemeval")
+        );
+        assert_eq!(
+            public_benchmark_dataset_cache_path(
+                &output,
+                "longmemeval",
+                "longmemeval_s_cleaned.json"
+            ),
+            PathBuf::from(".memd/benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json")
+        );
+        assert_eq!(
+            public_benchmark_runs_dir(&output),
+            PathBuf::from(".memd/benchmarks/public")
+        );
+        assert_eq!(
+            public_benchmark_run_artifacts_dir(&output, "longmemeval"),
+            PathBuf::from(".memd/benchmarks/public/longmemeval/latest")
+        );
+    }
+
+    #[test]
+    fn supported_public_benchmark_ids_lists_all_mem_palace_targets() {
+        assert_eq!(
+            supported_public_benchmark_ids(),
+            &["longmemeval", "locomo", "convomem", "membench"]
+        );
+    }
+
+    #[test]
+    fn public_benchmark_source_catalog_pins_longmemeval_download() {
+        let source = public_benchmark_dataset_source("longmemeval").expect("catalog entry");
+        assert_eq!(source.benchmark_id, "longmemeval");
+        assert_eq!(source.access_mode, "auto-download");
+        assert!(source
+            .source_url
+            .is_some_and(|url| url.ends_with("longmemeval_s_cleaned.json")));
+        assert_eq!(
+            source.expected_checksum,
+            Some("sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442")
+        );
+        assert_eq!(source.split, "cleaned-small");
+    }
+
+    #[test]
+    fn public_benchmark_source_catalog_pins_locomo_download() {
+        let source = public_benchmark_dataset_source("locomo").expect("catalog entry");
+        assert_eq!(source.benchmark_id, "locomo");
+        assert_eq!(source.access_mode, "auto-download");
+        assert!(source
+            .source_url
+            .is_some_and(|url| url.contains("/snap-research/locomo/")));
+        assert_eq!(
+            source.expected_checksum,
+            Some("sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4")
+        );
+        assert_eq!(source.split, "locomo10");
+    }
+
+    #[test]
+    fn public_benchmark_source_catalog_pins_convomem_download() {
+        let source = public_benchmark_dataset_source("convomem").expect("catalog entry");
+        assert_eq!(source.benchmark_id, "convomem");
+        assert_eq!(source.access_mode, "auto-download");
+        assert!(source
+            .source_url
+            .is_some_and(|url| url.contains("huggingface.co/datasets/Salesforce/ConvoMem/tree/main")));
+        assert_eq!(source.default_filename, "convomem-evidence-sample.json");
+        assert_eq!(source.expected_checksum, None);
+        assert_eq!(source.split, "evidence-sample");
+    }
+
+    #[test]
+    fn public_benchmark_source_catalog_pins_membench_download() {
+        let source = public_benchmark_dataset_source("membench").expect("catalog entry");
+        assert_eq!(source.benchmark_id, "membench");
+        assert_eq!(source.access_mode, "auto-download");
+        assert!(source
+            .source_url
+            .is_some_and(|url| url.contains("/import-myself/Membench/")));
+        assert_eq!(source.default_filename, "membench-firstagent.json");
+        assert_eq!(source.expected_checksum, None);
+        assert_eq!(source.split, "FirstAgent");
+    }
+
+    #[tokio::test]
+    async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-manual-required-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let error = resolve_public_benchmark_dataset(&PublicBenchmarkArgs {
+            dataset: "unknown-benchmark".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: None,
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect_err("unknown benchmark should be rejected");
+        assert!(error
+            .to_string()
+            .contains("no public benchmark dataset source is registered"));
+
+        fs::remove_dir_all(dir).expect("cleanup manual-required dir");
+    }
+
+    #[test]
+    fn write_public_benchmark_dataset_cache_metadata_roundtrips_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-cache-metadata-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let metadata = PublicBenchmarkDatasetCacheMetadata {
+            benchmark_id: "longmemeval".to_string(),
+            source_url: "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json".to_string(),
+            local_path: output
+                .join("benchmarks")
+                .join("datasets")
+                .join("longmemeval")
+                .join("longmemeval_s_cleaned.json")
+                .display()
+                .to_string(),
+            checksum: "sha256:abc123".to_string(),
+            expected_checksum: Some("sha256:abc123".to_string()),
+            verification_status: "verified".to_string(),
+            fetched_at: Utc::now(),
+            bytes: 123,
+        };
+
+        let path = write_public_benchmark_dataset_cache_metadata(&output, &metadata)
+            .expect("write cache metadata");
+        assert_eq!(
+            path,
+            public_benchmark_dataset_cache_metadata_path(&output, "longmemeval")
+        );
+        let contents = fs::read_to_string(&path).expect("read cache metadata");
+        let parsed: PublicBenchmarkDatasetCacheMetadata =
+            serde_json::from_str(&contents).expect("parse cache metadata");
+        assert_eq!(parsed.benchmark_id, "longmemeval");
+        assert_eq!(parsed.verification_status, "verified");
+        assert_eq!(parsed.bytes, 123);
+
+        fs::remove_dir_all(dir).expect("cleanup cache metadata dir");
+    }
+
+    #[test]
+    fn load_public_benchmark_dataset_normalizes_longmemeval_array_format() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-longmemeval-normalize-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create normalize dir");
+        let path = dir.join("longmemeval_s_cleaned.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!([
+                {
+                    "question_id": "q1",
+                    "question_type": "temporal-reasoning",
+                    "question": "What happened first?",
+                    "answer": "the gps failed",
+                    "question_date": "2023/04/10",
+                    "haystack_dates": ["2023/04/10"],
+                    "haystack_session_ids": ["s1"],
+                    "answer_session_ids": ["s1"],
+                    "haystack_sessions": [[
+                        {"role": "user", "content": "The GPS failed after service.", "has_answer": true},
+                        {"role": "assistant", "content": "That sounds annoying.", "has_answer": false}
+                    ]]
+                }
+            ]))
+            .expect("serialize synthetic longmemeval"),
+        )
+        .expect("write synthetic longmemeval");
+
+        let dataset =
+            load_public_benchmark_dataset("longmemeval", &path).expect("normalize dataset");
+        assert_eq!(dataset.benchmark_id, "longmemeval");
+        assert_eq!(dataset.version, "upstream");
+        assert_eq!(dataset.items.len(), 1);
+        assert_eq!(dataset.items[0].item_id, "q1");
+        assert_eq!(dataset.items[0].gold_answer, "the gps failed");
+        assert_eq!(dataset.items[0].claim_class, "raw");
+        assert_eq!(
+            dataset.items[0]
+                .metadata
+                .get("answer_session_ids")
+                .and_then(JsonValue::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert!(dataset.items[0]
+            .metadata
+            .get("haystack_text")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|text| text.contains("GPS failed after service")));
+
+        fs::remove_dir_all(dir).expect("cleanup normalize dir");
+    }
+
+    #[test]
+    fn load_public_benchmark_dataset_normalizes_locomo_array_format() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-locomo-normalize-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create normalize dir");
+        let path = dir.join("locomo10.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!([
+                {
+                    "sample_id": "sample-001",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "speaker_b": "Mel",
+                        "session_1_date_time": "2023-05-07",
+                        "session_1": [
+                            {"speaker": "Caroline", "dia_id": "D1:1", "text": "I went to the LGBTQ support group on May 7."},
+                            {"speaker": "Mel", "dia_id": "D1:2", "text": "That sounds meaningful."}
+                        ]
+                    },
+                    "session_summary": {
+                        "session_1_summary": "Caroline discussed attending a support group."
+                    },
+                    "qa": [
+                        {
+                            "question": "When did Caroline go to the LGBTQ support group?",
+                            "answer": "7 May 2023",
+                            "evidence": ["D1:1"],
+                            "category": 2
+                        }
+                    ]
+                }
+            ]))
+            .expect("serialize synthetic locomo"),
+        )
+        .expect("write synthetic locomo");
+
+        let dataset = load_public_benchmark_dataset("locomo", &path).expect("normalize dataset");
+        assert_eq!(dataset.benchmark_id, "locomo");
+        assert_eq!(dataset.version, "upstream");
+        assert_eq!(dataset.items.len(), 1);
+        assert_eq!(dataset.items[0].item_id, "sample-001::0");
+        assert_eq!(
+            dataset.items[0].query,
+            "When did Caroline go to the LGBTQ support group?"
+        );
+        assert_eq!(dataset.items[0].gold_answer, "7 May 2023");
+        assert_eq!(dataset.items[0].claim_class, "raw");
+        assert_eq!(
+            dataset.items[0]
+                .metadata
+                .get("category_name")
+                .and_then(JsonValue::as_str),
+            Some("Temporal")
+        );
+        assert!(dataset.items[0]
+            .metadata
+            .get("conversation_text")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|text| text.contains("Caroline: I went to the LGBTQ support group")));
+
+        fs::remove_dir_all(dir).expect("cleanup normalize dir");
+    }
+
+    #[test]
+    fn load_public_benchmark_dataset_normalizes_locomo_adversarial_answer_fallback() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-locomo-adversarial-normalize-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create normalize dir");
+        let path = dir.join("locomo10.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!([
+                {
+                    "sample_id": "sample-adv-001",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "speaker_b": "Mel",
+                        "session_1_date_time": "2023-05-07",
+                        "session_1": [
+                            {"speaker": "Caroline", "dia_id": "D1:3", "text": "After the race I realized self-care is important."}
+                        ]
+                    },
+                    "session_summary": {
+                        "session_1_summary": "Caroline reflected on self-care."
+                    },
+                    "qa": [
+                        {
+                            "question": "What did Caroline realize after her charity race?",
+                            "adversarial_answer": "self-care is important",
+                            "evidence": ["D1:3"],
+                            "category": 5
+                        }
+                    ]
+                }
+            ]))
+            .expect("serialize synthetic locomo adversarial"),
+        )
+        .expect("write synthetic locomo adversarial");
+
+        let dataset = load_public_benchmark_dataset("locomo", &path).expect("normalize dataset");
+        assert_eq!(dataset.items.len(), 1);
+        assert_eq!(dataset.items[0].gold_answer, "self-care is important");
+        assert_eq!(
+            dataset.items[0]
+                .metadata
+                .get("category_name")
+                .and_then(JsonValue::as_str),
+            Some("Adversarial")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup normalize dir");
+    }
+
+    #[test]
+    fn load_public_benchmark_dataset_normalizes_membench_object_format() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-membench-normalize-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create normalize dir");
+        let path = dir.join("membench-firstagent.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "movie": [
+                    {
+                        "tid": 0,
+                        "message_list": [
+                            [
+                                {
+                                    "sid": 0,
+                                    "user_message": "I like courtroom dramas.",
+                                    "assistant_message": "Courtroom dramas can be intense.",
+                                    "time": "'2024-10-01 08:00' Tuesday",
+                                    "place": "Boston, MA"
+                                }
+                            ]
+                        ],
+                        "QA": {
+                            "qid": 0,
+                            "question": "According to the movies I mentioned, what kind of movies might I prefer to watch?",
+                            "answer": "Drama",
+                            "target_step_id": [[0, 0]],
+                            "choices": {
+                                "A": "Musical",
+                                "B": "Drama",
+                                "C": "Horror",
+                                "D": "Children"
+                            },
+                            "ground_truth": "B",
+                            "time": "'2024-10-01 08:13' Tuesday"
+                        }
+                    }
+                ]
+            }))
+            .expect("serialize synthetic membench"),
+        )
+        .expect("write synthetic membench");
+
+        let dataset =
+            load_public_benchmark_dataset("membench", &path).expect("normalize dataset");
+        assert_eq!(dataset.benchmark_id, "membench");
+        assert_eq!(dataset.version, "upstream");
+        assert_eq!(dataset.items.len(), 1);
+        assert_eq!(dataset.items[0].item_id, "movie::0::0");
+        assert_eq!(dataset.items[0].gold_answer, "Drama");
+        assert_eq!(
+            dataset.items[0]
+                .metadata
+                .get("topic")
+                .and_then(JsonValue::as_str),
+            Some("movie")
+        );
+        assert_eq!(
+            dataset.items[0]
+                .metadata
+                .get("target_step_id")
+                .and_then(JsonValue::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert!(dataset.items[0]
+            .metadata
+            .get("conversation_text")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|text| text.contains("user: I like courtroom dramas.")));
+
+        fs::remove_dir_all(dir).expect("cleanup normalize dir");
+    }
+
+    #[test]
+    fn normalize_convomem_evidence_items_builds_fixture_rows() {
+        let fixture = normalize_convomem_evidence_items(&[
+            json!({
+                "question": "What color do I use for hot leads in my personal spreadsheet?",
+                "answer": "Green",
+                "message_evidences": [{"speaker": "User", "text": "I use green for hot leads in my personal spreadsheet."}],
+                "conversations": [{
+                    "id": "conv-1",
+                    "containsEvidence": true,
+                    "model_name": "gpt-4o",
+                    "messages": [
+                        {"speaker": "User", "text": "I use green for hot leads in my personal spreadsheet."},
+                        {"speaker": "Assistant", "text": "That sounds organized."}
+                    ]
+                }],
+                "category": "user_evidence",
+                "scenario_description": "Telemarketer",
+                "personId": "person-1"
+            })
+        ])
+        .expect("normalize convomem sample");
+
+        assert_eq!(fixture.benchmark_id, "convomem");
+        assert_eq!(fixture.items.len(), 1);
+        assert_eq!(fixture.items[0].gold_answer, "Green");
+        assert_eq!(
+            fixture.items[0]
+                .metadata
+                .get("category")
+                .and_then(JsonValue::as_str),
+            Some("user_evidence")
+        );
+        assert!(fixture.items[0]
+            .metadata
+            .get("conversation_text")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|text| text.contains("User: I use green for hot leads")));
+    }
+
+    #[test]
+    fn build_longmemeval_run_report_tracks_session_and_turn_metrics() {
+        let dataset = PublicBenchmarkDatasetFixture {
+            benchmark_id: "longmemeval".to_string(),
+            benchmark_name: "LongMemEval".to_string(),
+            version: "upstream".to_string(),
+            split: "cleaned-small".to_string(),
+            description: "synthetic longmemeval".to_string(),
+            items: vec![PublicBenchmarkDatasetFixtureItem {
+                item_id: "q1".to_string(),
+                question_id: "q1".to_string(),
+                query: "what happened first".to_string(),
+                claim_class: "raw".to_string(),
+                gold_answer: "gps failed".to_string(),
+                metadata: json!({
+                    "question_type": "temporal-reasoning",
+                    "question_date": "2023/04/10",
+                    "haystack_dates": ["2023/04/10", "2023/04/09"],
+                    "haystack_session_ids": ["s1", "s2"],
+                    "answer_session_ids": ["s1"],
+                    "haystack_sessions": [
+                        [
+                            {"role": "user", "content": "The GPS failed after service."},
+                            {"role": "assistant", "content": "That sounds annoying."}
+                        ],
+                        [
+                            {"role": "user", "content": "I bought floor mats."},
+                            {"role": "assistant", "content": "Nice purchase."}
+                        ]
+                    ],
+                    "haystack_text": "user: The GPS failed after service.\nassistant: That sounds annoying."
+                }),
+            }],
+        };
+
+        let report = build_longmemeval_run_report(
+            &dataset,
+            5,
+            "raw",
+            None,
+            &PublicBenchmarkRetrievalConfig {
+                longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
+                sidecar_base_url: None,
+            },
+        )
+        .expect("longmemeval report");
+        assert_eq!(
+            report.metrics.get("session_recall_any@5").copied(),
+            Some(1.0)
+        );
+        assert_eq!(report.metrics.get("turn_recall_any@5").copied(), Some(1.0));
+        assert_eq!(
+            report.metrics.get("session_ndcg_any@10").copied(),
+            Some(1.0)
+        );
+        assert_eq!(report.item_count, 1);
+        assert_eq!(
+            report.items[0]
+                .correctness
+                .as_ref()
+                .and_then(|value: &JsonValue| value.get("session_metrics"))
+                .and_then(|value: &JsonValue| value.get("recall_any@5"))
+                .and_then(JsonValue::as_f64),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn build_longmemeval_run_report_supports_sidecar_backend_ordering() {
+        let base_url = spawn_blocking_mock_sidecar_server();
+        let dataset = PublicBenchmarkDatasetFixture {
+            benchmark_id: "longmemeval".to_string(),
+            benchmark_name: "LongMemEval".to_string(),
+            version: "upstream".to_string(),
+            split: "cleaned-small".to_string(),
+            description: "synthetic longmemeval".to_string(),
+            items: vec![PublicBenchmarkDatasetFixtureItem {
+                item_id: "q-sidecar".to_string(),
+                question_id: "q-sidecar".to_string(),
+                query: "which session should receive the handoff".to_string(),
+                claim_class: "raw".to_string(),
+                gold_answer: "target".to_string(),
+                metadata: json!({
+                    "question_type": "handoff",
+                    "question_date": "2026/04/09",
+                    "haystack_dates": ["2026/04/09", "2026/04/08"],
+                    "haystack_session_ids": ["current", "target"],
+                    "answer_session_ids": ["target"],
+                    "haystack_sessions": [
+                        [
+                            {"role": "user", "content": "keep this in the current worker lane"},
+                            {"role": "assistant", "content": "staying local"}
+                        ],
+                        [
+                            {"role": "user", "content": "send the handoff packet to the target session"},
+                            {"role": "assistant", "content": "route everything to target"}
+                        ]
+                    ]
+                }),
+            }],
+        };
+
+        let report = build_longmemeval_run_report(
+            &dataset,
+            5,
+            "raw",
+            None,
+            &PublicBenchmarkRetrievalConfig {
+                longmemeval_backend: LongMemEvalRetrievalBackend::Sidecar,
+                sidecar_base_url: Some(base_url),
+            },
+        )
+        .expect("sidecar longmemeval report");
+
+        assert_eq!(report.metrics.get("session_recall_any@1").copied(), Some(1.0));
+        assert_eq!(
+            report.items[0]
+                .ranked_items
+                .first()
+                .and_then(|item| item.get("item_id"))
+                .and_then(JsonValue::as_str),
+            Some("target")
+        );
+        assert!(
+            report.items[0]
+                .retrieval_scores
+                .first()
+                .copied()
+                .unwrap_or_default()
+                > 0.9
+        );
+    }
+
+    fn public_benchmark_fixture_path(dataset: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../fixtures/public-benchmarks/{dataset}-mini.json"
+        ))
+    }
+
+    #[test]
+    fn write_public_benchmark_manifest_roundtrips_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-manifest-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let manifest = PublicBenchmarkManifest {
+            benchmark_id: "longmemeval".to_string(),
+            benchmark_version: "mini".to_string(),
+            dataset_name: "LongMemEval Mini".to_string(),
+            dataset_source_url: "https://example.invalid/longmemeval-mini.json".to_string(),
+            dataset_local_path: output
+                .join("benchmarks")
+                .join("datasets")
+                .join("longmemeval-mini.json")
+                .display()
+                .to_string(),
+            dataset_checksum: "sha256:abc123".to_string(),
+            dataset_split: "validation".to_string(),
+            git_sha: Some("deadbeef".to_string()),
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "raw".to_string(),
+            top_k: 5,
+            reranker_id: None,
+            reranker_provider: None,
+            limit: Some(2),
+            runtime_settings: json!({
+                "cache": true,
+                "seed": 42
+            }),
+            hardware_summary: "cpu-only".to_string(),
+            duration_ms: 11,
+            token_usage: Some(json!({"prompt": 120, "completion": 0})),
+            cost_estimate_usd: Some(0.0),
+        };
+
+        let manifest_path =
+            write_public_benchmark_manifest(&output, &manifest).expect("write public manifest");
+        assert_eq!(
+            manifest_path,
+            public_benchmark_manifest_json_path(&output, "longmemeval")
+        );
+
+        let contents = fs::read_to_string(&manifest_path).expect("read manifest");
+        let parsed: PublicBenchmarkManifest = serde_json::from_str(&contents).expect("parse");
+        assert_eq!(parsed.benchmark_id, "longmemeval");
+        assert_eq!(parsed.mode, "raw");
+        assert_eq!(parsed.top_k, 5);
+        assert_eq!(parsed.limit, Some(2));
+        assert_eq!(parsed.dataset_split, "validation");
+        assert!(!parsed.dirty_worktree);
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark manifest dir");
+    }
+
+    #[test]
+    fn write_public_benchmark_run_report_roundtrips_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-run-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let report = PublicBenchmarkRunReport {
+            manifest: PublicBenchmarkManifest {
+                benchmark_id: "longmemeval".to_string(),
+                benchmark_version: "mini".to_string(),
+                dataset_name: "LongMemEval Mini".to_string(),
+                dataset_source_url: "https://example.invalid/longmemeval-mini.json".to_string(),
+                dataset_local_path: output
+                    .join("benchmarks")
+                    .join("datasets")
+                    .join("longmemeval-mini.json")
+                    .display()
+                    .to_string(),
+                dataset_checksum: "sha256:abc123".to_string(),
+                dataset_split: "validation".to_string(),
+                git_sha: Some("deadbeef".to_string()),
+                dirty_worktree: false,
+                run_timestamp: Utc::now(),
+                mode: "hybrid".to_string(),
+                top_k: 8,
+                reranker_id: Some("reranker-v1".to_string()),
+                reranker_provider: Some("memd".to_string()),
+                limit: Some(3),
+                runtime_settings: json!({
+                    "cache": true,
+                    "seed": 13
+                }),
+                hardware_summary: "cpu-only".to_string(),
+                duration_ms: 19,
+                token_usage: Some(json!({"prompt": 220, "completion": 32})),
+                cost_estimate_usd: Some(0.01),
+            },
+            metrics: BTreeMap::from([("accuracy".to_string(), 0.8), ("recall".to_string(), 1.0)]),
+            item_count: 2,
+            failures: vec![json!({"item_id": "longmemeval-mini-002", "reason": "miss"})],
+            items: vec![PublicBenchmarkItemResult {
+                item_id: "longmemeval-mini-001".to_string(),
+                question_id: "longmemeval-mini-001".to_string(),
+                claim_class: "raw".to_string(),
+                question: Some("What should be resumed next?".to_string()),
+                question_type: Some("continuity".to_string()),
+                ranked_items: vec![json!({"rank": 1, "text": "resume next step"})],
+                retrieved_items: vec![json!({"rank": 1, "text": "resume next step"})],
+                retrieval_scores: vec![0.93],
+                hit: true,
+                answer: Some("resume next step".to_string()),
+                observed_answer: Some("resume next step".to_string()),
+                correctness: Some(json!({"score": 1.0})),
+                latency_ms: 14,
+                token_usage: Some(json!({"prompt": 12, "completion": 4})),
+                cost_estimate_usd: Some(0.0),
+            }],
+        };
+
+        let report_path =
+            write_public_benchmark_run_report(&output, &report).expect("write public report");
+        assert_eq!(
+            report_path,
+            public_benchmark_report_md_path(&output, "longmemeval")
+        );
+
+        let contents = fs::read_to_string(&report_path).expect("read report");
+        assert!(contents.contains("# memd public benchmark"));
+        assert!(contents.contains("longmemeval"));
+        assert!(contents.contains("| LongMemEval Mini | mini | hybrid |"));
+        assert!(contents.contains("## Latest Run Detail: LongMemEval Mini"));
+
+        let jsonl_path = public_benchmark_results_jsonl_path(&output, "longmemeval");
+        let first_row = fs::read_to_string(&jsonl_path)
+            .expect("read public benchmark jsonl")
+            .lines()
+            .next()
+            .expect("jsonl first row")
+            .to_string();
+        let first_row: JsonValue = serde_json::from_str(&first_row).expect("parse public jsonl");
+        assert_eq!(
+            first_row.get("question").and_then(JsonValue::as_str),
+            Some("What should be resumed next?")
+        );
+        assert_eq!(
+            first_row.get("question_type").and_then(JsonValue::as_str),
+            Some("continuity")
+        );
+        assert_eq!(
+            first_row.get("answer").and_then(JsonValue::as_str),
+            Some("resume next step")
+        );
+        assert_eq!(
+            first_row
+                .get("observed_answer")
+                .and_then(JsonValue::as_str),
+            Some("resume next step")
+        );
+        assert_eq!(
+            first_row
+                .get("ranked_items")
+                .and_then(JsonValue::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark run dir");
+    }
+
+    #[test]
+    fn write_public_benchmark_run_artifacts_writes_manifest_and_report() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-artifacts-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let report = PublicBenchmarkRunReport {
+            manifest: PublicBenchmarkManifest {
+                benchmark_id: "longmemeval".to_string(),
+                benchmark_version: "mini".to_string(),
+                dataset_name: "LongMemEval Mini".to_string(),
+                dataset_source_url: "https://example.invalid/longmemeval-mini.json".to_string(),
+                dataset_local_path: output
+                    .join("benchmarks")
+                    .join("datasets")
+                    .join("longmemeval-mini.json")
+                    .display()
+                    .to_string(),
+                dataset_checksum: "sha256:abc123".to_string(),
+                dataset_split: "validation".to_string(),
+                git_sha: Some("deadbeef".to_string()),
+                dirty_worktree: false,
+                run_timestamp: Utc::now(),
+                mode: "hybrid".to_string(),
+                top_k: 8,
+                reranker_id: Some("reranker-v1".to_string()),
+                reranker_provider: Some("memd".to_string()),
+                limit: Some(3),
+                runtime_settings: json!({
+                    "cache": true,
+                    "seed": 13
+                }),
+                hardware_summary: "cpu-only".to_string(),
+                duration_ms: 19,
+                token_usage: Some(json!({"prompt": 220, "completion": 32})),
+                cost_estimate_usd: Some(0.01),
+            },
+            metrics: BTreeMap::from([("accuracy".to_string(), 0.8)]),
+            item_count: 1,
+            failures: Vec::new(),
+            items: vec![PublicBenchmarkItemResult {
+                item_id: "longmemeval-mini-001".to_string(),
+                question_id: "lm-mini-001".to_string(),
+                claim_class: "raw".to_string(),
+                question: Some("What should be resumed next?".to_string()),
+                question_type: Some("continuity".to_string()),
+                ranked_items: vec![json!({"rank": 1, "text": "resume next step"})],
+                retrieved_items: vec![json!({"rank": 1, "text": "resume next step"})],
+                retrieval_scores: vec![0.93],
+                hit: true,
+                answer: Some("resume next step".to_string()),
+                observed_answer: Some("resume next step".to_string()),
+                correctness: Some(json!({"score": 1.0})),
+                latency_ms: 14,
+                token_usage: Some(json!({"prompt": 12, "completion": 4})),
+                cost_estimate_usd: Some(0.0),
+            }],
+        };
+
+        let receipt =
+            write_public_benchmark_run_artifacts(&output, &report).expect("write artifacts");
+        assert_eq!(
+            receipt.run_dir,
+            public_benchmark_run_artifacts_dir(&output, "longmemeval")
+        );
+        assert_eq!(
+            receipt.manifest_path,
+            public_benchmark_manifest_json_path(&output, "longmemeval")
+        );
+        assert_eq!(
+            receipt.results_path,
+            public_benchmark_results_json_path(&output, "longmemeval")
+        );
+        assert_eq!(
+            receipt.results_jsonl_path,
+            public_benchmark_results_jsonl_path(&output, "longmemeval")
+        );
+        assert_eq!(
+            receipt.report_path,
+            public_benchmark_report_md_path(&output, "longmemeval")
+        );
+        assert!(receipt.manifest_path.exists());
+        assert!(receipt.results_path.exists());
+        assert!(receipt.results_jsonl_path.exists());
+        assert!(receipt.report_path.exists());
+
+        let manifest: PublicBenchmarkManifest = serde_json::from_str(
+            &fs::read_to_string(&receipt.manifest_path).expect("read manifest"),
+        )
+        .expect("parse manifest");
+        let results: PublicBenchmarkRunReport =
+            serde_json::from_str(&fs::read_to_string(&receipt.results_path).expect("read results"))
+                .expect("parse results");
+        assert_eq!(manifest.reranker_id.as_deref(), Some("reranker-v1"));
+        assert_eq!(manifest.reranker_provider.as_deref(), Some("memd"));
+        assert_eq!(
+            manifest.token_usage,
+            Some(json!({"prompt": 220, "completion": 32}))
+        );
+        assert_eq!(results.manifest.mode, "hybrid");
+        assert_eq!(results.items.len(), 1);
+        assert_eq!(results.items[0].claim_class, "raw");
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark artifacts dir");
+    }
+
+    #[tokio::test]
+    async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        let docs_root = dir.join("repo");
+        fs::create_dir_all(&output).expect("create output dir");
+        fs::create_dir_all(docs_root.join(".git")).expect("create git dir");
+
+        let fixture = public_benchmark_fixture_path("longmemeval");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "longmemeval".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(fixture),
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run public benchmark");
+
+        assert_eq!(report.manifest.benchmark_id, "longmemeval");
+        assert_eq!(report.manifest.mode, "raw");
+        assert_eq!(report.manifest.dataset_name, "LongMemEval");
+        assert_eq!(report.item_count, 2);
+        assert!(report.metrics.get("accuracy").copied().unwrap_or(0.0) > 0.0);
+
+        let receipt =
+            write_public_benchmark_run_artifacts(&output, &report).expect("write artifacts");
+        assert!(receipt.manifest_path.exists());
+        assert!(receipt.results_path.exists());
+        assert!(receipt.results_jsonl_path.exists());
+        assert!(receipt.report_path.exists());
+
+        write_public_benchmark_docs(&docs_root, &output, &report)
+            .expect("write public benchmark docs");
+        let docs = fs::read_to_string(public_benchmark_docs_path(&docs_root))
+            .expect("read public benchmark docs");
+        assert!(docs.contains("# memd public benchmark"));
+        assert!(docs.contains("LongMemEval"));
+        assert!(docs.contains("results"));
+        assert!(docs.contains("## Target Inventory"));
+        assert!(docs.contains("- longmemeval: implemented"));
+        assert!(docs.contains("- locomo: implemented"));
+        assert!(docs.contains("- convomem: implemented"));
+        assert!(docs.contains("- membench: implemented"));
+        let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
+            .expect("read public leaderboard docs");
+        assert!(leaderboard.contains("# memd public leaderboard"));
+        assert!(leaderboard.contains("fixture-backed"));
+        assert!(leaderboard.contains("dataset-grade / retrieval-local"));
+        assert!(
+            leaderboard
+                .contains("declared parity targets: longmemeval, locomo, convomem, membench")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark command dir");
+    }
+
+    #[tokio::test]
+    async fn run_public_longmemeval_hybrid_command_sets_metadata() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-hybrid-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let fixture = public_benchmark_fixture_path("longmemeval");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "longmemeval".to_string(),
+            mode: Some("hybrid".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(1),
+            dataset_root: Some(fixture),
+            reranker: Some("test-reranker".to_string()),
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run hybrid public benchmark");
+
+        assert_eq!(report.manifest.mode, "hybrid");
+        assert_eq!(
+            report.manifest.reranker_id.as_deref(),
+            Some("test-reranker")
+        );
+        assert_eq!(
+            report.manifest.reranker_provider.as_deref(),
+            Some("declared")
+        );
+        assert_eq!(
+            report.manifest.token_usage,
+            Some(json!({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reranker_tokens": 0,
+            }))
+        );
+        assert_eq!(report.manifest.cost_estimate_usd, Some(0.0));
+        assert_eq!(report.items.len(), 1);
+        assert_eq!(report.items[0].claim_class, "raw");
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark hybrid dir");
+    }
+
+    #[tokio::test]
+    async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-public-leaderboard-{}", uuid::Uuid::new_v4()));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let fixture = public_benchmark_fixture_path("longmemeval");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "longmemeval".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(fixture),
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run public benchmark");
+
+        let leaderboard_report =
+            build_public_benchmark_leaderboard_report(std::slice::from_ref(&report));
+        let markdown = render_public_leaderboard(&leaderboard_report);
+        assert!(markdown.contains("# memd public leaderboard"));
+        assert!(markdown.contains("fixture-backed"));
+        assert!(markdown.contains("dataset-grade / retrieval-local"));
+        assert!(markdown.contains("not a full MemPalace parity claim"));
+        assert!(markdown.contains("run mode is benchmark execution mode"));
+        assert!(
+            markdown.contains("implemented mini adapters: longmemeval, locomo, convomem, membench")
+        );
+        assert!(markdown.contains("| LongMemEval | upstream | raw | raw |"));
+        assert!(
+            markdown.contains("declared parity targets: longmemeval, locomo, convomem, membench")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup public leaderboard dir");
+    }
+
+    #[tokio::test]
+    async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-suite-docs-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        let docs_root = dir.join("repo");
+        fs::create_dir_all(&output).expect("create output dir");
+        fs::create_dir_all(docs_root.join(".git")).expect("create git dir");
+
+        for dataset in ["longmemeval", "locomo", "convomem", "membench"] {
+            let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+                dataset: dataset.to_string(),
+                mode: Some("raw".to_string()),
+                retrieval_backend: None,
+                rag_url: None,
+                top_k: Some(5),
+                limit: Some(2),
+                dataset_root: Some(public_benchmark_fixture_path(dataset)),
+                reranker: None,
+                write: false,
+                json: false,
+                out: output.clone(),
+            })
+            .await
+            .expect("run public benchmark");
+            write_public_benchmark_run_artifacts(&output, &report).expect("write public artifacts");
+        }
+
+        let latest_report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "locomo".to_string(),
+            mode: Some("hybrid".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(public_benchmark_fixture_path("locomo")),
+            reranker: Some("test-reranker".to_string()),
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run latest public benchmark");
+        write_public_benchmark_run_artifacts(&output, &latest_report)
+            .expect("write latest public artifacts");
+        write_public_benchmark_docs(&docs_root, &output, &latest_report)
+            .expect("write public benchmark docs");
+
+        let docs = fs::read_to_string(public_benchmark_docs_path(&docs_root))
+            .expect("read public benchmark docs");
+        assert!(docs.contains("# memd public benchmark suite"));
+        assert!(docs.contains("| LongMemEval |"));
+        assert!(docs.contains("| LoCoMo |"));
+        assert!(docs.contains("| ConvoMem |"));
+        assert!(docs.contains("| MemBench |"));
+        assert!(docs.contains("## Latest Run Detail: LoCoMo"));
+
+        let leaderboard = fs::read_to_string(public_benchmark_leaderboard_docs_path(&docs_root))
+            .expect("read public leaderboard docs");
+        assert!(leaderboard.contains("| LongMemEval |"));
+        assert!(leaderboard.contains("| LoCoMo |"));
+        assert!(leaderboard.contains("| ConvoMem |"));
+        assert!(leaderboard.contains("| MemBench |"));
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark suite docs dir");
+    }
+
+    #[tokio::test]
+    async fn run_public_locomo_command_writes_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-locomo-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let fixture = public_benchmark_fixture_path("locomo");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "locomo".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(fixture),
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run locomo public benchmark");
+
+        assert_eq!(report.manifest.benchmark_id, "locomo");
+        assert_eq!(report.manifest.dataset_name, "LoCoMo");
+        assert_eq!(report.item_count, 2);
+
+        let receipt =
+            write_public_benchmark_run_artifacts(&output, &report).expect("write locomo artifacts");
+        assert!(receipt.manifest_path.exists());
+        assert!(receipt.results_path.exists());
+        assert!(receipt.results_jsonl_path.exists());
+        assert!(receipt.report_path.exists());
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark locomo dir");
+    }
+
+    #[tokio::test]
+    async fn run_public_convomem_command_writes_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-convomem-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let fixture = public_benchmark_fixture_path("convomem");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "convomem".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(fixture),
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run convomem public benchmark");
+
+        assert_eq!(report.manifest.benchmark_id, "convomem");
+        assert_eq!(report.manifest.dataset_name, "ConvoMem");
+        assert_eq!(report.item_count, 2);
+
+        let receipt = write_public_benchmark_run_artifacts(&output, &report)
+            .expect("write convomem artifacts");
+        assert!(receipt.manifest_path.exists());
+        assert!(receipt.results_path.exists());
+        assert!(receipt.results_jsonl_path.exists());
+        assert!(receipt.report_path.exists());
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark convomem dir");
+    }
+
+    #[tokio::test]
+    async fn run_public_membench_command_writes_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-public-benchmark-membench-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = dir.join(".memd");
+        fs::create_dir_all(&output).expect("create output dir");
+
+        let fixture = public_benchmark_fixture_path("membench");
+        let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+            dataset: "membench".to_string(),
+            mode: Some("raw".to_string()),
+            retrieval_backend: None,
+            rag_url: None,
+            top_k: Some(5),
+            limit: Some(2),
+            dataset_root: Some(fixture),
+            reranker: None,
+            write: false,
+            json: false,
+            out: output.clone(),
+        })
+        .await
+        .expect("run membench public benchmark");
+
+        assert_eq!(report.manifest.benchmark_id, "membench");
+        assert_eq!(report.manifest.dataset_name, "MemBench");
+        assert_eq!(report.item_count, 2);
+
+        let receipt = write_public_benchmark_run_artifacts(&output, &report)
+            .expect("write membench artifacts");
+        assert!(receipt.manifest_path.exists());
+        assert!(receipt.results_path.exists());
+        assert!(receipt.results_jsonl_path.exists());
+        assert!(receipt.report_path.exists());
+
+        fs::remove_dir_all(dir).expect("cleanup public benchmark membench dir");
     }
 
     #[test]
@@ -57654,8 +62571,7 @@ mod tests {
             .expect("run verifier");
         assert_eq!(run.verifier_id, "verifier.feature.bundle.resume");
         assert!(!run.evidence_ids.is_empty());
-        let materialized =
-            materialize_fixture(&fixture, None).expect("materialize fixture again");
+        let materialized = materialize_fixture(&fixture, None).expect("materialize fixture again");
         write_verifier_run_artifacts(
             &materialized.bundle_root,
             &run,
@@ -57668,6 +62584,58 @@ mod tests {
                 .exists()
         );
         assert!(verification_evidence_dir(&materialized.bundle_root).exists());
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_wake_step_and_writes_wakeup() {
+        let fixture = test_continuity_fixture_record();
+        let verifier = VerifierRecord {
+            id: "verifier.feature.bundle.wake.steps".to_string(),
+            name: "Wake feature with steps".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "bundle-runtime".to_string(),
+            subject_ids: vec!["feature.bundle.wake".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![VerifierStepRecord {
+                kind: "cli".to_string(),
+                run: Some("memd wake --output {{bundle}}".to_string()),
+                name: None,
+                left: None,
+                right: None,
+            }],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "file_contains".to_string(),
+                path: Some("MEMD_WAKEUP.md".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["prompt_tokens".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["fast".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, None)
+            .await
+            .expect("run wake verifier");
+
+        assert_eq!(run.status, "passing");
+        assert!(
+            run.metrics_observed
+                .get("prompt_tokens")
+                .and_then(JsonValue::as_u64)
+                .is_some_and(|value| value > 0)
+        );
     }
 
     #[tokio::test]
@@ -57948,6 +62916,662 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_verifier_record_executes_claim_transfer_flow() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-claims-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive claims".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.feature.hive.claims-transfer".to_string(),
+            name: "Claims transfer".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "coordination".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec!["feature.hive.claims".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd claims --output {{sender_bundle}} --acquire --scope task:parser-refactor".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:parser-refactor".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("claims_transfer.claims.0.session".to_string()),
+                equals_fixture: Some("target_session".to_string()),
+                contains_fixture: None,
+                exists: None,
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["claim_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive claims verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(
+            run.metrics_observed
+                .get("claim_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_task_assignment_flow() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-tasks-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive tasks".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.feature.hive.tasks-assign".to_string(),
+            name: "Tasks assign".to_string(),
+            verifier_type: "feature_contract".to_string(),
+            pillar: "coordination".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec!["feature.hive.tasks".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --upsert --task-id parser-refactor --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:parser-refactor".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id parser-refactor".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("tasks_assign.tasks.0.session".to_string()),
+                equals_fixture: Some("target_session".to_string()),
+                contains_fixture: None,
+                exists: None,
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["task_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive task verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(
+            run.metrics_observed
+                .get("task_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_executes_hive_transfer_assign_journey() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-journey-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive journey".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.journey.hive-transfer-assign".to_string(),
+            name: "Hive transfer assign journey".to_string(),
+            verifier_type: "journey".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec!["journey.hive.transfer-assign".to_string()],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\"".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{target_bundle}} --inbox".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("capture_message_id".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd messages --output {{target_bundle}} --ack {{message_id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:{{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![
+                VerifierAssertionRecord {
+                    kind: "helper".to_string(),
+                    path: None,
+                    equals_fixture: None,
+                    contains_fixture: None,
+                    exists: None,
+                    metric: None,
+                    op: None,
+                    left: None,
+                    right: None,
+                    name: Some("assert_message_acknowledged".to_string()),
+                },
+                VerifierAssertionRecord {
+                    kind: "json_path".to_string(),
+                    path: Some("claims_transfer.claims.0.session".to_string()),
+                    equals_fixture: Some("target_session".to_string()),
+                    contains_fixture: None,
+                    exists: None,
+                    metric: None,
+                    op: None,
+                    left: None,
+                    right: None,
+                    name: None,
+                },
+                VerifierAssertionRecord {
+                    kind: "json_path".to_string(),
+                    path: Some("tasks_assign.tasks.0.session".to_string()),
+                    equals_fixture: Some("target_session".to_string()),
+                    contains_fixture: None,
+                    exists: None,
+                    metric: None,
+                    op: None,
+                    left: None,
+                    right: None,
+                    name: None,
+                },
+            ],
+            metrics: vec![
+                "delivery_count".to_string(),
+                "claim_count".to_string(),
+                "task_count".to_string(),
+            ],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "strong".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: vec![
+                "capture_message_id".to_string(),
+                "assert_message_acknowledged".to_string(),
+            ],
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive journey verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(run.gate_result, "strong");
+        assert_eq!(
+            run.metrics_observed
+                .get("delivery_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            run.metrics_observed
+                .get("claim_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            run.metrics_observed
+                .get("task_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_contains_hive_claim_collision() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-adversarial-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive adversarial".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.adversarial.hive-claim-collision".to_string(),
+            name: "Hive claim collision containment".to_string(),
+            verifier_type: "adversarial".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec![
+                "feature.hive.claims".to_string(),
+                "journey.hive.transfer-assign".to_string(),
+            ],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some(
+                        "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+                            .to_string(),
+                    ),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli_expect_error".to_string(),
+                    run: Some(
+                        "memd claims --output {{target_bundle}} --acquire --scope task:{{task.id}}"
+                            .to_string(),
+                    ),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![
+                VerifierAssertionRecord {
+                    kind: "json_path".to_string(),
+                    path: Some("expected_error.message".to_string()),
+                    equals_fixture: None,
+                    contains_fixture: None,
+                    exists: Some(true),
+                    metric: None,
+                    op: None,
+                    left: None,
+                    right: None,
+                    name: None,
+                },
+                VerifierAssertionRecord {
+                    kind: "json_path".to_string(),
+                    path: Some("claims_acquire.claims.0.session".to_string()),
+                    equals_fixture: Some("sender_session".to_string()),
+                    contains_fixture: None,
+                    exists: None,
+                    metric: None,
+                    op: None,
+                    left: None,
+                    right: None,
+                    name: None,
+                },
+            ],
+            metrics: vec!["claim_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: Vec::new(),
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive adversarial verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(run.gate_result, "acceptable");
+        assert_eq!(
+            run.metrics_observed
+                .get("claim_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_contains_hive_task_lane_collision() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-task-lane-adversarial-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive task lane adversarial".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.adversarial.hive-task-lane-collision".to_string(),
+            name: "Hive task lane collision containment".to_string(),
+            verifier_type: "adversarial".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec![
+                "feature.hive.tasks".to_string(),
+                "journey.hive.transfer-assign".to_string(),
+            ],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("setup_target_lane_collision".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli_expect_error".to_string(),
+                    run: Some("memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("expected_error.message".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["task_count".to_string(), "expected_error_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: vec!["setup_target_lane_collision".to_string()],
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive task lane adversarial verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(run.gate_result, "acceptable");
+        assert_eq!(
+            run.metrics_observed
+                .get("expected_error_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verifier_record_contains_hive_message_lane_collision() {
+        let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+        let fixture = FixtureRecord {
+            id: "fixture.hive-message-lane-adversarial-bundle.test".to_string(),
+            kind: "bundle_fixture".to_string(),
+            description: "hive message lane adversarial".to_string(),
+            seed_files: Vec::new(),
+            seed_config: json!({
+                "project": "demo",
+                "namespace": "main",
+                "agent": "codex",
+                "session": "sender",
+                "workspace": "shared",
+                "base_url": base_url
+            }),
+            seed_memories: Vec::new(),
+            seed_events: Vec::new(),
+            seed_sessions: vec!["sender".to_string(), "target".to_string()],
+            seed_claims: Vec::new(),
+            seed_vault: None,
+            backend_mode: "normal".to_string(),
+            isolation: "fresh_temp_dir".to_string(),
+            cleanup_policy: "destroy".to_string(),
+        };
+        let verifier = VerifierRecord {
+            id: "verifier.adversarial.hive-message-lane-collision".to_string(),
+            name: "Hive message lane collision containment".to_string(),
+            verifier_type: "adversarial".to_string(),
+            pillar: "memory-continuity".to_string(),
+            family: "coordination-hive".to_string(),
+            subject_ids: vec![
+                "feature.hive.messages".to_string(),
+                "journey.hive.transfer-assign".to_string(),
+            ],
+            fixture_id: fixture.id.clone(),
+            baseline_modes: vec!["with_memd".to_string()],
+            steps: vec![
+                VerifierStepRecord {
+                    kind: "helper".to_string(),
+                    run: None,
+                    name: Some("setup_target_lane_collision".to_string()),
+                    left: None,
+                    right: None,
+                },
+                VerifierStepRecord {
+                    kind: "cli_expect_error".to_string(),
+                    run: Some("memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\"".to_string()),
+                    name: None,
+                    left: None,
+                    right: None,
+                },
+            ],
+            assertions: vec![VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("expected_error.message".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            }],
+            metrics: vec!["expected_error_count".to_string()],
+            evidence_requirements: vec!["live_primary".to_string()],
+            gate_target: "acceptable".to_string(),
+            status: "declared".to_string(),
+            lanes: vec!["nightly".to_string()],
+            helper_hooks: vec!["setup_target_lane_collision".to_string()],
+        };
+
+        let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
+            .await
+            .expect("run hive message lane adversarial verifier");
+
+        assert_eq!(run.status, "passing");
+        assert_eq!(run.gate_result, "acceptable");
+        assert_eq!(
+            run.metrics_observed
+                .get("expected_error_count")
+                .and_then(JsonValue::as_u64),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_verify_feature_command_executes_seeded_handoff_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-handoff-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let report = run_verify_feature_command(&VerifyFeatureArgs {
+            feature_id: "feature.bundle.handoff".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify handoff feature command");
+
+        assert_eq!(report.subject.as_deref(), Some("feature.bundle.handoff"));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify handoff dir");
+    }
+
+    #[tokio::test]
     async fn run_verify_feature_command_executes_seeded_verifier() {
         let dir = std::env::temp_dir().join(format!(
             "memd-verify-feature-command-{}",
@@ -58021,6 +63645,182 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).expect("cleanup verify compare dir");
+    }
+
+    #[tokio::test]
+    async fn run_verify_journey_command_executes_seeded_hive_journey() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-journey-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        write_test_bundle_config(&output, &base_url);
+
+        let report = run_verify_journey_command(&VerifyJourneyArgs {
+            journey_id: "journey.hive.transfer-assign".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify journey command");
+
+        assert_eq!(
+            report.subject.as_deref(),
+            Some("journey.hive.transfer-assign")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "gate_result=strong")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify journey dir");
+    }
+
+    #[tokio::test]
+    async fn run_verify_adversarial_command_executes_seeded_hive_collision_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-adversarial-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        write_test_bundle_config(&output, &base_url);
+
+        let report = run_verify_adversarial_command(&VerifyAdversarialArgs {
+            verifier_id: "verifier.adversarial.hive-claim-collision".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify adversarial command");
+
+        assert_eq!(
+            report.subject.as_deref(),
+            Some("verifier.adversarial.hive-claim-collision")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "gate_result=acceptable")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify adversarial dir");
+    }
+
+    #[tokio::test]
+    async fn run_verify_adversarial_command_executes_seeded_hive_task_lane_collision_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-adversarial-task-lane-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        write_test_bundle_config(&output, &base_url);
+
+        let report = run_verify_adversarial_command(&VerifyAdversarialArgs {
+            verifier_id: "verifier.adversarial.hive-task-lane-collision".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify adversarial task lane command");
+
+        assert_eq!(
+            report.subject.as_deref(),
+            Some("verifier.adversarial.hive-task-lane-collision")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "gate_result=acceptable")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify adversarial task lane dir");
+    }
+
+    #[tokio::test]
+    async fn run_verify_adversarial_command_executes_seeded_hive_message_lane_collision_verifier() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-verify-adversarial-message-lane-command-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo_root = dir.join("repo");
+        let output = repo_root.join(".memd");
+        fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+        fs::create_dir_all(&output).expect("create output dir");
+        write_test_benchmark_registry(&repo_root);
+
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state, false).await;
+        write_test_bundle_config(&output, &base_url);
+
+        let report = run_verify_adversarial_command(&VerifyAdversarialArgs {
+            verifier_id: "verifier.adversarial.hive-message-lane-collision".to_string(),
+            output: output.clone(),
+            summary: false,
+        })
+        .await
+        .expect("run verify adversarial message lane command");
+
+        assert_eq!(
+            report.subject.as_deref(),
+            Some("verifier.adversarial.hive-message-lane-collision")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "verifier_run_status=passing")
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding == "gate_result=acceptable")
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup verify adversarial message lane dir");
     }
 
     #[test]
@@ -58166,6 +63966,7 @@ mod tests {
                 output: output.clone(),
                 write: false,
                 summary: false,
+                subcommand: None,
             },
             &base_url,
         )
@@ -58301,6 +64102,7 @@ mod tests {
                 .expect("read morning md");
         assert!(morning_md.contains("# memd morning summary"));
         assert!(morning_md.contains("Continuity Failures"));
+        assert!(morning_md.contains("Verification Regressions"));
 
         fs::remove_dir_all(dir).expect("cleanup benchmark registry docs dir");
     }
@@ -58355,9 +64157,9 @@ mod tests {
         let coverage = build_telemetry_benchmark_coverage(&output)
             .expect("build telemetry coverage")
             .expect("telemetry coverage");
-        assert_eq!(coverage.continuity_critical_total, 9);
+        assert_eq!(coverage.continuity_critical_total, 11);
         assert_eq!(coverage.continuity_critical_benchmarked, 0);
-        assert_eq!(coverage.missing_loop_count, 9);
+        assert_eq!(coverage.missing_loop_count, 11);
         assert!(
             coverage
                 .gap_candidates
@@ -58374,6 +64176,12 @@ mod tests {
             current_benchmark_score: 88,
             current_benchmark_max_score: 100,
             top_continuity_failures: vec!["resume continuity drift".to_string()],
+            top_verification_regressions: vec![
+                "verifier.feature.bundle.resume status=failing gate=fragile".to_string(),
+            ],
+            top_verification_pressure: vec![
+                "verifier.feature.hive.messages-send-ack status=passing gate=acceptable target=acceptable continuity_critical=true".to_string(),
+            ],
             top_drift_risks: vec!["surface drift in MEMD_MEMORY.md".to_string()],
             top_token_regressions: vec!["handoff packet +420 tokens".to_string()],
             top_no_memd_losses: vec!["resume still loses to no-memd baseline".to_string()],
@@ -58381,9 +64189,106 @@ mod tests {
         });
 
         assert!(summary.contains("resume continuity drift"));
+        assert!(summary.contains("Verification Regressions"));
+        assert!(summary.contains("Verification Pressure"));
+        assert!(summary.contains("verifier.feature.bundle.resume status=failing gate=fragile"));
+        assert!(
+            summary
+                .contains("verifier.feature.hive.messages-send-ack status=passing gate=acceptable")
+        );
         assert!(summary.contains("handoff packet +420 tokens"));
         assert!(summary.contains("fix resume journey before expanding registry"));
         assert!(summary.contains("# memd morning summary"));
+    }
+
+    #[test]
+    fn build_morning_operator_summary_surfaces_acceptable_continuity_verifiers() {
+        let registry = test_benchmark_registry();
+        let benchmark = test_feature_benchmark_report(Path::new(".memd"));
+        let verification_report = VerifySweepReport {
+            lane: "nightly".to_string(),
+            ok: true,
+            total: 10,
+            passed: 10,
+            failures: Vec::new(),
+            runs: vec![
+                VerifierRunRecord {
+                    verifier_id: "verifier.journey.resume-handoff-attach".to_string(),
+                    status: "passing".to_string(),
+                    gate_result: "acceptable".to_string(),
+                    evidence_ids: vec![
+                        "evidence:verifier.journey.resume-handoff-attach:latest".to_string(),
+                    ],
+                    metrics_observed: BTreeMap::new(),
+                },
+                VerifierRunRecord {
+                    verifier_id: "verifier.feature.hive.messages-send-ack".to_string(),
+                    status: "passing".to_string(),
+                    gate_result: "acceptable".to_string(),
+                    evidence_ids: vec![
+                        "evidence:verifier.feature.hive.messages-send-ack:latest".to_string(),
+                    ],
+                    metrics_observed: BTreeMap::new(),
+                },
+            ],
+            bundle_root: ".memd".to_string(),
+            repo_root: None,
+        };
+
+        let summary = build_morning_operator_summary(
+            &registry,
+            &benchmark,
+            None,
+            None,
+            Some(&verification_report),
+        );
+
+        assert!(summary.top_verification_regressions.iter().any(|item| {
+            item.contains("verifier.journey.resume-handoff-attach")
+                && item.contains("target=strong")
+        }));
+        assert!(
+            !summary
+                .top_verification_regressions
+                .iter()
+                .any(|item| item.contains("nightly verify lane nightly is green"))
+        );
+        let journey_index = summary
+            .top_verification_regressions
+            .iter()
+            .position(|item| item.contains("verifier.journey.resume-handoff-attach"))
+            .expect("journey verifier should be ranked");
+        assert_eq!(journey_index, 0);
+        assert!(
+            summary
+                .proposed_next_actions
+                .iter()
+                .any(|item| item.contains("upgrade verifier gates with highest target pressure"))
+        );
+        assert!(
+            summary
+                .proposed_next_actions
+                .iter()
+                .any(|item| item.contains("verifier.journey.resume-handoff-attach"))
+        );
+        assert!(
+            !summary
+                .proposed_next_actions
+                .iter()
+                .any(|item| item.contains("verifier.feature.hive.messages-send-ack"))
+        );
+        assert!(
+            !summary
+                .top_verification_regressions
+                .iter()
+                .any(|item| item.contains("verifier.feature.hive.messages-send-ack"))
+        );
+        assert!(
+            summary
+                .top_verification_pressure
+                .iter()
+                .any(|item| item.contains("verifier.feature.hive.messages-send-ack"))
+        );
     }
 
     #[test]

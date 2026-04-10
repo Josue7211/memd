@@ -1,0 +1,31 @@
+{
+  "benchmark_id": "locomo",
+  "benchmark_name": "LoCoMo",
+  "version": "mini",
+  "split": "validation",
+  "description": "Tiny vendored fixture reserved for LoCoMo parity plumbing.",
+  "items": [
+    {
+      "item_id": "locomo-mini-001",
+      "question_id": "lc-mini-001",
+      "query": "Which memory detail should be recalled?",
+      "claim_class": "raw",
+      "gold_answer": "recall the memory detail",
+      "metadata": {
+        "topic": "recall",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "item_id": "locomo-mini-002",
+      "question_id": "lc-mini-002",
+      "query": "Which handoff target should be used?",
+      "claim_class": "hybrid",
+      "gold_answer": "handoff target",
+      "metadata": {
+        "topic": "handoff",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}

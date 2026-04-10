@@ -7,10 +7,10 @@
 - Current benchmark score: `94/100`
 - Quality dimensions: `5`
 - Pillars: `1`
-- Families: `3`
-- Features: `8`
-- Journeys: `1`
-- Loops: `11`
+- Families: `4`
+- Features: `11`
+- Journeys: `2`
+- Loops: `18`
 - Scorecards: `0`
 - Evidence records: `0`
 - Gates: `0`
@@ -18,7 +18,7 @@
 - Runtime policies: `4`
 
 ## Pillars
-- `memory-continuity`: 3 family surfaces, 8 features
+- `memory-continuity`: 4 family surfaces, 11 features
 
 ## Feature Coverage Snapshot
 - `feature.bundle.wake` [bundle-runtime] auditing | continuity=true | loops=1
@@ -29,6 +29,9 @@
 - `feature.capture.hook-capture` [capture-compaction] auditing | continuity=true | loops=1
 - `feature.memory.working-context` [bundle-runtime] auditing | continuity=true | loops=1
 - `feature.memory.working-memory` [bundle-runtime] auditing | continuity=true | loops=1
+- `feature.hive.messages` [coordination-hive] auditing | continuity=true | loops=1
+- `feature.hive.claims` [coordination-hive] auditing | continuity=true | loops=1
+- `feature.hive.tasks` [coordination-hive] auditing | continuity=true | loops=1
 
 ## Quality Dimensions
 - `continuity` weight `25`

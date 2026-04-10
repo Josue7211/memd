@@ -1,0 +1,31 @@
+{
+  "benchmark_id": "membench",
+  "benchmark_name": "MemBench",
+  "version": "mini",
+  "split": "validation",
+  "description": "Tiny vendored fixture reserved for MemBench parity plumbing.",
+  "items": [
+    {
+      "item_id": "membench-mini-001",
+      "question_id": "mb-mini-001",
+      "query": "What benchmark fact should be recalled?",
+      "claim_class": "raw",
+      "gold_answer": "recalled benchmark fact",
+      "metadata": {
+        "topic": "benchmark",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "item_id": "membench-mini-002",
+      "question_id": "mb-mini-002",
+      "query": "Which benchmark answer should be selected?",
+      "claim_class": "hybrid",
+      "gold_answer": "select the benchmark answer",
+      "metadata": {
+        "topic": "selection",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}
