@@ -15018,7 +15018,8 @@ fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let rag_enabled = rag_url.is_some();
-    let worker_name = default_bundle_worker_name(&args.agent, Some(&session));
+    let worker_name =
+        default_bundle_worker_name_for_project(Some(&project), &args.agent, Some(&session));
     let config = BundleConfig {
         schema_version: 2,
         project: project.clone(),
@@ -19047,8 +19048,22 @@ fn build_hive_heartbeat(
         next_recovery.as_deref(),
     );
     let task_id = derive_hive_task_id(&scope_claims, topic_claim.as_deref());
-    let worker_name = derive_hive_worker_name(agent.as_deref(), session.as_deref());
-    let display_name = derive_hive_display_name(agent.as_deref(), session.as_deref());
+    let worker_name = infer_worker_agent_from_env().or_else(|| {
+        agent.as_deref().map(|value| {
+            default_bundle_worker_name_for_project(runtime.project.as_deref(), value, session.as_deref())
+        })
+    });
+    let display_name = if worker_name
+        .as_deref()
+        .is_some_and(hive_worker_name_is_generic)
+    {
+        derive_hive_display_name(
+            worker_name.as_deref().or(agent.as_deref()),
+            session.as_deref(),
+        )
+    } else {
+        None
+    };
     let lane_id = derive_hive_lane_id(branch.as_deref(), worktree_root.as_deref());
     Ok(BundleHeartbeatState {
         session: session.clone(),
@@ -31820,6 +31835,9 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
+    let bundle_config = read_bundle_config_file(output).ok().map(|(_, config)| config);
+    let bundle_session = bundle_config.as_ref().and_then(|config| config.session.clone());
+    let bundle_project = bundle_config.as_ref().and_then(|config| config.project.as_deref());
     if project_hive_enabled {
         script.push_str(&format!(
             "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
@@ -31845,7 +31863,8 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         ));
         script.push_str(&format!(
             "export MEMD_WORKER_NAME=\"{}\"\n",
-            compact_bundle_value(&default_bundle_worker_name(
+            compact_bundle_value(&default_bundle_worker_name_for_project(
+                bundle_project,
                 env_agent,
                 bundle_session.as_deref()
             ))
@@ -31886,9 +31905,9 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
-    let bundle_session = read_bundle_config_file(output)
-        .ok()
-        .and_then(|(_, config)| config.session);
+    let bundle_config = read_bundle_config_file(output).ok().map(|(_, config)| config);
+    let bundle_session = bundle_config.as_ref().and_then(|config| config.session.clone());
+    let bundle_project = bundle_config.as_ref().and_then(|config| config.project.as_deref());
     if project_hive_enabled {
         script.push_str(&format!(
             "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
@@ -31914,7 +31933,8 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         ));
         script.push_str(&format!(
             "$env:MEMD_WORKER_NAME = \"{}\"\n",
-            escape_ps1(&default_bundle_worker_name(
+            escape_ps1(&default_bundle_worker_name_for_project(
+                bundle_project,
                 env_agent,
                 bundle_session.as_deref()
             ))
@@ -36333,15 +36353,11 @@ fn hive_worker_name_is_generic(value: &str) -> bool {
 }
 
 fn derive_hive_display_name(agent: Option<&str>, session: Option<&str>) -> Option<String> {
-    let agent = agent
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+    let agent = agent.map(str::trim).filter(|value| !value.is_empty())?;
     if !hive_worker_name_is_generic(agent) {
         return None;
     }
-    let session = session
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+    let session = session.map(str::trim).filter(|value| !value.is_empty())?;
     let session_suffix = session
         .strip_prefix("session-")
         .or_else(|| session.strip_prefix("codex-"))
@@ -36358,12 +36374,37 @@ fn derive_hive_display_name(agent: Option<&str>, session: Option<&str>) -> Optio
     Some(format!("{base} {}", session_suffix))
 }
 
+fn derive_project_scoped_worker_name(
+    project: Option<&str>,
+    agent: &str,
+    session: Option<&str>,
+) -> Option<String> {
+    if !hive_worker_name_is_generic(agent) {
+        return None;
+    }
+    let project = project
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(humanize_worker_label)?;
+    let generic = derive_hive_display_name(Some(agent), session)?;
+    Some(format!("{project} {generic}"))
+}
+
 fn default_bundle_worker_name(agent: &str, session: Option<&str>) -> String {
     derive_hive_display_name(Some(agent), session)
         .or_else(|| {
             derive_hive_worker_name(Some(agent), session).map(|value| humanize_worker_label(&value))
         })
         .unwrap_or_else(|| humanize_worker_label(agent))
+}
+
+fn default_bundle_worker_name_for_project(
+    project: Option<&str>,
+    agent: &str,
+    session: Option<&str>,
+) -> String {
+    derive_project_scoped_worker_name(project, agent, session)
+        .unwrap_or_else(|| default_bundle_worker_name(agent, session))
 }
 
 fn hive_actor_label(
@@ -38311,7 +38352,8 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
 
     let session = config.session.clone();
     let effective_agent = compose_agent_identity(agent, session.as_deref());
-    let worker_name = default_bundle_worker_name(agent, session.as_deref());
+    let worker_name =
+        default_bundle_worker_name_for_project(config.project.as_deref(), agent, session.as_deref());
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_AGENT=",
@@ -38355,7 +38397,8 @@ fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result<()> {
 
     let agent = config.agent.as_deref().unwrap_or("unknown");
     let effective_agent = compose_agent_identity(agent, Some(session));
-    let worker_name = default_bundle_worker_name(agent, Some(session));
+    let worker_name =
+        default_bundle_worker_name_for_project(config.project.as_deref(), agent, Some(session));
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_SESSION=",
@@ -38650,10 +38693,13 @@ fn write_bundle_config_file(config_path: &Path, config: &BundleConfigFile) -> an
 }
 
 fn expected_bundle_worker_name(config: &BundleConfigFile) -> Option<String> {
-    config
-        .agent
-        .as_deref()
-        .map(|agent| default_bundle_worker_name(agent, config.session.as_deref()))
+    config.agent.as_deref().map(|agent| {
+        default_bundle_worker_name_for_project(
+            config.project.as_deref(),
+            agent,
+            config.session.as_deref(),
+        )
+    })
 }
 
 fn parse_shell_env_value(value: &str) -> Option<String> {
@@ -46132,7 +46178,7 @@ mod tests {
 
         let env_path = output.join("env");
         let env_contents = fs::read_to_string(&env_path).expect("read env");
-        assert!(env_contents.contains("MEMD_WORKER_NAME='Codex proof-alpha'"));
+        assert!(env_contents.contains("MEMD_WORKER_NAME='Demo Codex proof-alpha'"));
 
         let shell_script = format!(
             ". {}\nprintf '%s' \"$MEMD_WORKER_NAME\"\n",
@@ -46150,7 +46196,7 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8_lossy(&source.stdout),
-            "Codex proof-alpha"
+            "Demo Codex proof-alpha"
         );
 
         fs::remove_dir_all(root).expect("cleanup temp project");
@@ -47885,6 +47931,140 @@ mod tests {
         assert!(summary.contains("owned review-parser status=active"));
         assert!(summary.contains("## Receipts"));
         assert!(summary.contains("queen_handoff actor=Anscombe"));
+    }
+
+    #[test]
+    fn render_hive_follow_watch_frame_includes_timestamp_and_summary() {
+        let response = HiveFollowResponse {
+            current_session: Some("session-current".to_string()),
+            target: memd_schema::HiveSessionRecord {
+                session: "session-lorentz".to_string(),
+                tab_id: None,
+                agent: Some("codex".to_string()),
+                effective_agent: Some("Lorentz@session-lorentz".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("reviewer".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("reviewer".to_string()),
+                capabilities: vec!["review".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("lane-review".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: Some("/repo".to_string()),
+                worktree_root: Some("/repo-review".to_string()),
+                branch: Some("review/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: None,
+                topic_claim: Some("Review parser handoff".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("review-parser".to_string()),
+                focus: Some("Review overlap guard output".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Reply with review notes".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: None,
+                risk: Some("medium".to_string()),
+                status: "active".to_string(),
+                last_seen: Utc::now(),
+            },
+            work_summary: "Review parser handoff".to_string(),
+            touch_points: vec!["crates/memd-client/src/main.rs".to_string()],
+            next_action: Some("Reply with review notes".to_string()),
+            messages: Vec::new(),
+            owned_tasks: Vec::new(),
+            help_tasks: Vec::new(),
+            review_tasks: Vec::new(),
+            recent_receipts: Vec::new(),
+            overlap_risk: None,
+            recommended_action: "safe_to_continue".to_string(),
+        };
+
+        let frame = render_hive_follow_watch_frame(
+            &response,
+            DateTime::parse_from_rfc3339("2026-04-09T22:30:00Z")
+                .expect("parse timestamp")
+                .with_timezone(&Utc),
+        );
+        assert!(frame.contains("== hive follow 2026-04-09T22:30:00+00:00 =="));
+        assert!(frame.contains("hive_follow worker=Lorentz session=session-lorentz"));
+    }
+
+    #[test]
+    fn build_hive_heartbeat_prefers_explicit_worker_name_env() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-heartbeat-worker-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "openclaw",
+  "session": "session-openclaw",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+
+        unsafe {
+            std::env::set_var("MEMD_WORKER_NAME", "Openclaw");
+        }
+        let heartbeat = build_hive_heartbeat(&dir, None).expect("build heartbeat");
+        unsafe {
+            std::env::remove_var("MEMD_WORKER_NAME");
+        }
+
+        assert_eq!(heartbeat.worker_name.as_deref(), Some("Openclaw"));
+        assert!(heartbeat.display_name.is_none());
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn build_hive_heartbeat_uses_project_scoped_worker_name_for_generic_agents() {
+        let dir = std::env::temp_dir()
+            .join(format!("memd-heartbeat-generic-worker-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "memd",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-6d422e56",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+
+        let heartbeat = build_hive_heartbeat(&dir, None).expect("build heartbeat");
+
+        assert_eq!(
+            heartbeat.worker_name.as_deref(),
+            Some("Memd Codex 6d422e56")
+        );
+        assert!(heartbeat.display_name.is_none());
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
 
     #[test]
@@ -53090,6 +53270,50 @@ mod tests {
         unsafe {
             std::env::remove_var("MEMD_WORKER_NAME");
         }
+    }
+
+    #[test]
+    fn default_bundle_worker_name_prefers_session_backed_label_for_generic_agents() {
+        assert_eq!(
+            default_bundle_worker_name("codex", Some("session-6d422e56")),
+            "Codex 6d422e56"
+        );
+        assert_eq!(
+            default_bundle_worker_name("claude-code", Some("session-review-a")),
+            "Claude review-a"
+        );
+        assert_eq!(
+            default_bundle_worker_name("openclaw", Some("lane-a")),
+            "Openclaw"
+        );
+    }
+
+    #[test]
+    fn default_bundle_worker_name_for_project_prefers_project_scoped_label_for_generic_agents() {
+        assert_eq!(
+            default_bundle_worker_name_for_project(
+                Some("memd"),
+                "codex",
+                Some("session-6d422e56")
+            ),
+            "Memd Codex 6d422e56"
+        );
+        assert_eq!(
+            default_bundle_worker_name_for_project(
+                Some("demo"),
+                "claude-code",
+                Some("session-review-a")
+            ),
+            "Demo Claude review-a"
+        );
+        assert_eq!(
+            default_bundle_worker_name_for_project(
+                Some("memd"),
+                "openclaw",
+                Some("lane-a")
+            ),
+            "Openclaw"
+        );
     }
 
     #[test]
