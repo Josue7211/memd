@@ -3203,6 +3203,13 @@ mod tests {
             .with_state(state)
     }
 
+    fn test_hive_session_router(state: AppState) -> Router {
+        Router::new()
+            .route("/coordination/sessions/upsert", post(post_hive_session_upsert))
+            .route("/coordination/sessions", get(get_hive_sessions))
+            .with_state(state)
+    }
+
     fn seed_hive_route_state(state: &AppState) {
         state
             .store
@@ -3241,6 +3248,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: Some("Review overlap alerts".to_string()),
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -3290,6 +3299,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: Some("Request review".to_string()),
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: true,
                 handoff_state: None,
@@ -3456,6 +3467,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: Some("Wait for parser ack".to_string()),
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -3512,6 +3525,117 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hive_session_routes_round_trip_working_and_touches() {
+        let (dir, state) = temp_state("memd-hive-session-roundtrip");
+        let app = test_hive_session_router(state);
+        let request = HiveSessionUpsertRequest {
+            session: "bee-transport".to_string(),
+            tab_id: Some("tab-a".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@bee-transport".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            worker_name: Some("Lorentz".to_string()),
+            display_name: Some("Lorentz".to_string()),
+            role: Some("worker".to_string()),
+            capabilities: vec!["coding".to_string()],
+            hive_groups: vec!["project:memd".to_string()],
+            lane_id: Some("parser-lane".to_string()),
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            heartbeat_model: Some("gpt-5.4".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            repo_root: Some("/tmp/memd".to_string()),
+            worktree_root: Some("/tmp/memd-live-cowork-slice1".to_string()),
+            branch: Some("feature/live-cowork-slice1".to_string()),
+            base_branch: Some("main".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
+            host: Some("workstation".to_string()),
+            pid: Some(4242),
+            topic_claim: Some("Parser lane refactor".to_string()),
+            scope_claims: vec![
+                "task:parser-refactor".to_string(),
+                "crates/memd-client/src/main.rs".to_string(),
+            ],
+            task_id: Some("parser-refactor".to_string()),
+            focus: Some("Refine parser overlap flow".to_string()),
+            pressure: None,
+            next_recovery: None,
+            status: Some("active".to_string()),
+            next_action: Some("Request review".to_string()),
+            working: Some("Refine parser overlap flow".to_string()),
+            touches: vec![
+                "task:parser-refactor".to_string(),
+                "file:crates/memd-client/src/main.rs".to_string(),
+            ],
+            needs_help: false,
+            needs_review: true,
+            handoff_state: None,
+            confidence: Some("0.9".to_string()),
+            risk: None,
+        };
+
+        let upsert_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/coordination/sessions/upsert")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&request).expect("serialize upsert request"),
+                    ))
+                    .expect("build upsert request"),
+            )
+            .await
+            .expect("run upsert route");
+        assert_eq!(upsert_response.status(), StatusCode::OK);
+        let upsert_body: HiveSessionsResponse = decode_json(upsert_response).await;
+        assert_eq!(upsert_body.sessions.len(), 1);
+        assert_eq!(
+            upsert_body.sessions[0].working.as_deref(),
+            Some("Refine parser overlap flow")
+        );
+        assert_eq!(
+            upsert_body.sessions[0].touches,
+            vec![
+                "task:parser-refactor".to_string(),
+                "file:crates/memd-client/src/main.rs".to_string(),
+            ]
+        );
+
+        let get_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/coordination/sessions?session=bee-transport&project=memd&namespace=main&workspace=shared&active_only=false&limit=8")
+                    .body(Body::empty())
+                    .expect("build get request"),
+            )
+            .await
+            .expect("run get route");
+        assert_eq!(get_response.status(), StatusCode::OK);
+        let get_body: HiveSessionsResponse = decode_json(get_response).await;
+        assert_eq!(get_body.sessions.len(), 1);
+        assert_eq!(
+            get_body.sessions[0].working.as_deref(),
+            Some("Refine parser overlap flow")
+        );
+        assert_eq!(
+            get_body.sessions[0].touches,
+            vec![
+                "task:parser-refactor".to_string(),
+                "file:crates/memd-client/src/main.rs".to_string(),
+            ]
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
     async fn hive_board_route_auto_retires_stale_sessions() {
         let (dir, state) = temp_state("memd-hive-board-auto-retire");
         state
@@ -3551,6 +3675,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
