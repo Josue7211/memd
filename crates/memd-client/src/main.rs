@@ -15754,6 +15754,14 @@ fn project_awareness_entry_to_hive_session(
 
 async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRosterResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let awareness_response = build_hive_roster_from_awareness(&awareness, runtime.as_ref());
     let base_url = resolve_bundle_command_base_url(
         &default_base_url(),
         runtime
@@ -15768,19 +15776,32 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
     }))
     .await
     {
+        let response_sessions = response
+            .bees
+            .iter()
+            .map(|bee| bee.session.as_str())
+            .collect::<BTreeSet<_>>();
+        let awareness_has_extra = awareness_response
+            .bees
+            .iter()
+            .any(|bee| !response_sessions.contains(bee.session.as_str()));
+        if awareness_has_extra {
+            return Ok(awareness_response);
+        }
         return Ok(response);
     }
 
-    let awareness = read_project_awareness(&AwarenessArgs {
-        output: args.output.clone(),
-        root: None,
-        include_current: true,
-        summary: false,
-    })
-    .await?;
+    Ok(awareness_response)
+}
+
+fn build_hive_roster_from_awareness(
+    awareness: &ProjectAwarenessResponse,
+    runtime: Option<&BundleRuntimeConfig>,
+) -> HiveRosterResponse {
     let visible_entries = filter_project_awareness_entries_for_hive_scope(
-        &project_awareness_visible_entries(&awareness),
-        runtime.as_ref(),
+        &awareness.current_bundle,
+        &project_awareness_visible_entries(awareness),
+        runtime,
     );
     let queen_session = visible_entries
         .iter()
@@ -15802,10 +15823,10 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
         .collect::<Vec<_>>();
     let bees = annotate_hive_relationships(
         bees,
-        runtime.as_ref().and_then(|config| config.session.as_deref()),
+        runtime.and_then(|config| config.session.as_deref()),
     );
 
-    Ok(HiveRosterResponse {
+    HiveRosterResponse {
         project: visible_entries
             .iter()
             .find_map(|entry| entry.project.clone())
@@ -15816,7 +15837,7 @@ async fn run_hive_roster_command(args: &HiveRosterArgs) -> anyhow::Result<HiveRo
             .unwrap_or_else(|| "default".to_string()),
         queen_session,
         bees,
-    })
+    }
 }
 
 fn annotate_hive_relationships(
@@ -16153,14 +16174,14 @@ fn finalize_hive_follow_response(
         .filter(|value| !value.trim().is_empty())
     {
         response.work_summary = working.to_string();
-    } else if response.work_summary.trim().is_empty() || response.work_summary == "none" {
-        if let Some(entry) = target_entry {
-            response.work_summary = entry
-                .working
-                .clone()
-                .or_else(|| response.target.topic_claim.clone())
-                .unwrap_or_else(|| awareness_work_quickview(entry));
-        }
+    } else if let Some(entry) = target_entry {
+        response.work_summary = entry
+            .working
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| response.target.topic_claim.clone())
+            .unwrap_or_else(|| awareness_work_quickview(entry));
     }
 
     if !response.target.touches.is_empty() {
@@ -16225,6 +16246,7 @@ async fn run_hive_handoff_command(
     })
     .await?;
     let visible_entries = filter_project_awareness_entries_for_hive_scope(
+        &awareness.current_bundle,
         &project_awareness_visible_entries(&awareness),
         runtime.as_ref(),
     );
@@ -16662,6 +16684,7 @@ fn resolve_hive_follow_target<'a>(
 }
 
 fn filter_project_awareness_entries_for_hive_scope<'a>(
+    current_bundle: &str,
     entries: &[&'a ProjectAwarenessEntry],
     runtime: Option<&BundleRuntimeConfig>,
 ) -> Vec<&'a ProjectAwarenessEntry> {
@@ -16683,15 +16706,28 @@ fn filter_project_awareness_entries_for_hive_scope<'a>(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let current_entry = entries
+        .iter()
+        .copied()
+        .find(|entry| entry.bundle_root == current_bundle);
     let filtered = entries
         .iter()
         .copied()
         .filter(|entry| {
-            project.is_none_or(|value| entry.project.as_deref().map(str::trim) == Some(value))
+            let shared_group = current_entry.is_some_and(|current| {
+                entry.bundle_root == current.bundle_root
+                    || entry
+                        .hive_groups
+                        .iter()
+                        .any(|group| current.hive_groups.iter().any(|mine| mine == group))
+            });
+            let same_scope = project
+                .is_none_or(|value| entry.project.as_deref().map(str::trim) == Some(value))
                 && namespace
                     .is_none_or(|value| entry.namespace.as_deref().map(str::trim) == Some(value))
                 && workspace
-                    .is_none_or(|value| entry.workspace.as_deref().map(str::trim) == Some(value))
+                    .is_none_or(|value| entry.workspace.as_deref().map(str::trim) == Some(value));
+            shared_group || same_scope
         })
         .collect::<Vec<_>>();
     if filtered.is_empty() {
@@ -17660,13 +17696,13 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
         ) {
             (Some(state), Some(peer)) => format!("{state}:{peer}"),
             (Some(state), None) => state.to_string(),
-            _ => "clear".to_string(),
+            _ => "none".to_string(),
         };
         let action = bee
             .suggested_action
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or("continue");
+            .unwrap_or("none");
         lines.push(format!(
             "- {} ({}) role={} lane={} task={} work=\"{}\" touches={} relation={} action={} blocked_by={} cowork_with={} handoff_target={} status={}",
             worker,
