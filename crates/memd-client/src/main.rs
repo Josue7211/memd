@@ -16428,6 +16428,22 @@ fn infer_service_agent_from_path(path: &Path) -> Option<String> {
     }
 }
 
+fn infer_worker_agent_from_env() -> Option<String> {
+    [
+        "MEMD_WORKER_NAME",
+        "MEMD_AGENT_NAME",
+        "CODEX_WORKER_NAME",
+        "CLAUDE_WORKER_NAME",
+    ]
+    .into_iter()
+    .find_map(|key| {
+        std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
 fn maybe_explicit_hive_output(args: &HiveArgs) -> Option<PathBuf> {
     let default_init_output = default_init_output_path();
     let default_global_output = default_global_bundle_root();
@@ -16548,6 +16564,7 @@ async fn run_hive_command(args: &HiveArgs) -> anyhow::Result<HiveWireResponse> {
     let inferred_agent = args
         .agent
         .clone()
+        .or_else(infer_worker_agent_from_env)
         .or_else(|| {
             args.project_root
                 .as_deref()
@@ -52664,6 +52681,17 @@ mod tests {
             infer_service_agent_from_path(Path::new("/tmp/workspace")).as_deref(),
             Some("openclaw")
         );
+    }
+
+    #[test]
+    fn infer_worker_agent_from_env_prefers_explicit_worker_name() {
+        unsafe {
+            std::env::set_var("MEMD_WORKER_NAME", "Avicenna");
+        }
+        assert_eq!(infer_worker_agent_from_env().as_deref(), Some("Avicenna"));
+        unsafe {
+            std::env::remove_var("MEMD_WORKER_NAME");
+        }
     }
 
     #[test]
