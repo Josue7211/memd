@@ -15678,6 +15678,14 @@ fn derive_awareness_lane_id(entry: &ProjectAwarenessEntry) -> Option<String> {
 fn project_awareness_entry_to_hive_session(
     entry: &ProjectAwarenessEntry,
 ) -> memd_schema::HiveSessionRecord {
+    let working = entry
+        .topic_claim
+        .clone()
+        .or_else(|| Some(awareness_work_quickview(entry)));
+    let touches = awareness_touch_points(entry)
+        .into_iter()
+        .filter_map(|value| normalize_hive_touch(&value))
+        .collect::<Vec<_>>();
     memd_schema::HiveSessionRecord {
         session: entry
             .session
@@ -15719,8 +15727,8 @@ fn project_awareness_entry_to_hive_session(
             .next_recovery
             .as_deref()
             .and_then(simplify_awareness_work_text),
-        working: None,
-        touches: Vec::new(),
+        working,
+        touches,
         relationship_state: None,
         relationship_peer: None,
         relationship_reason: None,
@@ -17382,7 +17390,11 @@ fn render_hive_roster_summary(response: &HiveRosterResponse) -> String {
             bee.capabilities.join(",")
         };
         let mut metadata = Vec::new();
-        if let Some(working) = bee.working.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(working) = bee
+            .working
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             metadata.push(format!("work=\"{}\"", working));
         }
         if !bee.touches.is_empty() {
@@ -19189,8 +19201,16 @@ async fn enrich_hive_heartbeat_with_runtime_intent(
             state.display_name =
                 derive_hive_display_name(state.agent.as_deref(), state.session.as_deref());
         }
+        if state
+            .working
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            state.working = derive_hive_working(None, None, None, Some(task.title.as_str()));
+        }
         for scope in &task.claim_scopes {
             push_unique_touch_point(&mut state.scope_claims, scope);
+            push_normalized_hive_touch(&mut state.touches, scope);
         }
     }
     Ok(())
@@ -19281,6 +19301,41 @@ fn build_hive_heartbeat(
                 .as_ref()
                 .and_then(|value| value.next_recovery.clone())
         });
+    let mut touch_candidates = Vec::new();
+    if let Some(snapshot) = snapshot {
+        touch_candidates.extend(
+            snapshot
+                .working
+                .records
+                .iter()
+                .map(|record| record.record.clone()),
+        );
+        touch_candidates.extend(
+            snapshot
+                .inbox
+                .items
+                .iter()
+                .map(|item| item.item.content.clone()),
+        );
+        touch_candidates.extend(
+            snapshot
+                .working
+                .rehydration_queue
+                .iter()
+                .map(|item| format!("{}: {}", item.label, item.summary)),
+        );
+    }
+    if let Some(resume_state) = resume_state.as_ref() {
+        for candidate in [
+            resume_state.focus.clone(),
+            resume_state.pressure.clone(),
+            resume_state.next_recovery.clone(),
+        ] {
+            if let Some(value) = candidate {
+                touch_candidates.push(value);
+            }
+        }
+    }
     let topic_claim = derive_hive_topic_claim(
         focus.as_deref(),
         next_recovery.as_deref(),
@@ -19292,10 +19347,21 @@ fn build_hive_heartbeat(
         pressure.as_deref(),
         next_recovery.as_deref(),
     );
+    let working = derive_hive_working(
+        focus.as_deref(),
+        next_recovery.as_deref(),
+        pressure.as_deref(),
+        None,
+    );
+    let touches = derive_hive_touches(claims_state.as_ref(), &touch_candidates);
     let task_id = derive_hive_task_id(&scope_claims, topic_claim.as_deref());
     let worker_name = infer_worker_agent_from_env().or_else(|| {
         agent.as_deref().map(|value| {
-            default_bundle_worker_name_for_project(runtime.project.as_deref(), value, session.as_deref())
+            default_bundle_worker_name_for_project(
+                runtime.project.as_deref(),
+                value,
+                session.as_deref(),
+            )
         })
     });
     let display_name = if worker_name
@@ -19364,6 +19430,8 @@ fn build_hive_heartbeat(
             next_recovery.as_deref(),
             pressure.as_deref(),
         ),
+        working,
+        touches,
         needs_help: false,
         needs_review: false,
         handoff_state: None,
@@ -26908,7 +26976,10 @@ fn render_longmemeval_haystack_text(value: &JsonValue) -> String {
         .flat_map(|turns| turns.iter())
         .filter_map(|turn| {
             let role = turn.get("role").and_then(JsonValue::as_str).unwrap_or("");
-            let content = turn.get("content").and_then(JsonValue::as_str).unwrap_or("");
+            let content = turn
+                .get("content")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("");
             if role.is_empty() && content.is_empty() {
                 None
             } else {
@@ -26925,7 +26996,12 @@ fn render_locomo_conversation_text(value: &JsonValue) -> String {
         let mut session_indexes = conversation
             .keys()
             .filter_map(|key| key.strip_prefix("session_"))
-            .filter_map(|suffix| suffix.split_once('_').map(|(index, _)| index).or(Some(suffix)))
+            .filter_map(|suffix| {
+                suffix
+                    .split_once('_')
+                    .map(|(index, _)| index)
+                    .or(Some(suffix))
+            })
             .filter_map(|index| index.parse::<usize>().ok())
             .collect::<BTreeSet<_>>();
         if session_indexes.is_empty() {
@@ -26951,7 +27027,8 @@ fn render_locomo_conversation_text(value: &JsonValue) -> String {
 }
 
 fn render_membench_message_list_text(value: &JsonValue) -> String {
-    value.as_array()
+    value
+        .as_array()
         .into_iter()
         .flatten()
         .filter_map(JsonValue::as_array)
@@ -26960,7 +27037,9 @@ fn render_membench_message_list_text(value: &JsonValue) -> String {
             let user = turn.get("user_message").and_then(JsonValue::as_str);
             let assistant = turn.get("assistant_message").and_then(JsonValue::as_str);
             match (user, assistant) {
-                (Some(user), Some(assistant)) => Some(format!("user: {user}\nassistant: {assistant}")),
+                (Some(user), Some(assistant)) => {
+                    Some(format!("user: {user}\nassistant: {assistant}"))
+                }
                 (Some(user), None) => Some(format!("user: {user}")),
                 (None, Some(assistant)) => Some(format!("assistant: {assistant}")),
                 (None, None) => None,
@@ -26971,7 +27050,8 @@ fn render_membench_message_list_text(value: &JsonValue) -> String {
 }
 
 fn render_convomem_conversation_text(value: &JsonValue) -> String {
-    value.as_array()
+    value
+        .as_array()
         .into_iter()
         .flatten()
         .filter_map(JsonValue::as_object)
@@ -26987,7 +27067,10 @@ fn render_convomem_conversation_text(value: &JsonValue) -> String {
                         .get("speaker")
                         .and_then(JsonValue::as_str)
                         .unwrap_or("unknown");
-                    let text = message.get("text").and_then(JsonValue::as_str).unwrap_or("");
+                    let text = message
+                        .get("text")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("");
                     format!("{speaker}: {text}")
                 })
                 .collect::<Vec<_>>()
@@ -27008,9 +27091,7 @@ fn locomo_category_name(category: i64) -> &'static str {
 }
 
 fn json_stringish_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<String> {
-    let value = row
-        .get(key)
-        .ok_or_else(|| anyhow!("missing {key} field"))?;
+    let value = row.get(key).ok_or_else(|| anyhow!("missing {key} field"))?;
     match value {
         JsonValue::String(value) => Ok(value.clone()),
         JsonValue::Number(value) => Ok(value.to_string()),
@@ -27020,9 +27101,7 @@ fn json_stringish_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<Str
 }
 
 fn json_stringish_or_array_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<String> {
-    let value = row
-        .get(key)
-        .ok_or_else(|| anyhow!("missing {key} field"))?;
+    let value = row.get(key).ok_or_else(|| anyhow!("missing {key} field"))?;
     match value {
         JsonValue::Array(items) => Ok(items
             .iter()
@@ -27092,7 +27171,10 @@ fn normalize_locomo_dataset(
             .with_context(|| format!("normalize {} sample_id", path.display()))?;
         let conversation = row.get("conversation").cloned().unwrap_or(JsonValue::Null);
         let conversation_text = render_locomo_conversation_text(&conversation);
-        let session_summary = row.get("session_summary").cloned().unwrap_or(JsonValue::Null);
+        let session_summary = row
+            .get("session_summary")
+            .cloned()
+            .unwrap_or(JsonValue::Null);
         let qa_rows = row
             .get("qa")
             .and_then(JsonValue::as_array)
@@ -27149,12 +27231,18 @@ fn normalize_membench_dataset(
             .as_array()
             .ok_or_else(|| anyhow!("normalize {} membench topic array", path.display()))?;
         for entry in entries {
-            let tid = entry.get("tid").and_then(JsonValue::as_i64).unwrap_or_default();
+            let tid = entry
+                .get("tid")
+                .and_then(JsonValue::as_i64)
+                .unwrap_or_default();
             let qa = entry
                 .get("QA")
                 .or_else(|| entry.get("qa"))
                 .ok_or_else(|| anyhow!("normalize {} membench QA object", path.display()))?;
-            let qid = qa.get("qid").and_then(JsonValue::as_i64).unwrap_or_default();
+            let qid = qa
+                .get("qid")
+                .and_then(JsonValue::as_i64)
+                .unwrap_or_default();
             let query = json_stringish_field(qa, "question")
                 .with_context(|| format!("normalize {} QA.question", path.display()))?;
             let gold_answer = json_stringish_or_array_field(qa, "answer")
@@ -27245,10 +27333,12 @@ fn load_public_benchmark_dataset(
     path: &Path,
 ) -> anyhow::Result<PublicBenchmarkDatasetFixture> {
     let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let value =
-        serde_json::from_str::<JsonValue>(&raw).with_context(|| format!("parse {}", path.display()))?;
+    let value = serde_json::from_str::<JsonValue>(&raw)
+        .with_context(|| format!("parse {}", path.display()))?;
     match value {
-        JsonValue::Object(value) if benchmark_id == "membench" && value.get("benchmark_id").is_none() => {
+        JsonValue::Object(value)
+            if benchmark_id == "membench" && value.get("benchmark_id").is_none() =>
+        {
             normalize_membench_dataset(path, &JsonValue::Object(value))
         }
         JsonValue::Object(_) => serde_json::from_str::<PublicBenchmarkDatasetFixture>(&raw)
@@ -27256,14 +27346,15 @@ fn load_public_benchmark_dataset(
         JsonValue::Array(rows) if benchmark_id == "longmemeval" => {
             normalize_longmemeval_dataset(path, &rows)
         }
-        JsonValue::Array(rows) if benchmark_id == "locomo" => {
-            normalize_locomo_dataset(path, &rows)
-        }
+        JsonValue::Array(rows) if benchmark_id == "locomo" => normalize_locomo_dataset(path, &rows),
         JsonValue::Array(_) => anyhow::bail!(
             "benchmark `{benchmark_id}` array dataset format is not normalized yet for {}",
             path.display()
         ),
-        _ => anyhow::bail!("unsupported public benchmark dataset format in {}", path.display()),
+        _ => anyhow::bail!(
+            "unsupported public benchmark dataset format in {}",
+            path.display()
+        ),
     }
 }
 
@@ -27384,9 +27475,12 @@ async fn download_public_benchmark_dataset(
     output: &Path,
     source: &PublicBenchmarkDatasetSource,
 ) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
-    let source_url = source
-        .source_url
-        .ok_or_else(|| anyhow!("benchmark `{}` does not expose an auto-download URL", source.benchmark_id))?;
+    let source_url = source.source_url.ok_or_else(|| {
+        anyhow!(
+            "benchmark `{}` does not expose an auto-download URL",
+            source.benchmark_id
+        )
+    })?;
     let entry_dir = public_benchmark_dataset_entry_dir(output, source.benchmark_id);
     fs::create_dir_all(&entry_dir).with_context(|| format!("create {}", entry_dir.display()))?;
     let dataset_path =
@@ -27400,7 +27494,8 @@ async fn download_public_benchmark_dataset(
         .bytes()
         .await
         .with_context(|| format!("read dataset bytes {source_url}"))?;
-    fs::write(&dataset_path, &bytes).with_context(|| format!("write {}", dataset_path.display()))?;
+    fs::write(&dataset_path, &bytes)
+        .with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
     let verification_status =
         validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
@@ -27486,7 +27581,8 @@ async fn download_membench_dataset(
     )
     .with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
-    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    let verification_status =
+        validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
     write_public_benchmark_dataset_cache_metadata(
         output,
         &PublicBenchmarkDatasetCacheMetadata {
@@ -27521,8 +27617,7 @@ async fn download_convomem_dataset(
         "preference_evidence",
         "implicit_connection_evidence",
     ];
-    let tree_url =
-        "https://huggingface.co/api/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions?recursive=true";
+    let tree_url = "https://huggingface.co/api/datasets/Salesforce/ConvoMem/tree/main/core_benchmark/evidence_questions?recursive=true";
     let tree = reqwest::get(tree_url)
         .await
         .context("download ConvoMem tree api")?
@@ -27554,7 +27649,8 @@ async fn download_convomem_dataset(
     let mut evidence_items = Vec::new();
     let mut byte_count = 0usize;
     for path in &sample_paths {
-        let url = format!("https://huggingface.co/datasets/Salesforce/ConvoMem/resolve/main/{path}");
+        let url =
+            format!("https://huggingface.co/datasets/Salesforce/ConvoMem/resolve/main/{path}");
         let response = reqwest::get(&url)
             .await
             .with_context(|| format!("download dataset {url}"))?
@@ -27576,17 +27672,26 @@ async fn download_convomem_dataset(
         let items = value
             .get("evidence_items")
             .and_then(JsonValue::as_array)
-            .ok_or_else(|| anyhow!("ConvoMem source {} missing evidence_items", raw_path.display()))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "ConvoMem source {} missing evidence_items",
+                    raw_path.display()
+                )
+            })?;
         evidence_items.extend(items.iter().cloned());
     }
 
     let fixture = normalize_convomem_evidence_items(&evidence_items)?;
     let dataset_path =
         public_benchmark_dataset_cache_path(output, source.benchmark_id, source.default_filename);
-    fs::write(&dataset_path, serde_json::to_string_pretty(&fixture)? + "\n")
-        .with_context(|| format!("write {}", dataset_path.display()))?;
+    fs::write(
+        &dataset_path,
+        serde_json::to_string_pretty(&fixture)? + "\n",
+    )
+    .with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
-    let verification_status = validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
+    let verification_status =
+        validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
     write_public_benchmark_dataset_cache_metadata(
         output,
         &PublicBenchmarkDatasetCacheMetadata {
@@ -27835,11 +27940,10 @@ fn rank_public_benchmark_corpus(
 ) -> Vec<usize> {
     let query_tokens = tokenize_public_benchmark_text(query);
     let stop_words = [
-        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
-        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
-        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
-        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought", "made",
-        "make",
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have", "has",
+        "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their", "it", "its",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last", "that", "this",
+        "there", "about", "get", "got", "give", "gave", "buy", "bought", "made", "make",
     ]
     .into_iter()
     .map(str::to_string)
@@ -27858,7 +27962,10 @@ fn rank_public_benchmark_corpus(
             let mut score = overlap;
             if mode == "hybrid" && !keywords.is_empty() {
                 let doc_lower = document.to_ascii_lowercase();
-                let keyword_hits = keywords.iter().filter(|kw| doc_lower.contains(kw.as_str())).count();
+                let keyword_hits = keywords
+                    .iter()
+                    .filter(|kw| doc_lower.contains(kw.as_str()))
+                    .count();
                 score += (keyword_hits as f64 / keywords.len() as f64) * 0.30;
             }
             if corpus_ids.get(index).is_some_and(|id| id.contains("_abs")) {
@@ -27867,7 +27974,12 @@ fn rank_public_benchmark_corpus(
             (index, score)
         })
         .collect::<Vec<_>>();
-    scored.sort_by(|left, right| right.1.total_cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    scored.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| left.0.cmp(&right.0))
+    });
     scored.into_iter().map(|(index, _)| index).collect()
 }
 
@@ -27878,9 +27990,7 @@ fn build_public_benchmark_retrieval_config(
     let longmemeval_backend = match requested_backend {
         "lexical" => LongMemEvalRetrievalBackend::Lexical,
         "sidecar" => LongMemEvalRetrievalBackend::Sidecar,
-        other => anyhow::bail!(
-            "invalid retrieval backend `{other}`; expected lexical or sidecar"
-        ),
+        other => anyhow::bail!("invalid retrieval backend `{other}`; expected lexical or sidecar"),
     };
 
     let sidecar_base_url = if longmemeval_backend == LongMemEvalRetrievalBackend::Sidecar {
@@ -27916,7 +28026,9 @@ fn rank_longmemeval_corpus(
                 .sidecar_base_url
                 .as_deref()
                 .context("sidecar retrieval backend selected without a sidecar base url")?;
-            rank_longmemeval_corpus_via_sidecar(base_url, query, corpus, corpus_ids, mode, namespace)
+            rank_longmemeval_corpus_via_sidecar(
+                base_url, query, corpus, corpus_ids, mode, namespace,
+            )
         }
     }
 }
@@ -28086,9 +28198,10 @@ fn build_longmemeval_run_report(
 
     for item in &dataset.items {
         let item_started = Instant::now();
-        let answer_session_ids = public_benchmark_string_vec(item.metadata.get("answer_session_ids"))
-            .into_iter()
-            .collect::<BTreeSet<_>>();
+        let answer_session_ids =
+            public_benchmark_string_vec(item.metadata.get("answer_session_ids"))
+                .into_iter()
+                .collect::<BTreeSet<_>>();
         let (session_corpus, session_corpus_ids, session_timestamps) =
             build_longmemeval_session_corpus(item);
         let session_ranked = rank_longmemeval_corpus(
@@ -28112,7 +28225,10 @@ fn build_longmemeval_run_report(
             retrieval_config,
             &format!("{}-turn", item.question_id),
         )?;
-        let turn_rankings = turn_ranked.iter().map(|(index, _)| *index).collect::<Vec<_>>();
+        let turn_rankings = turn_ranked
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>();
         let turn_answer_ids = turn_corpus_ids
             .iter()
             .filter(|id| {
@@ -28135,8 +28251,14 @@ fn build_longmemeval_run_report(
             *session_recall_sums.entry(k).or_insert(0.0) += session_recall_any;
             *session_recall_all_sums.entry(k).or_insert(0.0) += session_recall_all;
             *session_ndcg_sums.entry(k).or_insert(0.0) += session_ndcg;
-            session_metrics.insert(format!("recall_any@{k}"), JsonValue::from(session_recall_any));
-            session_metrics.insert(format!("recall_all@{k}"), JsonValue::from(session_recall_all));
+            session_metrics.insert(
+                format!("recall_any@{k}"),
+                JsonValue::from(session_recall_any),
+            );
+            session_metrics.insert(
+                format!("recall_all@{k}"),
+                JsonValue::from(session_recall_all),
+            );
             session_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(session_ndcg));
 
             let (turn_recall_any, turn_recall_all, turn_ndcg) = evaluate_ranked_longmemeval_ids(
@@ -30827,6 +30949,8 @@ fn execute_helper_verifier_step(
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -34980,9 +35104,15 @@ fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String 
         "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
-    let bundle_config = read_bundle_config_file(output).ok().map(|(_, config)| config);
-    let bundle_session = bundle_config.as_ref().and_then(|config| config.session.clone());
-    let bundle_project = bundle_config.as_ref().and_then(|config| config.project.as_deref());
+    let bundle_config = read_bundle_config_file(output)
+        .ok()
+        .map(|(_, config)| config);
+    let bundle_session = bundle_config
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let bundle_project = bundle_config
+        .as_ref()
+        .and_then(|config| config.project.as_deref());
     if project_hive_enabled {
         script.push_str(&format!(
             "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
@@ -35050,9 +35180,15 @@ fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
         "$env:MEMD_BUNDLE_ROOT = \"{}\"\n$bundleBackendEnv = Join-Path $env:MEMD_BUNDLE_ROOT \"backend.env.ps1\"\nif (Test-Path $bundleBackendEnv) {{ . $bundleBackendEnv }}\n. (Join-Path $env:MEMD_BUNDLE_ROOT \"env.ps1\")\n",
         escape_ps1(output.to_string_lossy().as_ref()),
     );
-    let bundle_config = read_bundle_config_file(output).ok().map(|(_, config)| config);
-    let bundle_session = bundle_config.as_ref().and_then(|config| config.session.clone());
-    let bundle_project = bundle_config.as_ref().and_then(|config| config.project.as_deref());
+    let bundle_config = read_bundle_config_file(output)
+        .ok()
+        .map(|(_, config)| config);
+    let bundle_session = bundle_config
+        .as_ref()
+        .and_then(|config| config.session.clone());
+    let bundle_project = bundle_config
+        .as_ref()
+        .and_then(|config| config.project.as_deref());
     if project_hive_enabled {
         script.push_str(&format!(
             "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",
@@ -39436,6 +39572,45 @@ fn push_unique_touch_point(touches: &mut Vec<String>, value: &str) {
     touches.push(trimmed.to_string());
 }
 
+fn normalize_hive_touch(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(scope) = trimmed.strip_prefix("scope=") {
+        return normalize_hive_touch(scope);
+    }
+    if let Some(location) = trimmed.strip_prefix("location=") {
+        return normalize_hive_touch(location);
+    }
+    if let Some(path) = trimmed.strip_prefix("file:") {
+        let path = path.trim();
+        return (!path.is_empty()).then(|| format!("file:{path}"));
+    }
+    if let Some(path) = trimmed.strip_prefix("file_edited:") {
+        let path = path.trim();
+        return (!path.is_empty()).then(|| format!("file:{path}"));
+    }
+    if let Some(task) = trimmed.strip_prefix("task:") {
+        let task = task.trim();
+        return (!task.is_empty()).then(|| format!("task:{task}"));
+    }
+    if let Some(topic) = trimmed.strip_prefix("topic:") {
+        let topic = topic.trim();
+        return (!topic.is_empty()).then(|| format!("topic:{topic}"));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Some(format!("file:{trimmed}"));
+    }
+    Some(trimmed.to_string())
+}
+
+fn push_normalized_hive_touch(touches: &mut Vec<String>, value: &str) {
+    if let Some(normalized) = normalize_hive_touch(value) {
+        push_unique_touch_point(touches, &normalized);
+    }
+}
+
 fn derive_hive_topic_claim(
     focus: Option<&str>,
     next_recovery: Option<&str>,
@@ -39601,6 +39776,46 @@ fn derive_hive_next_action(
         }
     }
     None
+}
+
+fn derive_hive_working(
+    focus: Option<&str>,
+    next_recovery: Option<&str>,
+    pressure: Option<&str>,
+    task_title: Option<&str>,
+) -> Option<String> {
+    task_title
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| compact_inline(value, 120))
+        .or_else(|| focus.and_then(simplify_awareness_work_text))
+        .or_else(|| next_recovery.and_then(simplify_awareness_work_text))
+        .or_else(|| pressure.and_then(simplify_awareness_work_text))
+}
+
+fn derive_hive_touches(
+    claims_state: Option<&SessionClaimsState>,
+    touch_candidates: &[String],
+) -> Vec<String> {
+    let mut touches = Vec::new();
+    if let Some(claims_state) = claims_state {
+        for claim in claims_state
+            .claims
+            .iter()
+            .filter(|claim| claim.expires_at > Utc::now())
+        {
+            push_normalized_hive_touch(&mut touches, &claim.scope);
+        }
+    }
+    for candidate in touch_candidates {
+        let mut extracted = Vec::new();
+        append_awareness_touch_points(candidate, &mut extracted);
+        for touch in extracted {
+            push_normalized_hive_touch(&mut touches, &touch);
+        }
+    }
+    touches.truncate(8);
+    touches
 }
 
 fn derive_hive_lane_id(branch: Option<&str>, worktree_root: Option<&str>) -> Option<String> {
@@ -41509,8 +41724,11 @@ fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
 
     let session = config.session.clone();
     let effective_agent = compose_agent_identity(agent, session.as_deref());
-    let worker_name =
-        default_bundle_worker_name_for_project(config.project.as_deref(), agent, session.as_deref());
+    let worker_name = default_bundle_worker_name_for_project(
+        config.project.as_deref(),
+        agent,
+        session.as_deref(),
+    );
     rewrite_env_assignment(
         &output.join("env"),
         "MEMD_AGENT=",
@@ -41908,8 +42126,11 @@ fn repair_bundle_worker_name_env(output: &Path) -> anyhow::Result<bool> {
     let Some(expected_worker_name) = expected_bundle_worker_name(&config) else {
         return Ok(false);
     };
-    let shell_ready =
-        bundle_env_assignment_matches(&output.join("env"), "MEMD_WORKER_NAME=", &expected_worker_name);
+    let shell_ready = bundle_env_assignment_matches(
+        &output.join("env"),
+        "MEMD_WORKER_NAME=",
+        &expected_worker_name,
+    );
     let ps1_ready = bundle_env_assignment_matches(
         &output.join("env.ps1"),
         "$env:MEMD_WORKER_NAME = ",
@@ -44217,6 +44438,10 @@ struct BundleHeartbeatState {
     next_recovery: Option<String>,
     #[serde(default)]
     next_action: Option<String>,
+    #[serde(default)]
+    working: Option<String>,
+    #[serde(default)]
+    touches: Vec<String>,
     #[serde(default)]
     needs_help: bool,
     #[serde(default)]
@@ -50118,6 +50343,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -51339,7 +51566,9 @@ mod tests {
 
         let summary = render_hive_roster_summary(&response);
         assert!(summary.contains("work=\"fixing hive group visibility\""));
-        assert!(summary.contains("touches=file:crates/memd-client/src/main.rs,task:hive-awareness"));
+        assert!(
+            summary.contains("touches=file:crates/memd-client/src/main.rs,task:hive-awareness")
+        );
         assert!(summary.contains("relation=near:Clawcontrol"));
         assert!(summary.contains("action=cowork"));
     }
@@ -51779,8 +52008,10 @@ mod tests {
     #[test]
     fn build_hive_heartbeat_uses_project_scoped_worker_name_for_generic_agents() {
         let _env_lock = lock_env_mutation();
-        let dir = std::env::temp_dir()
-            .join(format!("memd-heartbeat-generic-worker-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "memd-heartbeat-generic-worker-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -52208,10 +52439,8 @@ mod tests {
 
     #[tokio::test]
     async fn hive_handoff_is_visible_in_target_inbox_and_follow_surfaces() {
-        let dir = std::env::temp_dir().join(format!(
-            "memd-hive-handoff-follow-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-handoff-follow-{}", uuid::Uuid::new_v4()));
         let sender_output = dir.join("sender/.memd");
         let target_output = dir.join("target/.memd");
         fs::create_dir_all(&sender_output).expect("create sender output dir");
@@ -53170,6 +53399,8 @@ mod tests {
             pressure: Some("Avoid memory drift".to_string()),
             next_recovery: None,
             next_action: None,
+            working: None,
+            touches: Vec::new(),
             needs_help: false,
             needs_review: false,
             handoff_state: None,
@@ -53294,6 +53525,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -53379,6 +53612,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -53497,6 +53732,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -53566,6 +53803,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -53814,6 +54053,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -54712,8 +54953,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_bundle_memory_files_prunes_stale_compiled_memory_outputs() {
-        let dir = std::env::temp_dir()
-            .join(format!("memd-memory-prune-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-memory-prune-{}", uuid::Uuid::new_v4()));
         let compiled = dir.join("compiled").join("memory");
         let stale_item = compiled.join("items/working/working-99-deadbeef.md");
         let stale_lane = compiled.join("obsolete.md");
@@ -56065,6 +56305,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -57334,11 +57576,7 @@ mod tests {
     #[test]
     fn default_bundle_worker_name_for_project_prefers_project_scoped_label_for_generic_agents() {
         assert_eq!(
-            default_bundle_worker_name_for_project(
-                Some("memd"),
-                "codex",
-                Some("session-6d422e56")
-            ),
+            default_bundle_worker_name_for_project(Some("memd"), "codex", Some("session-6d422e56")),
             "Memd Codex 6d422e56"
         );
         assert_eq!(
@@ -57350,11 +57588,7 @@ mod tests {
             "Demo Claude review-a"
         );
         assert_eq!(
-            default_bundle_worker_name_for_project(
-                Some("memd"),
-                "openclaw",
-                Some("lane-a")
-            ),
+            default_bundle_worker_name_for_project(Some("memd"), "openclaw", Some("lane-a")),
             "Openclaw"
         );
     }
@@ -57810,6 +58044,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -58454,6 +58690,8 @@ mod tests {
                 pressure: Some("Keep the hive lane clean".to_string()),
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -60203,6 +60441,10 @@ mod tests {
             heartbeat.topic_claim.as_deref(),
             Some("Refine parser overlap flow")
         );
+        assert_eq!(
+            heartbeat.working.as_deref(),
+            Some("Refine parser overlap flow")
+        );
         assert_eq!(heartbeat.display_name.as_deref(), Some("Codex a"));
         assert!(
             heartbeat
@@ -60210,6 +60452,133 @@ mod tests {
                 .iter()
                 .any(|scope| scope == "task:parser-refactor")
         );
+        assert!(
+            heartbeat
+                .touches
+                .iter()
+                .any(|touch| touch == "task:parser-refactor")
+        );
+        assert!(
+            heartbeat
+                .touches
+                .iter()
+                .any(|touch| touch == "file:crates/memd-client/src/main.rs")
+        );
+    }
+
+    #[tokio::test]
+    async fn build_hive_heartbeat_sets_working_and_normalized_touches() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-heartbeat-working-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join(".memd")).expect("create bundle");
+        write_test_bundle_config(&dir.join(".memd"), "http://127.0.0.1:8787");
+
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex@codex-a".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![
+                    memd_schema::CompactMemoryRecord {
+                        id: uuid::Uuid::new_v4(),
+                        record: "Fix hive group visibility".to_string(),
+                    },
+                    memd_schema::CompactMemoryRecord {
+                        id: uuid::Uuid::new_v4(),
+                        record: "file_edited:crates/memd-client/src/main.rs".to_string(),
+                    },
+                ],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "scope=task:hive-awareness".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: Vec::new(),
+                    },
+                    reasons: Vec::new(),
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: Some(1),
+            refresh_recommended: false,
+        };
+
+        let heartbeat =
+            build_hive_heartbeat(&dir.join(".memd"), Some(&snapshot)).expect("build heartbeat");
+
+        assert_eq!(
+            heartbeat.working.as_deref(),
+            Some("Fix hive group visibility")
+        );
+        assert_eq!(
+            heartbeat.touches,
+            vec![
+                "file:crates/memd-client/src/main.rs".to_string(),
+                "task:hive-awareness".to_string(),
+            ]
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup bundle");
     }
 
     #[tokio::test]
@@ -60693,6 +61062,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -60816,6 +61187,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -60933,14 +61306,16 @@ mod tests {
                 pid: None,
                 topic_claim: None,
                 scope_claims: Vec::new(),
-            task_id: None,
-            focus: None,
-            pressure: None,
-            next_recovery: None,
-            next_action: None,
-            needs_help: false,
-            needs_review: false,
-            handoff_state: None,
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                working: None,
+                touches: Vec::new(),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
                 confidence: None,
                 risk: None,
                 status: "live".to_string(),
@@ -61059,6 +61434,8 @@ mod tests {
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
@@ -61514,9 +61891,11 @@ mod tests {
         let source = public_benchmark_dataset_source("longmemeval").expect("catalog entry");
         assert_eq!(source.benchmark_id, "longmemeval");
         assert_eq!(source.access_mode, "auto-download");
-        assert!(source
-            .source_url
-            .is_some_and(|url| url.ends_with("longmemeval_s_cleaned.json")));
+        assert!(
+            source
+                .source_url
+                .is_some_and(|url| url.ends_with("longmemeval_s_cleaned.json"))
+        );
         assert_eq!(
             source.expected_checksum,
             Some("sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442")
@@ -61529,9 +61908,11 @@ mod tests {
         let source = public_benchmark_dataset_source("locomo").expect("catalog entry");
         assert_eq!(source.benchmark_id, "locomo");
         assert_eq!(source.access_mode, "auto-download");
-        assert!(source
-            .source_url
-            .is_some_and(|url| url.contains("/snap-research/locomo/")));
+        assert!(
+            source
+                .source_url
+                .is_some_and(|url| url.contains("/snap-research/locomo/"))
+        );
         assert_eq!(
             source.expected_checksum,
             Some("sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4")
@@ -61544,9 +61925,9 @@ mod tests {
         let source = public_benchmark_dataset_source("convomem").expect("catalog entry");
         assert_eq!(source.benchmark_id, "convomem");
         assert_eq!(source.access_mode, "auto-download");
-        assert!(source
-            .source_url
-            .is_some_and(|url| url.contains("huggingface.co/datasets/Salesforce/ConvoMem/tree/main")));
+        assert!(source.source_url.is_some_and(|url| {
+            url.contains("huggingface.co/datasets/Salesforce/ConvoMem/tree/main")
+        }));
         assert_eq!(source.default_filename, "convomem-evidence-sample.json");
         assert_eq!(source.expected_checksum, None);
         assert_eq!(source.split, "evidence-sample");
@@ -61557,9 +61938,11 @@ mod tests {
         let source = public_benchmark_dataset_source("membench").expect("catalog entry");
         assert_eq!(source.benchmark_id, "membench");
         assert_eq!(source.access_mode, "auto-download");
-        assert!(source
-            .source_url
-            .is_some_and(|url| url.contains("/import-myself/Membench/")));
+        assert!(
+            source
+                .source_url
+                .is_some_and(|url| url.contains("/import-myself/Membench/"))
+        );
         assert_eq!(source.default_filename, "membench-firstagent.json");
         assert_eq!(source.expected_checksum, None);
         assert_eq!(source.split, "FirstAgent");
@@ -61589,9 +61972,11 @@ mod tests {
         })
         .await
         .expect_err("unknown benchmark should be rejected");
-        assert!(error
-            .to_string()
-            .contains("no public benchmark dataset source is registered"));
+        assert!(
+            error
+                .to_string()
+                .contains("no public benchmark dataset source is registered")
+        );
 
         fs::remove_dir_all(dir).expect("cleanup manual-required dir");
     }
@@ -61684,11 +62069,13 @@ mod tests {
                 .map(Vec::len),
             Some(1)
         );
-        assert!(dataset.items[0]
-            .metadata
-            .get("haystack_text")
-            .and_then(JsonValue::as_str)
-            .is_some_and(|text| text.contains("GPS failed after service")));
+        assert!(
+            dataset.items[0]
+                .metadata
+                .get("haystack_text")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|text| text.contains("GPS failed after service"))
+        );
 
         fs::remove_dir_all(dir).expect("cleanup normalize dir");
     }
@@ -61750,11 +62137,13 @@ mod tests {
                 .and_then(JsonValue::as_str),
             Some("Temporal")
         );
-        assert!(dataset.items[0]
-            .metadata
-            .get("conversation_text")
-            .and_then(JsonValue::as_str)
-            .is_some_and(|text| text.contains("Caroline: I went to the LGBTQ support group")));
+        assert!(
+            dataset.items[0]
+                .metadata
+                .get("conversation_text")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|text| text.contains("Caroline: I went to the LGBTQ support group"))
+        );
 
         fs::remove_dir_all(dir).expect("cleanup normalize dir");
     }
@@ -61857,8 +62246,7 @@ mod tests {
         )
         .expect("write synthetic membench");
 
-        let dataset =
-            load_public_benchmark_dataset("membench", &path).expect("normalize dataset");
+        let dataset = load_public_benchmark_dataset("membench", &path).expect("normalize dataset");
         assert_eq!(dataset.benchmark_id, "membench");
         assert_eq!(dataset.version, "upstream");
         assert_eq!(dataset.items.len(), 1);
@@ -61879,11 +62267,13 @@ mod tests {
                 .map(Vec::len),
             Some(1)
         );
-        assert!(dataset.items[0]
-            .metadata
-            .get("conversation_text")
-            .and_then(JsonValue::as_str)
-            .is_some_and(|text| text.contains("user: I like courtroom dramas.")));
+        assert!(
+            dataset.items[0]
+                .metadata
+                .get("conversation_text")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|text| text.contains("user: I like courtroom dramas."))
+        );
 
         fs::remove_dir_all(dir).expect("cleanup normalize dir");
     }
@@ -61921,11 +62311,13 @@ mod tests {
                 .and_then(JsonValue::as_str),
             Some("user_evidence")
         );
-        assert!(fixture.items[0]
-            .metadata
-            .get("conversation_text")
-            .and_then(JsonValue::as_str)
-            .is_some_and(|text| text.contains("User: I use green for hot leads")));
+        assert!(
+            fixture.items[0]
+                .metadata
+                .get("conversation_text")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|text| text.contains("User: I use green for hot leads"))
+        );
     }
 
     #[test]
@@ -62042,7 +62434,10 @@ mod tests {
         )
         .expect("sidecar longmemeval report");
 
-        assert_eq!(report.metrics.get("session_recall_any@1").copied(), Some(1.0));
+        assert_eq!(
+            report.metrics.get("session_recall_any@1").copied(),
+            Some(1.0)
+        );
         assert_eq!(
             report.items[0]
                 .ranked_items
@@ -62222,9 +62617,7 @@ mod tests {
             Some("resume next step")
         );
         assert_eq!(
-            first_row
-                .get("observed_answer")
-                .and_then(JsonValue::as_str),
+            first_row.get("observed_answer").and_then(JsonValue::as_str),
             Some("resume next step")
         );
         assert_eq!(
@@ -65236,6 +65629,8 @@ mod tests {
             pressure: Some("Avoid claim collisions".to_string()),
             next_recovery: None,
             next_action: None,
+            working: None,
+            touches: Vec::new(),
             needs_help: false,
             needs_review: false,
             handoff_state: None,
