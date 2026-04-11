@@ -1,6 +1,82 @@
-use super::*;
+use std::{
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
-pub(crate) fn obsidian_path_is_internal(path: &Path) -> bool {
+use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
+
+use crate::obsidian::{normalized_title, ObsidianAttachment, ObsidianNote};
+
+pub(crate) fn default_sync_state_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("obsidian-sync.json")
+}
+
+pub(crate) fn default_scan_cache_path(vault: &Path) -> PathBuf {
+    vault.join(".memd").join("obsidian-scan-cache.json")
+}
+
+pub(crate) fn hash_content(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+pub(crate) fn hash_bytes(content: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    format!("{:x}", hasher.finalize())
+}
+
+pub(crate) fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
+    value.into()
+}
+
+pub(crate) fn classify_asset_kind(path: &Path, mime: Option<&str>) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.trim().to_ascii_lowercase());
+
+    match (ext.as_deref(), mime) {
+        (Some("pdf"), _) | (_, Some("application/pdf")) => "pdf",
+        (Some("png"), _)
+        | (Some("jpg"), _)
+        | (Some("jpeg"), _)
+        | (Some("webp"), _)
+        | (Some("heic"), _) => "image",
+        (Some("mp4"), _)
+        | (Some("mov"), _)
+        | (Some("mkv"), _)
+        | (Some("webm"), _)
+        | (_, Some("video/mp4"))
+        | (_, Some("video/webm")) => "video",
+        (Some("csv"), _) | (Some("tsv"), _) | (Some("xlsx"), _) | (_, Some("text/csv")) => "table",
+        (Some("tex"), _) | (Some("mml"), _) | (_, Some("application/mathml+xml")) => "equation",
+        (Some("txt"), _)
+        | (Some("json"), _)
+        | (Some("yaml"), _)
+        | (Some("yml"), _)
+        | (Some("log"), _)
+        | (Some("toml"), _)
+        | (_, Some("text/plain")) => "text",
+        _ => "unknown",
+    }
+}
+
+pub(crate) fn is_text_like_attachment(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "txt" | "json" | "yaml" | "yml" | "csv" | "tsv" | "log" | "toml" | "ini"
+            )
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn should_skip_vault_path(path: &Path) -> bool {
     path.components().any(|component| {
         matches!(
             component,
@@ -10,165 +86,60 @@ pub(crate) fn obsidian_path_is_internal(path: &Path) -> bool {
     })
 }
 
-pub(crate) fn workspace_path_is_internal(path: &Path) -> bool {
-    path.components().any(|component| {
-        matches!(
-            component,
-            std::path::Component::Normal(name)
-                if name == ".memd"
-                    || name == ".git"
-                    || name == "target"
-                    || name == "node_modules"
-                    || name == "watch.out"
-                    || name == "memd-watch.log"
-                    || name == "memd-watch.err"
-        )
-    })
-}
-
-pub(crate) fn workspace_path_should_trigger(path: &Path) -> bool {
-    if workspace_path_is_internal(path) {
-        return false;
-    }
-
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("");
-    if matches!(
-        file_name,
-        "Cargo.toml"
-            | "Cargo.lock"
-            | "Makefile"
-            | "Dockerfile"
-            | "README"
-            | "README.md"
-            | "AGENTS.md"
-            | "CLAUDE.md"
-            | "ROADMAP.md"
-            | "DESIGN.md"
-            | "CONTRIBUTING.md"
-            | "CHANGELOG.md"
-    ) {
-        return true;
-    }
-
-    match path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_ascii_lowercase())
-    {
-        Some(ext)
-            if matches!(
-                ext.as_str(),
-                "rs" | "toml"
-                    | "md"
-                    | "sh"
-                    | "ps1"
-                    | "json"
-                    | "yml"
-                    | "yaml"
-                    | "js"
-                    | "ts"
-                    | "tsx"
-                    | "py"
-                    | "go"
-                    | "c"
-                    | "h"
-                    | "cpp"
-                    | "css"
-                    | "html"
-                    | "txt"
-                    | "lock"
-            ) =>
-        {
-            true
-        }
-        _ => false,
-    }
-}
-
-pub(crate) fn count_obsidian_mirrors(vault: &Path, kind: &str) -> anyhow::Result<usize> {
-    let root = vault.join(".memd").join("writeback").join(kind);
-    if !root.exists() {
-        return Ok(0);
-    }
-    let mut count = 0usize;
-    for entry in walkdir::WalkDir::new(root)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-    {
-        if entry.file_type().is_file() {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
-pub(crate) fn resolve_pack_bundle_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
-    if let Some(explicit) = explicit {
-        return Ok(explicit.to_path_buf());
-    }
-
-    Ok(resolve_default_bundle_root()?.unwrap_or_else(default_bundle_root_path))
-}
-
-pub(crate) fn read_request<T>(input: &RequestInput) -> anyhow::Result<T>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let json = if let Some(json) = &input.json {
-        json.clone()
-    } else if let Some(path) = &input.input {
-        fs::read_to_string(path).with_context(|| format!("read request file {}", path.display()))?
-    } else if input.stdin {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .context("read request from stdin")?;
-        buffer
+pub(crate) fn note_matches_scope(
+    note: &ObsidianNote,
+    include_folders: &[String],
+    exclude_folders: &[String],
+    include_tags: &[String],
+    exclude_tags: &[String],
+) -> bool {
+    let folder = note.folder_path.as_deref().unwrap_or_default();
+    let folder_ok = if include_folders.is_empty() {
+        true
     } else {
-        anyhow::bail!("provide --json, --input, or --stdin");
+        include_folders
+            .iter()
+            .any(|candidate| folder_matches(folder, candidate))
     };
+    let folder_blocked = exclude_folders
+        .iter()
+        .any(|candidate| folder_matches(folder, candidate));
 
-    serde_json::from_str(&json).context("parse request json")
+    let tag_ok = if include_tags.is_empty() {
+        true
+    } else {
+        note.tags.iter().any(|tag| include_tags.contains(tag))
+    };
+    let tag_blocked = note.tags.iter().any(|tag| exclude_tags.contains(tag));
+
+    folder_ok && !folder_blocked && tag_ok && !tag_blocked
 }
 
-pub(crate) fn print_json<T>(value: &T) -> anyhow::Result<()>
-where
-    T: serde::Serialize,
-{
-    let json = serde_json::to_string_pretty(value).context("serialize response json")?;
-    println!("{json}");
-    Ok(())
+pub(crate) fn attachment_matches_scope(
+    attachment: &ObsidianAttachment,
+    include_folders: &[String],
+    exclude_folders: &[String],
+) -> bool {
+    let folder = attachment.folder_path.as_deref().unwrap_or_default();
+    let folder_ok = if include_folders.is_empty() {
+        true
+    } else {
+        include_folders
+            .iter()
+            .any(|candidate| folder_matches(folder, candidate))
+    };
+    let folder_blocked = exclude_folders
+        .iter()
+        .any(|candidate| folder_matches(folder, candidate));
+
+    folder_ok && !folder_blocked
 }
 
-#[derive(Debug, Clone, Args)]
-pub(crate) struct RequestInput {
-    #[arg(long)]
-    pub(crate) json: Option<String>,
-
-    #[arg(long)]
-    pub(crate) input: Option<PathBuf>,
-
-    #[arg(long)]
-    pub(crate) stdin: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct ObsidianImportOutput {
-    pub(crate) preview: ObsidianImportPreview,
-    pub(crate) submitted: usize,
-    pub(crate) attachment_submitted: usize,
-    pub(crate) duplicates: usize,
-    pub(crate) attachment_duplicates: usize,
-    pub(crate) note_failures: usize,
-    pub(crate) attachment_failures: usize,
-    pub(crate) links_created: usize,
-    pub(crate) attachment_links_created: usize,
-    pub(crate) mirrored_notes: usize,
-    pub(crate) mirrored_attachments: usize,
-    pub(crate) attachments: Option<MultimodalIngestOutput>,
-    pub(crate) attachment_unchanged_count: usize,
-    pub(crate) dry_run: bool,
+pub(crate) fn folder_matches(folder: &str, candidate: &str) -> bool {
+    let folder = folder.trim_matches('/');
+    let candidate = candidate.trim_matches('/');
+    folder == candidate
+        || folder.starts_with(&format!("{candidate}/"))
+        || folder.ends_with(&format!("/{candidate}"))
+        || normalized_title(folder) == normalized_title(candidate)
 }
