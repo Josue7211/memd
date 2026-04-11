@@ -56,7 +56,7 @@ fn path_text_ends_with(value: impl AsRef<Path>, needle: &str) -> bool {
 
 fn public_benchmark_fixture_path(dataset: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../fixtures/public-benchmarks/{dataset}-mini.json"
+        "../../fixtures/{dataset}-mini.json"
     ))
 }
 

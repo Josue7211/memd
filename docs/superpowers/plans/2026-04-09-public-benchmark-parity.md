@@ -22,13 +22,13 @@
   - generated comparison table and claim status
 - Create: `docs/superpowers/specs/2026-04-09-public-benchmark-parity-design.md`
   - already written; source of truth for plan
-- Create: `fixtures/public-benchmarks/longmemeval-mini.json`
+- Create: `fixtures/longmemeval-mini.json`
   - tiny vendored test fixture for LongMemEval adapter tests
-- Create: `fixtures/public-benchmarks/locomo-mini.json`
+- Create: `fixtures/locomo-mini.json`
   - tiny vendored test fixture for LoCoMo adapter tests
-- Create: `fixtures/public-benchmarks/convomem-mini.json`
+- Create: `fixtures/convomem-mini.json`
   - tiny vendored test fixture for ConvoMem adapter tests
-- Create: `fixtures/public-benchmarks/membench-mini.json`
+- Create: `fixtures/membench-mini.json`
   - tiny vendored test fixture for MemBench adapter tests
 
 ### Task 1: Add the public benchmark CLI and shared schemas
@@ -166,7 +166,7 @@ git commit -m "feat: add public benchmark CLI and schemas"
 
 **Files:**
 - Modify: `crates/memd-client/src/main.rs`
-- Create: `fixtures/public-benchmarks/longmemeval-mini.json`
+- Create: `fixtures/longmemeval-mini.json`
 
 - [ ] **Step 1: Write the failing dataset cache test**
 
@@ -231,7 +231,7 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/memd-client/src/main.rs fixtures/public-benchmarks/longmemeval-mini.json
+git add crates/memd-client/src/main.rs fixtures/longmemeval-mini.json
 git commit -m "feat: add public benchmark dataset cache and manifest helpers"
 ```
 
@@ -246,7 +246,7 @@ git commit -m "feat: add public benchmark dataset cache and manifest helpers"
 ```rust
 #[test]
 fn longmemeval_raw_adapter_scores_mini_fixture() {
-    let fixture = PathBuf::from("fixtures/public-benchmarks/longmemeval-mini.json");
+    let fixture = PathBuf::from("fixtures/longmemeval-mini.json");
     let report = run_public_longmemeval_benchmark_for_test(&fixture, "raw", Some(1))
         .expect("run longmemeval raw adapter");
 
@@ -430,7 +430,7 @@ async fn run_public_longmemeval_command_writes_latest_artifacts() {
         &output,
         "longmemeval",
         "raw",
-        Path::new("fixtures/public-benchmarks/longmemeval-mini.json"),
+        Path::new("fixtures/longmemeval-mini.json"),
     )
     .await
     .expect("run public benchmark");
@@ -456,7 +456,7 @@ async fn run_public_benchmark_command(args: &PublicBenchmarkArgs) -> anyhow::Res
     let fixture = args
         .dataset_root
         .clone()
-        .unwrap_or_else(|| PathBuf::from(format!("fixtures/public-benchmarks/{dataset}-mini.json")));
+        .unwrap_or_else(|| PathBuf::from(format!("fixtures/{dataset}-mini.json")));
 
     let mut report = match dataset {
         "longmemeval" => run_public_longmemeval_benchmark_for_test(&fixture, mode, args.limit)?,
@@ -563,9 +563,9 @@ git commit -m "feat: add public benchmark leaderboard and claim policy"
 
 **Files:**
 - Modify: `crates/memd-client/src/main.rs`
-- Create: `fixtures/public-benchmarks/locomo-mini.json`
-- Create: `fixtures/public-benchmarks/convomem-mini.json`
-- Create: `fixtures/public-benchmarks/membench-mini.json`
+- Create: `fixtures/locomo-mini.json`
+- Create: `fixtures/convomem-mini.json`
+- Create: `fixtures/membench-mini.json`
 
 - [ ] **Step 1: Write the failing adapter inventory test**
 
@@ -612,7 +612,7 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/memd-client/src/main.rs fixtures/public-benchmarks/locomo-mini.json fixtures/public-benchmarks/convomem-mini.json fixtures/public-benchmarks/membench-mini.json
+git add crates/memd-client/src/main.rs fixtures/locomo-mini.json fixtures/convomem-mini.json fixtures/membench-mini.json
 git commit -m "chore: declare remaining public benchmark parity targets"
 ```
 
@@ -635,12 +635,12 @@ Expected: PASS
 
 - [ ] **Step 3: Smoke raw LongMemEval public benchmark**
 
-Run: `cargo run -p memd-client --bin memd -- benchmark public longmemeval --mode raw --dataset-root fixtures/public-benchmarks/longmemeval-mini.json --out .memd`
+Run: `cargo run -p memd-client --bin memd -- benchmark public longmemeval --mode raw --dataset-root fixtures/longmemeval-mini.json --out .memd`
 Expected: PASS and write `.memd/benchmarks/public/longmemeval/latest/`
 
 - [ ] **Step 4: Smoke hybrid LongMemEval public benchmark**
 
-Run: `cargo run -p memd-client --bin memd -- benchmark public longmemeval --mode hybrid --reranker test-reranker --dataset-root fixtures/public-benchmarks/longmemeval-mini.json --out .memd`
+Run: `cargo run -p memd-client --bin memd -- benchmark public longmemeval --mode hybrid --reranker test-reranker --dataset-root fixtures/longmemeval-mini.json --out .memd`
 Expected: PASS and emit a hybrid manifest with reranker metadata
 
 - [ ] **Step 5: Inspect artifacts**
@@ -651,6 +651,6 @@ Expected: `manifest.json`, `results.json`, `results.jsonl`, `report.md`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/memd-client/src/main.rs docs/verification/PUBLIC_BENCHMARKS.md docs/verification/PUBLIC_LEADERBOARD.md fixtures/public-benchmarks
+git add crates/memd-client/src/main.rs docs/verification/PUBLIC_BENCHMARKS.md docs/verification/PUBLIC_LEADERBOARD.md fixtures
 git commit -m "feat: ship first public benchmark parity lane"
 ```
