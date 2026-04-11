@@ -19,3 +19,5 @@
 /apps/site/.debug-home*.png
 .gstack/
 .codex
+
+.planning/
