@@ -3920,7 +3920,6 @@
     #[path = "evaluation_runtime_tests_bundle_state.rs"]
     mod evaluation_runtime_tests_bundle_state;
 
-    #[test]
     #[path = "evaluation_runtime_tests_awareness.rs"]
     mod evaluation_runtime_tests_awareness;
 
