@@ -269,6 +269,7 @@ pub(crate) async fn run_hive_follow_command(
 
 pub(crate) async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Result<()> {
     let mut last_snapshot = None::<String>;
+    let mut last_response = None::<HiveFollowResponse>;
     loop {
         let response = run_hive_follow_command(args).await?;
         let snapshot = if args.json {
@@ -280,10 +281,14 @@ pub(crate) async fn run_hive_follow_watch(args: &HiveFollowArgs) -> anyhow::Resu
             if args.json {
                 println!("{snapshot}");
             } else {
-                println!("{}", render_hive_follow_watch_frame(&response, Utc::now()));
+                println!(
+                    "{}",
+                    render_hive_follow_watch_frame(&response, last_response.as_ref(), Utc::now())
+                );
                 println!();
             }
             last_snapshot = Some(snapshot);
+            last_response = Some(response.clone());
         }
         tokio::time::sleep(Duration::from_secs(args.interval_secs.max(1))).await;
     }
