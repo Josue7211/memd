@@ -84,8 +84,30 @@ pub(crate) fn render_hive_roster_summary(response: &HiveRosterResponse) -> Strin
         } else {
             bee.capabilities.join(",")
         };
+        let work = bee
+            .working
+            .as_deref()
+            .or(bee.topic_claim.as_deref())
+            .unwrap_or("none");
+        let touches = if bee.touches.is_empty() {
+            "none".to_string()
+        } else {
+            bee.touches.join(",")
+        };
+        let relation = bee.relationship_state.as_deref().unwrap_or("none");
+        let action = bee.suggested_action.as_deref().unwrap_or("none");
+        let blocked_by = if bee.blocked_by.is_empty() {
+            "none".to_string()
+        } else {
+            bee.blocked_by.join(",")
+        };
+        let cowork_with = if bee.cowork_with.is_empty() {
+            "none".to_string()
+        } else {
+            bee.cowork_with.join(",")
+        };
         lines.push(format!(
-            "- {} ({}) role={} lane={} task={} caps={} status={}",
+            "- {} ({}) role={} lane={} task={} work=\"{}\" touches={} relation={} action={} blocked_by={} cowork_with={} handoff_target={} caps={} status={}",
             worker,
             bee.session,
             bee.role
@@ -94,6 +116,13 @@ pub(crate) fn render_hive_roster_summary(response: &HiveRosterResponse) -> Strin
                 .unwrap_or("worker"),
             lane,
             bee.task_id.as_deref().unwrap_or("none"),
+            compact_inline(work, 72),
+            touches,
+            relation,
+            action,
+            blocked_by,
+            cowork_with,
+            bee.handoff_target.as_deref().unwrap_or("none"),
             capabilities,
             bee.status,
         ));
@@ -130,7 +159,7 @@ pub(crate) fn render_hive_follow_summary(response: &HiveFollowResponse) -> Strin
             response.target.status,
         ),
         format!(
-            "work=\"{}\" touches={} next=\"{}\" overlap_risk={} recommended_action={}",
+            "work=\"{}\" touches={} next=\"{}\" overlap_risk={} recommended_action={} relation={} blocked_by={} cowork_with={} handoff_target={}",
             response.work_summary,
             if response.touch_points.is_empty() {
                 "none".to_string()
@@ -140,6 +169,18 @@ pub(crate) fn render_hive_follow_summary(response: &HiveFollowResponse) -> Strin
             response.next_action.as_deref().unwrap_or("none"),
             response.overlap_risk.as_deref().unwrap_or("none"),
             response.recommended_action,
+            response.target.relationship_state.as_deref().unwrap_or("none"),
+            if response.target.blocked_by.is_empty() {
+                "none".to_string()
+            } else {
+                response.target.blocked_by.join(",")
+            },
+            if response.target.cowork_with.is_empty() {
+                "none".to_string()
+            } else {
+                response.target.cowork_with.join(",")
+            },
+            response.target.handoff_target.as_deref().unwrap_or("none"),
         ),
     ];
 
@@ -439,6 +480,35 @@ pub(crate) fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> Str
     lines.join("\n")
 }
 
+pub(crate) fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> String {
+    let lines = vec![
+        format!(
+            "hive_cowork action={} from={} ({}) to={} ({}) task={} message_id={}",
+            response.packet.action,
+            response.packet.from_worker.as_deref().unwrap_or("unknown"),
+            response.packet.from_session,
+            response.packet.to_worker.as_deref().unwrap_or("unknown"),
+            response.packet.to_session,
+            response.packet.task_id.as_deref().unwrap_or("none"),
+            response.message_id.as_deref().unwrap_or("none"),
+        ),
+        format!(
+            "scope={} reason=\"{}\" note=\"{}\" receipt_kind={} follow=\"{}\"",
+            if response.packet.scope_claims.is_empty() {
+                "none".to_string()
+            } else {
+                response.packet.scope_claims.join(",")
+            },
+            response.packet.reason.as_deref().unwrap_or("none"),
+            response.packet.note.as_deref().unwrap_or("none"),
+            response.receipt_kind,
+            response.recommended_follow,
+        ),
+        format!("receipt_summary=\"{}\"", response.receipt_summary),
+    ];
+    lines.join("\n")
+}
+
 pub(crate) fn render_hive_queen_summary(response: &HiveQueenResponse) -> String {
     let mut lines = vec![format!(
         "hive_queen queen={} suggested={} cards={} receipts={}",
@@ -486,6 +556,9 @@ pub(crate) fn render_hive_queen_summary(response: &HiveQueenResponse) -> String 
             }
             if let Some(command) = card.retire_command.as_deref() {
                 commands.push(format!("retire=`{command}`"));
+            }
+            if let Some(command) = card.cowork_command.as_deref() {
+                commands.push(format!("cowork=`{command}`"));
             }
             if !commands.is_empty() {
                 lines.push(format!("  commands: {}", commands.join(" | ")));

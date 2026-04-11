@@ -747,6 +747,55 @@ pub(crate) fn suggest_coordination_actions(
         }
     }
 
+    let current_touch_scopes = claims
+        .iter()
+        .filter_map(|claim| normalize_hive_touch(&claim.scope))
+        .chain(
+            tasks
+                .iter()
+                .flat_map(|task| task.claim_scopes.iter())
+                .filter_map(|scope| normalize_hive_touch(scope)),
+        )
+        .collect::<Vec<_>>();
+
+    for hive in active_hives.iter().filter(|hive| {
+        hive.session
+            .as_deref()
+            .is_some_and(|session| session != current_session)
+    }) {
+        let Some(target_session) = hive.session.clone() else {
+            continue;
+        };
+        let shared = hive
+            .scope_claims
+            .iter()
+            .filter_map(|touch| normalize_hive_touch(touch))
+            .any(|touch| current_touch_scopes.iter().any(|scope| scope == &touch));
+        if !shared {
+            continue;
+        }
+        push_unique(
+            CoordinationSuggestion {
+                action: "request_cowork".to_string(),
+                priority: "low".to_string(),
+                target_session: Some(target_session.clone()),
+                task_id: hive.task_id.clone(),
+                scope: hive.scope_claims.first().cloned(),
+                message_id: None,
+                reason: format!(
+                    "Peer {} is near overlapping touch scopes; request a live cowork handshake before overlap widens.",
+                    hive.effective_agent
+                        .as_deref()
+                        .or(hive.agent.as_deref())
+                        .unwrap_or(target_session.as_str())
+                ),
+                stale_session: None,
+            },
+            &mut emitted,
+            &mut suggestions,
+        );
+    }
+
     if let Some(lane_fault) = lane_fault {
         let target_session = lane_fault
             .get("session")

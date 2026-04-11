@@ -21,6 +21,7 @@ pub(crate) struct HiveQueenActionCard {
     pub(crate) deny_command: Option<String>,
     pub(crate) reroute_command: Option<String>,
     pub(crate) retire_command: Option<String>,
+    pub(crate) cowork_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,10 +33,41 @@ pub(crate) struct HiveHandoffResponse {
     pub(crate) recommended_follow: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct HiveCoworkResponse {
+    pub(crate) packet: HiveCoworkPacket,
+    pub(crate) receipt_kind: String,
+    pub(crate) receipt_summary: String,
+    pub(crate) message_id: Option<String>,
+    pub(crate) recommended_follow: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct HiveCoworkPacket {
+    pub(crate) action: String,
+    pub(crate) from_session: String,
+    pub(crate) from_worker: Option<String>,
+    pub(crate) to_session: String,
+    pub(crate) to_worker: Option<String>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) scope_claims: Vec<String>,
+    pub(crate) reason: Option<String>,
+    pub(crate) note: Option<String>,
+    pub(crate) created_at: DateTime<Utc>,
+}
+
 pub(crate) async fn run_hive_roster_command(
     args: &HiveRosterArgs,
 ) -> anyhow::Result<HiveRosterResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let awareness_response = build_hive_roster_from_awareness(&awareness, runtime.as_ref());
     let base_url = resolve_bundle_command_base_url(
         &default_base_url(),
         runtime
@@ -50,19 +82,30 @@ pub(crate) async fn run_hive_roster_command(
     }))
     .await
     {
+        let response_sessions = response
+            .bees
+            .iter()
+            .map(|bee| bee.session.as_str())
+            .collect::<BTreeSet<_>>();
+        let awareness_has_extra = awareness_response
+            .bees
+            .iter()
+            .any(|bee| !response_sessions.contains(bee.session.as_str()));
+        if awareness_has_extra {
+            return Ok(awareness_response);
+        }
         return Ok(response);
     }
+    Ok(awareness_response)
+}
 
-    let awareness = read_project_awareness(&AwarenessArgs {
-        output: args.output.clone(),
-        root: None,
-        include_current: true,
-        summary: false,
-    })
-    .await?;
+fn build_hive_roster_from_awareness(
+    awareness: &ProjectAwarenessResponse,
+    runtime: Option<&BundleRuntimeConfig>,
+) -> HiveRosterResponse {
     let visible_entries = filter_project_awareness_entries_for_hive_scope(
-        &project_awareness_visible_entries(&awareness),
-        runtime.as_ref(),
+        &project_awareness_visible_entries(awareness),
+        runtime,
     );
     let queen_session = visible_entries
         .iter()
@@ -70,14 +113,11 @@ pub(crate) async fn run_hive_roster_command(
             matches!(
                 entry.hive_role.as_deref(),
                 Some("orchestrator" | "memory-control-plane")
-            ) || matches!(
-                entry.authority.as_deref(),
-                Some("coordinator" | "canonical")
-            )
+            ) || matches!(entry.authority.as_deref(), Some("coordinator" | "canonical"))
         })
         .and_then(|entry| entry.session.clone());
 
-    Ok(HiveRosterResponse {
+    HiveRosterResponse {
         project: visible_entries
             .iter()
             .find_map(|entry| entry.project.clone())
@@ -87,11 +127,13 @@ pub(crate) async fn run_hive_roster_command(
             .find_map(|entry| entry.namespace.clone())
             .unwrap_or_else(|| "default".to_string()),
         queen_session,
-        bees: visible_entries
-            .into_iter()
-            .map(project_awareness_entry_to_hive_session)
-            .collect(),
-    })
+        bees: annotate_hive_relationships(
+            visible_entries
+                .into_iter()
+                .map(project_awareness_entry_to_hive_session)
+                .collect(),
+        ),
+    }
 }
 
 pub(crate) async fn run_hive_follow_command(
@@ -222,13 +264,18 @@ pub(crate) async fn run_hive_follow_command(
     );
     let target = project_awareness_entry_to_hive_session(target_entry);
     let work_summary = target
-        .topic_claim
+        .working
         .clone()
+        .or_else(|| target.topic_claim.clone())
         .unwrap_or_else(|| awareness_work_quickview(target_entry));
-    let touch_points = if target.scope_claims.is_empty() {
-        awareness_touch_points(target_entry)
+    let touch_points = if target.touches.is_empty() {
+        if target.scope_claims.is_empty() {
+            awareness_touch_points(target_entry)
+        } else {
+            target.scope_claims.clone()
+        }
     } else {
-        target.scope_claims.clone()
+        target.touches.clone()
     };
     let next_action = target.next_action.clone().or_else(|| {
         target_entry
@@ -236,7 +283,9 @@ pub(crate) async fn run_hive_follow_command(
             .as_deref()
             .and_then(simplify_awareness_work_text)
     });
-    let recommended_action = if let Some(risk) = overlap_risk.as_deref() {
+    let recommended_action = if let Some(action) = target.suggested_action.clone() {
+        action
+    } else if let Some(risk) = overlap_risk.as_deref() {
         if risk.starts_with("unsafe hive cowork target collision") {
             "stop_and_reroute".to_string()
         } else {
@@ -472,6 +521,213 @@ pub(crate) async fn run_hive_handoff_command(
     })
 }
 
+pub(crate) async fn run_hive_cowork_command(
+    args: &HiveCoworkArgs,
+    base_url: &str,
+    action: &str,
+) -> anyhow::Result<HiveCoworkResponse> {
+    let runtime = read_bundle_runtime_config(&args.output)?;
+    ensure_shared_authority_write_allowed(runtime.as_ref(), "hive cowork")?;
+    let current_session = runtime
+        .as_ref()
+        .and_then(|config| config.session.clone())
+        .filter(|value| !value.trim().is_empty())
+        .context("hive cowork requires a configured bundle session")?;
+    let current_agent = runtime.as_ref().and_then(|config| {
+        config
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, config.session.as_deref()))
+    });
+    let project = runtime.as_ref().and_then(|config| config.project.clone());
+    let namespace = runtime.as_ref().and_then(|config| config.namespace.clone());
+    let awareness = read_project_awareness(&AwarenessArgs {
+        output: args.output.clone(),
+        root: None,
+        include_current: true,
+        summary: false,
+    })
+    .await?;
+    let visible_entries = filter_project_awareness_entries_for_hive_scope(
+        &project_awareness_visible_entries(&awareness),
+        runtime.as_ref(),
+    );
+    let current_entry = visible_entries
+        .iter()
+        .copied()
+        .find(|entry| entry.session.as_deref() == Some(current_session.as_str()));
+    let target_entry = resolve_hive_target_entry(
+        &visible_entries,
+        args.to_session.as_deref(),
+        args.to_worker.as_deref(),
+        "hive cowork",
+    )?;
+    let workspace = runtime
+        .as_ref()
+        .and_then(|config| config.workspace.clone())
+        .or_else(|| target_entry.workspace.clone());
+    let target_session = target_entry
+        .session
+        .clone()
+        .context("hive cowork target is missing a session id")?;
+    if target_session == current_session {
+        anyhow::bail!("hive cowork target must be another bee");
+    }
+
+    let resolved_base_url = resolve_bundle_command_base_url(
+        base_url,
+        runtime
+            .as_ref()
+            .and_then(|config| config.base_url.as_deref())
+            .or(target_entry.base_url.as_deref()),
+    );
+    let client = MemdClient::new(&resolved_base_url)?;
+    let current_session_record = if let Some(entry) = current_entry {
+        Some(project_awareness_entry_to_hive_session(entry))
+    } else {
+        timeout_ok(client.hive_sessions(&memd_schema::HiveSessionsRequest {
+            session: Some(current_session.clone()),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(1),
+        }))
+        .await
+        .and_then(|response| response.sessions.into_iter().next())
+    };
+
+    let packet = HiveCoworkPacket {
+        action: action.to_string(),
+        from_session: current_session.clone(),
+        from_worker: current_session_record
+            .as_ref()
+            .and_then(|record| record.worker_name.clone())
+            .or_else(|| current_entry.and_then(derive_awareness_worker_name))
+            .or_else(|| {
+                current_agent
+                    .as_deref()
+                    .and_then(|value| value.split('@').next())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            }),
+        to_session: target_session.clone(),
+        to_worker: derive_awareness_worker_name(target_entry),
+        task_id: args
+            .task_id
+            .clone()
+            .or_else(|| current_session_record.as_ref().and_then(|record| record.task_id.clone()))
+            .or_else(|| current_entry.and_then(|entry| entry.task_id.clone())),
+        scope_claims: if args.scope.is_empty() {
+            current_session_record
+                .as_ref()
+                .map(|record| record.scope_claims.clone())
+                .or_else(|| current_entry.map(|entry| entry.scope_claims.clone()))
+                .unwrap_or_default()
+        } else {
+            args.scope.clone()
+        },
+        reason: args.reason.clone(),
+        note: args.note.clone(),
+        created_at: Utc::now(),
+    };
+
+    let kind = format!("cowork_{action}");
+    let receipt_summary = format_hive_cowork_receipt_summary(&packet);
+    let message = client
+        .send_hive_message(&HiveMessageSendRequest {
+            kind: kind.clone(),
+            from_session: current_session.clone(),
+            from_agent: current_agent.clone(),
+            to_session: target_session.clone(),
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            content: format_hive_cowork_message(&packet),
+        })
+        .await?;
+    emit_coordination_receipt(
+        &client,
+        &kind,
+        &current_session,
+        current_agent,
+        Some(target_session.clone()),
+        packet.task_id.clone(),
+        packet.scope_claims.first().cloned(),
+        project,
+        namespace,
+        workspace,
+        receipt_summary.clone(),
+    )
+    .await?;
+
+    Ok(HiveCoworkResponse {
+        packet,
+        receipt_kind: kind,
+        receipt_summary,
+        message_id: message.messages.first().map(|entry| entry.id.clone()),
+        recommended_follow: format!("memd hive follow --session {} --summary", target_session),
+    })
+}
+
+async fn dispatch_queen_cowork_actions(
+    args: &HiveQueenArgs,
+    base_url: &str,
+    suggestions: &[CoordinationSuggestion],
+) -> anyhow::Result<Vec<String>> {
+    let mut receipts = Vec::new();
+    let mut seen_eligible = false;
+    let mut dispatched_any = false;
+
+    for suggestion in suggestions
+        .iter()
+        .filter(|suggestion| matches!(suggestion.action.as_str(), "request_cowork" | "ack_cowork"))
+    {
+        let Some(target_session) = suggestion.target_session.as_deref() else {
+            continue;
+        };
+        seen_eligible = true;
+        let cowork_args = HiveCoworkArgs {
+            output: args.output.clone(),
+            to_session: Some(target_session.to_string()),
+            to_worker: None,
+            task_id: suggestion.task_id.clone(),
+            scope: suggestion.scope.clone().into_iter().collect(),
+            reason: Some(suggestion.reason.clone()),
+            note: None,
+            json: false,
+            summary: false,
+        };
+        let action = if suggestion.action == "ack_cowork" {
+            "ack"
+        } else {
+            "request"
+        };
+        let Ok(response) = run_hive_cowork_command(&cowork_args, base_url, action).await else {
+            continue;
+        };
+        dispatched_any = true;
+        receipts.push(response.receipt_summary);
+    }
+
+    if !seen_eligible {
+        anyhow::bail!("cowork auto-send found no eligible request_cowork or ack_cowork suggestions");
+    }
+    if !dispatched_any {
+        anyhow::bail!("cowork auto-send did not dispatch any packets");
+    }
+
+    Ok(receipts)
+}
+
 pub(crate) async fn run_hive_queen_command(
     args: &HiveQueenArgs,
     base_url: &str,
@@ -538,9 +794,27 @@ pub(crate) async fn run_hive_queen_command(
                     retire_command: suggestion.stale_session.as_ref().map(|session| {
                         format!("memd hive queen --retire-session {session} --summary")
                     }),
+                    cowork_command: format_hive_queen_cowork_command(suggestion),
                 }
             })
             .collect::<Vec<_>>();
+
+    let mut recent_receipts = coordination
+        .receipts
+        .iter()
+        .filter(|receipt| receipt.kind.starts_with("queen_"))
+        .map(|receipt| {
+            format!(
+                "{} {} {}",
+                receipt.kind, receipt.actor_session, receipt.summary
+            )
+        })
+        .collect::<Vec<_>>();
+    if args.cowork_auto_send {
+        let cowork_receipts =
+            dispatch_queen_cowork_actions(args, base_url, &coordination.suggestions).await?;
+        recent_receipts.extend(cowork_receipts);
+    }
 
     Ok(HiveQueenResponse {
         queen_session: coordination.current_session,
@@ -550,17 +824,7 @@ pub(crate) async fn run_hive_queen_command(
             .map(|suggestion| format!("{} {}", suggestion.action, suggestion.reason))
             .collect(),
         action_cards,
-        recent_receipts: coordination
-            .receipts
-            .iter()
-            .filter(|receipt| receipt.kind.starts_with("queen_"))
-            .map(|receipt| {
-                format!(
-                    "{} {} {}",
-                    receipt.kind, receipt.actor_session, receipt.summary
-                )
-            })
-            .collect(),
+        recent_receipts,
     })
 }
 
@@ -846,4 +1110,165 @@ fn format_hive_handoff_receipt_summary(packet: &HiveHandoffPacket) -> String {
         parts.push(format!("blocker=\"{}\"", compact_inline(blocker, 72)));
     }
     parts.join(" ")
+}
+
+fn format_hive_cowork_message(packet: &HiveCoworkPacket) -> String {
+    let mut lines = vec!["cowork_packet".to_string()];
+    lines.push(format!("action={}", packet.action));
+    lines.push(format!("from={}", packet.from_worker.as_deref().unwrap_or("unknown")));
+    lines.push(format!("session={}", packet.from_session));
+    lines.push(format!("to={}", packet.to_worker.as_deref().unwrap_or("unknown")));
+    lines.push(format!("target_session={}", packet.to_session));
+    if let Some(task_id) = packet.task_id.as_deref() {
+        lines.push(format!("task={task_id}"));
+    }
+    if !packet.scope_claims.is_empty() {
+        lines.push(format!("scope={}", packet.scope_claims.join(",")));
+    }
+    if let Some(reason) = packet.reason.as_deref() {
+        lines.push(format!("reason={reason}"));
+    }
+    if let Some(note) = packet.note.as_deref() {
+        lines.push(format!("note={note}"));
+    }
+    lines.join("\n")
+}
+
+fn format_hive_cowork_receipt_summary(packet: &HiveCoworkPacket) -> String {
+    format!(
+        "cowork {} from={} ({}) to={} ({}) task={} scope={} reason={} note={}",
+        packet.action,
+        packet.from_worker.as_deref().unwrap_or("unknown"),
+        packet.from_session,
+        packet.to_worker.as_deref().unwrap_or("unknown"),
+        packet.to_session,
+        packet.task_id.as_deref().unwrap_or("none"),
+        if packet.scope_claims.is_empty() {
+            "none".to_string()
+        } else {
+            packet.scope_claims.join(",")
+        },
+        packet.reason.as_deref().unwrap_or("none"),
+        packet.note.as_deref().unwrap_or("none"),
+    )
+}
+
+fn format_hive_queen_cowork_command(suggestion: &CoordinationSuggestion) -> Option<String> {
+    let action = match suggestion.action.as_str() {
+        "request_cowork" => "request",
+        "ack_cowork" => "ack",
+        _ => return None,
+    };
+    let target_session = suggestion.target_session.as_ref()?;
+    let mut command = format!(
+        "memd hive cowork {action} --to-session {}",
+        shell_single_quote(target_session)
+    );
+    if let Some(task_id) = suggestion.task_id.as_deref() {
+        command.push_str(&format!(" --task-id {}", shell_single_quote(task_id)));
+    }
+    command.push_str(&format!(
+        " --reason {}",
+        shell_single_quote(suggestion.reason.as_str())
+    ));
+    command.push_str(" --summary");
+    Some(command)
+}
+
+fn annotate_hive_relationships(
+    bees: Vec<memd_schema::HiveSessionRecord>,
+) -> Vec<memd_schema::HiveSessionRecord> {
+    let snapshot = bees.clone();
+    bees.into_iter()
+        .map(|mut bee| {
+            let best = snapshot
+                .iter()
+                .filter(|peer| peer.session != bee.session)
+                .filter_map(|peer| {
+                    derive_hive_relationship(&bee, peer).map(|(state, reason, action)| {
+                        let peer_label = peer
+                            .display_name
+                            .clone()
+                            .or_else(|| peer.worker_name.clone())
+                            .or_else(|| peer.agent.clone())
+                            .unwrap_or_else(|| peer.session.clone());
+                        (state_rank(&state), peer_label, state, reason, action)
+                    })
+                })
+                .max_by(|left, right| {
+                    left.0
+                        .cmp(&right.0)
+                        .then_with(|| right.1.cmp(&left.1))
+                        .then_with(|| right.3.cmp(&left.3))
+                });
+            if let Some((_, peer, state, reason, action)) = best {
+                bee.relationship_state = Some(state);
+                bee.relationship_peer = Some(peer);
+                bee.relationship_reason = Some(reason);
+                bee.suggested_action = Some(action);
+            }
+            bee
+        })
+        .collect()
+}
+
+fn state_rank(state: &str) -> u8 {
+    match state {
+        "conflict" => 5,
+        "blocked" => 4,
+        "cowork_active" => 3,
+        "handoff_ready" => 2,
+        "near" => 1,
+        _ => 0,
+    }
+}
+
+fn derive_hive_relationship(
+    current: &memd_schema::HiveSessionRecord,
+    peer: &memd_schema::HiveSessionRecord,
+) -> Option<(String, String, String)> {
+    if current.blocked_by.iter().any(|value| value == &peer.session) {
+        return Some((
+            "blocked".to_string(),
+            format!("waiting on peer {}", peer.session),
+            "wait_for_peer".to_string(),
+        ));
+    }
+    if current.cowork_with.iter().any(|value| value == &peer.session)
+        && peer.cowork_with.iter().any(|value| value == &current.session)
+    {
+        return Some((
+            "cowork_active".to_string(),
+            "mutual cowork coordination".to_string(),
+            "coordinate_live".to_string(),
+        ));
+    }
+    if current.handoff_target.as_deref() == Some(peer.session.as_str())
+        || peer.handoff_target.as_deref() == Some(current.session.as_str())
+    {
+        return Some((
+            "handoff_ready".to_string(),
+            "live handoff boundary detected".to_string(),
+            "follow_handoff".to_string(),
+        ));
+    }
+    let exact = current
+        .touches
+        .iter()
+        .filter_map(|touch| normalize_hive_touch(touch))
+        .filter(|touch| {
+            peer.touches
+                .iter()
+                .filter_map(|other| normalize_hive_touch(other))
+                .any(|other| other == *touch)
+        })
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        return Some((
+            "conflict".to_string(),
+            format!("shared touch {}", exact.join(",")),
+            "stop_and_cowork".to_string(),
+        ));
+    }
+    None
 }

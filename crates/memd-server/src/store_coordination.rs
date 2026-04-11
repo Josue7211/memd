@@ -1,4 +1,5 @@
 use super::*;
+use crate::store_hive::annotate_hive_relationships;
 
 impl SqliteStore {
 
@@ -58,6 +59,7 @@ impl SqliteStore {
             })
             .map(|session| session.session.clone());
 
+        let visible_sessions = annotate_hive_relationships(visible_sessions);
         let active_session_ids = visible_sessions
             .iter()
             .filter(|session| matches!(session.status.as_str(), "active" | "live"))
@@ -90,20 +92,57 @@ impl SqliteStore {
             .filter(|receipt| receipt.kind.starts_with("lane_"))
             .map(|receipt| receipt.summary.clone())
             .collect::<Vec<_>>();
-        let overlap_risks = receipts
+        let overlap_risks = active_bees
             .iter()
-            .filter(|receipt| is_hive_overlap_receipt(receipt))
-            .map(|receipt| receipt.summary.clone())
+            .filter(|bee| matches!(bee.relationship_state.as_deref(), Some("conflict" | "near")))
+            .map(|bee| {
+                format!(
+                    "{} {}",
+                    bee.relationship_state.as_deref().unwrap_or("near"),
+                    bee.relationship_reason.as_deref().unwrap_or("peer overlap")
+                )
+            })
+            .chain(
+                receipts
+                    .iter()
+                    .filter(|receipt| is_hive_overlap_receipt(receipt))
+                    .map(|receipt| receipt.summary.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
-        let blocked_bees = receipts
+        let blocked_bees = active_bees
             .iter()
-            .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
-            .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
-            .map(|receipt| receipt.summary.clone())
+            .filter(|bee| bee.relationship_state.as_deref() == Some("blocked"))
+            .map(|bee| {
+                format!(
+                    "{} waiting on {}",
+                    bee.worker_name.as_deref().unwrap_or(&bee.session),
+                    bee.relationship_peer.as_deref().unwrap_or("peer")
+                )
+            })
+            .chain(
+                receipts
+                    .iter()
+                    .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
+                    .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+                    .map(|receipt| receipt.summary.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
         let mut recommended_actions = Vec::new();
         for session in &stale_bees {
             recommended_actions.push(format!("retire {}", session));
+        }
+        for bee in &active_bees {
+            if let Some(action) = bee.suggested_action.as_deref() {
+                recommended_actions.push(format!(
+                    "{} {}",
+                    action,
+                    bee.relationship_reason.as_deref().unwrap_or("peer coordination")
+                ));
+            }
         }
         for receipt in receipts
             .iter()
@@ -156,11 +195,13 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .tasks;
-        let visible_sessions = sessions
-            .iter()
-            .filter(|session| !is_low_signal_hive_board_session(session, &tasks))
-            .cloned()
-            .collect::<Vec<_>>();
+        let visible_sessions = annotate_hive_relationships(
+            sessions
+                .iter()
+                .filter(|session| !is_low_signal_hive_board_session(session, &tasks))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
         let queen_session = visible_sessions
             .iter()
             .find(|session| {
@@ -209,6 +250,7 @@ impl SqliteStore {
                 limit: Some(256),
             })?
             .sessions;
+        let sessions = annotate_hive_relationships(sessions);
         let target = sessions
             .iter()
             .find(|session| session.session == request.session)
@@ -250,29 +292,32 @@ impl SqliteStore {
                     .find(|session| session.session == current_session)?;
                 hive_follow_overlap_risk(current, &target)
             });
-        let recommended_action = if overlap_risk.is_some() {
-            "coordinate_now".to_string()
-        } else if !inbox.review_tasks.is_empty()
-            || !inbox.help_tasks.is_empty()
-            || !inbox.messages.is_empty()
-        {
-            "watch_and_coordinate".to_string()
-        } else {
-            "safe_to_continue".to_string()
-        };
+        let recommended_action = target.suggested_action.clone().unwrap_or_else(|| {
+            if overlap_risk.is_some() {
+                "coordinate_now".to_string()
+            } else if !inbox.review_tasks.is_empty()
+                || !inbox.help_tasks.is_empty()
+                || !inbox.messages.is_empty()
+            {
+                "watch_and_coordinate".to_string()
+            } else {
+                "safe_to_continue".to_string()
+            }
+        });
 
         Ok(memd_schema::HiveFollowResponse {
             current_session: request.current_session.clone(),
             target: target.clone(),
             work_summary: target
-                .topic_claim
+                .working
                 .clone()
+                .or_else(|| target.topic_claim.clone())
                 .or_else(|| target.focus.clone())
                 .unwrap_or_else(|| "none".to_string()),
-            touch_points: if target.scope_claims.is_empty() {
-                Vec::new()
-            } else {
+            touch_points: if target.touches.is_empty() {
                 target.scope_claims.clone()
+            } else {
+                target.touches.clone()
             },
             next_action: target.next_action.clone(),
             messages: inbox.messages,
