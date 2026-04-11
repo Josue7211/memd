@@ -1,4 +1,4 @@
-use super::compact_inline;
+use super::render_memory::compact_inline;
 
 pub(crate) fn render_eval_summary(response: &crate::BundleEvalResponse) -> String {
     let mut output = format!(
