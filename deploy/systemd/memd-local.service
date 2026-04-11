@@ -1,0 +1,15 @@
+[Unit]
+Description=memd local server
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/josue/Documents/projects/memd
+Environment=MEMD_DB_PATH=/home/josue/Documents/projects/memd/.memd/local-server/memd.db
+Environment=MEMD_BIND_ADDR=127.0.0.1:8787
+ExecStart=/home/josue/Documents/projects/memd/target/release/memd-server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

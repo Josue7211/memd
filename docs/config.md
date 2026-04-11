@@ -23,11 +23,11 @@ other tools can consume stable values, not so you have to hand-edit everything.
 Prefer commands over editing `config.json` by hand:
 
 - initialize a bundle:
-  - `memd init --project demo --namespace main --agent codex`
+  - `memd setup --project demo --namespace main --agent codex`
 - switch the active agent:
   - `memd agent --output .memd --name claude-code --apply --summary`
 - set or change the semantic backend:
-  - rerun `memd init ... --rag-url <url>` for new bundles
+  - rerun `memd setup ... --rag-url <url>` for new bundles
   - or update the bundle with the dedicated bundle-setting command when available in your workflow
 - inspect readiness:
   - `memd status --output .memd`

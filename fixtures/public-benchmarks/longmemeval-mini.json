@@ -1,0 +1,74 @@
+[
+  {
+    "question_id": "lm-mini-001",
+    "question_type": "continuity",
+    "question": "What should be resumed next?",
+    "answer": "resume next step",
+    "question_date": "2026/04/09",
+    "haystack_dates": ["2026/04/09", "2026/04/08"],
+    "haystack_session_ids": ["resume-session", "handoff-session"],
+    "answer_session_ids": ["resume-session"],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Resume next step after fixing the benchmark scorer.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "The next action is to rerun the public benchmark suite.",
+          "has_answer": true
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Prepare the handoff packet for tomorrow.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "I will stage the artifact manifest tonight.",
+          "has_answer": false
+        }
+      ]
+    ]
+  },
+  {
+    "question_id": "lm-mini-002",
+    "question_type": "handoff",
+    "question": "Which session should receive the handoff?",
+    "answer": "target",
+    "question_date": "2026/04/09",
+    "haystack_dates": ["2026/04/09", "2026/04/08"],
+    "haystack_session_ids": ["target", "noise-session"],
+    "answer_session_ids": ["target"],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Send the handoff packet to the target session before you pause.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "I will route the checkpoint and receipt to target.",
+          "has_answer": true
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Archive the unrelated draft notes later.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Those notes can stay in the background lane.",
+          "has_answer": false
+        }
+      ]
+    ]
+  }
+]

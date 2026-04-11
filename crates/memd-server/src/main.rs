@@ -3,6 +3,12 @@ mod keys;
 mod repair;
 mod routing;
 mod store;
+mod store_entities;
+mod store_hive;
+mod store_hive_lifecycle;
+mod store_migrations;
+mod store_runtime_maintenance;
+mod store_skill_policy;
 mod ui;
 mod working;
 
@@ -25,29 +31,30 @@ use memd_schema::{
     ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
-    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
-    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
-    InboxMemoryItem, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
-    MemoryConsolidationResponse, MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse,
-    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
-    MemoryVisibility, PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest,
-    RepairMemoryResponse, RetrievalIntent, RetrievalRoute, SearchMemoryRequest,
-    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
-    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
-    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
-    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
-    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
-    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
-    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
+    HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
+    HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
+    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
+    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
+    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
+    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
+    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
+    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
+    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
+    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
+    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
+    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
+    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use routing::RetrievalPlan;
 use serde::Deserialize;
@@ -358,7 +365,17 @@ async fn main() {
             "/coordination/sessions/retire",
             post(post_hive_session_retire),
         )
+        .route(
+            "/coordination/sessions/auto-retire",
+            post(post_hive_session_auto_retire),
+        )
         .route("/coordination/sessions", get(get_hive_sessions))
+        .route("/hive/board", get(get_hive_board))
+        .route("/hive/roster", get(get_hive_roster))
+        .route("/hive/follow", get(get_hive_follow))
+        .route("/hive/queen/deny", post(post_hive_queen_deny))
+        .route("/hive/queen/reroute", post(post_hive_queen_reroute))
+        .route("/hive/queen/handoff", post(post_hive_queen_handoff))
         .route("/coordination/tasks/upsert", post(post_hive_task_upsert))
         .route("/coordination/tasks/assign", post(post_hive_task_assign))
         .route("/coordination/tasks", get(get_hive_tasks))
@@ -1135,12 +1152,268 @@ async fn post_hive_session_retire(
     Ok(Json(response))
 }
 
+async fn post_hive_session_auto_retire(
+    State(state): State<AppState>,
+    Json(req): Json<HiveSessionAutoRetireRequest>,
+) -> Result<Json<HiveSessionAutoRetireResponse>, (StatusCode, String)> {
+    let response = state
+        .store
+        .auto_retire_stale_hive_sessions(
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            Utc::now(),
+        )
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 async fn get_hive_sessions(
     State(state): State<AppState>,
     Query(req): Query<HiveSessionsRequest>,
 ) -> Result<Json<HiveSessionsResponse>, (StatusCode, String)> {
     let response = state.store.hive_sessions(&req).map_err(internal_error)?;
     Ok(Json(response))
+}
+
+async fn get_hive_board(
+    State(state): State<AppState>,
+    Query(req): Query<HiveBoardRequest>,
+) -> Result<Json<HiveBoardResponse>, (StatusCode, String)> {
+    state
+        .store
+        .auto_retire_stale_hive_sessions(
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            Utc::now(),
+        )
+        .map_err(internal_error)?;
+    let response = state.store.hive_board(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_hive_roster(
+    State(state): State<AppState>,
+    Query(req): Query<HiveRosterRequest>,
+) -> Result<Json<HiveRosterResponse>, (StatusCode, String)> {
+    let response = state.store.hive_roster(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn get_hive_follow(
+    State(state): State<AppState>,
+    Query(req): Query<HiveFollowRequest>,
+) -> Result<Json<HiveFollowResponse>, (StatusCode, String)> {
+    if req.session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session must not be empty".to_string(),
+        ));
+    }
+    let response = state.store.hive_follow(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn post_hive_queen_deny(
+    State(state): State<AppState>,
+    Json(req): Json<HiveQueenActionRequest>,
+) -> Result<Json<HiveQueenActionResponse>, (StatusCode, String)> {
+    let target_session = require_hive_queen_target(&req)?;
+    let target = state
+        .store
+        .hive_follow(&HiveFollowRequest {
+            session: target_session.clone(),
+            current_session: Some(req.queen_session.clone()),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+        })
+        .map_err(internal_error)?;
+    let receipt = state
+        .store
+        .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+            kind: "queen_deny".to_string(),
+            actor_session: req.queen_session.clone(),
+            actor_agent: Some("dashboard".to_string()),
+            target_session: Some(target_session.clone()),
+            task_id: target.target.task_id.clone(),
+            scope: target.touch_points.first().cloned(),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            summary: format!(
+                "Queen denied overlapping lane or scope work for session {}.",
+                target_session
+            ),
+        })
+        .map_err(internal_error)?
+        .receipts
+        .into_iter()
+        .next();
+    Ok(Json(HiveQueenActionResponse {
+        action: "deny".to_string(),
+        target_session: Some(target_session.clone()),
+        receipt,
+        message_id: None,
+        retired: Vec::new(),
+        summary: format!("Denied focused bee: {}", target_session),
+        follow_session: Some(target_session),
+    }))
+}
+
+async fn post_hive_queen_reroute(
+    State(state): State<AppState>,
+    Json(req): Json<HiveQueenActionRequest>,
+) -> Result<Json<HiveQueenActionResponse>, (StatusCode, String)> {
+    let target_session = require_hive_queen_target(&req)?;
+    let target = state
+        .store
+        .hive_follow(&HiveFollowRequest {
+            session: target_session.clone(),
+            current_session: Some(req.queen_session.clone()),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+        })
+        .map_err(internal_error)?;
+    let receipt = state
+        .store
+        .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+            kind: "queen_reroute".to_string(),
+            actor_session: req.queen_session.clone(),
+            actor_agent: Some("dashboard".to_string()),
+            target_session: Some(target_session.clone()),
+            task_id: target.target.task_id.clone(),
+            scope: target.touch_points.first().cloned(),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            summary: format!(
+                "Queen ordered session {} onto a new isolated lane.",
+                target_session
+            ),
+        })
+        .map_err(internal_error)?
+        .receipts
+        .into_iter()
+        .next();
+    Ok(Json(HiveQueenActionResponse {
+        action: "reroute".to_string(),
+        target_session: Some(target_session.clone()),
+        receipt,
+        message_id: None,
+        retired: Vec::new(),
+        summary: format!("Reroute recorded for: {}", target_session),
+        follow_session: Some(target_session),
+    }))
+}
+
+async fn post_hive_queen_handoff(
+    State(state): State<AppState>,
+    Json(req): Json<HiveQueenActionRequest>,
+) -> Result<Json<HiveQueenActionResponse>, (StatusCode, String)> {
+    let target_session = require_hive_queen_target(&req)?;
+    let scope = req
+        .scope
+        .as_deref()
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() { None } else { Some(value) }
+        })
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "scope must not be empty".to_string(),
+            )
+        })?
+        .to_string();
+    let target = state
+        .store
+        .hive_follow(&HiveFollowRequest {
+            session: target_session.clone(),
+            current_session: Some(req.queen_session.clone()),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+        })
+        .map_err(internal_error)?;
+    let receipt = state
+        .store
+        .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+            kind: "queen_handoff".to_string(),
+            actor_session: req.queen_session.clone(),
+            actor_agent: Some("dashboard".to_string()),
+            target_session: Some(target_session.clone()),
+            task_id: target.target.task_id.clone(),
+            scope: Some(scope.clone()),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            summary: format!(
+                "Queen handed off scope {} to session {}.",
+                scope, target_session
+            ),
+        })
+        .map_err(internal_error)?
+        .receipts
+        .into_iter()
+        .next();
+    let message = state
+        .store
+        .send_hive_message(&HiveMessageSendRequest {
+            kind: "handoff".to_string(),
+            from_session: req.queen_session.clone(),
+            from_agent: Some("dashboard".to_string()),
+            to_session: target_session.clone(),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            workspace: req.workspace.clone(),
+            content: req
+                .note
+                .as_deref()
+                .and_then(|value| {
+                    let value = value.trim();
+                    if value.is_empty() { None } else { Some(value) }
+                })
+                .map(|note| format!("handoff_scope: {scope}\n{note}"))
+                .unwrap_or_else(|| format!("handoff_scope: {scope}")),
+        })
+        .map_err(internal_error)?
+        .messages
+        .into_iter()
+        .next();
+    Ok(Json(HiveQueenActionResponse {
+        action: "handoff".to_string(),
+        target_session: Some(target_session.clone()),
+        receipt,
+        message_id: message.as_ref().map(|entry| entry.id.clone()),
+        retired: Vec::new(),
+        summary: format!("Handoff recorded for: {} on {}", target_session, scope),
+        follow_session: Some(target_session),
+    }))
+}
+
+fn require_hive_queen_target(req: &HiveQueenActionRequest) -> Result<String, (StatusCode, String)> {
+    if req.queen_session.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "queen_session must not be empty".to_string(),
+        ));
+    }
+    req.target_session
+        .as_deref()
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() { None } else { Some(value) }
+        })
+        .map(str::to_string)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "target_session must not be empty".to_string(),
+            )
+        })
 }
 
 async fn post_hive_task_upsert(
@@ -2881,7 +3154,12 @@ fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
     use memd_schema::MemoryRepairMode;
+    use tower::util::ServiceExt;
 
     fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         let now = Utc::now();
@@ -2921,6 +3199,580 @@ mod tests {
             store: SqliteStore::open(&db_path).expect("open temp store"),
         };
         (dir, state)
+    }
+
+    fn test_hive_router(state: AppState) -> Router {
+        Router::new()
+            .route("/hive/board", get(get_hive_board))
+            .route("/hive/roster", get(get_hive_roster))
+            .route("/hive/follow", get(get_hive_follow))
+            .with_state(state)
+    }
+
+    fn seed_hive_route_state(state: &AppState) {
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "queen-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@queen-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("queen".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("queen-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("coordinator".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: Some("main".to_string()),
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(100),
+                topic_claim: Some("Route hive work".to_string()),
+                scope_claims: vec!["docs/hive.md".to_string()],
+                task_id: Some("queen-routing".to_string()),
+                focus: Some("Coordinate bee lanes".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Review overlap alerts".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.95".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert queen session");
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("parser-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/bee-1".to_string()),
+                branch: Some("feature/parser".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(101),
+                topic_claim: Some("Parser lane refactor".to_string()),
+                scope_claims: vec![
+                    "project".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                    "task:parser-refactor".to_string(),
+                ],
+                task_id: Some("parser-refactor".to_string()),
+                focus: Some("Refine parser overlap flow".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Request review".to_string()),
+                needs_help: false,
+                needs_review: true,
+                handoff_state: None,
+                confidence: Some("0.9".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert bee session");
+        state
+            .store
+            .upsert_hive_task(&HiveTaskUpsertRequest {
+                task_id: "parser-refactor".to_string(),
+                title: "Refine parser overlap flow".to_string(),
+                description: Some("narrow parser work".to_string()),
+                status: Some("active".to_string()),
+                coordination_mode: Some("exclusive_write".to_string()),
+                session: Some("bee-1".to_string()),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                claim_scopes: vec!["crates/memd-client/src/main.rs".to_string()],
+                help_requested: Some(false),
+                review_requested: Some(true),
+            })
+            .expect("insert hive task");
+        state
+            .store
+            .send_hive_message(&HiveMessageSendRequest {
+                kind: "note".to_string(),
+                from_session: "queen-1".to_string(),
+                from_agent: Some("codex".to_string()),
+                to_session: "bee-1".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                content: "Stay on parser lane only.".to_string(),
+            })
+            .expect("insert hive message");
+        state
+            .store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_assign".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("codex".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Assigned parser lane".to_string(),
+            })
+            .expect("insert coordination receipt");
+    }
+
+    async fn decode_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        serde_json::from_slice(&body).expect("decode response json")
+    }
+
+    #[tokio::test]
+    async fn hive_board_route_returns_active_bees_and_review_queue() {
+        let (dir, state) = temp_state("memd-hive-board-route");
+        seed_hive_route_state(&state);
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/board?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive board route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveBoardResponse = decode_json(response).await;
+        assert_eq!(body.queen_session.as_deref(), Some("queen-1"));
+        assert!(body.active_bees.iter().any(|bee| bee.session == "bee-1"));
+        assert!(
+            body.review_queue
+                .iter()
+                .any(|item| item.contains("parser-refactor"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_roster_route_returns_named_bees_and_queen() {
+        let (dir, state) = temp_state("memd-hive-roster-route");
+        seed_hive_route_state(&state);
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/roster?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive roster route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveRosterResponse = decode_json(response).await;
+        assert_eq!(body.queen_session.as_deref(), Some("queen-1"));
+        assert!(
+            body.bees
+                .iter()
+                .any(|bee| bee.worker_name.as_deref() == Some("Lorentz"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_follow_route_returns_messages_receipts_and_confirmed_overlap() {
+        let (dir, state) = temp_state("memd-hive-follow-route");
+        seed_hive_route_state(&state);
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-2".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-2".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Noether".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("render-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/bee-2".to_string()),
+                branch: Some("feature/render".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(102),
+                topic_claim: Some("Render lane polish".to_string()),
+                scope_claims: vec![
+                    "project".to_string(),
+                    "crates/memd-client/src/main.rs".to_string(),
+                    "task:render-refresh".to_string(),
+                ],
+                task_id: Some("render-refresh".to_string()),
+                focus: Some("Render lane polish".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: Some("Wait for parser ack".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.82".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert second bee");
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/follow?session=bee-1&current_session=bee-2&project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive follow route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveFollowResponse = decode_json(response).await;
+        assert_eq!(body.target.session, "bee-1");
+        assert_eq!(body.messages.len(), 1);
+        assert_eq!(body.recent_receipts.len(), 1);
+        assert_eq!(
+            body.overlap_risk.as_deref(),
+            Some(
+                "confirmed hive overlap: target session bee-1 already owns scope(s) for task parser-refactor"
+            )
+        );
+        assert_eq!(body.recommended_action, "coordinate_now");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_follow_route_rejects_empty_session() {
+        let (dir, state) = temp_state("memd-hive-follow-bad-request");
+        let app = test_hive_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/follow?session=")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive follow route");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn hive_board_route_auto_retires_stale_sessions() {
+        let (dir, state) = temp_state("memd-hive-board-auto-retire");
+        state
+            .store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "stale-bee".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@stale-bee".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("StaleBee".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coding".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("old-lane".to_string()),
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("gpt-5.4".to_string()),
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: Some("/tmp/stale-bee".to_string()),
+                branch: Some("feature/old".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(303),
+                topic_claim: Some("Old work".to_string()),
+                scope_claims: vec!["crates/memd-client/src/old.rs".to_string()],
+                task_id: Some("old-task".to_string()),
+                focus: Some("stale work".to_string()),
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: Some("0.6".to_string()),
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert stale bee");
+
+        let mut session = state
+            .store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("stale-bee".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("load stale bee")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("stale bee exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(45);
+        let conn = rusqlite::Connection::open(dir.join("memd.db")).expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            rusqlite::params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize stale session"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("mark hive session stale");
+
+        let app = test_hive_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hive/board?project=memd&namespace=main&workspace=shared")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run hive board route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: HiveBoardResponse = decode_json(response).await;
+        assert!(!body.stale_bees.iter().any(|session| session == "stale-bee"));
+
+        let remaining = state
+            .store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("list sessions after hive board");
+        assert!(
+            remaining
+                .sessions
+                .iter()
+                .all(|session| session.session != "stale-bee")
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[tokio::test]
+    async fn dashboard_route_surfaces_hive_controls_and_coordination_endpoints() {
+        let (dir, state) = temp_state("memd-dashboard-hive-controls");
+        crate::ui::test_insert_visible_item(&state, "runtime spine", true)
+            .expect("seed visible memory");
+        seed_hive_route_state(&state);
+        let app = Router::new()
+            .route("/", get(dashboard))
+            .route(
+                "/coordination/sessions/retire",
+                post(post_hive_session_retire),
+            )
+            .route(
+                "/coordination/sessions/auto-retire",
+                post(post_hive_session_auto_retire),
+            )
+            .route("/hive/board", get(get_hive_board))
+            .route("/hive/roster", get(get_hive_roster))
+            .route("/hive/follow", get(get_hive_follow))
+            .route("/hive/queen/deny", post(post_hive_queen_deny))
+            .route("/hive/queen/reroute", post(post_hive_queen_reroute))
+            .route("/hive/queen/handoff", post(post_hive_queen_handoff))
+            .with_state(state.clone());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("build dashboard request"),
+            )
+            .await
+            .expect("run dashboard route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read dashboard body")
+                .to_vec(),
+        )
+        .expect("decode dashboard html");
+        assert!(html.contains("data-hive-queen-action=\"deny-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"reroute-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"handoff-focused\""));
+        assert!(html.contains("/hive/queen/deny"));
+        assert!(html.contains("/hive/queen/reroute"));
+        assert!(html.contains("/hive/queen/handoff"));
+
+        let receipt_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/hive/queen/deny")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "queen_session": "queen-1",
+                            "target_session": "bee-1",
+                            "project": "memd",
+                            "namespace": "main",
+                            "workspace": "shared"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("build receipt request"),
+            )
+            .await
+            .expect("record receipt");
+        assert_eq!(receipt_response.status(), StatusCode::OK);
+
+        let message_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/hive/queen/handoff")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "queen_session": "queen-1",
+                            "target_session": "bee-1",
+                            "project": "memd",
+                            "namespace": "main",
+                            "workspace": "shared",
+                            "scope": "crates/memd-client/src/main.rs"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("build message request"),
+            )
+            .await
+            .expect("record message");
+        assert_eq!(message_response.status(), StatusCode::OK);
+
+        let receipts = state
+            .store
+            .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                limit: Some(16),
+            })
+            .expect("list receipts");
+        assert!(
+            receipts
+                .receipts
+                .iter()
+                .any(|receipt| receipt.kind == "queen_deny")
+        );
+        let inbox = state
+            .store
+            .hive_inbox(&HiveMessageInboxRequest {
+                session: "bee-1".to_string(),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                include_acknowledged: Some(true),
+                limit: Some(8),
+            })
+            .expect("load hive inbox");
+        assert!(
+            inbox
+                .messages
+                .iter()
+                .any(|message| message.kind == "handoff")
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
 
     #[test]

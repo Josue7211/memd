@@ -95,6 +95,7 @@ Describe what a user should experience if this feature works.
 
 - `.planning/codebase/MEMORY-AUDIT.md` shows storage exists, but recall is the higher-risk part of the contract
 - current regression coverage includes keeping a recalled project fact visible in bundle memory during resume
+- benchmark_feature_id: `feature.v1.core.store`
 
 ### FEATURE-V1-CORE-SEARCH: Bounded Memory Search
 
@@ -136,6 +137,7 @@ Users can search memory through stable routes and receive bounded, inspectable r
 
 - the roadmap requires bounded responses and stable routing, so search needs explicit audit separate from store
 - retrieval bias found in the memory audit is a risk here too, not just in resume
+- benchmark_feature_id: `feature.v1.core.search`
 
 ### FEATURE-V1-LIFECYCLE-REPAIR: Verify, Expire, Supersede, And Dedupe
 
@@ -177,6 +179,7 @@ Operators can repair memory state by verifying, expiring, superseding, and dedup
 
 - current low-level correction lifecycle is promising: a superseded stale memory can drop out after a manual correction loop
 - the unresolved gap is product UX, not the underlying supersede mechanics alone
+- benchmark_feature_id: `feature.v1.lifecycle.repair`
 
 ### FEATURE-V1-WORKING-CONTEXT: Compact Context By Route And Intent
 
@@ -220,6 +223,7 @@ Operators can repair memory state by verifying, expiring, superseding, and dedup
 
 - the memory audit identified and reproduced a `current_task` crowd-out bug in `build_context`
 - that bug has regression coverage now, but the feature still remains `unverified` until full audit
+- benchmark_feature_id: `feature.v1.working.context`
 
 ### FEATURE-V1-WORKING-MEMORY: Managed Working Memory With Budget Signals
 
@@ -261,6 +265,7 @@ Users can fetch managed working memory with explicit budget, admission, eviction
 
 - resume currently writes a derived `resume_state` record on every run, which can compete with durable memory in this surface
 - current client regression proves a recalled project fact can remain visible in generated bundle memory when retrieval returns it
+- benchmark_feature_id: `feature.v1.working.memory`
 
 ### FEATURE-V1-EXPLAIN: Explainability For Ranking And Existence
 
@@ -303,6 +308,7 @@ Operators can ask why a memory exists and why it ranked the way it did, instead 
 
 - this feature matters because the current debugging process depends on being able to inspect why retrieval behaved incorrectly
 - audit should verify that explain helps real diagnosis rather than just dumping metadata
+- benchmark_feature_id: `feature.v1.explain`
 
 ### FEATURE-V1-PROVENANCE: Provenance Drilldown To Source Artifacts
 
@@ -347,6 +353,7 @@ Operators can drill from a memory summary down to its source artifacts and prove
 
 - `ROADMAP.md` explicitly calls provenance drilldown still incomplete enough to block true `v1` completion
 - this should likely audit as `partial` unless the source-artifact path proves strong in real flows
+- benchmark_feature_id: `feature.v1.provenance`
 
 ### FEATURE-V1-BUNDLE-ATTACH: Bundle Configuration And Client Attach Flow
 
@@ -389,6 +396,7 @@ Project bundles can configure runtime defaults, and attach flows make `memd` usa
 
 - this contract spans beyond a single CLI snippet; the real audit must cover actual harness attach behavior
 - current tests prove default current-task intent in attach snippets, but not full multi-harness end-to-end parity
+- benchmark_feature_id: `feature.v1.bundle.attach`
 
 ## v2 Features
 

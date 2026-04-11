@@ -4,28 +4,39 @@ use std::sync::Arc;
 use anyhow::Context;
 use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchHit, EntitySearchRequest, HiveClaimAcquireRequest, HiveClaimRecord,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRecord,
-    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
-    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskRecord,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MaintainReport,
-    MaintainReportRequest, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
+    EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
+    HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
+    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
+    HiveRosterResponse, HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
+    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest,
+    HiveTasksResponse, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
     MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
-    MemoryMaintenanceReportRequest, SkillPolicyActivationEntriesRequest,
-    SkillPolicyActivationEntriesResponse, SkillPolicyActivationEntry, SkillPolicyApplyReceipt,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse,
-    SourceQuality, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, WorkspaceMemoryRecord,
+    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::keys::redundancy_key;
+use crate::store_entities::{
+    SourceAggregate, SourceKey, WorkspaceAggregate, WorkspaceKey, derive_entity_key,
+    entity_matches_context, new_entity_record, normalize_search_text, score_entity_search,
+    source_trust_score, tokenize_search_text, update_entity_record,
+};
+use crate::store_hive::{
+    HiveSessionKeyArgs, collapse_hive_session_records, hive_follow_overlap_risk,
+    hive_session_key, is_active_hive_board_receipt, is_hive_overlap_receipt,
+    is_low_signal_hive_board_session, refresh_hive_session_presence,
+};
+use crate::store_migrations::{
+    create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
+    migrate_redundancy_key,
+};
+#[path = "store_coordination.rs"]
+mod store_coordination;
 
 #[derive(Debug, Clone)]
 pub struct DuplicateMatch {
@@ -67,18 +78,6 @@ pub struct RecordEventArgs {
     pub context: Option<MemoryContextFrame>,
     pub confidence: f32,
     pub salience_score: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SkillPolicyApplyRecordPayload {
-    receipt: SkillPolicyApplyReceipt,
-    request: SkillPolicyApplyRequest,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MaintainReportRecordPayload {
-    request: MaintainReportRequest,
-    response: MaintainReport,
 }
 
 impl SqliteStore {
@@ -278,6 +277,9 @@ impl SqliteStore {
               project TEXT,
               namespace TEXT,
               workspace TEXT,
+              repo_root TEXT,
+              worktree_root TEXT,
+              branch TEXT,
               hive_system TEXT,
               hive_role TEXT,
               host TEXT,
@@ -316,7 +318,7 @@ impl SqliteStore {
         })
     }
 
-    fn connect(&self) -> anyhow::Result<Connection> {
+    pub(crate) fn connect(&self) -> anyhow::Result<Connection> {
         let conn = Connection::open(self.db_path.as_ref())
             .with_context(|| format!("open sqlite database {}", self.db_path.display()))?;
         conn.execute_batch(
@@ -788,159 +790,6 @@ impl SqliteStore {
         }
 
         Ok(candidates)
-    }
-
-    pub fn maintenance_report(
-        &self,
-        request: &MemoryMaintenanceReportRequest,
-    ) -> anyhow::Result<(usize, usize, usize, usize, usize, Vec<String>)> {
-        let stale_items = self.stale_item_count(request)?;
-        let reinforced_candidates = self.reinforced_candidate_count(request)?;
-        let cooled_candidates = self.decay_candidate_count(&MemoryDecayRequest {
-            max_items: Some(256),
-            inactive_days: request.inactive_days,
-            max_decay: request.max_decay,
-            record_events: Some(false),
-        })?;
-        let consolidated_candidates =
-            self.consolidation_candidates(&MemoryConsolidationRequest {
-                project: request.project.clone(),
-                namespace: request.namespace.clone(),
-                max_groups: Some(256),
-                min_events: request.min_events,
-                lookback_days: request.lookback_days,
-                min_salience: None,
-                record_events: Some(false),
-            })?;
-        let consolidated_candidates_count = consolidated_candidates.len();
-        let highlights = consolidated_candidates
-            .into_iter()
-            .take(3)
-            .map(|candidate| {
-                format!(
-                    "{}:{} events salience={:.2}",
-                    candidate.entity.entity_type,
-                    candidate.event_count,
-                    candidate.entity.salience_score
-                )
-            })
-            .collect::<Vec<_>>();
-        let skipped = stale_items.saturating_sub(reinforced_candidates);
-
-        Ok((
-            reinforced_candidates,
-            cooled_candidates,
-            consolidated_candidates_count,
-            stale_items,
-            skipped,
-            highlights,
-        ))
-    }
-
-    pub fn maintain_runtime(
-        &self,
-        request: &MaintainReportRequest,
-    ) -> anyhow::Result<MaintainReport> {
-        let mode = request.mode.trim();
-        let mode = if mode.is_empty() { "scan" } else { mode };
-        let maintenance_request = MemoryMaintenanceReportRequest {
-            project: request.project.clone(),
-            namespace: request.namespace.clone(),
-            inactive_days: Some(7),
-            lookback_days: Some(30),
-            min_events: Some(2),
-            max_decay: Some(0.5),
-            mode: Some(mode.to_string()),
-            apply: Some(request.apply),
-        };
-        let (
-            reinforced_candidates,
-            cooled_candidates,
-            consolidated_candidates,
-            stale_items,
-            skipped,
-            highlights,
-        ) = self.maintenance_report(&maintenance_request)?;
-        let receipt_id = Uuid::new_v4().to_string();
-        let generated_at = chrono::Utc::now();
-        let compacted_items = if mode == "compact" {
-            consolidated_candidates
-        } else {
-            0
-        };
-        let refreshed_items = if mode == "refresh" {
-            cooled_candidates
-        } else {
-            0
-        };
-        let repaired_items = if mode == "repair" {
-            reinforced_candidates
-        } else {
-            0
-        };
-        let mut findings = vec![
-            format!("memory maintain mode={mode}"),
-            format!(
-                "scope project={} namespace={} workspace={} session={}",
-                request.project.as_deref().unwrap_or("none"),
-                request.namespace.as_deref().unwrap_or("none"),
-                request.workspace.as_deref().unwrap_or("none"),
-                request.session.as_deref().unwrap_or("none")
-            ),
-            format!(
-                "signals stale={} reinforced={} cooled={} consolidated={} skipped={}",
-                stale_items,
-                reinforced_candidates,
-                cooled_candidates,
-                consolidated_candidates,
-                skipped
-            ),
-        ];
-        if request.apply {
-            findings.push("apply requested".to_string());
-        }
-        findings.extend(
-            highlights
-                .into_iter()
-                .map(|value| format!("highlight: {value}")),
-        );
-        let response = MaintainReport {
-            mode: mode.to_string(),
-            receipt_id: Some(receipt_id.clone()),
-            compacted_items,
-            refreshed_items,
-            repaired_items,
-            findings,
-            generated_at,
-        };
-        let payload = MaintainReportRecordPayload {
-            request: request.clone(),
-            response: response.clone(),
-        };
-        let payload_json =
-            serde_json::to_string(&payload).context("serialize maintain report payload")?;
-        let conn = self.connect()?;
-        conn.execute(
-            r#"
-            INSERT INTO runtime_maintenance_reports (
-              receipt_id, mode, project, namespace, workspace, session, created_at, payload_json
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            "#,
-            params![
-                receipt_id,
-                response.mode.as_str(),
-                &request.project,
-                &request.namespace,
-                &request.workspace,
-                &request.session,
-                response.generated_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("insert runtime maintenance report")?;
-
-        Ok(response)
     }
 
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
@@ -1491,65 +1340,6 @@ impl SqliteStore {
         });
         hits.truncate(limit);
         Ok(hits)
-    }
-
-    fn stale_item_count(&self, request: &MemoryMaintenanceReportRequest) -> anyhow::Result<usize> {
-        let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT COUNT(*)
-                FROM memory_items
-                WHERE status = ?1
-                  AND (?2 IS NULL OR project = ?2)
-                  AND (?3 IS NULL OR namespace = ?3)
-                "#,
-            )
-            .context("prepare stale item count query")?;
-        let count: i64 = stmt
-            .query_row(
-                params![
-                    serde_json::to_string(&memd_schema::MemoryStatus::Stale)?,
-                    request.project.as_deref(),
-                    request.namespace.as_deref(),
-                ],
-                |row| row.get(0),
-            )
-            .context("count stale memory items")?;
-        Ok(count as usize)
-    }
-
-    fn reinforced_candidate_count(
-        &self,
-        request: &MemoryMaintenanceReportRequest,
-    ) -> anyhow::Result<usize> {
-        let items = self.list()?;
-        let mut count = 0usize;
-        for item in items {
-            if item.status != memd_schema::MemoryStatus::Stale {
-                continue;
-            }
-            if request
-                .project
-                .as_ref()
-                .is_some_and(|project| item.project.as_ref() != Some(project))
-            {
-                continue;
-            }
-            if request
-                .namespace
-                .as_ref()
-                .is_some_and(|namespace| item.namespace.as_ref() != Some(namespace))
-            {
-                continue;
-            }
-            if let Some(source_path) = &item.source_path {
-                if Path::new(source_path).exists() {
-                    count += 1;
-                }
-            }
-        }
-        Ok(count)
     }
 
     pub fn events_for_entity(
@@ -2116,6 +1906,24 @@ impl SqliteStore {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let repo_root = request
+            .repo_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let worktree_root = request
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let branch = request
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let record = HiveSessionRecord {
             session: session.clone(),
             tab_id: request
@@ -2148,6 +1956,24 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            worker_name: request
+                .worker_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            display_name: request
+                .display_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            role: request
+                .role
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             capabilities: request
                 .capabilities
                 .iter()
@@ -2162,6 +1988,12 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
+            lane_id: request
+                .lane_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             hive_group_goal: request
                 .hive_group_goal
                 .as_deref()
@@ -2183,6 +2015,15 @@ impl SqliteStore {
             project: project.clone(),
             namespace: namespace.clone(),
             workspace: workspace.clone(),
+            repo_root: repo_root.clone(),
+            worktree_root: worktree_root.clone(),
+            branch: branch.clone(),
+            base_branch: request
+                .base_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             visibility: request
                 .visibility
                 .as_deref()
@@ -2203,6 +2044,25 @@ impl SqliteStore {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
             pid: request.pid,
+            topic_claim: request
+                .topic_claim
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            scope_claims: request
+                .scope_claims
+                .iter()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            task_id: request
+                .task_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
             focus: request
                 .focus
                 .as_deref()
@@ -2217,6 +2077,32 @@ impl SqliteStore {
                 .map(str::to_string),
             next_recovery: request
                 .next_recovery
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            next_action: request
+                .next_action
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            needs_help: request.needs_help,
+            needs_review: request.needs_review,
+            handoff_state: request
+                .handoff_state
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            confidence: request
+                .confidence
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            risk: request
+                .risk
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2237,6 +2123,9 @@ impl SqliteStore {
                 project: project.as_deref(),
                 namespace: namespace.as_deref(),
                 workspace: workspace.as_deref(),
+                repo_root: repo_root.as_deref(),
+                worktree_root: worktree_root.as_deref(),
+                branch: branch.as_deref(),
                 agent: record.agent.as_deref(),
                 effective_agent: record.effective_agent.as_deref(),
                 hive_system: record.hive_system.as_deref(),
@@ -2252,13 +2141,16 @@ impl SqliteStore {
         tx.execute(
             r#"
             INSERT INTO hive_sessions (
-              session_key, session, project, namespace, workspace, hive_system, hive_role, host, status, last_seen, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+              session_key, session, project, namespace, workspace, repo_root, worktree_root, branch, hive_system, hive_role, host, status, last_seen, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
               namespace = excluded.namespace,
               workspace = excluded.workspace,
+              repo_root = excluded.repo_root,
+              worktree_root = excluded.worktree_root,
+              branch = excluded.branch,
               hive_system = excluded.hive_system,
               hive_role = excluded.hive_role,
               host = excluded.host,
@@ -2272,6 +2164,9 @@ impl SqliteStore {
                 &record.project,
                 &record.namespace,
                 &record.workspace,
+                &record.repo_root,
+                &record.worktree_root,
+                &record.branch,
                 &record.hive_system,
                 &record.hive_role,
                 &record.host,
@@ -2311,7 +2206,24 @@ impl SqliteStore {
 
         let active_only = request.active_only.unwrap_or(true);
         let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let active_cutoff = (chrono::Utc::now() - chrono::TimeDelta::minutes(15)).to_rfc3339();
+        let repo_root = request
+            .repo_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let worktree_root = request
+            .worktree_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let branch = request
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let hive_system = request
             .hive_system
             .as_deref()
@@ -2368,20 +2280,22 @@ impl SqliteStore {
                   AND (?2 IS NULL OR project = ?2)
                   AND (?3 IS NULL OR namespace = ?3)
                   AND (?4 IS NULL OR workspace = ?4)
-                  AND (?5 = 0 OR last_seen >= ?6)
-                  AND (?7 IS NULL OR hive_system = ?7)
-                  AND (?8 IS NULL OR hive_role = ?8)
-                  AND (?9 IS NULL OR host = ?9)
+                  AND (?5 IS NULL OR repo_root = ?5)
+                  AND (?6 IS NULL OR worktree_root = ?6)
+                  AND (?7 IS NULL OR branch = ?7)
+                  AND (?8 IS NULL OR hive_system = ?8)
+                  AND (?9 IS NULL OR hive_role = ?9)
+                  AND (?10 IS NULL OR host = ?10)
                   AND (
-                    ?10 IS NULL OR EXISTS (
+                    ?11 IS NULL OR EXISTS (
                       SELECT 1
                       FROM hive_session_groups
                       WHERE hive_session_groups.session_key = hive_sessions.session_key
-                        AND hive_session_groups.hive_group = ?10
+                        AND hive_session_groups.hive_group = ?11
                     )
                   )
                 ORDER BY last_seen DESC
-                LIMIT ?11
+                LIMIT ?12
                 "#,
             )
             .context("prepare hive sessions query")?;
@@ -2392,8 +2306,9 @@ impl SqliteStore {
                     project_filter,
                     namespace_filter,
                     workspace_filter,
-                    if active_only { 1 } else { 0 },
-                    active_cutoff,
+                    repo_root,
+                    worktree_root,
+                    branch,
                     hive_system,
                     hive_role,
                     host,
@@ -2413,645 +2328,16 @@ impl SqliteStore {
             );
         }
 
-        Ok(HiveSessionsResponse { sessions })
-    }
-
-    pub fn retire_hive_session(
-        &self,
-        request: &HiveSessionRetireRequest,
-    ) -> anyhow::Result<HiveSessionRetireResponse> {
-        let session = request.session.trim();
-        anyhow::ensure!(!session.is_empty(), "session must not be empty");
-
-        let project = request
-            .project
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let namespace = request
-            .namespace
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let workspace = request
-            .workspace
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let agent = request
-            .agent
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let effective_agent = request
-            .effective_agent
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let hive_system = request
-            .hive_system
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let hive_role = request
-            .hive_role
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let host = request
-            .host
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
-        let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            r#"
-            SELECT session_key, payload_json
-            FROM hive_sessions
-            WHERE session = ?1
-              AND (?2 IS NULL OR project = ?2)
-              AND (?3 IS NULL OR namespace = ?3)
-              AND (?4 IS NULL OR workspace = ?4)
-              AND (?5 IS NULL OR json_extract(payload_json, '$.agent') = ?5)
-              AND (?6 IS NULL OR json_extract(payload_json, '$.effective_agent') = ?6)
-              AND (?7 IS NULL OR hive_system = ?7)
-              AND (?8 IS NULL OR hive_role = ?8)
-              AND (?9 IS NULL OR host = ?9)
-            "#,
-        )?;
-        let rows = stmt.query_map(
-            params![
-                session,
-                project,
-                namespace,
-                workspace,
-                agent,
-                effective_agent,
-                hive_system,
-                hive_role,
-                host,
-            ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )?;
-
-        let mut targets = Vec::new();
-        for row in rows {
-            let (session_key, payload) = row.context("read hive session retire row")?;
-            targets.push((
-                session_key,
-                serde_json::from_str::<HiveSessionRecord>(&payload)
-                    .context("deserialize retired hive session payload")?,
-            ));
-        }
-        if targets.is_empty() {
-            return Ok(HiveSessionRetireResponse {
-                retired: 0,
-                sessions: Vec::new(),
-            });
-        }
-
-        let mut conn = self.connect()?;
-        let tx = conn
-            .transaction()
-            .context("begin hive session retire transaction")?;
-        for (session_key, _) in &targets {
-            tx.execute(
-                "DELETE FROM hive_session_groups WHERE session_key = ?1",
-                params![session_key],
-            )?;
-            tx.execute(
-                "DELETE FROM hive_sessions WHERE session_key = ?1",
-                params![session_key],
-            )?;
-        }
-        tx.commit()
-            .context("commit hive session retire transaction")?;
-
-        Ok(HiveSessionRetireResponse {
-            retired: targets.len(),
-            sessions: targets.into_iter().map(|(_, record)| record).collect(),
-        })
-    }
-
-    pub fn upsert_hive_task(
-        &self,
-        request: &HiveTaskUpsertRequest,
-    ) -> anyhow::Result<HiveTasksResponse> {
-        let conn = self.connect()?;
-        let existing = conn
-            .query_row(
-                "SELECT payload_json FROM hive_tasks WHERE task_id = ?1",
-                params![request.task_id.trim()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .context("fetch existing hive task")?;
-
         let now = chrono::Utc::now();
-        let mut task = if let Some(payload) = existing {
-            let mut task: HiveTaskRecord =
-                serde_json::from_str(&payload).context("deserialize existing hive task")?;
-            task.title = request.title.trim().to_string();
-            task.description = request
-                .description
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string);
-            if let Some(mode) = request.coordination_mode.as_deref() {
-                let trimmed = mode.trim();
-                if !trimmed.is_empty() {
-                    task.coordination_mode = trimmed.to_string();
-                }
-            }
-            if let Some(status) = request.status.as_deref() {
-                let trimmed = status.trim();
-                if !trimmed.is_empty() {
-                    task.status = trimmed.to_string();
-                }
-            }
-            task.session = request.session.clone().or(task.session);
-            task.agent = request.agent.clone().or(task.agent);
-            task.effective_agent = request.effective_agent.clone().or(task.effective_agent);
-            task.project = request.project.clone().or(task.project);
-            task.namespace = request.namespace.clone().or(task.namespace);
-            task.workspace = request.workspace.clone().or(task.workspace);
-            if !request.claim_scopes.is_empty() {
-                task.claim_scopes = request
-                    .claim_scopes
-                    .iter()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-                    .collect();
-            }
-            if let Some(value) = request.help_requested {
-                task.help_requested = value;
-            }
-            if let Some(value) = request.review_requested {
-                task.review_requested = value;
-            }
-            task.updated_at = now;
-            task
-        } else {
-            HiveTaskRecord {
-                task_id: request.task_id.trim().to_string(),
-                title: request.title.trim().to_string(),
-                description: request
-                    .description
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string),
-                status: request
-                    .status
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("active")
-                    .to_string(),
-                coordination_mode: request
-                    .coordination_mode
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("exclusive_write")
-                    .to_string(),
-                session: request.session.clone(),
-                agent: request.agent.clone(),
-                effective_agent: request.effective_agent.clone(),
-                project: request.project.clone(),
-                namespace: request.namespace.clone(),
-                workspace: request.workspace.clone(),
-                claim_scopes: request
-                    .claim_scopes
-                    .iter()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-                    .collect(),
-                help_requested: request.help_requested.unwrap_or(false),
-                review_requested: request.review_requested.unwrap_or(false),
-                created_at: now,
-                updated_at: now,
-            }
-        };
-
-        if task.status.trim().is_empty() {
-            task.status = "active".to_string();
+        let mut sessions = collapse_hive_session_records(sessions);
+        for session in sessions.iter_mut() {
+            refresh_hive_session_presence(session, now);
+        }
+        if active_only {
+            sessions.retain(|session| matches!(session.status.as_str(), "active" | "live"));
         }
 
-        let payload_json = serde_json::to_string(&task).context("serialize hive task")?;
-        conn.execute(
-            r#"
-            INSERT INTO hive_tasks (task_id, session, project, namespace, workspace, status, updated_at, payload_json)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            ON CONFLICT(task_id) DO UPDATE SET
-              session = excluded.session,
-              project = excluded.project,
-              namespace = excluded.namespace,
-              workspace = excluded.workspace,
-              status = excluded.status,
-              updated_at = excluded.updated_at,
-              payload_json = excluded.payload_json
-            "#,
-            params![
-                task.task_id.as_str(),
-                &task.session,
-                &task.project,
-                &task.namespace,
-                &task.workspace,
-                task.status.as_str(),
-                task.updated_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("upsert hive task")?;
-
-        Ok(HiveTasksResponse { tasks: vec![task] })
-    }
-
-    pub fn assign_hive_task(
-        &self,
-        request: &HiveTaskAssignRequest,
-    ) -> anyhow::Result<HiveTasksResponse> {
-        let conn = self.connect()?;
-        let payload = conn
-            .query_row(
-                "SELECT payload_json FROM hive_tasks WHERE task_id = ?1",
-                params![request.task_id.trim()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .context("fetch hive task for assignment")?;
-        let Some(payload) = payload else {
-            return Ok(HiveTasksResponse { tasks: Vec::new() });
-        };
-
-        let mut task: HiveTaskRecord =
-            serde_json::from_str(&payload).context("deserialize hive task for assignment")?;
-        if let Some(from_session) = request
-            .from_session
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            if task.session.as_deref() != Some(from_session) {
-                anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
-            }
-        }
-        task.session = Some(request.to_session.trim().to_string());
-        task.agent = request.to_agent.clone();
-        task.effective_agent = request.to_effective_agent.clone();
-        task.status = "assigned".to_string();
-        task.updated_at = chrono::Utc::now();
-        let payload_json = serde_json::to_string(&task).context("serialize assigned hive task")?;
-        conn.execute(
-            r#"
-            UPDATE hive_tasks
-            SET session = ?2, status = ?3, updated_at = ?4, payload_json = ?5
-            WHERE task_id = ?1
-            "#,
-            params![
-                task.task_id.as_str(),
-                &task.session,
-                task.status.as_str(),
-                task.updated_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("assign hive task")?;
-        Ok(HiveTasksResponse { tasks: vec![task] })
-    }
-
-    pub fn hive_tasks(&self, request: &HiveTasksRequest) -> anyhow::Result<HiveTasksResponse> {
-        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let active_only = request.active_only.unwrap_or(true);
-        let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT payload_json
-                FROM hive_tasks
-                WHERE (?1 IS NULL OR session = ?1)
-                  AND (?2 IS NULL OR project = ?2)
-                  AND (?3 IS NULL OR namespace = ?3)
-                  AND (?4 IS NULL OR workspace = ?4)
-                  AND (?5 = 0 OR status NOT IN ('done', 'closed'))
-                ORDER BY updated_at DESC
-                LIMIT ?6
-                "#,
-            )
-            .context("prepare hive tasks query")?;
-        let rows = stmt
-            .query_map(
-                params![
-                    request.session.clone(),
-                    request.project.clone(),
-                    request.namespace.clone(),
-                    request.workspace.clone(),
-                    if active_only { 1 } else { 0 },
-                    limit,
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .context("query hive tasks")?;
-
-        let mut tasks = Vec::new();
-        for row in rows {
-            let payload = row.context("read hive task row")?;
-            tasks.push(
-                serde_json::from_str::<HiveTaskRecord>(&payload)
-                    .context("deserialize hive task payload")?,
-            );
-        }
-        Ok(HiveTasksResponse { tasks })
-    }
-
-    pub fn hive_coordination_inbox(
-        &self,
-        request: &HiveCoordinationInboxRequest,
-    ) -> anyhow::Result<HiveCoordinationInboxResponse> {
-        let messages = self
-            .hive_inbox(&HiveMessageInboxRequest {
-                session: request.session.clone(),
-                project: request.project.clone(),
-                namespace: request.namespace.clone(),
-                workspace: request.workspace.clone(),
-                include_acknowledged: Some(false),
-                limit: request.limit,
-            })?
-            .messages;
-
-        let tasks = self
-            .hive_tasks(&HiveTasksRequest {
-                session: None,
-                project: request.project.clone(),
-                namespace: request.namespace.clone(),
-                workspace: request.workspace.clone(),
-                active_only: Some(true),
-                limit: request.limit,
-            })?
-            .tasks;
-
-        let mut owned_tasks = Vec::new();
-        let mut help_tasks = Vec::new();
-        let mut review_tasks = Vec::new();
-        for task in tasks {
-            if task.session.as_deref() == Some(request.session.as_str()) {
-                owned_tasks.push(task.clone());
-            }
-            if task.help_requested {
-                help_tasks.push(task.clone());
-            }
-            if task.review_requested {
-                review_tasks.push(task);
-            }
-        }
-
-        Ok(HiveCoordinationInboxResponse {
-            messages,
-            owned_tasks,
-            help_tasks,
-            review_tasks,
-        })
-    }
-
-    pub fn record_hive_coordination_receipt(
-        &self,
-        request: &HiveCoordinationReceiptRequest,
-    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
-        let receipt = HiveCoordinationReceiptRecord {
-            id: Uuid::new_v4().to_string(),
-            kind: request.kind.trim().to_string(),
-            actor_session: request.actor_session.trim().to_string(),
-            actor_agent: request.actor_agent.clone(),
-            target_session: request.target_session.clone(),
-            task_id: request.task_id.clone(),
-            scope: request.scope.clone(),
-            project: request.project.clone(),
-            namespace: request.namespace.clone(),
-            workspace: request.workspace.clone(),
-            summary: request.summary.trim().to_string(),
-            created_at: chrono::Utc::now(),
-        };
-        let payload_json =
-            serde_json::to_string(&receipt).context("serialize coordination receipt")?;
-        let conn = self.connect()?;
-        conn.execute(
-            r#"
-            INSERT INTO hive_coordination_receipts (id, actor_session, project, namespace, workspace, created_at, payload_json)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#,
-            params![
-                receipt.id.as_str(),
-                receipt.actor_session.as_str(),
-                &receipt.project,
-                &receipt.namespace,
-                &receipt.workspace,
-                receipt.created_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("insert coordination receipt")?;
-        Ok(HiveCoordinationReceiptsResponse {
-            receipts: vec![receipt],
-        })
-    }
-
-    pub fn hive_coordination_receipts(
-        &self,
-        request: &HiveCoordinationReceiptsRequest,
-    ) -> anyhow::Result<HiveCoordinationReceiptsResponse> {
-        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT payload_json
-                FROM hive_coordination_receipts
-                WHERE (?1 IS NULL OR actor_session = ?1)
-                  AND (?2 IS NULL OR project = ?2)
-                  AND (?3 IS NULL OR namespace = ?3)
-                  AND (?4 IS NULL OR workspace = ?4)
-                ORDER BY created_at DESC
-                LIMIT ?5
-                "#,
-            )
-            .context("prepare coordination receipts query")?;
-        let rows = stmt
-            .query_map(
-                params![
-                    request.session.clone(),
-                    request.project.clone(),
-                    request.namespace.clone(),
-                    request.workspace.clone(),
-                    limit,
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .context("query coordination receipts")?;
-        let mut receipts = Vec::new();
-        for row in rows {
-            let payload = row.context("read coordination receipt row")?;
-            receipts.push(
-                serde_json::from_str::<HiveCoordinationReceiptRecord>(&payload)
-                    .context("deserialize coordination receipt payload")?,
-            );
-        }
-        Ok(HiveCoordinationReceiptsResponse { receipts })
-    }
-
-    pub fn record_skill_policy_apply_receipt(
-        &self,
-        request: &SkillPolicyApplyRequest,
-    ) -> anyhow::Result<SkillPolicyApplyResponse> {
-        let receipt = SkillPolicyApplyReceipt {
-            id: Uuid::new_v4().to_string(),
-            bundle_root: request.bundle_root.trim().to_string(),
-            runtime_defaulted: request.runtime_defaulted,
-            source_queue_path: request.source_queue_path.trim().to_string(),
-            applied_count: request.applied_count,
-            skipped_count: request.skipped_count,
-            project: request.project.clone(),
-            namespace: request.namespace.clone(),
-            workspace: request.workspace.clone(),
-            created_at: chrono::Utc::now(),
-        };
-        let payload_json = serde_json::to_string(&SkillPolicyApplyRecordPayload {
-            receipt: receipt.clone(),
-            request: request.clone(),
-        })
-        .context("serialize skill policy apply receipt")?;
-        let conn = self.connect()?;
-        conn.execute(
-            r#"
-            INSERT INTO skill_policy_apply_receipts (id, project, namespace, workspace, created_at, payload_json)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            "#,
-            params![
-                receipt.id.as_str(),
-                &receipt.project,
-                &receipt.namespace,
-                &receipt.workspace,
-                receipt.created_at.to_rfc3339(),
-                payload_json,
-            ],
-        )
-        .context("insert skill policy apply receipt")?;
-
-        for record in request.applied.iter() {
-            let activation = SkillPolicyActivationEntry {
-                receipt_id: receipt.id.clone(),
-                bundle_root: receipt.bundle_root.clone(),
-                runtime_defaulted: receipt.runtime_defaulted,
-                source_queue_path: receipt.source_queue_path.clone(),
-                record: record.clone(),
-                project: receipt.project.clone(),
-                namespace: receipt.namespace.clone(),
-                workspace: receipt.workspace.clone(),
-                created_at: receipt.created_at,
-            };
-            let activation_json = serde_json::to_string(&activation)
-                .context("serialize skill policy activation entry")?;
-            conn.execute(
-                r#"
-                INSERT INTO skill_policy_activations (id, receipt_id, project, namespace, workspace, created_at, payload_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                "#,
-                params![
-                    Uuid::new_v4().to_string(),
-                    receipt.id.as_str(),
-                    &activation.project,
-                    &activation.namespace,
-                    &activation.workspace,
-                    activation.created_at.to_rfc3339(),
-                    activation_json,
-                ],
-            )
-            .context("insert skill policy activation entry")?;
-        }
-        Ok(SkillPolicyApplyResponse { receipt })
-    }
-
-    pub fn skill_policy_apply_receipts(
-        &self,
-        request: &SkillPolicyApplyReceiptsRequest,
-    ) -> anyhow::Result<SkillPolicyApplyReceiptsResponse> {
-        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT payload_json
-                FROM skill_policy_apply_receipts
-                WHERE (?1 IS NULL OR project = ?1)
-                  AND (?2 IS NULL OR namespace = ?2)
-                  AND (?3 IS NULL OR workspace = ?3)
-                ORDER BY created_at DESC
-                LIMIT ?4
-                "#,
-            )
-            .context("prepare skill policy apply receipts query")?;
-        let rows = stmt
-            .query_map(
-                params![
-                    request.project.clone(),
-                    request.namespace.clone(),
-                    request.workspace.clone(),
-                    limit,
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .context("query skill policy apply receipts")?;
-        let mut receipts = Vec::new();
-        for row in rows {
-            let payload = row.context("read skill policy apply receipt row")?;
-            let payload = serde_json::from_str::<SkillPolicyApplyRecordPayload>(&payload)
-                .context("deserialize skill policy apply receipt payload")?;
-            receipts.push(payload.receipt);
-        }
-        Ok(SkillPolicyApplyReceiptsResponse { receipts })
-    }
-
-    pub fn skill_policy_activations(
-        &self,
-        request: &SkillPolicyActivationEntriesRequest,
-    ) -> anyhow::Result<SkillPolicyActivationEntriesResponse> {
-        let limit = request.limit.unwrap_or(128).clamp(1, 1024) as i64;
-        let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT payload_json
-                FROM skill_policy_activations
-                WHERE (?1 IS NULL OR project = ?1)
-                  AND (?2 IS NULL OR namespace = ?2)
-                  AND (?3 IS NULL OR workspace = ?3)
-                ORDER BY created_at DESC
-                LIMIT ?4
-                "#,
-            )
-            .context("prepare skill policy activations query")?;
-        let rows = stmt
-            .query_map(
-                params![
-                    request.project.clone(),
-                    request.namespace.clone(),
-                    request.workspace.clone(),
-                    limit,
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .context("query skill policy activations")?;
-        let mut activations = Vec::new();
-        for row in rows {
-            let payload = row.context("read skill policy activation row")?;
-            activations.push(
-                serde_json::from_str::<SkillPolicyActivationEntry>(&payload)
-                    .context("deserialize skill policy activation payload")?,
-            );
-        }
-        Ok(SkillPolicyActivationEntriesResponse { activations })
+        Ok(HiveSessionsResponse { sessions })
     }
 
     pub fn find_duplicate(
@@ -3063,26 +2349,6 @@ impl SqliteStore {
     ) -> anyhow::Result<Option<DuplicateMatch>> {
         self.find_by_any_key(redundancy_key, canonical_key, stage)
             .map(|found| found.filter(|duplicate| duplicate.id != exclude_id))
-    }
-
-    fn prune_expired_hive_claims(&self) -> anyhow::Result<()> {
-        let conn = self.connect()?;
-        conn.execute(
-            "DELETE FROM hive_claims WHERE expires_at <= ?1",
-            params![chrono::Utc::now().to_rfc3339()],
-        )
-        .context("prune expired hive claims")?;
-        Ok(())
-    }
-
-    fn prune_stale_hive_sessions(&self) -> anyhow::Result<()> {
-        let conn = self.connect()?;
-        conn.execute(
-            "DELETE FROM hive_sessions WHERE last_seen < ?1",
-            params![(chrono::Utc::now() - chrono::TimeDelta::hours(24)).to_rfc3339()],
-        )
-        .context("prune stale hive sessions")?;
-        Ok(())
     }
 
     fn find_by_any_key(
@@ -3200,690 +2466,15 @@ impl SqliteStore {
     }
 }
 
-fn derive_entity_key(item: &MemoryItem, canonical_key: &str) -> String {
-    if let Some(source_path) = item.source_path.as_deref() {
-        return format!(
-            "path|{:?}|{:?}|{}",
-            item.project.as_deref().unwrap_or(""),
-            item.namespace.as_deref().unwrap_or(""),
-            source_path
-        );
-    }
-
-    if let Some(source_system) = item.source_system.as_deref() {
-        return format!(
-            "system|{:?}|{:?}|{:?}|{}",
-            item.project.as_deref().unwrap_or(""),
-            item.namespace.as_deref().unwrap_or(""),
-            source_system,
-            canonical_key
-        );
-    }
-
-    format!(
-        "entity|{:?}|{:?}|{:?}|{}",
-        item.project.as_deref().unwrap_or(""),
-        item.namespace.as_deref().unwrap_or(""),
-        item.kind,
-        canonical_key
-    )
-}
-
-struct HiveSessionKeyArgs<'a> {
-    project: Option<&'a str>,
-    namespace: Option<&'a str>,
-    workspace: Option<&'a str>,
-    agent: Option<&'a str>,
-    effective_agent: Option<&'a str>,
-    hive_system: Option<&'a str>,
-    hive_role: Option<&'a str>,
-    host: Option<&'a str>,
-}
-
-fn hive_session_key(session: &str, args: HiveSessionKeyArgs<'_>) -> String {
-    format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
-        session.trim(),
-        args.project.unwrap_or("").trim(),
-        args.namespace.unwrap_or("").trim(),
-        args.workspace.unwrap_or("").trim(),
-        args.agent.unwrap_or("").trim(),
-        args.effective_agent.unwrap_or("").trim(),
-        args.hive_system.unwrap_or("").trim(),
-        args.hive_role.unwrap_or("").trim(),
-        args.host.unwrap_or("").trim()
-    )
-}
-
-fn new_entity_record(item: &MemoryItem) -> MemoryEntityRecord {
-    let now = chrono::Utc::now();
-    MemoryEntityRecord {
-        id: Uuid::new_v4(),
-        entity_type: format!("{:?}", item.kind).to_lowercase(),
-        aliases: entity_aliases(item),
-        current_state: Some(compact_entity_state(item)),
-        state_version: 1,
-        confidence: item.confidence,
-        salience_score: item.confidence.clamp(0.0, 1.0),
-        rehearsal_count: 1,
-        created_at: now,
-        updated_at: now,
-        last_accessed_at: Some(now),
-        last_seen_at: Some(item.updated_at),
-        valid_from: Some(item.updated_at),
-        valid_to: None,
-        tags: item.tags.clone(),
-        context: Some(MemoryContextFrame {
-            at: Some(item.updated_at),
-            project: item.project.clone(),
-            namespace: item.namespace.clone(),
-            workspace: item.workspace.clone(),
-            repo: item.source_system.clone(),
-            host: None,
-            branch: None,
-            agent: item.source_agent.clone(),
-            location: item.source_path.clone(),
-        }),
-    }
-}
-
-fn update_entity_record(mut record: MemoryEntityRecord, item: &MemoryItem) -> MemoryEntityRecord {
-    let now = chrono::Utc::now();
-    let previous = record.context.clone();
-    let previous_project = previous
-        .as_ref()
-        .and_then(|context| context.project.clone());
-    let previous_namespace = previous
-        .as_ref()
-        .and_then(|context| context.namespace.clone());
-    let previous_repo = previous.as_ref().and_then(|context| context.repo.clone());
-    let previous_host = previous.as_ref().and_then(|context| context.host.clone());
-    let previous_branch = previous.as_ref().and_then(|context| context.branch.clone());
-    let previous_agent = previous.as_ref().and_then(|context| context.agent.clone());
-    let previous_location = previous
-        .as_ref()
-        .and_then(|context| context.location.clone());
-
-    record.aliases = merge_aliases(&record.aliases, &entity_aliases(item));
-    record.current_state = Some(compact_entity_state(item));
-    record.state_version = record.state_version.saturating_add(1);
-    record.confidence = record.confidence.max(item.confidence).clamp(0.0, 1.0);
-    record.salience_score = (record.salience_score + 0.05).min(1.0);
-    record.rehearsal_count = record.rehearsal_count.saturating_add(1);
-    record.updated_at = now;
-    record.last_accessed_at = Some(now);
-    record.last_seen_at = Some(item.updated_at);
-    if record.valid_from.is_none() {
-        record.valid_from = Some(item.updated_at);
-    }
-    record.valid_to = None;
-    record.tags = merge_tags(&record.tags, &item.tags);
-    record.context = Some(MemoryContextFrame {
-        at: Some(item.updated_at),
-        project: item.project.clone().or(previous_project),
-        namespace: item.namespace.clone().or(previous_namespace),
-        workspace: item
-            .workspace
-            .clone()
-            .or(previous.and_then(|context| context.workspace)),
-        repo: item.source_system.clone().or(previous_repo),
-        host: previous_host,
-        branch: previous_branch,
-        agent: item.source_agent.clone().or(previous_agent),
-        location: item.source_path.clone().or(previous_location),
-    });
-    record
-}
-
-fn entity_aliases(item: &MemoryItem) -> Vec<String> {
-    let mut aliases = Vec::new();
-    if let Some(project) = &item.project {
-        aliases.push(project.clone());
-    }
-    if let Some(namespace) = &item.namespace {
-        aliases.push(namespace.clone());
-    }
-    if let Some(agent) = &item.source_agent {
-        aliases.push(agent.clone());
-    }
-    if let Some(system) = &item.source_system {
-        aliases.push(system.clone());
-    }
-    if let Some(path) = &item.source_path {
-        aliases.push(path.clone());
-        if let Some(file_name) = Path::new(path).file_name().and_then(|value| value.to_str()) {
-            aliases.push(file_name.to_string());
-        }
-    }
-    aliases.push(format!("{:?}", item.kind).to_lowercase());
-    aliases.sort();
-    aliases.dedup();
-    aliases
-}
-
-fn merge_aliases(existing: &[String], incoming: &[String]) -> Vec<String> {
-    let mut aliases = existing.to_vec();
-    aliases.extend(incoming.iter().cloned());
-    aliases.sort();
-    aliases.dedup();
-    aliases
-}
-
-fn merge_tags(existing: &[String], incoming: &[String]) -> Vec<String> {
-    let mut tags = existing.to_vec();
-    tags.extend(incoming.iter().cloned());
-    tags.sort();
-    tags.dedup();
-    tags
-}
-
-type SourceKey = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    memd_schema::MemoryVisibility,
-);
-
-type WorkspaceKey = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    memd_schema::MemoryVisibility,
-);
-
-#[derive(Default)]
-struct SourceAggregate {
-    item_count: usize,
-    active_count: usize,
-    candidate_count: usize,
-    derived_count: usize,
-    synthetic_count: usize,
-    contested_count: usize,
-    confidence_sum: f32,
-    last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
-    tag_counts: std::collections::BTreeMap<String, usize>,
-}
-
-impl SourceAggregate {
-    fn observe(&mut self, item: &MemoryItem) {
-        self.item_count = self.item_count.saturating_add(1);
-        if item.stage == memd_schema::MemoryStage::Canonical {
-            self.active_count = self.active_count.saturating_add(1);
-        } else {
-            self.candidate_count = self.candidate_count.saturating_add(1);
-        }
-        if item.source_quality == Some(SourceQuality::Derived) {
-            self.derived_count = self.derived_count.saturating_add(1);
-        }
-        if item.source_quality == Some(SourceQuality::Synthetic) {
-            self.synthetic_count = self.synthetic_count.saturating_add(1);
-        }
-        if item.status == memd_schema::MemoryStatus::Contested {
-            self.contested_count = self.contested_count.saturating_add(1);
-        }
-        self.confidence_sum += item.confidence.clamp(0.0, 1.0);
-        self.last_seen_at = match self.last_seen_at {
-            Some(current) if current >= item.updated_at => Some(current),
-            _ => Some(item.updated_at),
-        };
-        for tag in &item.tags {
-            *self.tag_counts.entry(tag.clone()).or_insert(0) += 1;
-        }
-    }
-
-    fn avg_confidence(&self) -> f32 {
-        if self.item_count == 0 {
-            0.0
-        } else {
-            (self.confidence_sum / self.item_count as f32).clamp(0.0, 1.0)
-        }
-    }
-
-    fn tags(&self, limit: usize) -> Vec<String> {
-        let mut tags = self
-            .tag_counts
-            .iter()
-            .map(|(tag, count)| (tag.clone(), *count))
-            .collect::<Vec<_>>();
-        tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        tags.into_iter().take(limit).map(|(tag, _)| tag).collect()
-    }
-}
-
-#[derive(Default)]
-struct WorkspaceAggregate {
-    source: SourceAggregate,
-    source_lanes: std::collections::BTreeSet<(Option<String>, Option<String>)>,
-}
-
-impl WorkspaceAggregate {
-    fn observe(&mut self, item: &MemoryItem) {
-        self.source.observe(item);
-        self.source_lanes
-            .insert((item.source_agent.clone(), item.source_system.clone()));
-    }
-}
-
-fn source_trust_score(
-    item_count: usize,
-    active_count: usize,
-    candidate_count: usize,
-    derived_count: usize,
-    synthetic_count: usize,
-    contested_count: usize,
-    avg_confidence: f32,
-) -> f32 {
-    if item_count == 0 {
-        return 0.0;
-    }
-
-    let active_ratio = active_count as f32 / item_count as f32;
-    let derived_ratio = derived_count as f32 / item_count as f32;
-    let candidate_ratio = candidate_count as f32 / item_count as f32;
-    let synthetic_ratio = synthetic_count as f32 / item_count as f32;
-    let contested_ratio = contested_count as f32 / item_count as f32;
-
-    let score = avg_confidence * 0.58 + active_ratio * 0.18 + derived_ratio * 0.12
-        - candidate_ratio * 0.05
-        - synthetic_ratio * 0.18
-        - contested_ratio * 0.14;
-    score.clamp(0.0, 1.0)
-}
-
-fn normalize_search_text(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn tokenize_search_text(value: &str) -> Vec<String> {
-    value
-        .split_whitespace()
-        .map(|value| value.to_string())
-        .filter(|value| !value.is_empty())
-        .collect()
-}
-
-fn score_entity_search(
-    request: &EntitySearchRequest,
-    query: &str,
-    query_tokens: &[String],
-    entity: &MemoryEntityRecord,
-) -> (f32, Vec<String>) {
-    let mut score = 0.0f32;
-    let mut reasons = Vec::new();
-    let haystacks = entity_search_haystacks(entity);
-
-    for haystack in &haystacks {
-        if haystack == query {
-            score += 1.0;
-            reasons.push("exact match".to_string());
-        } else if haystack.starts_with(query) {
-            score += 0.7;
-            reasons.push("prefix match".to_string());
-        } else if haystack.contains(query) {
-            score += 0.5;
-            reasons.push("substring match".to_string());
-        }
-    }
-
-    for token in query_tokens {
-        if haystacks.iter().any(|haystack| haystack.contains(token)) {
-            score += 0.2;
-            reasons.push(format!("token:{token}"));
-        }
-    }
-
-    if query_tokens.len() > 1 {
-        let joined = query_tokens.join(" ");
-        if haystacks.iter().any(|haystack| haystack.contains(&joined)) {
-            score += 0.28;
-            reasons.push("phrase match".to_string());
-        }
-    }
-
-    if entity.salience_score > 0.0 {
-        score += entity.salience_score * 0.08;
-    }
-    if entity.rehearsal_count > 0 {
-        score += (entity.rehearsal_count as f32).ln_1p() * 0.03;
-    }
-    if entity.valid_from.is_some() {
-        score += 0.08;
-        reasons.push("validity window".to_string());
-    }
-    if request.project.is_some()
-        && entity
-            .context
-            .as_ref()
-            .and_then(|context| context.project.as_ref())
-            .is_some()
-    {
-        score += 0.05;
-        reasons.push("project context".to_string());
-    }
-    if request.namespace.is_some()
-        && entity
-            .context
-            .as_ref()
-            .and_then(|context| context.namespace.as_ref())
-            .is_some()
-    {
-        score += 0.05;
-        reasons.push("namespace context".to_string());
-    }
-    if request.host.is_some()
-        && entity
-            .context
-            .as_ref()
-            .and_then(|context| context.host.as_ref())
-            .is_some()
-    {
-        score += 0.05;
-        reasons.push("host context".to_string());
-    }
-    if request.branch.is_some()
-        && entity
-            .context
-            .as_ref()
-            .and_then(|context| context.branch.as_ref())
-            .is_some()
-    {
-        score += 0.05;
-        reasons.push("branch context".to_string());
-    }
-    if request.location.is_some()
-        && entity
-            .context
-            .as_ref()
-            .and_then(|context| context.location.as_ref())
-            .is_some()
-    {
-        score += 0.05;
-        reasons.push("location context".to_string());
-    }
-    if request.at.is_some() {
-        score += 0.05;
-        reasons.push("timestamp context".to_string());
-    }
-
-    score = score.min(1.0);
-    reasons.sort();
-    reasons.dedup();
-    (score, reasons)
-}
-
-fn entity_search_haystacks(entity: &MemoryEntityRecord) -> Vec<String> {
-    let mut haystacks = Vec::new();
-    haystacks.push(normalize_search_text(&entity.entity_type));
-    haystacks.extend(
-        entity
-            .aliases
-            .iter()
-            .map(|alias| normalize_search_text(alias)),
-    );
-    if let Some(state) = &entity.current_state {
-        haystacks.push(normalize_search_text(state));
-    }
-    if let Some(context) = &entity.context {
-        if let Some(project) = &context.project {
-            haystacks.push(normalize_search_text(project));
-        }
-        if let Some(namespace) = &context.namespace {
-            haystacks.push(normalize_search_text(namespace));
-        }
-        if let Some(repo) = &context.repo {
-            haystacks.push(normalize_search_text(repo));
-        }
-        if let Some(agent) = &context.agent {
-            haystacks.push(normalize_search_text(agent));
-        }
-        if let Some(location) = &context.location {
-            haystacks.push(normalize_search_text(location));
-            if let Some(file_name) = Path::new(location)
-                .file_name()
-                .and_then(|value| value.to_str())
-            {
-                haystacks.push(normalize_search_text(file_name));
-            }
-        }
-    }
-    haystacks.extend(entity.tags.iter().map(|tag| normalize_search_text(tag)));
-    haystacks.sort();
-    haystacks.dedup();
-    haystacks
-}
-
-fn entity_matches_context(entity: &MemoryEntityRecord, request: &EntitySearchRequest) -> bool {
-    if let Some(at) = request.at {
-        if entity.valid_from.is_some_and(|valid_from| at < valid_from) {
-            return false;
-        }
-        if entity.valid_to.is_some_and(|valid_to| at > valid_to) {
-            return false;
-        }
-    }
-
-    let context = entity.context.as_ref();
-    if request.project.as_ref().is_some_and(|project| {
-        context
-            .and_then(|context| context.project.as_ref())
-            .is_none_or(|entity_project| entity_project != project)
-    }) {
-        return false;
-    }
-    if request.namespace.as_ref().is_some_and(|namespace| {
-        context
-            .and_then(|context| context.namespace.as_ref())
-            .is_none_or(|entity_namespace| entity_namespace != namespace)
-    }) {
-        return false;
-    }
-    if request.host.as_ref().is_some_and(|host| {
-        context
-            .and_then(|context| context.host.as_ref())
-            .is_none_or(|entity_host| entity_host != host)
-    }) {
-        return false;
-    }
-    if request.branch.as_ref().is_some_and(|branch| {
-        context
-            .and_then(|context| context.branch.as_ref())
-            .is_none_or(|entity_branch| entity_branch != branch)
-    }) {
-        return false;
-    }
-    if request.location.as_ref().is_some_and(|location| {
-        context
-            .and_then(|context| context.location.as_ref())
-            .is_none_or(|entity_location| entity_location != location)
-    }) {
-        return false;
-    }
-
-    true
-}
-
-fn compact_entity_state(item: &MemoryItem) -> String {
-    let mut state = item
-        .content
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if state.len() > 240 {
-        state.truncate(240);
-        state.push('…');
-    }
-    state
-}
-
-fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
-    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    if !columns.iter().any(|column| column == "redundancy_key") {
-        conn.execute_batch("ALTER TABLE memory_items ADD COLUMN redundancy_key TEXT;")?;
-        let mut stmt = conn.prepare("SELECT id, payload_json FROM memory_items")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        for row in rows {
-            let (id, payload) = row?;
-            let item: MemoryItem = serde_json::from_str(&payload)?;
-            let key = redundancy_key(&item);
-            conn.execute(
-                "UPDATE memory_items SET redundancy_key = ?1 WHERE id = ?2",
-                params![key, id],
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
-fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> anyhow::Result<()> {
-    let columns = {
-        let mut stmt = conn.prepare("PRAGMA table_info(hive_sessions)")?;
-        stmt.query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-
-    let has_hive_system = columns.iter().any(|value| value == "hive_system");
-    let has_hive_role = columns.iter().any(|value| value == "hive_role");
-    let has_host = columns.iter().any(|value| value == "host");
-
-    if !has_hive_system {
-        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN hive_system TEXT;")?;
-    }
-    if !has_hive_role {
-        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN hive_role TEXT;")?;
-    }
-    if !has_host {
-        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN host TEXT;")?;
-    }
-
-    let has_hive_session_groups = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hive_session_groups'",
-            [],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    if !has_hive_session_groups {
-        conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS hive_session_groups (
-              session_key TEXT NOT NULL,
-              hive_group TEXT NOT NULL,
-              PRIMARY KEY (session_key, hive_group),
-              FOREIGN KEY (session_key) REFERENCES hive_sessions(session_key) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_session
-              ON hive_session_groups(session_key);
-            CREATE INDEX IF NOT EXISTS idx_hive_session_groups_hive_group
-              ON hive_session_groups(hive_group, session_key);
-            "#,
-        )?;
-    }
-
-    let hive_session_groups_empty = conn
-        .query_row("SELECT 1 FROM hive_session_groups LIMIT 1", [], |_| Ok(()))
-        .optional()?
-        .is_none();
-
-    if !has_hive_system || !has_hive_role || !has_host || hive_session_groups_empty {
-        let tx = conn
-            .transaction()
-            .context("begin hive session migration backfill")?;
-
-        {
-            let mut statement =
-                tx.prepare("SELECT session_key, payload_json FROM hive_sessions")?;
-            let mut rows = statement.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-
-            let mut update = if !has_hive_system || !has_hive_role || !has_host {
-                Some(tx.prepare(
-                    "UPDATE hive_sessions SET hive_system = ?1, hive_role = ?2, host = ?3 WHERE session_key = ?4",
-                )?)
-            } else {
-                None
-            };
-            let mut insert_group = if hive_session_groups_empty {
-                Some(tx.prepare(
-                    "INSERT OR IGNORE INTO hive_session_groups (session_key, hive_group) VALUES (?1, ?2)",
-                )?)
-            } else {
-                None
-            };
-
-            if hive_session_groups_empty {
-                tx.execute("DELETE FROM hive_session_groups", [])?;
-            }
-
-            for row in rows.by_ref() {
-                let (session_key, payload) = row?;
-                let record: HiveSessionRecord =
-                    serde_json::from_str(&payload).context("deserialize hive session record")?;
-                if let Some(update) = update.as_mut() {
-                    update.execute(params![
-                        record.hive_system,
-                        record.hive_role,
-                        record.host,
-                        session_key
-                    ])?;
-                }
-                if let Some(insert_group) = insert_group.as_mut() {
-                    for hive_group in record.hive_groups.iter() {
-                        insert_group.execute(params![session_key, hive_group])?;
-                    }
-                }
-            }
-        }
-        tx.commit()
-            .context("commit hive session migration backfill")?;
-    }
-
-    Ok(())
-}
-
-fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_system
-          ON hive_sessions(hive_system);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_hive_role
-          ON hive_sessions(hive_role);
-        CREATE INDEX IF NOT EXISTS idx_hive_sessions_host
-          ON hive_sessions(host);
-        "#,
-    )
-    .context("create hive session identity indexes")?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::canonical_key;
-    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+    use crate::keys::redundancy_key;
+    use memd_schema::{
+        HiveRosterRequest, MaintainReportRequest, MemoryKind, MemoryScope, MemoryStage,
+        MemoryStatus, MemoryVisibility, SourceQuality,
+    };
 
     fn open_temp_store(prefix: &str) -> (std::path::PathBuf, SqliteStore) {
         let dir = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
@@ -4175,23 +2766,40 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("laptop-a".to_string()),
                 pid: Some(101),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("work a".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex session");
@@ -4202,23 +2810,40 @@ mod tests {
                 effective_agent: Some("claude-code@shared-session".to_string()),
                 hive_system: Some("claude-code".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string(), "coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("claude-sonnet-4".to_string()),
                 tab_id: None,
                 project: Some("repo-b".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("laptop-b".to_string()),
                 pid: Some(202),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("work b".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude session");
@@ -4228,6 +2853,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: None,
                 namespace: None,
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("initiative-alpha".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4259,6 +2887,136 @@ mod tests {
     }
 
     #[test]
+    fn hive_sessions_keep_same_named_sessions_separate_across_branches() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-branches-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-a".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo-a".to_string()),
+                branch: Some("feature/a".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert branch a session");
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-b".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: Some("/tmp/repo-b".to_string()),
+                branch: Some("feature/b".to_string()),
+                base_branch: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert branch b session");
+
+        let sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query sessions");
+
+        assert_eq!(sessions.sessions.len(), 2);
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.branch.as_deref() == Some("feature/a"))
+        );
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.branch.as_deref() == Some("feature/b"))
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn hive_sessions_preserve_service_hive_metadata() {
         let dir = std::env::temp_dir().join(format!("memd-hive-service-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
@@ -4271,27 +3029,44 @@ mod tests {
                 effective_agent: Some("agent-shell@shell-a".to_string()),
                 hive_system: Some("agent-shell".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-shell".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec![
                     "shell".to_string(),
                     "exec".to_string(),
                     "workspace".to_string(),
                 ],
                 hive_groups: vec!["runtime-core".to_string(), "dependency-owners".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("stack-alpha".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: Some("repair runtime dependency".to_string()),
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert service hive");
@@ -4301,6 +3076,9 @@ mod tests {
                 session: Some("shell-a".to_string()),
                 project: Some("openclaw".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("stack-alpha".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4323,7 +3101,7 @@ mod tests {
     }
 
     #[test]
-    fn retire_hive_session_removes_only_matching_identity() {
+    fn retire_hive_session_removes_scope_sibling_rows_for_same_session() {
         let dir = std::env::temp_dir().join(format!("memd-hive-retire-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
@@ -4335,23 +3113,40 @@ mod tests {
                 effective_agent: Some("codex@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: Some("tab-a".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex session");
@@ -4362,32 +3157,96 @@ mod tests {
                 effective_agent: Some("claude-code@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("participant".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: Some("tab-b".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("workstation".to_string()),
                 pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude session");
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "shared-session".to_string(),
+                agent: Some("claude-code".to_string()),
+                effective_agent: Some("claude-code@shared-session".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("claude-code".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:demo".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: Some("llama-desktop/qwen".to_string()),
+                tab_id: Some("tab-c".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("other".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert other workspace session");
 
         let retired = store
             .retire_hive_session(&HiveSessionRetireRequest {
                 session: "shared-session".to_string(),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 agent: Some("codex".to_string()),
                 effective_agent: Some("codex@shared-session".to_string()),
@@ -4397,14 +3256,28 @@ mod tests {
                 reason: Some("superseded".to_string()),
             })
             .expect("retire codex session");
-        assert_eq!(retired.retired, 1);
-        assert_eq!(retired.sessions[0].agent.as_deref(), Some("codex"));
+        assert_eq!(retired.retired, 2);
+        assert!(
+            retired
+                .sessions
+                .iter()
+                .any(|record| record.agent.as_deref() == Some("codex"))
+        );
+        assert!(
+            retired
+                .sessions
+                .iter()
+                .any(|record| record.agent.as_deref() == Some("claude-code"))
+        );
 
         let sessions = store
             .hive_sessions(&HiveSessionsRequest {
                 session: Some("shared-session".to_string()),
                 project: Some("demo".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4414,8 +3287,176 @@ mod tests {
                 limit: Some(8),
             })
             .expect("query remaining sessions");
-        assert_eq!(sessions.sessions.len(), 1);
-        assert_eq!(sessions.sessions[0].agent.as_deref(), Some("claude-code"));
+        assert_eq!(sessions.sessions.len(), 0);
+
+        let other_workspace_sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("shared-session".to_string()),
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("other".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("query other workspace sessions");
+        assert_eq!(other_workspace_sessions.sessions.len(), 1);
+        assert_eq!(
+            other_workspace_sessions.sessions[0].workspace.as_deref(),
+            Some("other")
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_coordination_auto_retires_stale_session_without_owned_work() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-auto-retire-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-old".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@session-old".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Lorentz".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: Some("workstation".to_string()),
+                pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("active".to_string()),
+            })
+            .expect("insert stale session");
+
+        let mut session = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-old".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("load session")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("session exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(45);
+        let conn = store.connect().expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize stale session"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("mark session stale");
+
+        let sessions = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("list sessions");
+        assert!(
+            sessions
+                .sessions
+                .iter()
+                .any(|session| session.session == "session-old")
+        );
+
+        let retired = store
+            .auto_retire_stale_hive_sessions(
+                Some("memd"),
+                Some("main"),
+                Some("shared"),
+                chrono::Utc::now(),
+            )
+            .expect("auto retire");
+        assert_eq!(retired.retired, vec!["session-old".to_string()]);
+
+        let remaining = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(8),
+            })
+            .expect("list sessions after retire");
+        assert!(
+            remaining
+                .sessions
+                .iter()
+                .all(|session| session.session != "session-old")
+        );
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
@@ -4433,23 +3474,40 @@ mod tests {
                 effective_agent: Some("agent-a@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-a".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["runtime-core".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:8787".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(111),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex runtime shell session");
@@ -4461,23 +3519,40 @@ mod tests {
                 effective_agent: Some("agent-b@shared-session".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("orchestrator".to_string()),
+                worker_name: Some("agent-b".to_string()),
+                display_name: None,
+                role: Some("orchestrator".to_string()),
                 capabilities: vec!["coordination".to_string()],
                 hive_groups: vec!["openclaw-stack".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("coordinator".to_string()),
                 heartbeat_model: Some("llama-desktop/qwen".to_string()),
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9797".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("vm-b".to_string()),
                 pid: Some(222),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert codex orchestrator session");
@@ -4489,23 +3564,40 @@ mod tests {
                 effective_agent: Some("agent-c@shared-session".to_string()),
                 hive_system: Some("claude-code".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
+                worker_name: Some("agent-c".to_string()),
+                display_name: None,
+                role: Some("runtime-shell".to_string()),
                 capabilities: vec!["memory".to_string()],
                 hive_groups: vec!["runtime-core".to_string()],
+                lane_id: None,
                 hive_group_goal: None,
                 authority: Some("worker".to_string()),
                 heartbeat_model: Some("claude-opus".to_string()),
                 tab_id: None,
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
                 workspace: Some("shared".to_string()),
                 visibility: Some("workspace".to_string()),
                 base_url: Some("http://127.0.0.1:9898".to_string()),
                 base_url_healthy: Some(true),
                 host: Some("vm-a".to_string()),
                 pid: Some(333),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
                 focus: None,
                 pressure: None,
                 next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
                 status: Some("live".to_string()),
             })
             .expect("insert claude runtime shell session");
@@ -4515,6 +3607,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: None,
@@ -4531,6 +3626,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: Some("codex".to_string()),
                 hive_role: Some("runtime-shell".to_string()),
@@ -4556,6 +3654,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4578,6 +3679,9 @@ mod tests {
                 session: Some("shared-session".to_string()),
                 project: Some("repo-a".to_string()),
                 namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
                 workspace: Some("shared".to_string()),
                 hive_system: None,
                 hive_role: None,
@@ -4594,6 +3698,996 @@ mod tests {
                 .iter()
                 .any(|value| value == "runtime-core")
         }));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_collapse_duplicate_rows_per_session_and_preserve_richer_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-dedupe-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "codex-fresh".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-fresh".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert richer session row");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "codex-fresh".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@codex-fresh".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: None,
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert newer sparse session row");
+
+        let response = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query deduped sessions");
+
+        assert_eq!(response.sessions.len(), 1);
+        let session = &response.sessions[0];
+        assert_eq!(session.session, "codex-fresh");
+        assert_eq!(session.hive_system.as_deref(), Some("codex"));
+        assert_eq!(session.hive_role.as_deref(), Some("agent"));
+        assert_eq!(session.role.as_deref(), Some("agent"));
+        assert_eq!(session.authority.as_deref(), Some("participant"));
+        assert_eq!(
+            session.capabilities,
+            vec!["coordination".to_string(), "memory".to_string()]
+        );
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_collapse_duplicate_rows_prefers_stronger_newer_worker_identity() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-identity-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-openclaw".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("openclaw".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert older generic identity row");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-openclaw".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Openclaw".to_string()),
+                display_name: Some("Openclaw".to_string()),
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(456),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert newer human identity row");
+
+        let response = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-openclaw".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query merged session");
+
+        assert_eq!(response.sessions.len(), 1);
+        let session = &response.sessions[0];
+        assert_eq!(session.worker_name.as_deref(), Some("Openclaw"));
+        assert_eq!(session.display_name.as_deref(), Some("Openclaw"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_collapse_does_not_backfill_generic_display_for_named_worker() {
+        let dir = std::env::temp_dir().join(format!("memd-hive-display-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@session-live-openclaw".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("codex".to_string()),
+                display_name: Some("Codex live-openclaw".to_string()),
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(123),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert older generic row");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-openclaw".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-openclaw".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Openclaw".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string(), "memory".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: Some("tab-alpha".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://100.104.154.24:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(456),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert newer named row");
+
+        let response = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-openclaw".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                workspace: Some("shared".to_string()),
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(16),
+            })
+            .expect("query merged session");
+
+        assert_eq!(response.sessions.len(), 1);
+        let session = &response.sessions[0];
+        assert_eq!(session.worker_name.as_deref(), Some("Openclaw"));
+        assert_eq!(session.display_name.as_deref(), None);
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_ignores_handoff_scope_receipts_in_overlap_risks() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-overlap-noise-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "bee-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@bee-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(101),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert session");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_handoff".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Handoff to Avicenna (bee-1) task=parser-refactor scopes=crates/memd-client/src/main.rs".to_string(),
+            })
+            .expect("record handoff receipt");
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "possible_work_overlap".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("bee-1".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "possible_work_overlap touches=crates/memd-client/src/main.rs sessions=bee-1,bee-2".to_string(),
+            })
+            .expect("record overlap receipt");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert_eq!(board.overlap_risks.len(), 1);
+        assert!(board.overlap_risks[0].contains("possible_work_overlap"));
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-sender-noise-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "sender-noise".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@sender-noise".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(301),
+                topic_claim: Some("focus: task-current-noise".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("focus: task-current-noise".to_string()),
+                pressure: Some("keep continuity tight".to_string()),
+                next_recovery: Some("next: resume next step".to_string()),
+                next_action: Some("focus: task-current-noise".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert low signal sender");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(302),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert worker");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+        let roster = store
+            .hive_roster(&HiveRosterRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive roster");
+
+        assert_eq!(board.active_bees.len(), 1);
+        assert_eq!(board.active_bees[0].session, "worker-1");
+        assert_eq!(roster.bees.len(), 1);
+        assert_eq!(roster.bees[0].session, "worker-1");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_sessions_mark_proof_bees_stale_on_shorter_window() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-hive-proof-presence-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "session-live-proof".to_string(),
+                agent: Some("openclaw".to_string()),
+                effective_agent: Some("openclaw@session-live-proof".to_string()),
+                hive_system: Some("openclaw".to_string()),
+                hive_role: Some("agent".to_string()),
+                worker_name: Some("Openclaw".to_string()),
+                display_name: None,
+                role: Some("agent".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(611),
+                topic_claim: None,
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert proof bee");
+
+        let mut session = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(1),
+            })
+            .expect("load proof bee")
+            .sessions
+            .into_iter()
+            .next()
+            .expect("proof bee exists");
+        session.last_seen = chrono::Utc::now() - chrono::TimeDelta::minutes(6);
+        let conn = store.connect().expect("connect sqlite");
+        conn.execute(
+            "UPDATE hive_sessions SET last_seen = ?1, payload_json = ?2 WHERE session = ?3",
+            params![
+                session.last_seen.to_rfc3339(),
+                serde_json::to_string(&session).expect("serialize proof bee"),
+                session.session.as_str(),
+            ],
+        )
+        .expect("age proof bee");
+
+        let active = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(true),
+                limit: Some(8),
+            })
+            .expect("list active proof bees");
+        assert!(
+            active
+                .sessions
+                .iter()
+                .all(|session| session.session != "session-live-proof")
+        );
+
+        let all = store
+            .hive_sessions(&HiveSessionsRequest {
+                session: Some("session-live-proof".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                hive_system: None,
+                hive_role: None,
+                host: None,
+                hive_group: None,
+                active_only: Some(false),
+                limit: Some(1),
+            })
+            .expect("load proof bee after aging");
+        assert_eq!(all.sessions[0].status, "stale");
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_sender_sessions_with_only_lane_path_and_no_task_signal() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-sender-lane-only-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "sender-lane-only".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@sender-lane-only".to_string()),
+                hive_system: None,
+                hive_role: None,
+                worker_name: Some("codex".to_string()),
+                display_name: None,
+                role: None,
+                capabilities: Vec::new(),
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: Some("/tmp/sessions".to_string()),
+                hive_group_goal: None,
+                authority: None,
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: Some("/tmp/sessions".to_string()),
+                worktree_root: Some("/tmp/sessions".to_string()),
+                branch: Some("feature/hive-shared".to_string()),
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(303),
+                topic_claim: Some("focus: task-current-noise".to_string()),
+                scope_claims: Vec::new(),
+                task_id: None,
+                focus: Some("focus: task-current-noise".to_string()),
+                pressure: Some("keep continuity tight".to_string()),
+                next_recovery: Some("next: resume next step".to_string()),
+                next_action: Some("focus: task-current-noise".to_string()),
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert lane-only sender");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+        let roster = store
+            .hive_roster(&HiveRosterRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive roster");
+
+        assert!(board.active_bees.is_empty());
+        assert!(roster.bees.is_empty());
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_historical_lane_fault_noise_for_inactive_sessions() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-lane-fault-noise-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(401),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert worker");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "lane_fault".to_string(),
+                actor_session: "queen-1".to_string(),
+                actor_agent: Some("queen".to_string()),
+                target_session: Some("old-worker".to_string()),
+                task_id: Some("legacy-task".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Old lane fault for old-worker".to_string(),
+            })
+            .expect("record stale lane fault");
+
+        {
+            let mut receipt = store
+                .hive_coordination_receipts(&HiveCoordinationReceiptsRequest {
+                    session: None,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("shared".to_string()),
+                    limit: Some(8),
+                })
+                .expect("load receipts")
+                .receipts
+                .into_iter()
+                .next()
+                .expect("stale lane fault receipt");
+            receipt.created_at = chrono::Utc::now() - chrono::TimeDelta::minutes(30);
+            let payload_json = serde_json::to_string(&receipt).expect("serialize aged receipt");
+            let conn = store.connect().expect("connect sqlite store");
+            conn.execute(
+                "UPDATE hive_coordination_receipts SET created_at = ?1, payload_json = ?2 WHERE id = ?3",
+                rusqlite::params![
+                    receipt.created_at.to_rfc3339(),
+                    payload_json,
+                    receipt.id
+                ],
+            )
+            .expect("age receipt row");
+        }
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert!(board.blocked_bees.is_empty());
+        assert!(board.lane_faults.is_empty());
+        assert!(board.recommended_actions.is_empty());
+
+        std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn hive_board_hides_lane_faults_when_only_actor_session_is_active() {
+        let dir = std::env::temp_dir().join(format!(
+            "memd-hive-lane-fault-target-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+        store
+            .upsert_hive_session(&HiveSessionUpsertRequest {
+                session: "worker-1".to_string(),
+                agent: Some("codex".to_string()),
+                effective_agent: Some("codex@worker-1".to_string()),
+                hive_system: Some("codex".to_string()),
+                hive_role: Some("worker".to_string()),
+                worker_name: Some("Avicenna".to_string()),
+                display_name: None,
+                role: Some("worker".to_string()),
+                capabilities: vec!["coordination".to_string()],
+                hive_groups: vec!["project:memd".to_string()],
+                lane_id: None,
+                hive_group_goal: None,
+                authority: Some("participant".to_string()),
+                heartbeat_model: None,
+                tab_id: None,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                repo_root: None,
+                worktree_root: None,
+                branch: None,
+                base_branch: None,
+                workspace: Some("shared".to_string()),
+                visibility: Some("workspace".to_string()),
+                base_url: Some("http://127.0.0.1:8787".to_string()),
+                base_url_healthy: Some(true),
+                host: None,
+                pid: Some(501),
+                topic_claim: Some("Parser lane".to_string()),
+                scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+                task_id: Some("parser-refactor".to_string()),
+                focus: None,
+                pressure: None,
+                next_recovery: None,
+                next_action: None,
+                needs_help: false,
+                needs_review: false,
+                handoff_state: None,
+                confidence: None,
+                risk: None,
+                status: Some("live".to_string()),
+            })
+            .expect("insert active worker");
+
+        store
+            .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
+                kind: "queen_deny".to_string(),
+                actor_session: "worker-1".to_string(),
+                actor_agent: Some("codex".to_string()),
+                target_session: Some("inactive-target".to_string()),
+                task_id: Some("parser-refactor".to_string()),
+                scope: Some("crates/memd-client/src/main.rs".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                summary: "Queen denied inactive target".to_string(),
+            })
+            .expect("record deny receipt");
+
+        let board = store
+            .hive_board(&HiveBoardRequest {
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+            })
+            .expect("read hive board");
+
+        assert!(board.blocked_bees.is_empty());
+        assert!(board.lane_faults.is_empty());
+        assert!(board.recommended_actions.is_empty());
 
         std::fs::remove_dir_all(dir).expect("cleanup temp dir");
     }

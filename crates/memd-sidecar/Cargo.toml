@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 anyhow = "1"
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
+fastembed = { version = "5.13.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
 memd-schema = { path = "../memd-schema" }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

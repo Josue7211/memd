@@ -742,23 +742,51 @@ pub struct HiveSessionRecord {
     pub hive_system: Option<String>,
     pub hive_role: Option<String>,
     #[serde(default)]
+    pub worker_name: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub hive_groups: Vec<String>,
+    #[serde(default)]
+    pub lane_id: Option<String>,
     pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
+    pub repo_root: Option<String>,
+    pub worktree_root: Option<String>,
+    pub branch: Option<String>,
+    pub base_branch: Option<String>,
     pub visibility: Option<String>,
     pub base_url: Option<String>,
     pub base_url_healthy: Option<bool>,
     pub host: Option<String>,
     pub pid: Option<u32>,
+    pub topic_claim: Option<String>,
+    #[serde(default)]
+    pub scope_claims: Vec<String>,
+    pub task_id: Option<String>,
     pub focus: Option<String>,
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub needs_help: bool,
+    #[serde(default)]
+    pub needs_review: bool,
+    #[serde(default)]
+    pub handoff_state: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
+    #[serde(default)]
+    pub risk: Option<String>,
     pub status: String,
     pub last_seen: DateTime<Utc>,
 }
@@ -772,24 +800,52 @@ pub struct HiveSessionUpsertRequest {
     pub hive_system: Option<String>,
     pub hive_role: Option<String>,
     #[serde(default)]
+    pub worker_name: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub hive_groups: Vec<String>,
+    #[serde(default)]
+    pub lane_id: Option<String>,
     pub hive_group_goal: Option<String>,
     pub authority: Option<String>,
     pub heartbeat_model: Option<String>,
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
+    pub repo_root: Option<String>,
+    pub worktree_root: Option<String>,
+    pub branch: Option<String>,
+    pub base_branch: Option<String>,
     pub visibility: Option<String>,
     pub base_url: Option<String>,
     pub base_url_healthy: Option<bool>,
     pub host: Option<String>,
     pub pid: Option<u32>,
+    pub topic_claim: Option<String>,
+    #[serde(default)]
+    pub scope_claims: Vec<String>,
+    pub task_id: Option<String>,
     pub focus: Option<String>,
     pub pressure: Option<String>,
     pub next_recovery: Option<String>,
     pub status: Option<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub needs_help: bool,
+    #[serde(default)]
+    pub needs_review: bool,
+    #[serde(default)]
+    pub handoff_state: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
+    #[serde(default)]
+    pub risk: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -798,6 +854,9 @@ pub struct HiveSessionsRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
+    pub repo_root: Option<String>,
+    pub worktree_root: Option<String>,
+    pub branch: Option<String>,
     pub hive_system: Option<String>,
     pub hive_role: Option<String>,
     pub host: Option<String>,
@@ -812,11 +871,73 @@ pub struct HiveSessionsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveRosterResponse {
+    pub project: String,
+    pub namespace: String,
+    pub queen_session: Option<String>,
+    pub bees: Vec<HiveSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveRosterRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveBoardRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveBoardResponse {
+    pub queen_session: Option<String>,
+    pub active_bees: Vec<HiveSessionRecord>,
+    pub blocked_bees: Vec<String>,
+    pub stale_bees: Vec<String>,
+    pub review_queue: Vec<String>,
+    pub overlap_risks: Vec<String>,
+    pub lane_faults: Vec<String>,
+    pub recommended_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveFollowRequest {
+    pub session: String,
+    pub current_session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveFollowResponse {
+    pub current_session: Option<String>,
+    pub target: HiveSessionRecord,
+    pub work_summary: String,
+    pub touch_points: Vec<String>,
+    pub next_action: Option<String>,
+    pub messages: Vec<HiveMessageRecord>,
+    pub owned_tasks: Vec<HiveTaskRecord>,
+    pub help_tasks: Vec<HiveTaskRecord>,
+    pub review_tasks: Vec<HiveTaskRecord>,
+    pub recent_receipts: Vec<HiveCoordinationReceiptRecord>,
+    pub overlap_risk: Option<String>,
+    pub recommended_action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveSessionRetireRequest {
     pub session: String,
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub workspace: Option<String>,
+    pub repo_root: Option<String>,
+    pub worktree_root: Option<String>,
+    pub branch: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
     pub hive_system: Option<String>,
@@ -829,6 +950,55 @@ pub struct HiveSessionRetireRequest {
 pub struct HiveSessionRetireResponse {
     pub retired: usize,
     pub sessions: Vec<HiveSessionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HiveSessionAutoRetireRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveSessionAutoRetireResponse {
+    pub retired: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveQueenActionRequest {
+    pub queen_session: String,
+    pub target_session: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+    pub scope: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveQueenActionResponse {
+    pub action: String,
+    pub target_session: Option<String>,
+    pub receipt: Option<HiveCoordinationReceiptRecord>,
+    pub message_id: Option<String>,
+    pub retired: Vec<String>,
+    pub summary: String,
+    pub follow_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HiveHandoffPacket {
+    pub from_session: String,
+    pub from_worker: Option<String>,
+    pub to_session: String,
+    pub to_worker: Option<String>,
+    pub task_id: Option<String>,
+    pub topic_claim: Option<String>,
+    pub scope_claims: Vec<String>,
+    pub next_action: Option<String>,
+    pub blocker: Option<String>,
+    pub note: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1647,6 +1817,318 @@ pub struct HealthResponse {
     pub items: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkRegistry {
+    pub version: String,
+    pub app_goal: String,
+    pub quality_dimensions: Vec<QualityDimensionRecord>,
+    pub tiers: Vec<TierRecord>,
+    pub pillars: Vec<PillarRecord>,
+    pub families: Vec<FamilyRecord>,
+    pub features: Vec<BenchmarkFeatureRecord>,
+    pub journeys: Vec<BenchmarkJourneyRecord>,
+    pub loops: Vec<BenchmarkLoopRecord>,
+    pub verifiers: Vec<VerifierRecord>,
+    pub fixtures: Vec<FixtureRecord>,
+    pub evidence_policies: Vec<EvidencePolicyRecord>,
+    pub schedules: Vec<ScheduleRecord>,
+    pub scorecards: Vec<BenchmarkScorecardRecord>,
+    pub evidence: Vec<BenchmarkEvidenceRecord>,
+    pub gates: Vec<BenchmarkGateRecord>,
+    pub baseline_modes: Vec<BaselineModeRecord>,
+    pub runtime_policies: Vec<RuntimePolicyRecord>,
+    pub generated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QualityDimensionRecord {
+    pub id: String,
+    pub weight: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TierRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PillarRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FamilyRecord {
+    pub id: String,
+    pub pillar: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkFeatureRecord {
+    pub id: String,
+    pub name: String,
+    pub pillar: String,
+    pub family: String,
+    pub tier: String,
+    pub continuity_critical: bool,
+    pub user_contract: String,
+    pub source_contract_refs: Vec<String>,
+    pub commands: Vec<String>,
+    pub routes: Vec<String>,
+    pub files: Vec<String>,
+    pub journey_ids: Vec<String>,
+    pub loop_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub drift_risks: Vec<String>,
+    pub failure_modes: Vec<String>,
+    pub coverage_status: String,
+    pub last_verified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkJourneyRecord {
+    pub id: String,
+    pub name: String,
+    pub goal: String,
+    pub feature_ids: Vec<String>,
+    pub loop_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub baseline_mode_ids: Vec<String>,
+    pub drift_risks: Vec<String>,
+    pub gate_target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkLoopRecord {
+    pub id: String,
+    pub name: String,
+    pub pillar: String,
+    pub family: String,
+    pub loop_type: String,
+    pub covers_features: Vec<String>,
+    pub journey_ids: Vec<String>,
+    pub quality_dimensions: Vec<String>,
+    pub baseline_mode: String,
+    pub workflow_probe: String,
+    pub adversarial_probe: String,
+    pub cross_harness_probe: Option<String>,
+    pub metrics: Vec<String>,
+    pub guardrails: Vec<String>,
+    pub stop_condition: String,
+    pub artifacts_written: Vec<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierRecord {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub verifier_type: String,
+    pub pillar: String,
+    pub family: String,
+    pub subject_ids: Vec<String>,
+    pub fixture_id: String,
+    pub baseline_modes: Vec<String>,
+    pub steps: Vec<VerifierStepRecord>,
+    pub assertions: Vec<VerifierAssertionRecord>,
+    pub metrics: Vec<String>,
+    pub evidence_requirements: Vec<String>,
+    pub gate_target: String,
+    pub status: String,
+    pub lanes: Vec<String>,
+    pub helper_hooks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierStepRecord {
+    pub kind: String,
+    #[serde(default)]
+    pub run: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub left: Option<String>,
+    #[serde(default)]
+    pub right: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerifierAssertionRecord {
+    pub kind: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub equals_fixture: Option<String>,
+    #[serde(default)]
+    pub contains_fixture: Option<String>,
+    #[serde(default)]
+    pub exists: Option<bool>,
+    #[serde(default)]
+    pub metric: Option<String>,
+    #[serde(default)]
+    pub op: Option<String>,
+    #[serde(default)]
+    pub left: Option<String>,
+    #[serde(default)]
+    pub right: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FixtureRecord {
+    pub id: String,
+    pub kind: String,
+    pub description: String,
+    pub seed_files: Vec<String>,
+    pub seed_config: serde_json::Value,
+    pub seed_memories: Vec<String>,
+    pub seed_events: Vec<String>,
+    pub seed_sessions: Vec<String>,
+    pub seed_claims: Vec<String>,
+    pub seed_vault: Option<String>,
+    pub backend_mode: String,
+    pub isolation: String,
+    pub cleanup_policy: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvidencePolicyRecord {
+    pub id: String,
+    pub applies_to: Vec<String>,
+    pub required_tiers: Vec<String>,
+    pub max_gate_without_live_primary: String,
+    pub comparative_required: bool,
+    pub freshness_window: String,
+    pub contradiction_rule: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScheduleRecord {
+    pub id: String,
+    pub lane: String,
+    pub max_tokens: usize,
+    pub max_duration_ms: u64,
+    pub tiers: Vec<String>,
+    pub default_types: Vec<String>,
+    pub retry_policy: String,
+    pub quarantine_policy: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkScorecardRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub scores: Vec<ScoreDimensionRecord>,
+    pub overall: u8,
+    pub coverage: BenchmarkCoverageRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScoreDimensionRecord {
+    pub id: String,
+    pub score: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkCoverageRecord {
+    pub required_loops: usize,
+    pub passing_loops: usize,
+    pub missing_loops: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkEvidenceRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub kind: String,
+    pub path_or_ref: String,
+    pub captured_at: DateTime<Utc>,
+    pub baseline_mode: String,
+    pub supports_dimensions: Vec<String>,
+    pub supports_loops: Vec<String>,
+    pub summary: String,
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkGateRecord {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub gate: String,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BaselineModeRecord {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RuntimePolicyRecord {
+    pub id: String,
+    pub name: String,
+    pub cli_surface: String,
+    pub default_value: String,
+    pub allowed_range: String,
+    pub quality_dimensions_affected: Vec<String>,
+    pub risk_level: String,
+    pub loop_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScoreResolutionRules {
+    pub cap_on_continuity_failure: String,
+    pub cap_on_missing_required_evidence: String,
+    pub cap_on_no_memd_loss: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkSubjectMetrics {
+    pub correctness: u8,
+    pub continuity: u8,
+    pub reliability: u8,
+    pub token_efficiency: u8,
+    pub no_memd_delta: Option<i16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkEvidenceSummary {
+    pub has_contract_evidence: bool,
+    pub has_workflow_evidence: bool,
+    pub has_continuity_evidence: bool,
+    pub has_comparative_evidence: bool,
+    pub has_drift_failure: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BenchmarkGateDecision {
+    pub gate: String,
+    pub resolved_score: u8,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContinuityJourneyReport {
+    pub journey_id: String,
+    pub journey_name: String,
+    pub gate_decision: BenchmarkGateDecision,
+    pub metrics: BenchmarkSubjectMetrics,
+    pub evidence: BenchmarkEvidenceSummary,
+    pub baseline_modes: Vec<String>,
+    pub feature_ids: Vec<String>,
+    pub artifact_paths: Vec<String>,
+    pub summary: String,
+    pub generated_at: Option<DateTime<Utc>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1686,6 +2168,65 @@ mod tests {
         let decoded: MemoryEntityRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.entity_type, "repo");
         assert_eq!(decoded.aliases.len(), 2);
+    }
+
+    #[test]
+    fn hive_session_roundtrips_worker_identity_fields() {
+        let session = HiveSessionRecord {
+            session: "session-lorentz".to_string(),
+            tab_id: Some("tab-lorentz".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@session-lorentz".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("reviewer".to_string()),
+            hive_groups: vec!["project:memd".to_string()],
+            hive_group_goal: Some("review parser handoff".to_string()),
+            authority: Some("participant".to_string()),
+            heartbeat_model: Some("codex".to_string()),
+            worker_name: Some("Lorentz".to_string()),
+            display_name: Some("Parser Reviewer".to_string()),
+            role: Some("reviewer".to_string()),
+            capabilities: vec!["review".to_string(), "coordination".to_string()],
+            lane_id: Some("lane-render-review".to_string()),
+            repo_root: Some("/repo".to_string()),
+            worktree_root: Some("/repo-review".to_string()),
+            branch: Some("review/render".to_string()),
+            base_branch: Some("main".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
+            host: Some("workstation".to_string()),
+            pid: Some(4242),
+            topic_claim: Some("Review parser handoff".to_string()),
+            scope_claims: vec!["crates/memd-client/src/main.rs".to_string()],
+            task_id: Some("review-parser-handoff".to_string()),
+            focus: Some("Review parser handoff".to_string()),
+            pressure: Some("file_edited: crates/memd-client/src/main.rs".to_string()),
+            next_recovery: Some("publish overlap-safe hive quickview".to_string()),
+            next_action: Some("Review overlap guard output".to_string()),
+            status: "active".to_string(),
+            needs_help: false,
+            needs_review: false,
+            handoff_state: Some("none".to_string()),
+            confidence: Some("high".to_string()),
+            risk: Some("low".to_string()),
+            last_seen: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&session).expect("serialize session");
+        let decoded: HiveSessionRecord = serde_json::from_str(&json).expect("deserialize session");
+        assert_eq!(decoded.worker_name.as_deref(), Some("Lorentz"));
+        assert_eq!(decoded.display_name.as_deref(), Some("Parser Reviewer"));
+        assert_eq!(decoded.role.as_deref(), Some("reviewer"));
+        assert_eq!(decoded.lane_id.as_deref(), Some("lane-render-review"));
+        assert_eq!(
+            decoded.next_action.as_deref(),
+            Some("Review overlap guard output")
+        );
+        assert_eq!(decoded.risk.as_deref(), Some("low"));
     }
 
     #[test]
@@ -2675,5 +3216,232 @@ mod tests {
         assert_eq!(decoded_response.mode, MemoryRepairMode::CorrectMetadata);
         assert_eq!(decoded_response.item.status, MemoryStatus::Active);
         assert_eq!(decoded_response.reasons.len(), 3);
+    }
+
+    #[test]
+    fn benchmark_registry_roundtrips_minimal_continuity_slice() {
+        let registry = BenchmarkRegistry {
+            version: "v1".to_string(),
+            app_goal: "seamless memory and continuity".to_string(),
+            quality_dimensions: vec![
+                QualityDimensionRecord {
+                    id: "continuity".to_string(),
+                    weight: 25,
+                },
+                QualityDimensionRecord {
+                    id: "correctness".to_string(),
+                    weight: 20,
+                },
+            ],
+            tiers: vec![TierRecord {
+                id: "tier-0-continuity-critical".to_string(),
+                description: "continuity-critical surfaces".to_string(),
+            }],
+            pillars: vec![PillarRecord {
+                id: "memory-continuity".to_string(),
+                description: "core continuity promise".to_string(),
+            }],
+            families: vec![FamilyRecord {
+                id: "bundle-runtime".to_string(),
+                pillar: "memory-continuity".to_string(),
+                description: "bundle continuity surfaces".to_string(),
+            }],
+            features: vec![BenchmarkFeatureRecord {
+                id: "feature.bundle.resume".to_string(),
+                name: "Resume".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                tier: "tier-0-continuity-critical".to_string(),
+                continuity_critical: true,
+                user_contract: "resume restores usable continuity".to_string(),
+                source_contract_refs: vec!["FEATURE-V1-WORKING-CONTEXT".to_string()],
+                commands: vec!["memd resume".to_string()],
+                routes: vec![],
+                files: vec!["crates/memd-client/src/main.rs".to_string()],
+                journey_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                loop_ids: vec!["loop.resume.correctness".to_string()],
+                quality_dimensions: vec!["continuity".to_string(), "correctness".to_string()],
+                drift_risks: vec!["continuity-drift".to_string()],
+                failure_modes: vec!["resume misses current task state".to_string()],
+                coverage_status: "auditing".to_string(),
+                last_verified_at: None,
+            }],
+            journeys: vec![],
+            loops: vec![],
+            verifiers: vec![VerifierRecord {
+                id: "verifier.journey.resume-handoff-attach".to_string(),
+                name: "Resume handoff attach continuity".to_string(),
+                verifier_type: "journey".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                subject_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                fixture_id: "fixture.continuity_bundle".to_string(),
+                baseline_modes: vec!["with_memd".to_string()],
+                steps: vec![],
+                assertions: vec![],
+                metrics: vec!["prompt_tokens".to_string()],
+                evidence_requirements: vec!["live_primary".to_string()],
+                gate_target: "acceptable".to_string(),
+                status: "declared".to_string(),
+                lanes: vec!["fast".to_string()],
+                helper_hooks: vec![],
+            }],
+            fixtures: vec![FixtureRecord {
+                id: "fixture.continuity_bundle".to_string(),
+                kind: "bundle_fixture".to_string(),
+                description: "continuity bundle".to_string(),
+                seed_files: vec![],
+                seed_config: serde_json::json!({"project":"memd"}),
+                seed_memories: vec![],
+                seed_events: vec![],
+                seed_sessions: vec![],
+                seed_claims: vec![],
+                seed_vault: None,
+                backend_mode: "normal".to_string(),
+                isolation: "fresh_temp_dir".to_string(),
+                cleanup_policy: "destroy".to_string(),
+            }],
+            evidence_policies: vec![],
+            schedules: vec![],
+            scorecards: vec![],
+            evidence: vec![],
+            gates: vec![],
+            baseline_modes: vec![],
+            runtime_policies: vec![],
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&registry).unwrap();
+        let decoded: BenchmarkRegistry = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.version, "v1");
+        assert_eq!(decoded.features[0].id, "feature.bundle.resume");
+        assert!(decoded.features[0].continuity_critical);
+        assert_eq!(
+            decoded.verifiers[0].id,
+            "verifier.journey.resume-handoff-attach"
+        );
+        assert_eq!(decoded.fixtures[0].id, "fixture.continuity_bundle");
+    }
+
+    #[test]
+    fn verifier_registry_roundtrips_minimal_resume_verifier() {
+        let registry = BenchmarkRegistry {
+            version: "v1".to_string(),
+            app_goal: "seamless memory and continuity".to_string(),
+            quality_dimensions: vec![],
+            tiers: vec![],
+            pillars: vec![],
+            families: vec![],
+            features: vec![],
+            journeys: vec![],
+            loops: vec![],
+            verifiers: vec![VerifierRecord {
+                id: "verifier.journey.resume-handoff-attach".to_string(),
+                name: "Resume handoff attach continuity".to_string(),
+                verifier_type: "journey".to_string(),
+                pillar: "memory-continuity".to_string(),
+                family: "bundle-runtime".to_string(),
+                subject_ids: vec!["journey.continuity.resume-handoff-attach".to_string()],
+                fixture_id: "fixture.continuity_bundle".to_string(),
+                baseline_modes: vec!["with_memd".to_string()],
+                steps: vec![],
+                assertions: vec![],
+                metrics: vec!["prompt_tokens".to_string()],
+                evidence_requirements: vec!["live_primary".to_string()],
+                gate_target: "acceptable".to_string(),
+                status: "declared".to_string(),
+                lanes: vec!["fast".to_string()],
+                helper_hooks: vec![],
+            }],
+            fixtures: vec![FixtureRecord {
+                id: "fixture.continuity_bundle".to_string(),
+                kind: "bundle_fixture".to_string(),
+                description: "continuity bundle".to_string(),
+                seed_files: vec![],
+                seed_config: serde_json::json!({"project":"memd"}),
+                seed_memories: vec![],
+                seed_events: vec![],
+                seed_sessions: vec![],
+                seed_claims: vec![],
+                seed_vault: None,
+                backend_mode: "normal".to_string(),
+                isolation: "fresh_temp_dir".to_string(),
+                cleanup_policy: "destroy".to_string(),
+            }],
+            evidence_policies: vec![],
+            schedules: vec![],
+            scorecards: vec![],
+            evidence: vec![],
+            gates: vec![],
+            baseline_modes: vec![],
+            runtime_policies: vec![],
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&registry).unwrap();
+        let decoded: BenchmarkRegistry = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            decoded.verifiers[0].id,
+            "verifier.journey.resume-handoff-attach"
+        );
+        assert_eq!(decoded.fixtures[0].id, "fixture.continuity_bundle");
+    }
+
+    #[test]
+    fn benchmark_score_resolution_rules_roundtrip() {
+        let rules = ScoreResolutionRules {
+            cap_on_continuity_failure: "fragile".to_string(),
+            cap_on_missing_required_evidence: "fragile".to_string(),
+            cap_on_no_memd_loss: "acceptable".to_string(),
+        };
+
+        let json = serde_json::to_string(&rules).unwrap();
+        let decoded: ScoreResolutionRules = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.cap_on_continuity_failure, "fragile");
+        assert_eq!(decoded.cap_on_no_memd_loss, "acceptable");
+    }
+
+    #[test]
+    fn continuity_journey_report_roundtrips() {
+        let report = ContinuityJourneyReport {
+            journey_id: "journey.continuity.resume-handoff-attach".to_string(),
+            journey_name: "Resume To Handoff To Attach".to_string(),
+            gate_decision: BenchmarkGateDecision {
+                gate: "acceptable".to_string(),
+                resolved_score: 75,
+                reasons: vec!["continuity evidence present".to_string()],
+            },
+            metrics: BenchmarkSubjectMetrics {
+                correctness: 90,
+                continuity: 85,
+                reliability: 80,
+                token_efficiency: 78,
+                no_memd_delta: Some(9),
+            },
+            evidence: BenchmarkEvidenceSummary {
+                has_contract_evidence: true,
+                has_workflow_evidence: true,
+                has_continuity_evidence: true,
+                has_comparative_evidence: true,
+                has_drift_failure: false,
+            },
+            baseline_modes: vec![
+                "baseline.no-memd".to_string(),
+                "baseline.with-memd".to_string(),
+            ],
+            feature_ids: vec![
+                "feature.bundle.resume".to_string(),
+                "feature.bundle.handoff".to_string(),
+            ],
+            artifact_paths: vec![".memd/telemetry/continuity/latest.json".to_string()],
+            summary: "resume continuity evidence".to_string(),
+            generated_at: None,
+        };
+
+        let json = serde_json::to_string(&report).unwrap();
+        let decoded: ContinuityJourneyReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.gate_decision.gate, "acceptable");
+        assert!(decoded.evidence.has_continuity_evidence);
+        assert_eq!(decoded.feature_ids.len(), 2);
     }
 }

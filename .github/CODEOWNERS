@@ -1,0 +1,12 @@
+# Default owner for all repository changes.
+* @Josue7211
+
+# Core Rust crates.
+/crates/ @Josue7211
+
+# CI and repo automation.
+/.github/ @Josue7211
+/.coderabbit.yaml @Josue7211
+
+# Documentation and verification artifacts.
+/docs/ @Josue7211

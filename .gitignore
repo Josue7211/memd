@@ -16,3 +16,5 @@
 /apps/site/node_modules/
 /apps/site/dist/
 /apps/site/.astro/
+/apps/site/.debug-home*.png
+.gstack/

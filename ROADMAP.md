@@ -559,6 +559,11 @@ Deliver:
 - explicit autoresearch -> autodream flow:
   - autoresearch runs first to find gaps and test bounded improvements
   - autodream runs after to consolidate accepted learnings, not speculative failures
+- difficulty-aware overnight evolution queue:
+  - collect failures, correction memories, verifier regressions, and benchmark misses as candidate improvement inputs
+  - classify candidates by difficulty so easy fixes can land as policy/docs/prompts, medium fixes can tune tools/config, and hard fixes can escalate into isolated code-evolution proposals
+  - scale budgets, retries, isolation, and required evidence by difficulty instead of treating every overnight improvement attempt the same
+  - allow autoresearch to mine recurring failures and memory artifacts for bounded improvement loops rather than relying only on hand-authored loop selection
 - token and context observability for agent sessions:
   - transcript/session import into a compact local audit store
   - cost and bloat attribution by turn, workflow, tool class, and memory payload class
@@ -641,6 +646,13 @@ The prioritized loops are:
 6. **Long-Context Avoidance** – target: bursts where the system re-injects massive transcripts instead of leveraging compact state. Metric: average prompt size and long-context spikes per session; stop when the working set stays within its target budget without losing accuracy, risk: low.
 7. **Cross-Harness Portability** – target: ensuring memories, skills, and promoted abstractions stay portable across Codex, Claude Code, and other harnesses. Metric: contract coverage and adapter-required warnings; stop when every promoted abstraction has a portability class defined, risk: medium.
 8. **Controlled Self-Evolution** – target: because actual self-improvement must accept only validated wins, this loop enforces rollout gates, pod-based evaluations, and percent-improvement telemetry. Metric: accepted-change rate, rollback incidents, and promotion evidence coverage; stop when promotion confidence reaches the threshold defined in the promotion registry, risk: high so run it later once the baseline is stable.
+
+Queued next for this loop:
+
+- difficulty-gated overnight evolution that turns repeated failures, weak benchmark rows, regression artifacts, and high-friction memory traces into bounded improvement attempts
+- easy candidates may propose docs, policy, prompt, or skill/CLI promotions directly
+- medium candidates may run autoresearch-style experiments against bounded config, retrieval, or workflow surfaces
+- hard candidates must stay on isolated evolution branches with stronger evidence, repeatability checks, and review gates before promotion
 
 Autoresearch triggers these loops sequentially and reports the percent improvement/per-loop so operators can understand where token budgets are being saved. Each accepted loop result feeds directly into the evolution engine, autopromotes relevant artifacts, and handsoffs to autodream for consolidation. When loops exhaust their remaining gains, autoresearch either spins a refresh cycle or surfaces a new loop candidate from `memd gap` so the system never settles for stale performance.
 

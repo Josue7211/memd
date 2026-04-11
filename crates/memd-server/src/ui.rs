@@ -362,6 +362,49 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           </div>
         </div>
       </section>
+      <section class="panel">
+        <div class="eyebrow">Hive Board</div>
+        <h2>Live bees</h2>
+        <div class="meta" style="margin-bottom: 0.75rem;">
+          <span id="hive-queen">queen: loading</span>
+          <span id="hive-active-count">active: 0</span>
+          <span id="hive-review-count">review: 0</span>
+        </div>
+        <div class="grid">
+          <div class="block">
+            <div class="label">Active Bees</div>
+            <strong id="hive-active-total">0</strong>
+            <p id="hive-active-copy">No hive board loaded</p>
+          </div>
+          <div class="block">
+            <div class="label">Overlap Risks</div>
+            <strong id="hive-risk-total">0</strong>
+            <p id="hive-risk-copy">No overlap data loaded</p>
+          </div>
+          <div class="block">
+            <div class="label">Stale Bees</div>
+            <strong id="hive-stale-total">0</strong>
+            <p id="hive-stale-copy">No stale hive data loaded</p>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 1rem;">
+          <button class="primary" type="button" data-hive-queen-action="auto-retire">Auto Retire Stale</button>
+          <button type="button" data-hive-queen-action="retire-focused">Retire Focused Bee</button>
+          <button type="button" data-hive-queen-action="deny-focused">Deny Focused Bee</button>
+          <button type="button" data-hive-queen-action="reroute-focused">Reroute Focused Bee</button>
+          <button type="button" data-hive-queen-action="handoff-focused">Handoff Scope</button>
+        </div>
+        <div class="section-spacer" style="margin-top: 1rem;">
+          <div>
+            <div class="label">Roster</div>
+            <ul id="hive-roster-list"><li class="muted">Loading hive roster…</li></ul>
+          </div>
+          <div>
+            <div class="label">Focused Bee</div>
+            <ul id="hive-follow-list"><li class="muted">Loading hive focus…</li></ul>
+          </div>
+        </div>
+      </section>
       <section class="grid">
         <div class="block">
           <div class="label">Memory Home</div>
@@ -407,6 +450,16 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
 
     function actionButtons() {{
       return Array.from(document.querySelectorAll('[data-action]'));
+    }}
+
+    function renderList(id, items) {{
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!items.length) {{
+        el.innerHTML = '<li class="muted">none</li>';
+        return;
+      }}
+      el.innerHTML = items.map((item) => `<li>${{item}}</li>`).join('');
     }}
 
     function setActionArtifact(id) {{
@@ -469,6 +522,194 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       }}
     }}
 
+    const selectedHiveBoardState = {{
+      queenSession: null,
+      project: null,
+      namespace: null,
+      workspace: null,
+    }};
+
+    function focusedHiveBeeLabel() {{
+      return selectedHiveFollowSession.value || 'none';
+    }}
+
+    async function postHiveAction(path, payload) {{
+      const response = await fetch(path, {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(payload),
+      }});
+      if (!response.ok) throw new Error(`queen action failed: ${{response.status}}`);
+      return response.json();
+    }}
+
+    async function runHiveQueenAction(action) {{
+      if (action === 'auto-retire') {{
+        const response = await fetch('/coordination/sessions/auto-retire', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{}}),
+        }});
+        if (!response.ok) throw new Error(`queen action failed: ${{response.status}}`);
+        const result = await response.json();
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+        text('action-status', result.retired && result.retired.length
+          ? `Retired stale bees: ${{result.retired.join(', ')}}`
+          : 'No stale bees to retire');
+        return;
+      }}
+
+      if (!selectedHiveBoardState.queenSession) {{
+        throw new Error('no queen session available');
+      }}
+
+      if (action === 'retire-focused') {{
+        if (!selectedHiveFollowSession.value) {{
+          throw new Error('no focused bee selected');
+        }}
+        const response = await fetch('/coordination/sessions/retire', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ session: selectedHiveFollowSession.value }}),
+        }});
+        if (!response.ok) throw new Error(`queen action failed: ${{response.status}}`);
+        const result = await response.json();
+        const retired = (result.sessions || []).map((session) => session.worker_name || session.session);
+        selectedHiveFollowSession.value = null;
+        await reloadHiveBoard(null);
+        text('action-status', retired.length
+          ? `Retired bee: ${{retired.join(', ')}}`
+          : 'No bee retired');
+        return;
+      }}
+
+      if (!selectedHiveFollowSession.value) {{
+        throw new Error('no focused bee selected');
+      }}
+
+      if (action === 'deny-focused') {{
+        const result = await postHiveAction('/hive/queen/deny', {{
+          queen_session: selectedHiveBoardState.queenSession,
+          target_session: selectedHiveFollowSession.value,
+          project: selectedHiveBoardState.project,
+          namespace: selectedHiveBoardState.namespace,
+          workspace: selectedHiveBoardState.workspace,
+        }});
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+        text('action-status', result.summary || `Denied focused bee: ${{focusedHiveBeeLabel()}}`);
+        return;
+      }}
+
+      if (action === 'reroute-focused') {{
+        const result = await postHiveAction('/hive/queen/reroute', {{
+          queen_session: selectedHiveBoardState.queenSession,
+          target_session: selectedHiveFollowSession.value,
+          project: selectedHiveBoardState.project,
+          namespace: selectedHiveBoardState.namespace,
+          workspace: selectedHiveBoardState.workspace,
+        }});
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+        text('action-status', result.summary || `Reroute recorded for: ${{focusedHiveBeeLabel()}}`);
+        return;
+      }}
+
+      if (action === 'handoff-focused') {{
+        const scope = window.prompt('Scope to hand off', '');
+        if (!scope || !scope.trim()) {{
+          throw new Error('handoff scope required');
+        }}
+        const note = window.prompt('Optional handoff note', '') || '';
+        const result = await postHiveAction('/hive/queen/handoff', {{
+          queen_session: selectedHiveBoardState.queenSession,
+          target_session: selectedHiveFollowSession.value,
+          scope: scope.trim(),
+          project: selectedHiveBoardState.project,
+          namespace: selectedHiveBoardState.namespace,
+          workspace: selectedHiveBoardState.workspace,
+          note: note.trim() || null,
+        }});
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+        text('action-status', result.summary || `Handoff recorded for: ${{focusedHiveBeeLabel()}} on ${{scope.trim()}}`);
+      }}
+    }}
+
+    async function loadHiveBoard() {{
+      const response = await fetch('/hive/board');
+      if (!response.ok) throw new Error(`hive board failed: ${{response.status}}`);
+      const board = await response.json();
+      selectedHiveBoardState.queenSession = board.queen_session || null;
+      selectedHiveBoardState.project = board.project || null;
+      selectedHiveBoardState.namespace = board.namespace || null;
+      selectedHiveBoardState.workspace = board.workspace || null;
+      text('hive-queen', `queen: ${{board.queen_session || 'none'}}`);
+      text('hive-active-count', `active: ${{board.active_bees.length}}`);
+      text('hive-review-count', `review: ${{board.review_queue.length}}`);
+      text('hive-active-total', String(board.active_bees.length));
+      text('hive-active-copy', board.active_bees.length ? 'Live hive board connected' : 'No active bees');
+      text('hive-risk-total', String(board.overlap_risks.length));
+      text('hive-risk-copy', board.overlap_risks.length ? board.overlap_risks[0] : 'No overlap data loaded');
+      text('hive-stale-total', String(board.stale_bees.length));
+      text('hive-stale-copy', board.stale_bees.length ? board.stale_bees[0] : 'No stale hive data loaded');
+      return board;
+    }}
+
+    let selectedHiveFollowSession = {{ value: null }};
+
+    function beeLabel(bee) {{
+      return bee.worker_name || bee.display_name || bee.agent || bee.session || 'unnamed';
+    }}
+
+    function renderHiveRosterItems(bees) {{
+      return (bees || []).slice(0, 8).map((bee) => {{
+        const worker = beeLabel(bee);
+        const role = bee.role || bee.hive_role || 'worker';
+        const lane = bee.lane_id || bee.branch || 'none';
+        const task = bee.task_id || 'none';
+        const selected = selectedHiveFollowSession.value === bee.session ? ' selected' : '';
+        return `<button type="button" class="artifact-link hive-bee${{selected}}" data-hive-follow-session="${{bee.session}}"><strong>${{worker}}</strong><span>${{role}} · ${{lane}} · task=${{task}}</span></button>`;
+      }});
+    }}
+
+    async function loadHiveRoster() {{
+      const response = await fetch('/hive/roster');
+      if (!response.ok) throw new Error(`hive roster failed: ${{response.status}}`);
+      const roster = await response.json();
+      renderList('hive-roster-list', renderHiveRosterItems(roster.bees));
+      return roster;
+    }}
+
+    async function loadHiveFollow(session) {{
+      if (!session) {{
+        selectedHiveFollowSession.value = null;
+        renderList('hive-follow-list', []);
+        return null;
+      }}
+      selectedHiveFollowSession.value = session;
+      const response = await fetch(`/hive/follow?session=${{encodeURIComponent(session)}}`);
+      if (!response.ok) throw new Error(`hive follow failed: ${{response.status}}`);
+      const follow = await response.json();
+      const items = [
+        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>work=${{follow.work_summary || 'none'}}</span>`,
+        `<strong>touches</strong><span>${{(follow.touch_points || []).join(',') || 'none'}}</span>`,
+        `<strong>recommended</strong><span>${{follow.recommended_action}}</span>`,
+      ];
+      if (follow.overlap_risk) {{
+        items.push(`<strong>overlap</strong><span>${{follow.overlap_risk}}</span>`);
+      }}
+      renderList('hive-follow-list', items);
+      return follow;
+    }}
+
+    async function reloadHiveBoard(preferredSession) {{
+      const [board, roster] = await Promise.all([loadHiveBoard(), loadHiveRoster()]);
+      const rosterSessions = (roster && roster.bees ? roster.bees : []).map((bee) => bee.session);
+      const nextSession = preferredSession && rosterSessions.includes(preferredSession)
+        ? preferredSession
+        : ((board && board.active_bees && board.active_bees[0] && board.active_bees[0].session) || null);
+      await loadHiveFollow(nextSession);
+      return {{ board, roster, nextSession }};
+    }}
+
     document.addEventListener('click', (event) => {{
       const actionButton = event.target.closest('[data-action]');
       if (actionButton) {{
@@ -478,18 +719,42 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         }});
         return;
       }}
+      const hiveQueenAction = event.target.closest('[data-hive-queen-action]');
+      if (hiveQueenAction) {{
+        event.preventDefault();
+        runHiveQueenAction(hiveQueenAction.dataset.hiveQueenAction).catch((error) => {{
+          text('action-status', String(error));
+        }});
+        return;
+      }}
+      const hiveFollowButton = event.target.closest('[data-hive-follow-session]');
+      if (hiveFollowButton) {{
+        event.preventDefault();
+        loadHiveFollow(hiveFollowButton.dataset.hiveFollowSession)
+          .then(() => loadHiveRoster())
+          .catch((error) => {{
+            renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
+          }});
+        return;
+      }}
       const artifactLink = event.target.closest('.artifact-link');
       if (artifactLink) {{
         event.preventDefault();
         loadArtifactDetail(artifactLink.dataset.artifactId).catch((error) => {{
           text('action-status', String(error));
         }});
+        return;
       }}
     }});
 
     loadArtifactDetail(selectedState.artifactId).catch((error) => {{
       text('action-status', String(error));
     }});
+    reloadHiveBoard(selectedHiveFollowSession.value)
+      .catch((error) => {{
+        renderList('hive-roster-list', [`<span class="muted">${{String(error)}}</span>`]);
+        renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
+      }});
   </script>
 </body>
 </html>
@@ -833,6 +1098,9 @@ fn build_visible_memory_artifact_detail_from_item(
             session: None,
             project: item.project.clone(),
             namespace: item.namespace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
             workspace: item.workspace.clone(),
             hive_system: None,
             hive_role: None,
@@ -1312,6 +1580,16 @@ mod tests {
         assert!(html.contains("wiki/runtime-spine.md"));
         assert!(html.contains("timeline events"));
         assert!(html.contains("workspace lanes"));
+        assert!(html.contains("Hive Board"));
+        assert!(html.contains("/hive/board"));
+        assert!(html.contains("/hive/roster"));
+        assert!(html.contains("/hive/follow?session="));
+        assert!(html.contains("data-hive-follow-session"));
+        assert!(html.contains("data-hive-queen-action=\"auto-retire\""));
+        assert!(html.contains("data-hive-queen-action=\"retire-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"deny-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"reroute-focused\""));
+        assert!(html.contains("data-hive-queen-action=\"handoff-focused\""));
     }
 
     #[test]

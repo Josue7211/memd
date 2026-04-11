@@ -1,0 +1,1516 @@
+{
+  "version": "v1",
+  "app_goal": "memd as a seamless memory control plane with near-perfect continuity",
+  "quality_dimensions": [
+    { "id": "continuity", "weight": 25 },
+    { "id": "correctness", "weight": 20 },
+    { "id": "reliability", "weight": 15 },
+    { "id": "drift_resistance", "weight": 15 },
+    { "id": "token_efficiency", "weight": 10 }
+  ],
+  "tiers": [
+    {
+      "id": "tier-0-continuity-critical",
+      "description": "continuity-critical surfaces"
+    }
+  ],
+  "pillars": [
+    {
+      "id": "memory-continuity",
+      "description": "seamless continuity surfaces"
+    }
+  ],
+  "families": [
+    {
+      "id": "bundle-runtime",
+      "pillar": "memory-continuity",
+      "description": "bundle continuity surfaces"
+    },
+    {
+      "id": "capture-compaction",
+      "pillar": "memory-continuity",
+      "description": "capture and compaction continuity surfaces"
+    },
+    {
+      "id": "coordination-hive",
+      "pillar": "memory-continuity",
+      "description": "shared hive coordination surfaces"
+    },
+    {
+      "id": "drift-prevention",
+      "pillar": "memory-continuity",
+      "description": "continuity drift controls"
+    }
+  ],
+  "features": [
+    {
+      "id": "feature.bundle.wake",
+      "name": "Wake",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "wake refreshes the startup memory surface before a turn",
+      "source_contract_refs": [],
+      "commands": ["memd wake"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "loop_ids": ["loop.feature.wake.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["wake file not refreshed"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.bundle.resume",
+      "name": "Resume",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "resume restores usable continuity",
+      "source_contract_refs": [
+        "FEATURE-V1-WORKING-CONTEXT",
+        "FEATURE-V1-WORKING-MEMORY"
+      ],
+      "commands": ["memd resume"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "loop_ids": ["loop.feature.resume.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "memory-drift"],
+      "failure_modes": ["resume misses current task state"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.bundle.handoff",
+      "name": "Handoff",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "handoff emits a compact takeover packet",
+      "source_contract_refs": [],
+      "commands": ["memd handoff"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "loop_ids": ["loop.feature.handoff.correctness"],
+      "quality_dimensions": ["continuity", "token_efficiency", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["handoff packet omits key state"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.bundle.attach",
+      "name": "Attach",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "attach configures a supported client from the bundle",
+      "source_contract_refs": [
+        "FEATURE-V1-BUNDLE-ATTACH"
+      ],
+      "commands": ["memd attach"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.attach.correctness"],
+      "quality_dimensions": ["continuity", "cross_harness_parity", "inspectability"],
+      "drift_risks": ["continuity-drift", "harness-drift"],
+      "failure_modes": ["attach snippet config drifts from runtime behavior"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.capture.checkpoint",
+      "name": "Checkpoint",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "checkpoint writes current task state into the live backend",
+      "source_contract_refs": [],
+      "commands": ["memd checkpoint"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.checkpoint.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "capture-drift"],
+      "failure_modes": ["checkpoint state is not reachable on resume"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.capture.hook-capture",
+      "name": "Hook Capture",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "hook capture records live turn changes and refreshes bundle truth",
+      "source_contract_refs": [],
+      "commands": ["memd hook capture"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hook-capture.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "drift_resistance"],
+      "drift_risks": ["continuity-drift", "event-drift"],
+      "failure_modes": ["live turn changes are not compiled into visible truth"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.memory.working-context",
+      "name": "Working Context",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "compact context keeps current-task state usable",
+      "source_contract_refs": [
+        "FEATURE-V1-WORKING-CONTEXT"
+      ],
+      "commands": ["memd context", "memd resume"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs", "crates/memd-server/src/routing.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.working-context.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "memory-drift"],
+      "failure_modes": ["current task facts are crowded out"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.memory.working-memory",
+      "name": "Working Memory",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "working memory keeps budgeted state useful under pressure",
+      "source_contract_refs": [
+        "FEATURE-V1-WORKING-MEMORY"
+      ],
+      "commands": ["memd working", "memd resume"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs", "crates/memd-server/src/working.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.working-memory.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "memory-drift"],
+      "failure_modes": ["important records evicted first"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.messages",
+      "name": "Hive Messages",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "messages deliver handoff intent across live hive sessions and preserve acknowledgment state",
+      "source_contract_refs": [],
+      "commands": [
+        "memd messages --send",
+        "memd messages --inbox",
+        "memd messages --ack"
+      ],
+      "routes": [
+        "POST /coordination/messages/send",
+        "GET /coordination/messages/inbox",
+        "POST /coordination/messages/ack"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-messages.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["handoff messages fail to reach the intended hive session"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.claims",
+      "name": "Hive Claims",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "claims mark ownership and can transfer scope safely across hive sessions",
+      "source_contract_refs": [],
+      "commands": [
+        "memd claims --acquire",
+        "memd claims --release",
+        "memd claims --transfer-to-session"
+      ],
+      "routes": [
+        "POST /coordination/claims/acquire",
+        "POST /coordination/claims/release",
+        "POST /coordination/claims/transfer"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-claims.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["scope ownership remains on the wrong session after transfer"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.hive.tasks",
+      "name": "Hive Tasks",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "shared tasks can be assigned across hive sessions without losing ownership state",
+      "source_contract_refs": [],
+      "commands": [
+        "memd tasks --upsert",
+        "memd tasks --assign-to-session",
+        "memd tasks --request-help",
+        "memd tasks --request-review"
+      ],
+      "routes": [
+        "POST /coordination/tasks/upsert",
+        "POST /coordination/tasks/assign"
+      ],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.hive-tasks.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["task ownership does not move to the assigned hive session"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    }
+  ],
+  "journeys": [
+    {
+      "id": "journey.continuity.resume-handoff-attach",
+      "name": "Resume To Handoff To Attach",
+      "goal": "a resumed or attached session continues without manual reconstruction",
+      "feature_ids": [
+        "feature.bundle.wake",
+        "feature.bundle.resume",
+        "feature.bundle.handoff",
+        "feature.bundle.attach",
+        "feature.capture.checkpoint",
+        "feature.capture.hook-capture",
+        "feature.memory.working-context",
+        "feature.memory.working-memory"
+      ],
+      "loop_ids": [
+        "loop.journey.resume-handoff-attach.correctness",
+        "loop.journey.resume-handoff-attach.no-memd-delta",
+        "loop.journey.resume-handoff-attach.drift"
+      ],
+      "quality_dimensions": [
+        "continuity",
+        "correctness",
+        "token_efficiency",
+        "drift_resistance"
+      ],
+      "baseline_mode_ids": ["baseline.no-memd", "baseline.with-memd"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "gate_target": "acceptable"
+    },
+    {
+      "id": "journey.hive.transfer-assign",
+      "name": "Hive Message To Claim Transfer To Task Assignment",
+      "goal": "a live hive handoff moves message intent, scope ownership, and task ownership onto the target session",
+      "feature_ids": [
+        "feature.hive.messages",
+        "feature.hive.claims",
+        "feature.hive.tasks"
+      ],
+      "loop_ids": [
+        "loop.journey.hive-transfer-assign.correctness",
+        "loop.adversarial.hive-claim-collision.containment"
+      ],
+      "quality_dimensions": [
+        "continuity",
+        "correctness",
+        "inspectability"
+      ],
+      "baseline_mode_ids": ["baseline.with-memd"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "gate_target": "acceptable"
+    }
+  ],
+  "loops": [
+    {
+      "id": "loop.feature.wake.correctness",
+      "name": "Wake Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.bundle.wake"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run wake and inspect the refreshed startup surface",
+      "adversarial_probe": "change runtime context and confirm wake still surfaces usable state",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["wake must not return stale bundle data"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/wake-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.resume.correctness",
+      "name": "Resume Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.bundle.resume"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run resume and confirm current-task state remains visible",
+      "adversarial_probe": "add synced noise and confirm durable state survives",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["resume must not crowd out durable project truth"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/resume-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.handoff.correctness",
+      "name": "Handoff Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.bundle.handoff"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "token_efficiency", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "render a handoff packet and inspect the compact takeover state",
+      "adversarial_probe": "remove recent context and confirm the packet still has enough evidence",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "tokens", "summary_coverage"],
+      "guardrails": ["handoff must include the minimum continuation facts"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/handoff-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.attach.correctness",
+      "name": "Attach Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.bundle.attach"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "cross_harness_parity", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "generate attach output and verify the bundle config is usable",
+      "adversarial_probe": "change route or workspace and confirm attach output still reflects the bundle",
+      "cross_harness_probe": "compare attach output across supported clients",
+      "metrics": ["pass_rate", "tokens", "parity_count"],
+      "guardrails": ["attach should not drift from runtime defaults"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/attach-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.checkpoint.correctness",
+      "name": "Checkpoint Correctness",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.capture.checkpoint"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "write a checkpoint and confirm it can be recovered",
+      "adversarial_probe": "force a noisy session state and confirm the checkpoint still matters",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["checkpoint must persist current task state"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/checkpoint-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hook-capture.correctness",
+      "name": "Hook Capture Correctness",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.capture.hook-capture"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "drift_resistance"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "capture a live turn and inspect the compiled event lane",
+      "adversarial_probe": "introduce repeated events and confirm the lane stays compact",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "event_count", "tokens"],
+      "guardrails": ["events must be compiled before they appear as visible truth"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hook-capture-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.working-context.correctness",
+      "name": "Working Context Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.memory.working-context"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run resume and confirm compact context remains useful",
+      "adversarial_probe": "add multiple resume-state records and confirm durable facts stay visible",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["compact context must keep the current task readable"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/working-context-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.working-memory.correctness",
+      "name": "Working Memory Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.memory.working-memory"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "inspect the working memory buffer after resume",
+      "adversarial_probe": "exceed budget and confirm important records stay visible",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "eviction_count", "tokens"],
+      "guardrails": ["budget reporting must remain truthful"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/working-memory-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-messages.correctness",
+      "name": "Hive Messages Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.messages"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "send a hive message, read it from the target inbox, and acknowledge it",
+      "adversarial_probe": "resolve a target session from a shared hive fixture and confirm ack state remains visible",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "delivery_count", "ack_latency_ms"],
+      "guardrails": ["message delivery and acknowledgement must remain attributable to the target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-messages-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-claims.correctness",
+      "name": "Hive Claims Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.claims"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "acquire a scope claim and transfer it to the target hive session",
+      "adversarial_probe": "move claim ownership across a shared hive fixture and confirm the holder changes",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "claim_count"],
+      "guardrails": ["claim ownership must move cleanly to the target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-claims-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.hive-tasks.correctness",
+      "name": "Hive Tasks Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.tasks"],
+      "journey_ids": [
+        "journey.continuity.resume-handoff-attach",
+        "journey.hive.transfer-assign"
+      ],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "upsert a shared task and assign it to a target hive session",
+      "adversarial_probe": "handoff task ownership across the fixture and confirm the task holder changes",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "task_count"],
+      "guardrails": ["task assignment must point at the intended target session"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-tasks-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.journey.resume-handoff-attach.correctness",
+      "name": "Resume To Handoff To Attach Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": [
+        "feature.bundle.wake",
+        "feature.bundle.resume",
+        "feature.bundle.handoff",
+        "feature.bundle.attach",
+        "feature.capture.checkpoint",
+        "feature.capture.hook-capture",
+        "feature.memory.working-context",
+        "feature.memory.working-memory"
+      ],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run the continuity journey and confirm the session resumes cleanly",
+      "adversarial_probe": "change runtime context and confirm the journey still recovers the current task",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["continuity-critical state must survive the journey"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/resume-handoff-attach-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.journey.resume-handoff-attach.no-memd-delta",
+      "name": "Resume To Handoff To Attach No Memd Delta",
+      "pillar": "memory-continuity",
+      "family": "drift-prevention",
+      "loop_type": "drift-prevention",
+      "covers_features": [
+        "feature.bundle.wake",
+        "feature.bundle.resume",
+        "feature.bundle.handoff",
+        "feature.bundle.attach",
+        "feature.capture.checkpoint",
+        "feature.capture.hook-capture",
+        "feature.memory.working-context",
+        "feature.memory.working-memory"
+      ],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "drift_resistance"],
+      "baseline_mode": "baseline.no-memd",
+      "workflow_probe": "compare no-memd and with-memd continuity output for the journey",
+      "adversarial_probe": "remove live context and confirm memd still improves recovery",
+      "cross_harness_probe": null,
+      "metrics": ["token_delta", "reconstruction_delta", "continuity_delta"],
+      "guardrails": ["with-memd must beat no-memd on the journey"],
+      "stop_condition": "delta remains positive across repeated runs",
+      "artifacts_written": [".memd/loops/resume-handoff-attach-no-memd-delta.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.journey.resume-handoff-attach.drift",
+      "name": "Resume To Handoff To Attach Drift",
+      "pillar": "memory-continuity",
+      "family": "drift-prevention",
+      "loop_type": "drift-prevention",
+      "covers_features": [
+        "feature.bundle.wake",
+        "feature.bundle.resume",
+        "feature.bundle.handoff",
+        "feature.bundle.attach",
+        "feature.capture.checkpoint",
+        "feature.capture.hook-capture",
+        "feature.memory.working-context",
+        "feature.memory.working-memory"
+      ],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "drift_resistance"],
+      "baseline_mode": "baseline.no-memd",
+      "workflow_probe": "compare current runtime output against the canonical registry",
+      "adversarial_probe": "mutate docs or runtime defaults and confirm the drift surfaces",
+      "cross_harness_probe": null,
+      "metrics": ["drift_count", "missing_coverage_count", "tokens"],
+      "guardrails": ["registry and runtime truth must stay aligned"],
+      "stop_condition": "drift count returns to zero",
+      "artifacts_written": [".memd/loops/resume-handoff-attach-drift.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.journey.hive-transfer-assign.correctness",
+      "name": "Hive Transfer Assign Correctness",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": [
+        "feature.hive.messages",
+        "feature.hive.claims",
+        "feature.hive.tasks"
+      ],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "send a hive handoff, acknowledge it, transfer the claim, then assign the task to the target session",
+      "adversarial_probe": "repeat the transfer flow under shared hive state and confirm ownership stays attributable",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "delivery_count", "claim_count", "task_count"],
+      "guardrails": ["the same target session must own the acknowledged handoff, transferred claim, and assigned task"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-transfer-assign-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-claim-collision.containment",
+      "name": "Hive Claim Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.claims"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "acquire a claim in one hive session and retry acquisition from a competing session",
+      "adversarial_probe": "confirm the competing session sees the incumbent holder instead of stealing the scope",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "claim_count"],
+      "guardrails": ["a colliding acquire must preserve the original owner"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-claim-collision-containment.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-task-lane-collision.containment",
+      "name": "Hive Task Lane Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.tasks"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "seed a colliding target lane and attempt shared task assignment",
+      "adversarial_probe": "confirm the target lane collision is rejected before ownership moves",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "expected_error_count"],
+      "guardrails": ["assignment into the same lane must be blocked explicitly"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-task-lane-collision-containment.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.adversarial.hive-message-lane-collision.containment",
+      "name": "Hive Message Lane Collision Containment",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.hive.messages"],
+      "journey_ids": ["journey.hive.transfer-assign"],
+      "quality_dimensions": ["continuity", "correctness", "inspectability"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "seed a colliding target lane and attempt a direct handoff message send",
+      "adversarial_probe": "confirm the target lane collision is rejected before the message routes to the stale target session",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "expected_error_count"],
+      "guardrails": ["handoff messaging into the same lane must be blocked explicitly"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/hive-message-lane-collision-containment.json"],
+      "status": "active"
+    }
+  ],
+  "verifiers": [
+    {
+      "id": "verifier.feature.bundle.wake",
+      "name": "Wake feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.wake"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd wake --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "file_contains",
+          "path": "MEMD_WAKEUP.md",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.bundle.resume",
+      "name": "Resume feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.resume"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "equals_fixture": "task.id"
+        },
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "exists": true
+        }
+      ],
+      "metrics": ["latency_ms", "prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.bundle.handoff",
+      "name": "Handoff feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.handoff"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd handoff --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "handoff.current_task.id",
+          "equals_fixture": "task.id"
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.bundle.attach",
+      "name": "Attach feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.bundle.attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd attach --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "attach.snippet",
+          "exists": true
+        }
+      ],
+      "metrics": [],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.capture.checkpoint",
+      "name": "Checkpoint feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "capture-compaction",
+      "subject_ids": ["feature.capture.checkpoint"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "checkpoint.ok",
+          "exists": true
+        }
+      ],
+      "metrics": [],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.memory.working-context",
+      "name": "Working context feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.working-context"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.context.records.0.record",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.memory.working-memory",
+      "name": "Working memory feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.working-memory"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "resume.working.rehydration_queue.0.summary",
+          "equals_fixture": "task.next_action"
+        }
+      ],
+      "metrics": ["prompt_tokens", "reconstruction_steps"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.journey.resume-handoff-attach",
+      "name": "Resume handoff attach continuity",
+      "type": "journey",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["journey.continuity.resume-handoff-attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd checkpoint --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd handoff --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd attach --output {{bundle}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd resume --output {{bundle}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_handoff_resume_alignment"
+        },
+        {
+          "kind": "json_path",
+          "path": "resume.current_task.id",
+          "equals_fixture": "task.id"
+        }
+      ],
+      "metrics": ["latency_ms", "prompt_tokens", "reconstruction_steps"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["fast", "nightly", "exhaustive"],
+      "helper_hooks": ["assert_handoff_resume_alignment"]
+    },
+    {
+      "id": "verifier.compare.resume-no-memd-vs-with-memd",
+      "name": "Resume no memd vs with memd",
+      "type": "comparative",
+      "pillar": "memory-continuity",
+      "family": "drift-prevention",
+      "subject_ids": ["journey.continuity.resume-handoff-attach"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["no_mempath", "with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "run_resume_without_memd"
+        },
+        {
+          "kind": "helper",
+          "name": "run_resume_with_memd"
+        },
+        {
+          "kind": "compare",
+          "left": "no_mempath",
+          "right": "with_memd"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_with_memd_not_less_correct"
+        },
+        {
+          "kind": "metric_compare",
+          "metric": "prompt_tokens",
+          "op": "<",
+          "left": "with_memd",
+          "right": "no_mempath"
+        },
+        {
+          "kind": "metric_compare",
+          "metric": "reconstruction_steps",
+          "op": "<",
+          "left": "with_memd",
+          "right": "no_mempath"
+        }
+      ],
+      "metrics": ["prompt_tokens", "rereads", "reconstruction_steps", "correctness"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["nightly", "comparative", "exhaustive"],
+      "helper_hooks": [
+        "run_resume_without_memd",
+        "run_resume_with_memd",
+        "assert_with_memd_not_less_correct"
+      ]
+    },
+    {
+      "id": "verifier.journey.hive-transfer-assign",
+      "name": "Hive transfer assign journey",
+      "type": "journey",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["journey.hive.transfer-assign"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\""
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --inbox"
+        },
+        {
+          "kind": "helper",
+          "name": "capture_message_id"
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --ack {{message_id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_message_acknowledged"
+        },
+        {
+          "kind": "json_path",
+          "path": "claims_transfer.claims.0.session",
+          "equals_fixture": "target_session"
+        },
+        {
+          "kind": "json_path",
+          "path": "tasks_assign.tasks.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["delivery_count", "claim_count", "task_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "strong",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "capture_message_id",
+        "assert_message_acknowledged"
+      ]
+    },
+    {
+      "id": "verifier.feature.hive.messages-send-ack",
+      "name": "Hive messages send and ack",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.messages"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up the parser refactor\""
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --inbox"
+        },
+        {
+          "kind": "helper",
+          "name": "capture_message_id"
+        },
+        {
+          "kind": "cli",
+          "run": "memd messages --output {{target_bundle}} --ack {{message_id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "helper",
+          "name": "assert_message_acknowledged"
+        }
+      ],
+      "metrics": ["delivery_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "capture_message_id",
+        "assert_message_acknowledged"
+      ]
+    },
+    {
+      "id": "verifier.feature.hive.claims-transfer",
+      "name": "Hive claims transfer",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.claims"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --transfer-to-session {{target_session}} --scope task:{{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "claims_transfer.claims.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["claim_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.hive.tasks-assign",
+      "name": "Hive tasks assign",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": ["feature.hive.tasks"],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "tasks_assign.tasks.0.session",
+          "equals_fixture": "target_session"
+        }
+      ],
+      "metrics": ["task_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.adversarial.hive-claim-collision",
+      "name": "Hive claim collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.claims",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd claims --output {{sender_bundle}} --acquire --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd claims --output {{target_bundle}} --acquire --scope task:{{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        },
+        {
+          "kind": "json_path",
+          "path": "claims_acquire.claims.0.session",
+          "equals_fixture": "sender_session"
+        }
+      ],
+      "metrics": ["claim_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.adversarial.hive-task-lane-collision",
+      "name": "Hive task lane collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.tasks",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "setup_target_lane_collision"
+        },
+        {
+          "kind": "cli",
+          "run": "memd tasks --output {{sender_bundle}} --upsert --task-id {{task.id}} --title \"Parser refactor\" --status in_progress --mode exclusive_write --scope task:{{task.id}}"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd tasks --output {{sender_bundle}} --assign-to-session {{target_session}} --task-id {{task.id}}"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        }
+      ],
+      "metrics": ["task_count", "expected_error_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "setup_target_lane_collision"
+      ]
+    },
+    {
+      "id": "verifier.adversarial.hive-message-lane-collision",
+      "name": "Hive message lane collision containment",
+      "type": "adversarial",
+      "pillar": "memory-continuity",
+      "family": "coordination-hive",
+      "subject_ids": [
+        "feature.hive.messages",
+        "journey.hive.transfer-assign"
+      ],
+      "fixture_id": "fixture.hive-two-session-bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "helper",
+          "name": "setup_target_lane_collision"
+        },
+        {
+          "kind": "cli_expect_error",
+          "run": "memd messages --output {{sender_bundle}} --send --target-session {{target_session}} --kind handoff --content \"Pick up {{task.id}}\""
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "expected_error.message",
+          "exists": true
+        }
+      ],
+      "metrics": ["expected_error_count"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": [
+        "setup_target_lane_collision"
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "fixture.continuity_bundle",
+      "kind": "bundle_fixture",
+      "description": "Bundle with active task state, checkpoint material, and resumable working memory",
+      "seed_files": ["fixtures/continuity_bundle/config.json"],
+      "seed_config": {
+        "project": "memd",
+        "namespace": "main",
+        "agent": "codex",
+        "route": "auto",
+        "intent": "current_task"
+      },
+      "seed_memories": ["fixtures/continuity_bundle/memories.json"],
+      "seed_events": ["fixtures/continuity_bundle/events.json"],
+      "seed_sessions": [],
+      "seed_claims": [],
+      "seed_vault": null,
+      "backend_mode": "normal",
+      "isolation": "fresh_temp_dir",
+      "cleanup_policy": "destroy"
+    },
+    {
+      "id": "fixture.hive-two-session-bundle",
+      "kind": "bundle_fixture",
+      "description": "Two-session shared hive fixture for coordination proofs",
+      "seed_files": [],
+      "seed_config": {
+        "project": "memd",
+        "namespace": "main",
+        "workspace": "shared",
+        "visibility": "workspace"
+      },
+      "seed_memories": [],
+      "seed_events": [],
+      "seed_sessions": ["sender", "target"],
+      "seed_claims": [],
+      "seed_vault": null,
+      "backend_mode": "normal",
+      "isolation": "fresh_temp_dir",
+      "cleanup_policy": "destroy"
+    }
+  ],
+  "evidence_policies": [
+    {
+      "id": "policy.evidence.continuity-critical",
+      "applies_to": ["tier-0-continuity-critical"],
+      "required_tiers": ["live_primary"],
+      "max_gate_without_live_primary": "acceptable",
+      "comparative_required": true,
+      "freshness_window": "24h",
+      "contradiction_rule": "any unresolved contradictory live evidence caps at fragile"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "schedule.fast",
+      "lane": "fast",
+      "max_tokens": 25000,
+      "max_duration_ms": 15000,
+      "tiers": ["tier-0-continuity-critical"],
+      "default_types": ["feature_contract", "journey", "drift"],
+      "retry_policy": "none",
+      "quarantine_policy": "after_3_failures"
+    },
+    {
+      "id": "schedule.nightly",
+      "lane": "nightly",
+      "max_tokens": 250000,
+      "max_duration_ms": 900000,
+      "tiers": ["tier-0-continuity-critical", "tier-1-truth-critical"],
+      "default_types": ["feature_contract", "journey", "adversarial", "comparative", "drift"],
+      "retry_policy": "retry_once",
+      "quarantine_policy": "after_5_failures"
+    },
+    {
+      "id": "schedule.exhaustive",
+      "lane": "exhaustive",
+      "max_tokens": 1000000,
+      "max_duration_ms": 3600000,
+      "tiers": [
+        "tier-0-continuity-critical",
+        "tier-1-truth-critical",
+        "tier-2-workflow-critical",
+        "tier-3-supporting"
+      ],
+      "default_types": ["feature_contract", "journey", "adversarial", "comparative", "drift"],
+      "retry_policy": "retry_twice",
+      "quarantine_policy": "manual_only"
+    },
+    {
+      "id": "schedule.comparative",
+      "lane": "comparative",
+      "max_tokens": 250000,
+      "max_duration_ms": 1200000,
+      "tiers": ["tier-0-continuity-critical", "tier-1-truth-critical"],
+      "default_types": ["comparative"],
+      "retry_policy": "retry_once",
+      "quarantine_policy": "after_3_failures"
+    }
+  ],
+  "scorecards": [],
+  "evidence": [],
+  "gates": [],
+  "baseline_modes": [
+    {
+      "id": "baseline.no-memd",
+      "description": "compare against the app without memd assistance"
+    },
+    {
+      "id": "baseline.with-memd",
+      "description": "compare against the app with memd enabled"
+    }
+  ],
+  "runtime_policies": [
+    {
+      "id": "policy.dream.compaction_trigger_interval",
+      "name": "Dream compaction trigger interval",
+      "cli_surface": "memd dream --compaction-trigger-interval",
+      "default_value": "5",
+      "allowed_range": "1-100",
+      "quality_dimensions_affected": ["continuity", "token_efficiency"],
+      "risk_level": "medium",
+      "loop_ids": ["loop.journey.resume-handoff-attach.drift"]
+    },
+    {
+      "id": "policy.benchmark.always_on.max_latency_ms",
+      "name": "Always-on benchmark latency budget",
+      "cli_surface": "memd benchmark --policy always-on-latency",
+      "default_value": "500",
+      "allowed_range": "50-5000",
+      "quality_dimensions_affected": ["continuity", "token_efficiency", "latency"],
+      "risk_level": "medium",
+      "loop_ids": ["loop.journey.resume-handoff-attach.correctness"]
+    },
+    {
+      "id": "policy.benchmark.nightly.max_token_budget",
+      "name": "Nightly benchmark token budget",
+      "cli_surface": "memd benchmark --policy nightly-token-budget",
+      "default_value": "250000",
+      "allowed_range": "10000-1000000",
+      "quality_dimensions_affected": ["token_efficiency", "drift_resistance"],
+      "risk_level": "medium",
+      "loop_ids": ["loop.journey.resume-handoff-attach.no-memd-delta"]
+    },
+    {
+      "id": "policy.dream.max_compactions_before_consolidation",
+      "name": "Dream compaction consolidation threshold",
+      "cli_surface": "memd dream --compaction-threshold",
+      "default_value": "5",
+      "allowed_range": "1-50",
+      "quality_dimensions_affected": ["continuity", "drift_resistance", "token_efficiency"],
+      "risk_level": "low",
+      "loop_ids": ["loop.journey.resume-handoff-attach.drift"]
+    }
+  ],
+  "generated_at": null
+}

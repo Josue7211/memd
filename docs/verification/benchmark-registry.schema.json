@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "memd benchmark registry",
+  "type": "object",
+  "required": [
+    "version",
+    "app_goal",
+    "quality_dimensions",
+    "tiers",
+    "pillars",
+    "families",
+    "features",
+    "journeys",
+    "loops",
+    "verifiers",
+    "fixtures",
+    "evidence_policies",
+    "schedules",
+    "scorecards",
+    "evidence",
+    "gates",
+    "baseline_modes",
+    "runtime_policies"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "app_goal": {
+      "type": "string"
+    },
+    "quality_dimensions": {
+      "type": "array"
+    },
+    "tiers": {
+      "type": "array"
+    },
+    "pillars": {
+      "type": "array"
+    },
+    "families": {
+      "type": "array"
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "pillar",
+          "family",
+          "tier",
+          "continuity_critical",
+          "user_contract",
+          "source_contract_refs",
+          "commands",
+          "journey_ids",
+          "loop_ids",
+          "quality_dimensions",
+          "drift_risks",
+          "failure_modes",
+          "coverage_status"
+        ]
+      }
+    },
+    "journeys": {
+      "type": "array"
+    },
+    "loops": {
+      "type": "array"
+    },
+    "verifiers": {
+      "type": "array"
+    },
+    "fixtures": {
+      "type": "array"
+    },
+    "evidence_policies": {
+      "type": "array"
+    },
+    "schedules": {
+      "type": "array"
+    },
+    "scorecards": {
+      "type": "array"
+    },
+    "evidence": {
+      "type": "array"
+    },
+    "gates": {
+      "type": "array"
+    },
+    "baseline_modes": {
+      "type": "array"
+    },
+    "runtime_policies": {
+      "type": "array"
+    },
+    "generated_at": {
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": true
+}

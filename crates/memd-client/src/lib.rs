@@ -5,19 +5,21 @@ use memd_schema::{
     CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveClaimAcquireRequest,
-    HiveClaimRecoverRequest, HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest,
-    HiveClaimsResponse, HiveCoordinationInboxRequest, HiveCoordinationInboxResponse,
-    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
-    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
-    HiveMessageSendRequest, HiveMessagesResponse, HiveSessionRetireRequest,
-    HiveSessionRetireResponse, HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
-    HiveTaskAssignRequest, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse,
-    MaintainReport, MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse,
-    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
+    HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterRequest,
+    HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
+    HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
+    HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
+    HiveTasksRequest, HiveTasksResponse, MaintainReport, MaintainReportRequest,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
+    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
+    SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
     SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
     SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
@@ -369,11 +371,31 @@ impl MemdClient {
             .await
     }
 
+    pub async fn hive_board(&self, req: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
+        self.get_json_with_query("/hive/board", req).await
+    }
+
+    pub async fn hive_roster(&self, req: &HiveRosterRequest) -> anyhow::Result<HiveRosterResponse> {
+        self.get_json_with_query("/hive/roster", req).await
+    }
+
+    pub async fn hive_follow(&self, req: &HiveFollowRequest) -> anyhow::Result<HiveFollowResponse> {
+        self.get_json_with_query("/hive/follow", req).await
+    }
+
     pub async fn retire_hive_session(
         &self,
         req: &HiveSessionRetireRequest,
     ) -> anyhow::Result<HiveSessionRetireResponse> {
         self.post_json("/coordination/sessions/retire", req).await
+    }
+
+    pub async fn auto_retire_hive_sessions(
+        &self,
+        req: &HiveSessionAutoRetireRequest,
+    ) -> anyhow::Result<HiveSessionAutoRetireResponse> {
+        self.post_json("/coordination/sessions/auto-retire", req)
+            .await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

@@ -552,9 +552,12 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             })
         })
         .unwrap_or("none");
+    let voice_mode = defaults
+        .and_then(|value| value.get("voice_mode").and_then(Value::as_str))
+        .unwrap_or("caveman-ultra");
     output.push_str(&format!(
-        " project={} namespace={} session={} tab={} agent={} voice=caveman-ultra",
-        project, namespace, session, tab_id, agent
+        " project={} namespace={} session={} tab={} agent={} voice={}",
+        project, namespace, session, tab_id, agent, voice_mode
     ));
     let session_overlay = status
         .get("session_overlay")
@@ -575,6 +578,56 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
                 bundle_session, live_session, rebased_from
             ));
         }
+    }
+    if let Some(lane) = status
+        .get("lane_surface")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_action={} lane_previous_branch={} lane_current_branch={} lane_conflict_session={}",
+            lane.get("action").and_then(Value::as_str).unwrap_or("none"),
+            lane.get("previous_branch")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane.get("current_branch")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane.get("conflict_session")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+    }
+    if let Some(lane_fault) = status
+        .get("lane_fault")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_fault={} lane_fault_session={}",
+            lane_fault
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            lane_fault
+                .get("session")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
+    }
+    if let Some(lane_receipts) = status
+        .get("lane_receipts")
+        .and_then(|value| if value.is_null() { None } else { Some(value) })
+    {
+        output.push_str(&format!(
+            " lane_receipts={} lane_latest_receipt={}",
+            lane_receipts
+                .get("count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            lane_receipts
+                .get("latest_kind")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+        ));
     }
 
     if let Some(resume) = resume {
@@ -2254,6 +2307,125 @@ pub(crate) fn render_composite_markdown(response: &crate::CompositeReport) -> St
     markdown
 }
 
+pub(crate) fn render_feature_benchmark_summary(response: &crate::FeatureBenchmarkReport) -> String {
+    let pass = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "pass")
+        .count();
+    let warn = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "warn")
+        .count();
+    let fail = response
+        .areas
+        .iter()
+        .filter(|area| area.status == "fail")
+        .count();
+    let lead = response
+        .areas
+        .first()
+        .map(|area| format!(" first_area={}:{}", area.slug, area.score))
+        .unwrap_or_default();
+    format!(
+        "benchmark bundle={} project={} namespace={} agent={} session={} score={}/{} areas={} pass={} warn={} fail={} commands={} skills={} packs={} pages={} events={}{}",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.score,
+        response.max_score,
+        response.areas.len(),
+        pass,
+        warn,
+        fail,
+        response.command_count,
+        response.skill_count,
+        response.pack_count,
+        response.memory_pages,
+        response.event_count,
+        lead
+    )
+}
+
+pub(crate) fn render_feature_benchmark_markdown(
+    response: &crate::FeatureBenchmarkReport,
+) -> String {
+    let mut markdown = String::new();
+    markdown.push_str("# memd feature benchmark\n\n");
+    markdown.push_str(&format!(
+        "- bundle: {}\n- project: {}\n- namespace: {}\n- agent: {}\n- session: {}\n- workspace: {}\n- visibility: {}\n- score: {}/{}\n- commands: {}\n- skills: {}\n- packs: {}\n- memory_pages: {}\n- event_count: {}\n- generated_at: {}\n- completed_at: {}\n",
+        response.bundle_root,
+        response.project.as_deref().unwrap_or("none"),
+        response.namespace.as_deref().unwrap_or("none"),
+        response.agent.as_deref().unwrap_or("none"),
+        response.session.as_deref().unwrap_or("none"),
+        response.workspace.as_deref().unwrap_or("none"),
+        response.visibility.as_deref().unwrap_or("all"),
+        response.score,
+        response.max_score,
+        response.command_count,
+        response.skill_count,
+        response.pack_count,
+        response.memory_pages,
+        response.event_count,
+        response.generated_at,
+        response.completed_at
+    ));
+
+    markdown.push_str("\n## Areas\n\n");
+    for area in &response.areas {
+        markdown.push_str(&format!(
+            "### {} [{}]\n\n- score: {}/{}\n- command coverage: {}/{}\n",
+            area.name,
+            area.status,
+            area.score,
+            area.max_score,
+            area.implemented_commands,
+            area.expected_commands
+        ));
+        markdown.push_str("\n#### Evidence\n\n");
+        if area.evidence.is_empty() {
+            markdown.push_str("- none\n");
+        } else {
+            for item in &area.evidence {
+                markdown.push_str(&format!("- {item}\n"));
+            }
+        }
+        markdown.push_str("\n#### Recommendations\n\n");
+        if area.recommendations.is_empty() {
+            markdown.push_str("- none\n");
+        } else {
+            for item in &area.recommendations {
+                markdown.push_str(&format!("- {item}\n"));
+            }
+        }
+        markdown.push('\n');
+    }
+
+    markdown.push_str("## Evidence\n\n");
+    if response.evidence.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.evidence {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown.push_str("\n## Recommendations\n\n");
+    if response.recommendations.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for item in &response.recommendations {
+            markdown.push_str(&format!("- {item}\n"));
+        }
+    }
+
+    markdown
+}
+
 pub(crate) fn render_experiment_summary(response: &crate::ExperimentReport) -> String {
     let mut output = format!(
         "experiment bundle={} project={} namespace={} agent={} session={} workspace={} visibility={} accepted={} restored={} score={}/{} iterations={}",
@@ -3273,7 +3445,8 @@ mod tests {
                 "namespace": "main",
                 "session": "codex-a",
                 "tab_id": "tab-a",
-                "agent": "codex"
+                "agent": "codex",
+                "voice_mode": "normal"
             },
             "resume_preview": {
                 "project": "demo",
@@ -3300,7 +3473,7 @@ mod tests {
         assert!(summary.contains("session=codex-a"));
         assert!(summary.contains("tab=tab-a"));
         assert!(summary.contains("agent=codex"));
-        assert!(summary.contains("voice=caveman-ultra"));
+        assert!(summary.contains("voice=normal"));
         assert!(summary.contains("server=ok"));
         assert!(summary.contains("rag=ready"));
         assert!(summary.contains("prompt_pressure=high"));
@@ -3308,6 +3481,48 @@ mod tests {
         assert!(summary.contains("drivers=duplicates,inbox,refresh,rehydration,semantic,tokens"));
         assert!(summary.contains("action=\"drain inbox before the next prompt\""));
         assert!(summary.contains("warning=\"prompt pressure high\""));
+    }
+
+    #[test]
+    fn status_summary_surfaces_lane_reroute_context() {
+        let status = json!({
+            "bundle": "/tmp/memd",
+            "setup_ready": true,
+            "server": { "status": "ok" },
+            "rag": { "healthy": true },
+            "missing": [],
+            "defaults": {
+                "project": "demo",
+                "namespace": "main",
+                "session": "codex-a",
+                "tab_id": "tab-a",
+                "agent": "codex"
+            },
+            "lane_surface": {
+                "action": "auto_reroute",
+                "previous_branch": "feature/hive-shared",
+                "current_branch": "workerbee/codex-a",
+                "conflict_session": "claude-b"
+            },
+            "lane_fault": {
+                "kind": "unsafe_same_branch",
+                "session": "claude-b"
+            },
+            "lane_receipts": {
+                "count": 3,
+                "latest_kind": "lane_fault"
+            }
+        });
+
+        let summary = render_bundle_status_summary(&status);
+        assert!(summary.contains("lane_action=auto_reroute"));
+        assert!(summary.contains("lane_previous_branch=feature/hive-shared"));
+        assert!(summary.contains("lane_current_branch=workerbee/codex-a"));
+        assert!(summary.contains("lane_conflict_session=claude-b"));
+        assert!(summary.contains("lane_fault=unsafe_same_branch"));
+        assert!(summary.contains("lane_fault_session=claude-b"));
+        assert!(summary.contains("lane_receipts=3"));
+        assert!(summary.contains("lane_latest_receipt=lane_fault"));
     }
 
     #[test]
