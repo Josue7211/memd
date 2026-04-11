@@ -165,6 +165,11 @@ The product direction is now explicit:
 - dream, autodream, and autoresearch should live in the `memd` lifecycle, with skills and wrappers acting only as entrypoints
 - promoted learning should live in the substrate, but each abstraction must be marked portable, harness-native, or adapter-required so harness-specific capabilities stay honest
 
+The product direction now explicitly includes an Obsidian compiled-wiki mode:
+raw sources and derived markdown pages can live in the same workspace, with
+`memd` preserving typed memory, provenance, and policy around that markdown
+surface. LightRAG stays optional for larger-scale semantic recall.
+
 ## Constraints
 
 - **Architecture**: `memd` remains the memory control plane — cognition and planning stay outside this repo.
