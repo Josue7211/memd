@@ -18,3 +18,4 @@
 /apps/site/.astro/
 /apps/site/.debug-home*.png
 .gstack/
+.codex
