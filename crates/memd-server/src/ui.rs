@@ -528,6 +528,8 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       namespace: null,
       workspace: null,
     }};
+    let hiveRefreshInFlight = {{ value: false }};
+    const hiveRefreshIntervalMs = 5000;
 
     function focusedHiveBeeLabel() {{
       return selectedHiveFollowSession.value || 'none';
@@ -688,19 +690,38 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
       const response = await fetch(`/hive/follow?session=${{encodeURIComponent(session)}}`);
       if (!response.ok) throw new Error(`hive follow failed: ${{response.status}}`);
       const follow = await response.json();
+      const lane = follow.target.lane_id || follow.target.branch || 'none';
+      const role = follow.target.role || follow.target.hive_role || 'worker';
+      const task = follow.target.task_id || 'none';
+      const nextAction = follow.next_action || 'none';
+      const latestMessage = (follow.messages || [])[0];
+      const latestReceipt = (follow.recent_receipts || [])[0];
       const items = [
-        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>work=${{follow.work_summary || 'none'}}</span>`,
+        `<strong>${{follow.target.worker_name || follow.target.agent || follow.target.session}}</strong><span>role=${{role}} · lane=${{lane}} · task=${{task}}</span>`,
+        `<strong>work</strong><span>${{follow.work_summary || 'none'}}</span>`,
         `<strong>touches</strong><span>${{(follow.touch_points || []).join(',') || 'none'}}</span>`,
-        `<strong>recommended</strong><span>${{follow.recommended_action}}</span>`,
+        `<strong>action</strong><span>${{follow.recommended_action}}</span>`,
+        `<strong>next</strong><span>${{nextAction}}</span>`,
       ];
       if (follow.overlap_risk) {{
         items.push(`<strong>overlap</strong><span>${{follow.overlap_risk}}</span>`);
+      }}
+      if (latestMessage) {{
+        items.push(`<strong>latest message</strong><span>${{latestMessage.kind}} · ${{latestMessage.from_agent || latestMessage.from_session}} · ${{latestMessage.content.replace(/\\s+/g, ' ').slice(0, 120)}}</span>`);
+      }}
+      if (latestReceipt) {{
+        items.push(`<strong>latest receipt</strong><span>${{latestReceipt.kind}} · ${{latestReceipt.summary}}</span>`);
       }}
       renderList('hive-follow-list', items);
       return follow;
     }}
 
     async function reloadHiveBoard(preferredSession) {{
+      if (hiveRefreshInFlight.value) {{
+        return null;
+      }}
+      hiveRefreshInFlight.value = true;
+      try {{
       const [board, roster] = await Promise.all([loadHiveBoard(), loadHiveRoster()]);
       const rosterSessions = (roster && roster.bees ? roster.bees : []).map((bee) => bee.session);
       const nextSession = preferredSession && rosterSessions.includes(preferredSession)
@@ -708,6 +729,20 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         : ((board && board.active_bees && board.active_bees[0] && board.active_bees[0].session) || null);
       await loadHiveFollow(nextSession);
       return {{ board, roster, nextSession }};
+      }} finally {{
+        hiveRefreshInFlight.value = false;
+      }}
+    }}
+
+    async function refreshHiveBoardIfVisible() {{
+      if (document.hidden) {{
+        return;
+      }}
+      try {{
+        await reloadHiveBoard(selectedHiveFollowSession.value);
+      }} catch (error) {{
+        text('action-status', `hive refresh failed: ${{String(error)}}`);
+      }}
     }}
 
     document.addEventListener('click', (event) => {{
@@ -755,6 +790,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         renderList('hive-roster-list', [`<span class="muted">${{String(error)}}</span>`]);
         renderList('hive-follow-list', [`<span class="muted">${{String(error)}}</span>`]);
       }});
+    window.setInterval(refreshHiveBoardIfVisible, hiveRefreshIntervalMs);
   </script>
 </body>
 </html>
