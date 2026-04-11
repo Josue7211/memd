@@ -3,6 +3,12 @@ mod keys;
 mod repair;
 mod routing;
 mod store;
+mod store_entities;
+mod store_hive;
+mod store_hive_lifecycle;
+mod store_migrations;
+mod store_runtime_maintenance;
+mod store_skill_policy;
 mod ui;
 mod working;
 

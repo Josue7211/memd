@@ -1,6 +1,6 @@
 # memd benchmark coverage
 
-- Current benchmark score: `94/100`
+- Current benchmark score: `95/100`
 - Feature coverage records: `11`
 - Journey coverage records: `2`
 
@@ -34,10 +34,11 @@
 - `journey.hive.transfer-assign` [a live hive handoff moves message intent, scope ownership, and task ownership onto the target session] features=3 loops=2 gate=acceptable
 
 ## Current Benchmark Areas
-- `core_memory`: `92/100`
+- `core_memory`: `93/100`
 - `retrieval_context`: `97/100`
 - `visible_memory`: `100/100`
 - `bundle_session`: `95/100`
+- `shared_continuity`: `100/100`
 - `capture_compaction_events`: `83/100`
 - `coordination_hive`: `88/100`
 - `obsidian`: `95/100`

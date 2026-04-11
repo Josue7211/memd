@@ -3,28 +3,68 @@
   "benchmark_name": "ConvoMem",
   "version": "mini",
   "split": "test",
-  "description": "Tiny vendored fixture reserved for ConvoMem parity plumbing.",
+  "description": "Tiny normalized ConvoMem fixture with real conversations and evidence messages.",
   "items": [
     {
       "item_id": "convomem-mini-001",
       "question_id": "cm-mini-001",
-      "query": "What should the agent remember from the conversation?",
+      "query": "What color do I use for hot leads?",
       "claim_class": "raw",
-      "gold_answer": "remember the conversation detail",
+      "gold_answer": "green",
       "metadata": {
-        "topic": "conversation",
-        "difficulty": "easy"
+        "category": "user_evidence",
+        "message_evidences": [
+          {
+            "speaker": "User",
+            "text": "I use green for hot leads in my spreadsheet."
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conv-001",
+            "messages": [
+              {
+                "speaker": "User",
+                "text": "I use green for hot leads in my spreadsheet."
+              },
+              {
+                "speaker": "Assistant",
+                "text": "Green makes the priority stand out."
+              }
+            ]
+          }
+        ]
       }
     },
     {
       "item_id": "convomem-mini-002",
       "question_id": "cm-mini-002",
-      "query": "Which answer should be ranked first?",
+      "query": "Which city did I say the handoff should go to?",
       "claim_class": "hybrid",
-      "gold_answer": "rank the first answer",
+      "gold_answer": "Boston",
       "metadata": {
-        "topic": "ranking",
-        "difficulty": "easy"
+        "category": "assistant_facts_evidence",
+        "message_evidences": [
+          {
+            "speaker": "Assistant",
+            "text": "You said the handoff should go to Boston."
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conv-002",
+            "messages": [
+              {
+                "speaker": "User",
+                "text": "Please send the packet to Boston tomorrow."
+              },
+              {
+                "speaker": "Assistant",
+                "text": "You said the handoff should go to Boston."
+              }
+            ]
+          }
+        ]
       }
     }
   ]

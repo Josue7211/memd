@@ -4,7 +4,7 @@
 - Registry: `docs/verification/benchmark-registry.json`
 - Version: `v1`
 - App goal: memd as a seamless memory control plane with near-perfect continuity
-- Current benchmark score: `94/100`
+- Current benchmark score: `95/100`
 - Quality dimensions: `5`
 - Pillars: `1`
 - Families: `4`

@@ -1,6 +1,6 @@
 # memd morning summary
 
-- Current benchmark score: `94/100`
+- Current benchmark score: `95/100`
 
 ## Continuity Failures
 - feature.bundle.wake [bundle-runtime] coverage=auditing drift=continuity-drift|surface-drift
@@ -27,11 +27,11 @@
 - memory-drift
 
 ## Token Regressions
-- no-memd prompt tokens=8046 with-memd prompt tokens=4806 delta=3240
+- no-memd prompt tokens=3904 with-memd prompt tokens=2476 delta=1428
 - no-memd rereads=4 with-memd rereads=1 delta=3
 
 ## With memd vs No memd
-- with memd beats no memd by 3240 tokens, 3 rereads, and 83 reconstruction steps
+- with memd beats no memd by 1428 tokens, 3 rereads, and 18 reconstruction steps
 
 ## Next Actions
 - benchmark the remaining continuity-critical features

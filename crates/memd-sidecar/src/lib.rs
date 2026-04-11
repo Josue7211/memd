@@ -20,6 +20,8 @@ pub struct SidecarBackendHealth {
     pub connected: bool,
     pub name: Option<String>,
     pub multimodal: bool,
+    #[serde(default)]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

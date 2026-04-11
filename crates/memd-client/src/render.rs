@@ -552,9 +552,12 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             })
         })
         .unwrap_or("none");
+    let voice_mode = defaults
+        .and_then(|value| value.get("voice_mode").and_then(Value::as_str))
+        .unwrap_or("caveman-ultra");
     output.push_str(&format!(
-        " project={} namespace={} session={} tab={} agent={} voice=caveman-ultra",
-        project, namespace, session, tab_id, agent
+        " project={} namespace={} session={} tab={} agent={} voice={}",
+        project, namespace, session, tab_id, agent, voice_mode
     ));
     let session_overlay = status
         .get("session_overlay")
@@ -3442,7 +3445,8 @@ mod tests {
                 "namespace": "main",
                 "session": "codex-a",
                 "tab_id": "tab-a",
-                "agent": "codex"
+                "agent": "codex",
+                "voice_mode": "normal"
             },
             "resume_preview": {
                 "project": "demo",
@@ -3469,7 +3473,7 @@ mod tests {
         assert!(summary.contains("session=codex-a"));
         assert!(summary.contains("tab=tab-a"));
         assert!(summary.contains("agent=codex"));
-        assert!(summary.contains("voice=caveman-ultra"));
+        assert!(summary.contains("voice=normal"));
         assert!(summary.contains("server=ok"));
         assert!(summary.contains("rag=ready"));
         assert!(summary.contains("prompt_pressure=high"));

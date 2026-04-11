@@ -3,28 +3,76 @@
   "benchmark_name": "MemBench",
   "version": "mini",
   "split": "validation",
-  "description": "Tiny vendored fixture reserved for MemBench parity plumbing.",
+  "description": "Tiny normalized MemBench fixture with real message_list and target_step_id metadata.",
   "items": [
     {
       "item_id": "membench-mini-001",
       "question_id": "mb-mini-001",
-      "query": "What benchmark fact should be recalled?",
+      "query": "What thoughtful sci-fi film should I watch?",
       "claim_class": "raw",
-      "gold_answer": "recalled benchmark fact",
+      "gold_answer": "Arrival",
       "metadata": {
-        "topic": "benchmark",
-        "difficulty": "easy"
+        "topic": "movie",
+        "target_step_id": [[4, 0]],
+        "choices": {
+          "A": "Barbie",
+          "B": "Arrival",
+          "C": "Jaws"
+        },
+        "ground_truth": "B",
+        "message_list": [
+          [
+            {
+              "mid": 0,
+              "time": "2024-01-01",
+              "place": "Boston",
+              "user": "I need a movie recommendation.",
+              "assistant": "Maybe try a comedy."
+            },
+            {
+              "mid": 4,
+              "time": "2024-01-01",
+              "place": "Boston",
+              "user": "What thoughtful sci-fi film should I watch?",
+              "assistant": "Arrival is the one I recommend."
+            }
+          ]
+        ]
       }
     },
     {
       "item_id": "membench-mini-002",
       "question_id": "mb-mini-002",
-      "query": "Which benchmark answer should be selected?",
+      "query": "Which workshop changed how I qualify deals?",
       "claim_class": "hybrid",
-      "gold_answer": "select the benchmark answer",
+      "gold_answer": "MEDDIC workshop",
       "metadata": {
-        "topic": "selection",
-        "difficulty": "easy"
+        "topic": "sales",
+        "target_step_id": [[7, 0]],
+        "choices": {
+          "A": "Challenger",
+          "B": "MEDDIC workshop",
+          "C": "BANT"
+        },
+        "ground_truth": "B",
+        "message_list": [
+          [
+            {
+              "sid": 3,
+              "time": "2024-01-01",
+              "place": "Boston",
+              "user_message": "I read about Challenger sales.",
+              "assistant_message": "That can be useful."
+            },
+            {
+              "sid": 7,
+              "time": "2024-01-02",
+              "place": "Boston",
+              "user_message": "The MEDDIC workshop changed how I qualify deals.",
+              "assistant_message": "That sounds like the key workshop."
+            }
+          ]
+        ]
       }
     }
   ]

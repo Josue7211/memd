@@ -3,28 +3,70 @@
   "benchmark_name": "LoCoMo",
   "version": "mini",
   "split": "validation",
-  "description": "Tiny vendored fixture reserved for LoCoMo parity plumbing.",
+  "description": "Tiny normalized LoCoMo fixture with real conversation/evidence structure.",
   "items": [
     {
       "item_id": "locomo-mini-001",
       "question_id": "lc-mini-001",
-      "query": "Which memory detail should be recalled?",
+      "query": "Which hidden place did Sarah mention?",
       "claim_class": "raw",
-      "gold_answer": "recall the memory detail",
+      "gold_answer": "the hidden garden",
       "metadata": {
-        "topic": "recall",
-        "difficulty": "easy"
+        "sample_id": "locomo-mini-sample-001",
+        "category_id": 1,
+        "category_name": "Single-hop",
+        "evidence": ["D1:2"],
+        "conversation": {
+          "session_1": [
+            {
+              "dia_id": "D1:1",
+              "speaker": "Mark",
+              "text": "I finally visited the old library downtown."
+            },
+            {
+              "dia_id": "D1:2",
+              "speaker": "Sarah",
+              "text": "Behind it there is a hidden garden that stays quiet even on weekends."
+            }
+          ],
+          "session_1_date_time": "2026-04-08"
+        },
+        "conversation_text": "Mark said, \"I finally visited the old library downtown.\"\nSarah said, \"Behind it there is a hidden garden that stays quiet even on weekends.\"",
+        "session_summary": {
+          "session_1_summary": "Mark and Sarah discussed the old library and a hidden garden behind it."
+        }
       }
     },
     {
       "item_id": "locomo-mini-002",
       "question_id": "lc-mini-002",
-      "query": "Which handoff target should be used?",
+      "query": "What role did Priya take in the handoff?",
       "claim_class": "hybrid",
-      "gold_answer": "handoff target",
+      "gold_answer": "checkpoint owner",
       "metadata": {
-        "topic": "handoff",
-        "difficulty": "easy"
+        "sample_id": "locomo-mini-sample-002",
+        "category_id": 2,
+        "category_name": "Temporal",
+        "evidence": ["D2:2"],
+        "conversation": {
+          "session_2": [
+            {
+              "dia_id": "D2:1",
+              "speaker": "Leo",
+              "text": "I can prepare the rollout notes tonight."
+            },
+            {
+              "dia_id": "D2:2",
+              "speaker": "Priya",
+              "text": "Make me the checkpoint owner and I will receive the handoff packet tomorrow morning."
+            }
+          ],
+          "session_2_date_time": "2026-04-09"
+        },
+        "conversation_text": "Leo said, \"I can prepare the rollout notes tonight.\"\nPriya said, \"Make me the checkpoint owner and I will receive the handoff packet tomorrow morning.\"",
+        "session_summary": {
+          "session_2_summary": "Leo and Priya discussed the rollout handoff, with Priya taking checkpoint ownership."
+        }
       }
     }
   ]
