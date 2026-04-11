@@ -67,7 +67,7 @@ not auto-edit code or generate freeform essays.
 
 ### Runtime context sources
 - `README.md` - public bootstrap and project setup guidance
-- `docs/setup.md` - explicit init / reload / project bootstrap details
+- `docs/core/setup.md` - explicit init / reload / project bootstrap details
 - `AGENTS.md` and `CLAUDE.md` in the repo root when present
 - `.planning/*` and repo docs as structured project memory
 

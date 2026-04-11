@@ -2,7 +2,6 @@ use super::*;
 use crate::store_hive::annotate_hive_relationships;
 
 impl SqliteStore {
-
     pub fn hive_board(&self, request: &HiveBoardRequest) -> anyhow::Result<HiveBoardResponse> {
         let sessions = self
             .hive_sessions(&HiveSessionsRequest {
@@ -125,7 +124,9 @@ impl SqliteStore {
                 receipts
                     .iter()
                     .filter(|receipt| is_active_hive_board_receipt(receipt, &active_session_ids))
-                    .filter(|receipt| receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_"))
+                    .filter(|receipt| {
+                        receipt.kind == "queen_deny" || receipt.kind.starts_with("lane_")
+                    })
                     .map(|receipt| receipt.summary.clone()),
             )
             .collect::<std::collections::BTreeSet<_>>()
@@ -140,7 +141,9 @@ impl SqliteStore {
                 recommended_actions.push(format!(
                     "{} {}",
                     action,
-                    bee.relationship_reason.as_deref().unwrap_or("peer coordination")
+                    bee.relationship_reason
+                        .as_deref()
+                        .unwrap_or("peer coordination")
                 ));
             }
         }
@@ -883,5 +886,4 @@ impl SqliteStore {
         }
         Ok(HiveCoordinationReceiptsResponse { receipts })
     }
-
 }

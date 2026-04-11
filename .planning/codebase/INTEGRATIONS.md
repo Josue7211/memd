@@ -3,7 +3,7 @@
 ## Primary Internal Integration
 
 - `memd-client` integrates with `memd-server` over HTTP.
-- Key API surfaces are documented in [`docs/api.md`](/home/josue/Documents/projects/memd/docs/api.md):
+- Key API surfaces are documented in [`docs/core/api.md`](/home/josue/Documents/projects/memd/docs/core/api.md):
   - `POST /memory/store`
   - `POST /memory/search`
   - `GET /memory/context`
@@ -33,7 +33,7 @@
 
 ## Deployment / Ops Integrations
 
-- Dockerized server build in [`Dockerfile.memd-server`](/home/josue/Documents/projects/memd/Dockerfile.memd-server)
+- Dockerized server build in [`deploy/docker/Dockerfile.memd-server`](/home/josue/Documents/projects/memd/deploy/docker/Dockerfile.memd-server)
 - Compose deployment for a Portainer/OpenClaw VM in [`deploy/portainer/openclaw-vm/memd-server.compose.yml`](/home/josue/Documents/projects/memd/deploy/portainer/openclaw-vm/memd-server.compose.yml)
 - Periodic worker integration through systemd in:
   - [`deploy/systemd/memd-worker.service`](/home/josue/Documents/projects/memd/deploy/systemd/memd-worker.service)

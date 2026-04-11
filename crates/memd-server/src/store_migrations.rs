@@ -2,7 +2,7 @@ use anyhow::Context;
 use memd_schema::{HiveSessionRecord, MemoryItem};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::keys::redundancy_key;
+use crate::redundancy_key;
 
 pub(crate) fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;

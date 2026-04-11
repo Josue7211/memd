@@ -15,8 +15,8 @@ Phase 0 is complete. The repository now has an OSS-first foundation:
 
 ## Files Added
 
-- `docs/release-process.md`
-- `docs/branching.md`
+- `docs/policy/release-process.md`
+- `docs/policy/branching.md`
 - `CHANGELOG.md`
 - `CODE_OF_CONDUCT.md`
 - `crates/memd-client/src/render.rs`
@@ -33,7 +33,7 @@ Phase 0 is complete. The repository now has an OSS-first foundation:
 - `.planning/REQUIREMENTS.md`
 - `README.md`
 - `CONTRIBUTING.md`
-- `docs/oss-positioning.md`
+- `docs/reference/oss-positioning.md`
 - `crates/memd-client/src/main.rs`
 - `crates/memd-server/src/main.rs`
 

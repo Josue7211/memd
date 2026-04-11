@@ -177,8 +177,8 @@ Likely implementation touchpoints:
 - `integrations/codex/README.md`
 - `integrations/hooks/*`
 - `crates/memd-client/src/main.rs`
-- `docs/setup.md`
-- `docs/api.md`
+- `docs/core/setup.md`
+- `docs/core/api.md`
 - any Codex-specific generated bundle helpers under `.memd/agents/`
 
 The pack should not introduce a second source of truth.

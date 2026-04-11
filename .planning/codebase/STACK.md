@@ -29,12 +29,12 @@
 - Durable memory is persisted in SQLite through server store logic in [`crates/memd-server/src/store.rs`](/home/josue/Documents/projects/memd/crates/memd-server/src/store.rs).
 - API-facing memory shapes are defined in [`crates/memd-schema/src/lib.rs`](/home/josue/Documents/projects/memd/crates/memd-schema/src/lib.rs).
 - Bundle and markdown state live under `.memd/` according to the client and docs, especially:
-  - [`docs/config.md`](/home/josue/Documents/projects/memd/docs/config.md)
-  - [`docs/obsidian.md`](/home/josue/Documents/projects/memd/docs/obsidian.md)
+  - [`docs/policy/config.md`](/home/josue/Documents/projects/memd/docs/policy/config.md)
+  - [`docs/core/obsidian.md`](/home/josue/Documents/projects/memd/docs/core/obsidian.md)
 
 ## Deployment
 
-- Container build for server: [`Dockerfile.memd-server`](/home/josue/Documents/projects/memd/Dockerfile.memd-server)
+- Container build for server: [`deploy/docker/Dockerfile.memd-server`](/home/josue/Documents/projects/memd/deploy/docker/Dockerfile.memd-server)
 - Compose deployment for OpenClaw VM: [`deploy/portainer/openclaw-vm/memd-server.compose.yml`](/home/josue/Documents/projects/memd/deploy/portainer/openclaw-vm/memd-server.compose.yml)
 - Background verification worker via systemd:
   - [`deploy/systemd/memd-worker.service`](/home/josue/Documents/projects/memd/deploy/systemd/memd-worker.service)
@@ -45,7 +45,7 @@
 The actual runtime path for everyday memory use is:
 
 1. Agent or hook runs `memd resume` / `memd refresh` / `memd remember` through [`crates/memd-client/src/main.rs`](/home/josue/Documents/projects/memd/crates/memd-client/src/main.rs)
-2. Client calls HTTP routes such as `/memory/store`, `/memory/search`, `/memory/context`, `/memory/context/compact`, and `/memory/working` described in [`docs/api.md`](/home/josue/Documents/projects/memd/docs/api.md)
+2. Client calls HTTP routes such as `/memory/store`, `/memory/search`, `/memory/context`, `/memory/context/compact`, and `/memory/working` described in [`docs/core/api.md`](/home/josue/Documents/projects/memd/docs/core/api.md)
 3. Server ranks and assembles memory in [`crates/memd-server/src/main.rs`](/home/josue/Documents/projects/memd/crates/memd-server/src/main.rs) and [`crates/memd-server/src/working.rs`](/home/josue/Documents/projects/memd/crates/memd-server/src/working.rs)
 4. Client renders prompt-facing state in [`crates/memd-client/src/render.rs`](/home/josue/Documents/projects/memd/crates/memd-client/src/render.rs)
 

@@ -9,13 +9,12 @@ always keep a path back to the evidence.
 
 ## Architecture
 
-The product hero source is [docs/product-loop.svg](./docs/product-loop.svg).
-The landing-page image is [docs/product-loop.png](./docs/product-loop.png).
-The detailed architecture source lives in [docs/architecture.excalidraw](./docs/architecture.excalidraw).
-The detailed architecture image is [docs/architecture-hero.png](./docs/architecture-hero.png).
-The full repo map is [docs/codebase-map.png](./docs/codebase-map.png).
+The product hero source is [docs/assets/product-loop.svg](./docs/assets/product-loop.svg).
+The landing-page image is [docs/assets/product-loop.png](./docs/assets/product-loop.png).
+The detailed architecture image is [docs/assets/architecture-hero.svg](./docs/assets/architecture-hero.svg).
+The full repo map is [docs/assets/codebase-map.png](./docs/assets/codebase-map.png).
 
-<img src="./docs/product-loop.png" alt="memd memory OS" width="100%" />
+<img src="./docs/assets/product-loop.png" alt="memd memory OS" width="100%" />
 
 ## At A Glance
 
@@ -109,13 +108,13 @@ between different projects.
 
 ## Docs
 
-- [Setup](./docs/setup.md)
-- [API](./docs/api.md)
-- [Architecture](./docs/architecture.md)
-- [Obsidian Bridge](./docs/obsidian.md)
-- [RAG](./docs/rag.md)
-- [Efficiency](./docs/efficiency.md)
-- [OSS Positioning](./docs/oss-positioning.md)
+- [Setup](./docs/core/setup.md)
+- [API](./docs/core/api.md)
+- [Architecture](./docs/core/architecture.md)
+- [Obsidian Bridge](./docs/core/obsidian.md)
+- [RAG](./docs/core/rag.md)
+- [Efficiency](./docs/policy/efficiency.md)
+- [OSS Positioning](./docs/reference/oss-positioning.md)
 
 ## Integrations
 

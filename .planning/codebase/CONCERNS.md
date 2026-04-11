@@ -127,7 +127,7 @@ Why this matters:
 Relevant files:
 
 - `.planning/STATE.md`
-- `docs/live-truth.md`
+- `docs/strategy/live-truth.md`
 - `docs/superpowers/plans/2026-04-06-ceiling-memd-live-truth.md`
 
 Why this matters:

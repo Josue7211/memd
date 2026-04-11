@@ -74,8 +74,8 @@ That means:
 
 This matches the repo direction:
 
-- `docs/architecture.md` places Obsidian in the visible memory story
-- `docs/obsidian.md` defines the vault bridge as a real deployment tier
+- `docs/core/architecture.md` places Obsidian in the visible memory story
+- `docs/core/obsidian.md` defines the vault bridge as a real deployment tier
 - `crates/memd-client/src/obsidian.rs` already owns scan, import, sync, watch,
   writeback, open, compile, and handoff behavior
 

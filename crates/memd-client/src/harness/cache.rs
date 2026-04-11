@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::ResumeSnapshot;
+use crate::runtime::{HandoffSnapshot, ResumeSnapshot};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HarnessTurnCache {
@@ -30,7 +30,7 @@ pub(crate) struct HandoffSnapshotCacheFile {
     pub(crate) turn_key: String,
     pub(crate) target_session: Option<String>,
     pub(crate) target_bundle: Option<String>,
-    pub(crate) handoff: crate::HandoffSnapshot,
+    pub(crate) handoff: HandoffSnapshot,
     pub(crate) refreshed_at: DateTime<Utc>,
 }
 
@@ -178,7 +178,7 @@ pub(crate) fn read_handoff_snapshot_cache(
     output: &Path,
     turn_key: &str,
     max_age_minutes: i64,
-) -> anyhow::Result<Option<crate::HandoffSnapshot>> {
+) -> anyhow::Result<Option<HandoffSnapshot>> {
     let path = handoff_snapshot_cache_path(output);
     if !path.exists() {
         return Ok(None);
@@ -200,7 +200,7 @@ pub(crate) fn read_handoff_snapshot_cache(
 pub(crate) fn write_handoff_snapshot_cache(
     output: &Path,
     turn_key: &str,
-    handoff: &crate::HandoffSnapshot,
+    handoff: &HandoffSnapshot,
 ) -> anyhow::Result<()> {
     let path = handoff_snapshot_cache_path(output);
     if let Some(parent) = path.parent() {

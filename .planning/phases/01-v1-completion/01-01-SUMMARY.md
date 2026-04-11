@@ -31,10 +31,10 @@ key-files:
     - crates/memd-client/src/commands.rs
     - crates/memd-client/src/lib.rs
     - crates/memd-schema/src/lib.rs
-    - docs/api.md
-    - docs/architecture.md
-    - docs/source-policy.md
-    - docs/promotion-policy.md
+    - docs/core/api.md
+    - docs/core/architecture.md
+    - docs/policy/source-policy.md
+    - docs/policy/promotion-policy.md
     - .planning/ROADMAP.md
     - .planning/STATE.md
     - .planning/PROJECT.md
@@ -86,9 +86,9 @@ Each task was completed inside the phase boundary commit:
 - `crates/memd-server/src/working.rs` - deterministic working-memory policy helper and reasons
 - `crates/memd-client/src/render.rs` - shared explain/repair/working-memory renderers
 - `crates/memd-client/src/main.rs` - CLI dispatch for repair and explain summaries
-- `docs/architecture.md` - working-memory controller contract
-- `docs/source-policy.md` - bounded repair expectations for source material
-- `docs/promotion-policy.md` - promotion and inbox policy visibility
+- `docs/core/architecture.md` - working-memory controller contract
+- `docs/policy/source-policy.md` - bounded repair expectations for source material
+- `docs/policy/promotion-policy.md` - promotion and inbox policy visibility
 
 ## Decisions Made
 - Kept public route names stable while moving logic into smaller helpers.

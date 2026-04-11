@@ -61,7 +61,7 @@ splitting in the large entrypoints where seams already exist.
 - `README.md` — public project overview and current user-facing status
 - `CONTRIBUTING.md` — contribution expectations and local workflow
 - `SECURITY.md` — security reporting expectations
-- `docs/oss-positioning.md` — the public OSS shape and target audience
+- `docs/reference/oss-positioning.md` — the public OSS shape and target audience
 
 ### Implementation seams
 - `crates/memd-server/src/main.rs` — current server entrypoint with extractable

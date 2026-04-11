@@ -73,9 +73,9 @@ The following files should be rendered from the shared schema:
 
 - `integrations/<pack>/README.md`
 - `crates/memd-client/src/harness/*.rs` pack metadata
-- `docs/setup.md` pack sections
-- `docs/api.md` pack sections
-- `docs/oss-positioning.md`
+- `docs/core/setup.md` pack sections
+- `docs/core/api.md` pack sections
+- `docs/reference/oss-positioning.md`
 - command/help text for pack entrypoints
 - pack index output
 

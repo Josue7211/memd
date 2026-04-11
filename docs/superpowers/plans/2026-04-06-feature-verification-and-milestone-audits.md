@@ -550,7 +550,7 @@ git commit -m "docs: record initial backward audit findings for v1-v3"
 **Files:**
 - Modify: `docs/verification/RUNBOOK.md`
 - Modify: `README.md`
-- Modify: `docs/setup.md`
+- Modify: `docs/core/setup.md`
 
 - [ ] **Step 1: Add rerun command conventions to the runbook**
 
@@ -579,7 +579,7 @@ Previously completed milestones are treated as unverified until they pass audit.
 
 - [ ] **Step 3: Add setup docs for operators**
 
-Add a short section to `docs/setup.md`:
+Add a short section to `docs/core/setup.md`:
 
 ```md
 ## Backward Audit Workflow
@@ -592,7 +592,7 @@ Use `docs/verification/FEATURES.md` and `docs/verification/milestones/` as the s
 Run:
 
 ```bash
-rg -n "docs/verification|unverified until audited|Feature Registry|Milestone v1 Audit" README.md docs/setup.md docs/verification
+rg -n "docs/verification|unverified until audited|Feature Registry|Milestone v1 Audit" README.md docs/core/setup.md docs/verification
 ```
 
 Expected: matches across the new docs.
@@ -600,7 +600,7 @@ Expected: matches across the new docs.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md docs/setup.md docs/verification
+git add README.md docs/core/setup.md docs/verification
 git commit -m "docs: wire verification system into project guidance"
 ```
 

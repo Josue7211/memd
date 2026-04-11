@@ -35,8 +35,8 @@
 **Policy and docs**
 - Modify: `.planning/ROADMAP.md`
 - Modify: `.planning/STATE.md`
-- Modify: `docs/architecture.md`
-- Create: `docs/live-truth.md`
+- Modify: `docs/core/architecture.md`
+- Create: `docs/strategy/live-truth.md`
 
 **Tests**
 - Modify: existing unit tests in `crates/memd-client/src/main.rs`
@@ -49,10 +49,10 @@
 **Files:**
 - Modify: `.planning/ROADMAP.md`
 - Modify: `.planning/STATE.md`
-- Modify: `docs/architecture.md`
-- Create: `docs/live-truth.md`
+- Modify: `docs/core/architecture.md`
+- Create: `docs/strategy/live-truth.md`
 
-- [ ] **Step 1: Write the invariant section in `docs/live-truth.md`**
+- [ ] **Step 1: Write the invariant section in `docs/strategy/live-truth.md`**
 
 Document these exact rules:
 
@@ -93,7 +93,7 @@ Insert a concise state note:
 Run:
 
 ```bash
-test -f docs/live-truth.md && test -f docs/architecture.md && test -f .planning/ROADMAP.md && test -f .planning/STATE.md
+test -f docs/strategy/live-truth.md && test -f docs/core/architecture.md && test -f .planning/ROADMAP.md && test -f .planning/STATE.md
 ```
 
 Expected: command exits `0`
@@ -372,7 +372,7 @@ Expected: prompt and markdown tests pass
 **Files:**
 - Modify: `crates/memd-client/src/main.rs`
 - Modify: `crates/memd-server/src/working.rs`
-- Modify: `docs/live-truth.md`
+- Modify: `docs/strategy/live-truth.md`
 - Test: `crates/memd-client/src/main.rs`
 
 - [ ] **Step 1: Write failing policy-gate tests**

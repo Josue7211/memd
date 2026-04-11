@@ -26,10 +26,10 @@ key-files:
     - crates/memd-server/src/working.rs
     - crates/memd-server/src/inspection.rs
     - crates/memd-client/src/render.rs
-    - docs/api.md
-    - docs/architecture.md
-    - docs/source-policy.md
-    - docs/promotion-policy.md
+    - docs/core/api.md
+    - docs/core/architecture.md
+    - docs/policy/source-policy.md
+    - docs/policy/promotion-policy.md
 key-decisions:
   - "Expose trust floors in the policy snapshot before using adaptive trust ranking."
   - "Keep summaries compact, but preserve an artifact trail behind them."
@@ -71,7 +71,7 @@ completed: 2026-04-04
 - `crates/memd-server/src/working.rs` - policy snapshot now exposes source-trust floor
 - `crates/memd-server/src/inspection.rs` - explain artifact trail and retrieval hooks
 - `crates/memd-client/src/render.rs` - explain summary surfaces hooks and artifact trail
-- `docs/source-policy.md` - reversible compression rule
+- `docs/policy/source-policy.md` - reversible compression rule
 
 ## Decisions Made
 - Kept `v2` bounded to observable policy and compression foundations.

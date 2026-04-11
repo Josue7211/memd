@@ -13,7 +13,7 @@ under Portainer management.
 
 ## What is ready now
 
-- `Dockerfile.memd-server` builds a deployable `memd-server` container.
+- `deploy/docker/Dockerfile.memd-server` builds a deployable `memd-server` container.
 - `memd-server.compose.yml` is the Portainer stack file.
 - `bootstrap-portainer-agent.sh` bootstraps the Portainer agent on
   `openclaw-vm` so the services Portainer instance can manage it.
@@ -21,7 +21,7 @@ under Portainer management.
 ## Expected flow
 
 1. Build the image on the target VM:
-   - `docker build -f Dockerfile.memd-server -t memd-server:local .`
+   - `docker build -f deploy/docker/Dockerfile.memd-server -t memd-server:local .`
 2. Bootstrap the Portainer agent on `openclaw-vm`:
    - `bash deploy/portainer/openclaw-vm/bootstrap-portainer-agent.sh`
 3. Add `openclaw-vm` as a Portainer endpoint in the services Portainer instance.

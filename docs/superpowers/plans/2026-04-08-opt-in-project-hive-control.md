@@ -253,8 +253,8 @@ git commit -m "feat: wire project hive into startup and repair flows"
 ### Task 4: Document the project-hive model and keep cross-project safe-linking explicit
 
 **Files:**
-- Modify: `docs/setup.md`
-- Modify: `docs/api.md`
+- Modify: `docs/core/setup.md`
+- Modify: `docs/core/api.md`
 - Modify: `README.md`
 - Modify: `integrations/mcp-hive/README.md`
 - Modify: `/home/josue/.codex/skills/memd/SKILL.md`
@@ -266,7 +266,7 @@ git commit -m "feat: wire project hive into startup and repair flows"
 
 ```bash
 rg -n "project hive|hive-project|hive-fix|hive-group-link|hive-link" \
-  docs/setup.md docs/api.md README.md integrations/mcp-hive/README.md
+  docs/core/setup.md docs/core/api.md README.md integrations/mcp-hive/README.md
 ```
 
 Expected: the old copy still conflates live hive join with persistent project anchoring.
@@ -276,7 +276,7 @@ Expected: the old copy still conflates live hive join with persistent project an
 Run:
 ```bash
 rg -n "project hive|hive-project|hive-fix|hive-group-link|hive-link" \
-  docs/setup.md docs/api.md README.md integrations/mcp-hive/README.md
+  docs/core/setup.md docs/core/api.md README.md integrations/mcp-hive/README.md
 ```
 
 Expected: identify the places that still need copy updates.
@@ -298,7 +298,7 @@ Also update the memd skill docs so the command surfaces match the new model.
 Run:
 ```bash
 rg -n "project hive|hive-project|hive-fix|hive-group-link|hive-link" \
-  docs/setup.md docs/api.md README.md integrations/mcp-hive/README.md
+  docs/core/setup.md docs/core/api.md README.md integrations/mcp-hive/README.md
 ```
 
 Expected: only the intended terminology remains, with no contradictory copy.
@@ -306,7 +306,7 @@ Expected: only the intended terminology remains, with no contradictory copy.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/setup.md docs/api.md README.md integrations/mcp-hive/README.md \
+git add docs/core/setup.md docs/core/api.md README.md integrations/mcp-hive/README.md \
   /home/josue/.codex/skills/memd/SKILL.md \
   /home/josue/.codex/skills/memd-hive/SKILL.md \
   /home/josue/.codex/skills/memd-hive-group-link/SKILL.md \

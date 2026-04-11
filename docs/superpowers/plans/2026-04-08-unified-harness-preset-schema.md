@@ -159,9 +159,9 @@ git commit -m "feat: render pack docs from preset schema"
 **Files:**
 - Modify: `crates/memd-client/src/main.rs`
 - Modify: `crates/memd-client/src/harness/index.rs`
-- Modify: `docs/setup.md`
-- Modify: `docs/api.md`
-- Modify: `docs/oss-positioning.md`
+- Modify: `docs/core/setup.md`
+- Modify: `docs/core/api.md`
+- Modify: `docs/reference/oss-positioning.md`
 - Test: `crates/memd-client/src/main.rs`
 
 - [ ] **Step 1: Write the failing test**
@@ -213,7 +213,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/memd-client/src/main.rs crates/memd-client/src/harness/index.rs docs/setup.md docs/api.md docs/oss-positioning.md
+git add crates/memd-client/src/main.rs crates/memd-client/src/harness/index.rs docs/core/setup.md docs/core/api.md docs/reference/oss-positioning.md
 git commit -m "feat: route pack index and help through preset schema"
 ```
 

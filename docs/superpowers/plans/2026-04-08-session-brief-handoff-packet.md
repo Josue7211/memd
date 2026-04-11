@@ -168,8 +168,8 @@ git commit -m "feat: render session brief across hot paths"
 - Modify: `crates/memd-client/src/main.rs`
 - Modify: `crates/memd-client/src/render.rs`
 - Modify: `integrations/hooks/README.md`
-- Modify: `docs/setup.md`
-- Modify: `docs/api.md`
+- Modify: `docs/core/setup.md`
+- Modify: `docs/core/api.md`
 - Test: `crates/memd-client/src/main.rs`
 
 - [ ] **Step 1: Write the failing test**
@@ -207,8 +207,8 @@ If a bootstrap path already writes wakeup memory, have it link to the session br
 
 Document the new role of the brief in the existing docs:
 
-- `docs/setup.md` for the user-facing workflow
-- `docs/api.md` for the command contract
+- `docs/core/setup.md` for the user-facing workflow
+- `docs/core/api.md` for the command contract
 - `integrations/hooks/README.md` for hook output expectations
 
 Add a short note that:
@@ -232,7 +232,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/memd-client/src/main.rs crates/memd-client/src/render.rs integrations/hooks/README.md docs/setup.md docs/api.md
+git add crates/memd-client/src/main.rs crates/memd-client/src/render.rs integrations/hooks/README.md docs/core/setup.md docs/core/api.md
 git commit -m "feat: add durable session brief artifact"
 ```
 

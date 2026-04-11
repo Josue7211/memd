@@ -35,9 +35,9 @@
   - Add terminal renderers for the shared artifact model and visible-memory home summary.
 - `crates/memd-client/src/main.rs`
   - Add a CLI entry point that hits the new UI snapshot/artifact endpoint or reuses the shared renderers against local responses.
-- `docs/architecture.md`
+- `docs/core/architecture.md`
   - Update the “built-in dashboard” language to match the new native visible-memories workbench surface.
-- `docs/obsidian.md`
+- `docs/core/obsidian.md`
   - Document how the native UI links into the real vault bridge rather than replacing it.
 
 ### Test coverage targets
@@ -780,8 +780,8 @@ git commit -m "feat: add visible memory home cli summary"
 
 **Files:**
 - Modify: `crates/memd-server/src/ui.rs`
-- Modify: `docs/architecture.md`
-- Modify: `docs/obsidian.md`
+- Modify: `docs/core/architecture.md`
+- Modify: `docs/core/obsidian.md`
 - Test: `crates/memd-server/src/ui.rs`
 
 - [ ] **Step 1: Write the failing Obsidian action test**
@@ -827,7 +827,7 @@ let vault_source = snapshot
 - [ ] **Step 4: Update docs to reflect the new canonical UI posture**
 
 ```markdown
-<!-- docs/architecture.md -->
+<!-- docs/core/architecture.md -->
 The server serves the first native visible-memories workbench at `/`, replacing
 the previous minimal dashboard. This shell should expose `Memory Home`,
 `Knowledge Map`, truth state, repair pressure, and source-linked artifact
@@ -835,7 +835,7 @@ inspection without replacing the existing CLI or Obsidian bridge.
 ```
 
 ```markdown
-<!-- docs/obsidian.md -->
+<!-- docs/core/obsidian.md -->
 The native visible-memories UI treats Obsidian as a first-class integration.
 Users keep their real vault. `memd` links focused artifacts back to vault paths
 and preserves the same artifact identity across the native UI, CLI/TUI, and
@@ -857,7 +857,7 @@ Expected: all targeted tests pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/memd-server/src/ui.rs docs/architecture.md docs/obsidian.md
+git add crates/memd-server/src/ui.rs docs/core/architecture.md docs/core/obsidian.md
 git commit -m "docs: wire visible memory ui to obsidian bridge"
 ```
 

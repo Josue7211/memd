@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct HarnessPreset {
     pub(crate) pack_id: &'static str,

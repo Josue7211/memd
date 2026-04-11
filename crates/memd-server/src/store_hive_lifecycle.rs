@@ -4,7 +4,7 @@ use memd_schema::{
 };
 use rusqlite::params;
 
-use crate::store::SqliteStore;
+use crate::SqliteStore;
 use crate::store_hive::{hive_session_is_active_at, is_ephemeral_proof_hive_session};
 
 impl SqliteStore {

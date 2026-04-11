@@ -183,13 +183,13 @@ git commit -m "test: cover the compiled event summary surface"
 ### Task 3: Keep the docs and smoke commands aligned with the live event lane
 
 **Files:**
-- Modify: `docs/setup.md:54-84`
-- Modify: `docs/api.md:173-190`
+- Modify: `docs/core/setup.md:54-84`
+- Modify: `docs/core/api.md:173-190`
 
 - [ ] **Step 1: Write the failing doc expectation**
 
 ```bash
-rg -n "hook capture|checkpoint|memd events|MEMD_EVENTS" docs/setup.md docs/api.md
+rg -n "hook capture|checkpoint|memd events|MEMD_EVENTS" docs/core/setup.md docs/core/api.md
 ```
 
 Expected:
@@ -226,6 +226,6 @@ Expected:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/setup.md docs/api.md
+git add docs/core/setup.md docs/core/api.md
 git commit -m "docs: add live event compiler usage"
 ```

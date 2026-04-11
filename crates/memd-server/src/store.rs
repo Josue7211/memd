@@ -11,12 +11,11 @@ use memd_schema::{
     HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
     HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
     HiveRosterResponse, HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
-    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse,
-    HiveTaskAssignRequest, HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest,
-    HiveTasksResponse, MemoryAgentProfile, MemoryConsolidationRequest, MemoryContextFrame,
-    MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
-    SourceMemoryRecord, SourceMemoryRequest, SourceMemoryResponse, WorkspaceMemoryRecord,
-    WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
+    HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, SourceMemoryRecord, SourceMemoryRequest,
+    SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
@@ -27,9 +26,9 @@ use crate::store_entities::{
     source_trust_score, tokenize_search_text, update_entity_record,
 };
 use crate::store_hive::{
-    HiveSessionKeyArgs, collapse_hive_session_records, hive_follow_overlap_risk,
-    hive_session_key, is_active_hive_board_receipt, is_hive_overlap_receipt,
-    is_low_signal_hive_board_session, refresh_hive_session_presence,
+    HiveSessionKeyArgs, collapse_hive_session_records, hive_follow_overlap_risk, hive_session_key,
+    is_active_hive_board_receipt, is_hive_overlap_receipt, is_low_signal_hive_board_session,
+    refresh_hive_session_presence,
 };
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
@@ -2510,7 +2509,6 @@ impl SqliteStore {
     }
 }
 
-
 #[cfg(test)]
-#[path = "store_tests.rs"]
+#[path = "store_tests/mod.rs"]
 mod tests;

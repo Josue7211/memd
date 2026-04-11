@@ -9,7 +9,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::store::SqliteStore;
+use crate::SqliteStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MaintainReportRecordPayload {

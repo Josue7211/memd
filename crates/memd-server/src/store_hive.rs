@@ -67,7 +67,10 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
     merge_string_vec(&mut target.touches, &fallback.touches);
     merge_option_string(&mut target.relationship_state, &fallback.relationship_state);
     merge_option_string(&mut target.relationship_peer, &fallback.relationship_peer);
-    merge_option_string(&mut target.relationship_reason, &fallback.relationship_reason);
+    merge_option_string(
+        &mut target.relationship_reason,
+        &fallback.relationship_reason,
+    );
     merge_option_string(&mut target.suggested_action, &fallback.suggested_action);
     merge_string_vec(&mut target.blocked_by, &fallback.blocked_by);
     merge_string_vec(&mut target.cowork_with, &fallback.cowork_with);
@@ -413,7 +416,11 @@ fn derive_store_hive_relationship(
     current: &HiveSessionRecord,
     peer: &HiveSessionRecord,
 ) -> Option<(String, String, String)> {
-    if current.blocked_by.iter().any(|value| value == &peer.session) {
+    if current
+        .blocked_by
+        .iter()
+        .any(|value| value == &peer.session)
+    {
         return Some((
             "blocked".to_string(),
             format!("waiting on peer {}", peer.session),
@@ -421,8 +428,14 @@ fn derive_store_hive_relationship(
         ));
     }
 
-    let current_cowork = current.cowork_with.iter().any(|value| value == &peer.session);
-    let peer_cowork = peer.cowork_with.iter().any(|value| value == &current.session);
+    let current_cowork = current
+        .cowork_with
+        .iter()
+        .any(|value| value == &peer.session);
+    let peer_cowork = peer
+        .cowork_with
+        .iter()
+        .any(|value| value == &current.session);
     if current_cowork && peer_cowork {
         return Some((
             "cowork_active".to_string(),

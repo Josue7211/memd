@@ -7,7 +7,7 @@
 Priority 1 is Codex memory: if Codex cannot persist, retrieve, and inspect its
 own state across sessions, the system is not doing its job.
 
-The top-line product contract is seamless live memory:
+The top-line product contract is live-state cognition:
 
 - the agent reads memory once on startup or task entry
 - the live backend becomes the canonical source of active truth while work
@@ -16,6 +16,11 @@ The top-line product contract is seamless live memory:
   works
 - later recall comes from memory and the knowledge base first, not from
   repeatedly reconstructing context from repo rereads or transcript bloat
+- the live state compacts into a shared latent briefing cache that multiple
+  agents can reuse
+- short-term continuity stays high quality after compaction
+- the memory loop is multimodal, so screenshots, logs, files, and artifacts
+  participate alongside text
 
 It should solve memory as infrastructure:
 
@@ -57,6 +62,10 @@ The product standard is:
 - native multi-agent interoperability
 - inspectable memory
 - token-efficient memory by default
+- true latent briefing instead of transcript-shaped summaries
+- multimodal continuity instead of text-only continuity
+- compact shared working state instead of repeated rereads
+- memory IR that can be rendered, compacted, and audited
 
 In practical terms:
 
@@ -73,6 +82,7 @@ In practical terms:
 - once a capability is discovered, `memd` should classify it as universal, harness-native, bridgeable, or blocked and publish that capability map as shared memory
 - bridgeable capabilities should spread automatically to other harnesses through generated bridge surfaces or explicit install guidance, so the system behaves like controlled self-propagation instead of manual per-harness setup
 - cross-project state should sync through scoped live lanes instead of flattening every repo into one pool
+- the live lane should carry compact briefing packets, not just text summaries
 - verified, inferred, claimed, stale, and contested memory should stay explicit
 - Codex, Claude Code, OpenClaw, and OpenCode should switch over one substrate without collisions
 - users should be able to inspect what the system remembers, why, and what changed
@@ -86,6 +96,9 @@ agent's own memory substrate.
 
 The first practical consumer is Codex, so the memory stack should be optimized
 for Codex continuity before broader integrations get the same polish.
+
+The north star is true latent briefing: a multimodal shared working state that
+updates live and compresses away repeated rereads.
 
 The roadmap now starts with repository foundations so the project can be
 worked on cleanly in public before the memory stack keeps expanding.
@@ -131,11 +144,14 @@ What is still not good enough yet:
 
 - the live event spine is still too weak, so important active-state changes do
   not persist aggressively enough while the agent works
+- there is still no true shared latent briefing layer, so repeated handoffs rely
+  too much on text compaction and explicit rereads
 - wake-up, recall, capture, promotion, and correction still need to function as
   one memory loop instead of adjacent commands
 - the bootstrap source registry still needs delta-refresh wiring so changed local files can be reimported without rereading unchanged ones
 - runtime adoption still needs to reach every major agent surface beyond the core bootstrap hooks
 - hive groups, shared-memory recall, and cross-session continuity are still below the product bar
+- short-term continuity is still too text-heavy for a multimodal brain
 - the operator-facing status and summary views can still expose the layered memory model more clearly
 - capability discovery still needs to inventory plugin-backed workflows, not just memory files and a curated skill list
 - bridge generation still needs to turn discovered portable capabilities into actual installed surfaces across harnesses instead of leaving them trapped in one plugin system
@@ -163,13 +179,14 @@ from day one.
 - private/workspace/public visibility
 - resumable handoff bundles across agents and humans
 
-### Tier 3: LightRAG
+### Tier 3: LightRAG + Multimodal
 
 - everything in shared sync
 - semantic retrieval
 - concept graph traversal
 - long-range relatedness
 - multimodal retrieval at larger scale
+- latent briefing expansion from multimodal evidence into compact reusable state
 
 What is still missing before `v1` is truly complete:
 
@@ -186,10 +203,12 @@ Backends and producers work behind it:
 
 - local memory
 - short-term sync
+- latent briefing cache
 - auto-dream / consolidation
 - Obsidian vault and compiled markdown wiki workflows
 - compiled knowledge graphs and reusable intermediate artifacts
 - semantic retrieval
+- multimodal ingest and expansion
 - graph relationships
 - verification workers
 - entity permanence and contextual validity
@@ -347,6 +366,7 @@ Goal:
 Deliver:
 
 - branchable world models for unresolved contradictions and competing beliefs
+- true latent briefing as a first-class memory lane, not a summary afterthought
 - reversible compression with summary-first retrieval and raw evidence recovery
 - provenance-native memory where every durable belief carries source,
   freshness, trust, and verification state
@@ -367,6 +387,7 @@ Success:
 - contradictions remain navigable instead of being flattened away
 - Obsidian-scale knowledge bases can stay markdown-native at small/medium scale, with semantic backends added only when retrieval pressure demands it
 - retrieval becomes part of cognition instead of an accessory to storage
+- short-term continuity, latent briefing, and durable memory all stay coherent under compaction
 
 ### v3: Federated and Collective Memory
 
@@ -383,6 +404,7 @@ Deliver:
 - handoff memory for delegation across agents and humans
 - shared sync as a first-class deployment tier
 - cross-project / initiative live memory lanes for related repos and workstreams
+- multimodal shared-state lanes for screenshots, files, logs, and other artifacts
 - real-time canonical short-term sync on `memd-server` for:
   - focus
   - blockers
@@ -418,6 +440,7 @@ Goal:
 Deliver:
 
 - evaluation harnesses for routing, retrieval, promotion, and repair quality
+- benchmarks for latent briefing quality, continuity quality, and multimodal recall
 - adaptive policy tuning from usage feedback
 - automatic rehearsal, decay, and consolidation scheduling
 - native dream and autodream subsystems for:
@@ -497,6 +520,7 @@ Deliver:
 - branch-aware execution state tied to world-model memory
 - reflective self-model memory for strengths, weaknesses, and strategy
 - durable goal and subgoal memory with continuity across sessions
+- multimodal memory-aware planning and recall
 - memory-aware tool selection and verification planning
 - simulation and replay support for counterfactual reasoning
 - skill invocation as part of planning, not just a post-hoc helper lookup
@@ -505,6 +529,7 @@ Deliver:
   - memory systems view
   - eventual brain-view telemetry hooks for `braind`
 - provenance-native cognition behavior where verified evidence outranks narrative continuity
+- memory language / memory IR that can carry multimodal latent briefing state
 
 Success:
 
@@ -626,11 +651,12 @@ Success:
 11. Add a bootstrap preflight that detects `AGENTS.md` / `CLAUDE.md` / planning docs, seeds from whatever exists, and does not require a separate Codex `/init` step.
 12. Treat repo introspection as first-class memory input: `AGENTS.md`, `CLAUDE.md`, `.planning/*`, `README.md`, `ROADMAP.md`, `docs/*`, lockfiles, config, and git history should all feed a structured project bundle with source and confidence.
 13. Record a fingerprinted source registry for imported harness memories so unchanged files stay read-once and only changed sources get re-imported.
-13. Add git-aware incremental sync so memd updates memory from diffs and changed files instead of only one-time bootstrap sweeps.
-14. Keep global, project, and cross-project memory layered but queryable together, with explicit provenance and confidence on each memory item.
-15. Make Codex, Claude, and OpenClaw all bootstrap from memd once, then treat memd as the shared memory source of truth for future sessions.
-16. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable, and prune stale or noisy items aggressively.
-17. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
+14. Add git-aware incremental sync so memd updates memory from diffs and changed files instead of only one-time bootstrap sweeps.
+15. Keep global, project, and cross-project memory layered but queryable together, with explicit provenance and confidence on each memory item.
+16. Make Codex, Claude, and OpenClaw all bootstrap from memd once, then treat memd as the shared memory source of truth for future sessions.
+17. Let dream and autodream consolidate high-signal short-term memory into durable memory after the hot lane is stable, and prune stale or noisy items aggressively.
+18. Build measured autoresearch for `memd`: scenario harness, composite scorer, experiment runner, and accepted-learning consolidation.
+19. Add a true latent briefing lane with shared compact packets, multimodal references, and high-quality continuity after compaction.
 
 ## Auto Research Loops
 
@@ -656,7 +682,7 @@ Queued next for this loop:
 
 Autoresearch triggers these loops sequentially and reports the percent improvement/per-loop so operators can understand where token budgets are being saved. Each accepted loop result feeds directly into the evolution engine, autopromotes relevant artifacts, and handsoffs to autodream for consolidation. When loops exhaust their remaining gains, autoresearch either spins a refresh cycle or surfaces a new loop candidate from `memd gap` so the system never settles for stale performance.
 
-See `docs/research-loops.md` for the detailed checklist, stop conditions, and how each loop contributes to the 90% token-reduction goal.
+See `docs/strategy/research-loops.md` for the detailed checklist, stop conditions, and how each loop contributes to the 90% token-reduction goal.
 ## Non-Goals
 
 - transcript dumping

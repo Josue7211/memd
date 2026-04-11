@@ -65,11 +65,11 @@ explicit source-trust / procedural / self-model surfaces required to call `v1`
 - `.planning/ROADMAP.md` — execution-facing phase list for GSD
 
 ### Memory architecture and policy
-- `docs/architecture.md` — memory layer model and control-plane ownership
-- `docs/api.md` — current API surfaces including working memory and policy inspection
-- `docs/promotion-policy.md` — promotion gates, contradiction, freshness, and scope expectations
-- `docs/source-policy.md` — source-quality and source-material constraints
-- `docs/efficiency.md` — compact retrieval, bounded hot path, and budget rules
+- `docs/core/architecture.md` — memory layer model and control-plane ownership
+- `docs/core/api.md` — current API surfaces including working memory and policy inspection
+- `docs/policy/promotion-policy.md` — promotion gates, contradiction, freshness, and scope expectations
+- `docs/policy/source-policy.md` — source-quality and source-material constraints
+- `docs/policy/efficiency.md` — compact retrieval, bounded hot path, and budget rules
 
 ### Key implementation files
 - `crates/memd-schema/src/lib.rs` — source of truth for memory, working-memory, policy, and repair-related schemas

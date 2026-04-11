@@ -30,7 +30,7 @@ key-files:
     - crates/memd-server/src/inspection.rs
     - crates/memd-client/src/main.rs
     - crates/memd-client/src/render.rs
-    - docs/api.md
+    - docs/core/api.md
 key-decisions:
   - "Belief branches are explicit durable fields, not inferred from repo branch."
   - "Duplicate control separates competing beliefs by belief branch."

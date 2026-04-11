@@ -338,11 +338,11 @@ git commit -m "feat: wire codex pack recall and capture"
 ### Task 3: Document and smoke-test the Codex pack
 
 **Files:**
-- Modify: `docs/setup.md`
-- Modify: `docs/api.md`
+- Modify: `docs/core/setup.md`
+- Modify: `docs/core/api.md`
 - Modify: `integrations/codex/README.md`
 - Modify: `integrations/hooks/README.md`
-- Modify: `docs/oss-positioning.md`
+- Modify: `docs/reference/oss-positioning.md`
 - Test: `crates/memd-client/src/main.rs`
 
 - [ ] **Step 1: Write the failing test**
@@ -429,7 +429,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/memd-client/src/render.rs docs/setup.md docs/api.md integrations/codex/README.md integrations/hooks/README.md docs/oss-positioning.md
+git add crates/memd-client/src/render.rs docs/core/setup.md docs/core/api.md integrations/codex/README.md integrations/hooks/README.md docs/reference/oss-positioning.md
 git commit -m "docs: add codex harness pack workflow"
 ```
 

@@ -8,10 +8,10 @@ Read these first:
 
 - [README](./README.md)
 - [Roadmap](./ROADMAP.md)
-- [Branching Model](./docs/branching.md)
-- [Release Process](./docs/release-process.md)
-- [Maintainer Workflow](./docs/maintainer-workflow.md)
-- [Infrastructure Facts](./docs/infra-facts.md)
+- [Branching Model](./docs/policy/branching.md)
+- [Release Process](./docs/policy/release-process.md)
+- [Maintainer Workflow](./docs/reference/maintainer-workflow.md)
+- [Infrastructure Facts](./docs/reference/infra-facts.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Security Policy](./SECURITY.md)
 
@@ -80,9 +80,9 @@ capabilities, update those in the same branch.
 
 ## Branch and Release
 
-See [Release Process](./docs/release-process.md) for branch-first workflow,
+See [Release Process](./docs/policy/release-process.md) for branch-first workflow,
 version history, and release conventions.
-See [Branching Model](./docs/branching.md) for branch naming and commit
+See [Branching Model](./docs/policy/branching.md) for branch naming and commit
 discipline.
 
 ## What We Care About
@@ -157,7 +157,7 @@ Before stating anything about:
 - public reachability
 - LAN vs Tailscale accessibility
 
-verify locally first and use [Infrastructure Facts](./docs/infra-facts.md) as
+verify locally first and use [Infrastructure Facts](./docs/reference/infra-facts.md) as
 the repo truth source. If you cannot verify a claim, mark it `unverified`
 instead of filling in the gap from context.
 
