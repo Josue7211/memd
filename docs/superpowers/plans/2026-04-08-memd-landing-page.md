@@ -4,7 +4,7 @@
 
 **Goal:** Build a public landing page for `memd` that explains the product, shows pricing, and converts visitors into free or paid users.
 
-**Architecture:** The site will live in `apps/site/` as a small Astro app, separate from the Rust workspace in `crates/`. Shared page copy will live in a data module, and the page will be composed from focused components for layout, hero, grid sections, pricing, CTA, and footer. Root gitignore entries will exclude only generated site output and local dependencies.
+**Architecture:** The site will live in `apps/` as a small Astro app, separate from the Rust workspace in `crates/`. Shared page copy will live in a data module, and the page will be composed from focused components for layout, hero, grid sections, pricing, CTA, and footer. Root gitignore entries will exclude only generated site output and local dependencies.
 
 **Tech Stack:** Astro, TypeScript, vanilla CSS, Markdown for content snippets.
 
@@ -13,11 +13,11 @@
 ### Task 1: Add the site app skeleton
 
 **Files:**
-- Create: `apps/site/package.json`
-- Create: `apps/site/astro.config.mjs`
-- Create: `apps/site/tsconfig.json`
-- Create: `apps/site/src/pages/index.astro`
-- Create: `apps/site/src/styles/globals.css`
+- Create: `apps/package.json`
+- Create: `apps/astro.config.mjs`
+- Create: `apps/tsconfig.json`
+- Create: `apps/src/pages/index.astro`
+- Create: `apps/src/styles/globals.css`
 - Modify: `.gitignore`
 
 - [ ] **Step 1: Write the app manifest and config**
@@ -55,24 +55,24 @@ import "../styles/globals.css";
 - [ ] **Step 3: Ignore generated site output only**
 
 ```gitignore
-apps/site/node_modules/
-apps/site/dist/
-apps/site/.astro/
+apps/node_modules/
+apps/dist/
+apps/.astro/
 ```
 
 - [ ] **Step 4: Run a build check after dependencies are installed**
 
-Run: `cd apps/site && npm install && npm run build`
+Run: `cd apps && npm install && npm run build`
 Expected: Astro builds successfully with no missing-file errors.
 
 ### Task 2: Add shared copy and layout components
 
 **Files:**
-- Create: `apps/site/src/content/copy.ts`
-- Create: `apps/site/src/components/Layout.astro`
-- Create: `apps/site/src/components/Nav.astro`
-- Create: `apps/site/src/components/Footer.astro`
-- Create: `apps/site/src/components/CTA.astro`
+- Create: `apps/src/content/copy.ts`
+- Create: `apps/src/components/Layout.astro`
+- Create: `apps/src/components/Nav.astro`
+- Create: `apps/src/components/Footer.astro`
+- Create: `apps/src/components/CTA.astro`
 
 - [ ] **Step 1: Define the shared copy data**
 
@@ -109,17 +109,17 @@ const { links } = Astro.props;
 
 - [ ] **Step 4: Wire the page to the shared layout**
 
-Run: `cd apps/site && npm run build`
+Run: `cd apps && npm run build`
 Expected: The app compiles with the page shell and reusable chrome in place.
 
 ### Task 3: Compose the landing page sections
 
 **Files:**
-- Create: `apps/site/src/components/Hero.astro`
-- Create: `apps/site/src/components/SectionHeading.astro`
-- Create: `apps/site/src/components/CardGrid.astro`
-- Create: `apps/site/src/components/PricingTable.astro`
-- Modify: `apps/site/src/pages/index.astro`
+- Create: `apps/src/components/Hero.astro`
+- Create: `apps/src/components/SectionHeading.astro`
+- Create: `apps/src/components/CardGrid.astro`
+- Create: `apps/src/components/PricingTable.astro`
+- Modify: `apps/src/pages/index.astro`
 
 - [ ] **Step 1: Add the hero section with the primary conversion message**
 
@@ -164,22 +164,22 @@ Expected: The app compiles with the page shell and reusable chrome in place.
 
 - [ ] **Step 5: Build the page and verify the structure**
 
-Run: `cd apps/site && npm run build`
+Run: `cd apps && npm run build`
 Expected: The full landing page compiles with all sections rendered.
 
 ### Task 4: Polish responsive styling and visual hierarchy
 
 **Files:**
-- Create: `apps/site/src/styles/tokens.css`
-- Modify: `apps/site/src/styles/globals.css`
-- Modify: `apps/site/src/components/*.astro`
+- Create: `apps/src/styles/tokens.css`
+- Modify: `apps/src/styles/globals.css`
+- Modify: `apps/src/components/*.astro`
 
 - [ ] **Step 1: Add typography, color, spacing, and surface tokens**
 - [ ] **Step 2: Style the hero, cards, pricing grid, and footer for mobile first**
 - [ ] **Step 3: Add a strong but restrained accent color and a clear section rhythm**
 - [ ] **Step 4: Rebuild and inspect the final page output**
 
-Run: `cd apps/site && npm run build`
+Run: `cd apps && npm run build`
 Expected: Build succeeds and the layout reads cleanly on mobile and desktop.
 
 ### Task 5: Confirm the site is isolated from the Rust workspace
@@ -213,7 +213,7 @@ members = [
 
 Run:
 ```bash
-git add apps/site .gitignore docs/superpowers/specs/2026-04-08-memd-landing-page-design.md docs/superpowers/plans/2026-04-08-memd-landing-page.md
+git add apps .gitignore docs/superpowers/specs/2026-04-08-memd-landing-page-design.md docs/superpowers/plans/2026-04-08-memd-landing-page.md
 git commit -m "feat: add memd landing page scaffold"
 ```
 
