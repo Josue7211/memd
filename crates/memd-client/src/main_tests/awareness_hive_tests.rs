@@ -1872,13 +1872,21 @@ fn render_hive_queen_summary_surfaces_explicit_actions() {
     };
 
     let summary = render_hive_queen_summary(&response);
-    assert!(summary.contains("queen=session-queen"));
-    assert!(summary.contains("reroute Lorentz"));
+    assert!(summary.contains("hive_queen queen=session-queen suggested=2 cards=1 receipts=2"));
+    assert!(summary.contains("- reroute Lorentz off crates/memd-client/src/main.rs"));
     assert!(summary.contains("queen_deny session-avicenna"));
     assert!(summary.contains("## Action Cards"));
-    assert!(summary.contains("follow=memd hive follow --session session-lorentz --summary"));
+    assert!(summary.contains(
+        "- [high] reroute target=Lorentz task=review-parser scope=crates/memd-client/src/main.rs"
+    ));
+    assert!(summary.contains("reason=\"shared scope is colliding\""));
+    assert!(summary.contains("commands:"));
+    assert!(summary.contains("follow=`memd hive follow --session session-lorentz --summary`"));
     assert!(
-        summary.contains("reroute=memd hive queen --reroute-session session-lorentz --summary")
+        summary.contains("reroute=`memd hive queen --reroute-session session-lorentz --summary`")
+    );
+    assert!(
+        summary.contains("deny=`memd hive queen --deny-session session-lorentz --summary`")
     );
 }
 

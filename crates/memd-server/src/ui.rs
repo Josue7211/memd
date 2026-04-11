@@ -556,8 +556,8 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         const result = await response.json();
         await reloadHiveBoard(selectedHiveFollowSession.value);
         text('action-status', result.retired && result.retired.length
-          ? `Retired stale bees: ${{result.retired.join(', ')}}`
-          : 'No stale bees to retire');
+          ? `queen auto-retire: ${{result.retired.join(', ')}}`
+          : 'queen auto-retire: no stale bees');
         return;
       }}
 
@@ -580,8 +580,8 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
         selectedHiveFollowSession.value = null;
         await reloadHiveBoard(null);
         text('action-status', retired.length
-          ? `Retired bee: ${{retired.join(', ')}}`
-          : 'No bee retired');
+          ? `queen retire: ${{retired.join(', ')}}`
+          : 'queen retire: no bee retired');
         return;
       }}
 
@@ -598,7 +598,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           workspace: selectedHiveBoardState.workspace,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', result.summary || `Denied focused bee: ${{focusedHiveBeeLabel()}}`);
+        text('action-status', result.summary || `queen deny: ${{focusedHiveBeeLabel()}}`);
         return;
       }}
 
@@ -611,7 +611,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           workspace: selectedHiveBoardState.workspace,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', result.summary || `Reroute recorded for: ${{focusedHiveBeeLabel()}}`);
+        text('action-status', result.summary || `queen reroute: ${{focusedHiveBeeLabel()}}`);
         return;
       }}
 
@@ -631,7 +631,7 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse) -> String
           note: note.trim() || null,
         }});
         await reloadHiveBoard(selectedHiveFollowSession.value);
-        text('action-status', result.summary || `Handoff recorded for: ${{focusedHiveBeeLabel()}} on ${{scope.trim()}}`);
+        text('action-status', result.summary || `queen handoff: ${{focusedHiveBeeLabel()}} on ${{scope.trim()}}`);
       }}
     }}
 
