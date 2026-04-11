@@ -17,6 +17,7 @@ pub(crate) fn render_hive_project_summary(response: &HiveProjectResponse) -> Str
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn render_hive_wire_summary(response: &HiveWireResponse) -> String {
     let rebased = response
         .rebased_from_session
@@ -169,7 +170,11 @@ pub(crate) fn render_hive_follow_summary(response: &HiveFollowResponse) -> Strin
             response.next_action.as_deref().unwrap_or("none"),
             response.overlap_risk.as_deref().unwrap_or("none"),
             response.recommended_action,
-            response.target.relationship_state.as_deref().unwrap_or("none"),
+            response
+                .target
+                .relationship_state
+                .as_deref()
+                .unwrap_or("none"),
             if response.target.blocked_by.is_empty() {
                 "none".to_string()
             } else {
@@ -394,7 +399,9 @@ fn render_hive_follow_watch_changes(
             .messages
             .iter()
             .find(|prior| prior.id == message.id)
-            .is_some_and(|prior| prior.acknowledged_at.is_none() && message.acknowledged_at.is_some())
+            .is_some_and(|prior| {
+                prior.acknowledged_at.is_none() && message.acknowledged_at.is_some()
+            })
     }) {
         lines.push(format!(
             "message_acked {} from={} acked_at={}",
@@ -413,7 +420,10 @@ fn render_hive_follow_watch_changes(
 
     for message in previous.messages.iter().filter(|message| {
         message.acknowledged_at.is_none()
-            && !current.messages.iter().any(|current_message| current_message.id == message.id)
+            && !current
+                .messages
+                .iter()
+                .any(|current_message| current_message.id == message.id)
     }) {
         lines.push(format!(
             "message_resolved {} from={} previous_ack=no",

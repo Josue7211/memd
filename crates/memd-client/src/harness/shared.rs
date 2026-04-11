@@ -15,6 +15,7 @@ pub(crate) struct HarnessPackData {
     pub(crate) behaviors: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub(crate) trait HarnessPackView {
     fn name(&self) -> &'static str;
     fn role(&self) -> &'static str;
@@ -65,6 +66,7 @@ impl HarnessPackView for HarnessPackData {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_harness_pack_markdown(pack: &impl HarnessPackView) -> String {
     let mut markdown = String::new();
     markdown.push_str(&format!("# {} Harness Pack\n\n", pack.name()));

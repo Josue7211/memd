@@ -123,32 +123,32 @@ pub(crate) fn render_obsidian_import_summary(
     summary
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_codex_harness_pack_markdown(pack: &CodexHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_claude_code_harness_pack_markdown(pack: &ClaudeCodeHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_agent_zero_harness_pack_markdown(pack: &AgentZeroHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_openclaw_harness_pack_markdown(pack: &OpenClawHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_hermes_harness_pack_markdown(pack: &HermesHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn render_opencode_harness_pack_markdown(pack: &OpenCodeHarnessPack) -> String {
     render_harness_pack_markdown(pack)
 }

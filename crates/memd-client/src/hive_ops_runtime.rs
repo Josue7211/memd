@@ -113,7 +113,10 @@ fn build_hive_roster_from_awareness(
             matches!(
                 entry.hive_role.as_deref(),
                 Some("orchestrator" | "memory-control-plane")
-            ) || matches!(entry.authority.as_deref(), Some("coordinator" | "canonical"))
+            ) || matches!(
+                entry.authority.as_deref(),
+                Some("coordinator" | "canonical")
+            )
         })
         .and_then(|entry| entry.session.clone());
 
@@ -624,7 +627,11 @@ pub(crate) async fn run_hive_cowork_command(
         task_id: args
             .task_id
             .clone()
-            .or_else(|| current_session_record.as_ref().and_then(|record| record.task_id.clone()))
+            .or_else(|| {
+                current_session_record
+                    .as_ref()
+                    .and_then(|record| record.task_id.clone())
+            })
             .or_else(|| current_entry.and_then(|entry| entry.task_id.clone())),
         scope_claims: if args.scope.is_empty() {
             current_session_record
@@ -719,7 +726,9 @@ async fn dispatch_queen_cowork_actions(
     }
 
     if !seen_eligible {
-        anyhow::bail!("cowork auto-send found no eligible request_cowork or ack_cowork suggestions");
+        anyhow::bail!(
+            "cowork auto-send found no eligible request_cowork or ack_cowork suggestions"
+        );
     }
     if !dispatched_any {
         anyhow::bail!("cowork auto-send did not dispatch any packets");
@@ -1115,9 +1124,15 @@ fn format_hive_handoff_receipt_summary(packet: &HiveHandoffPacket) -> String {
 fn format_hive_cowork_message(packet: &HiveCoworkPacket) -> String {
     let mut lines = vec!["cowork_packet".to_string()];
     lines.push(format!("action={}", packet.action));
-    lines.push(format!("from={}", packet.from_worker.as_deref().unwrap_or("unknown")));
+    lines.push(format!(
+        "from={}",
+        packet.from_worker.as_deref().unwrap_or("unknown")
+    ));
     lines.push(format!("session={}", packet.from_session));
-    lines.push(format!("to={}", packet.to_worker.as_deref().unwrap_or("unknown")));
+    lines.push(format!(
+        "to={}",
+        packet.to_worker.as_deref().unwrap_or("unknown")
+    ));
     lines.push(format!("target_session={}", packet.to_session));
     if let Some(task_id) = packet.task_id.as_deref() {
         lines.push(format!("task={task_id}"));
@@ -1227,15 +1242,25 @@ fn derive_hive_relationship(
     current: &memd_schema::HiveSessionRecord,
     peer: &memd_schema::HiveSessionRecord,
 ) -> Option<(String, String, String)> {
-    if current.blocked_by.iter().any(|value| value == &peer.session) {
+    if current
+        .blocked_by
+        .iter()
+        .any(|value| value == &peer.session)
+    {
         return Some((
             "blocked".to_string(),
             format!("waiting on peer {}", peer.session),
             "wait_for_peer".to_string(),
         ));
     }
-    if current.cowork_with.iter().any(|value| value == &peer.session)
-        && peer.cowork_with.iter().any(|value| value == &current.session)
+    if current
+        .cowork_with
+        .iter()
+        .any(|value| value == &peer.session)
+        && peer
+            .cowork_with
+            .iter()
+            .any(|value| value == &current.session)
     {
         return Some((
             "cowork_active".to_string(),

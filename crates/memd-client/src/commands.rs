@@ -166,16 +166,11 @@ pub(crate) fn parse_retrieval_intent_value(value: &str) -> anyhow::Result<Retrie
 }
 
 pub(crate) fn normalize_voice_mode_value(value: &str) -> anyhow::Result<String> {
-    let normalized = value
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['-', ' '], "_");
+    let normalized = value.trim().to_ascii_lowercase().replace(['-', ' '], "_");
     match normalized.as_str() {
         "caveman" | "caveman_ultra" | "ultra" => Ok("caveman-ultra".to_string()),
         "normal" | "default" => Ok("normal".to_string()),
-        _ => anyhow::bail!(
-            "invalid voice mode '{value}'; expected caveman-ultra or normal"
-        ),
+        _ => anyhow::bail!("invalid voice mode '{value}'; expected caveman-ultra or normal"),
     }
 }
 
@@ -220,9 +215,6 @@ mod tests {
             normalize_voice_mode_value("caveman ultra").unwrap(),
             "caveman-ultra"
         );
-        assert_eq!(
-            normalize_voice_mode_value("normal").unwrap(),
-            "normal"
-        );
+        assert_eq!(normalize_voice_mode_value("normal").unwrap(), "normal");
     }
 }
