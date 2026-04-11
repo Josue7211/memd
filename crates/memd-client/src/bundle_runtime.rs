@@ -362,6 +362,18 @@ pub(crate) struct BundleHeartbeatState {
     #[serde(default)]
     pub(crate) next_action: Option<String>,
     #[serde(default)]
+    pub(crate) working: Option<String>,
+    #[serde(default)]
+    pub(crate) touches: Vec<String>,
+    #[serde(default)]
+    pub(crate) blocked_by: Vec<String>,
+    #[serde(default)]
+    pub(crate) cowork_with: Vec<String>,
+    #[serde(default)]
+    pub(crate) handoff_target: Option<String>,
+    #[serde(default)]
+    pub(crate) offered_to: Vec<String>,
+    #[serde(default)]
     pub(crate) needs_help: bool,
     #[serde(default)]
     pub(crate) needs_review: bool,
@@ -3267,6 +3279,14 @@ pub(crate) fn render_awareness_entry_line(
 }
 
 pub(crate) fn awareness_work_quickview(entry: &ProjectAwarenessEntry) -> String {
+    if let Some(value) = entry
+        .topic_claim
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return compact_inline(value, 56);
+    }
     for candidate in [entry.focus.as_deref(), entry.next_recovery.as_deref()] {
         if let Some(value) = candidate.and_then(simplify_awareness_work_text) {
             return compact_inline(&value, 56);
@@ -3327,6 +3347,14 @@ pub(crate) fn derive_awareness_lane_id(entry: &ProjectAwarenessEntry) -> Option<
 pub(crate) fn project_awareness_entry_to_hive_session(
     entry: &ProjectAwarenessEntry,
 ) -> memd_schema::HiveSessionRecord {
+    let working = entry
+        .topic_claim
+        .clone()
+        .or_else(|| Some(awareness_work_quickview(entry)));
+    let touches = awareness_touch_points(entry)
+        .into_iter()
+        .filter_map(|value| normalize_hive_touch(&value))
+        .collect::<Vec<_>>();
     memd_schema::HiveSessionRecord {
         session: entry
             .session
@@ -3365,6 +3393,16 @@ pub(crate) fn project_awareness_entry_to_hive_session(
         pressure: entry.pressure.clone(),
         next_recovery: entry.next_recovery.clone(),
         next_action: None,
+        working,
+        touches,
+        relationship_state: None,
+        relationship_peer: None,
+        relationship_reason: None,
+        suggested_action: None,
+        blocked_by: Vec::new(),
+        cowork_with: Vec::new(),
+        handoff_target: None,
+        offered_to: Vec::new(),
         needs_help: false,
         needs_review: false,
         handoff_state: None,
@@ -3401,6 +3439,14 @@ pub(crate) fn awareness_touch_points(entry: &ProjectAwarenessEntry) -> Vec<Strin
     }
     touches.truncate(4);
     touches
+}
+
+pub(crate) fn normalize_hive_touch(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 pub(crate) fn awareness_overlap_touch_points(entry: &ProjectAwarenessEntry) -> Vec<String> {

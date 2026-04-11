@@ -63,6 +63,16 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
     merge_option_string(&mut target.pressure, &fallback.pressure);
     merge_option_string(&mut target.next_recovery, &fallback.next_recovery);
     merge_option_string(&mut target.next_action, &fallback.next_action);
+    merge_option_string(&mut target.working, &fallback.working);
+    merge_string_vec(&mut target.touches, &fallback.touches);
+    merge_option_string(&mut target.relationship_state, &fallback.relationship_state);
+    merge_option_string(&mut target.relationship_peer, &fallback.relationship_peer);
+    merge_option_string(&mut target.relationship_reason, &fallback.relationship_reason);
+    merge_option_string(&mut target.suggested_action, &fallback.suggested_action);
+    merge_string_vec(&mut target.blocked_by, &fallback.blocked_by);
+    merge_string_vec(&mut target.cowork_with, &fallback.cowork_with);
+    merge_option_string(&mut target.handoff_target, &fallback.handoff_target);
+    merge_string_vec(&mut target.offered_to, &fallback.offered_to);
     target.needs_help = target.needs_help || fallback.needs_help;
     target.needs_review = target.needs_review || fallback.needs_review;
     merge_option_string(&mut target.handoff_state, &fallback.handoff_state);
@@ -327,6 +337,146 @@ pub(crate) fn hive_follow_overlap_risk(
                 target.topic_claim.as_deref().unwrap_or("none")
             ));
         }
+    }
+
+    None
+}
+
+pub(crate) fn annotate_hive_relationships(bees: Vec<HiveSessionRecord>) -> Vec<HiveSessionRecord> {
+    let snapshot = bees.clone();
+    bees.into_iter()
+        .map(|mut bee| {
+            let best = snapshot
+                .iter()
+                .filter(|peer| peer.session != bee.session)
+                .filter_map(|peer| {
+                    derive_store_hive_relationship(&bee, peer).map(|(state, reason, action)| {
+                        let peer_label = peer
+                            .display_name
+                            .clone()
+                            .or_else(|| peer.worker_name.clone())
+                            .or_else(|| peer.agent.clone())
+                            .unwrap_or_else(|| peer.session.clone());
+                        (
+                            store_hive_relationship_rank(&state),
+                            peer_label,
+                            state,
+                            reason,
+                            action,
+                        )
+                    })
+                })
+                .max_by(|left, right| {
+                    left.0
+                        .cmp(&right.0)
+                        .then_with(|| right.1.cmp(&left.1))
+                        .then_with(|| right.3.cmp(&left.3))
+                });
+
+            if let Some((_, peer, state, reason, action)) = best {
+                bee.relationship_state = Some(state);
+                bee.relationship_peer = Some(peer);
+                bee.relationship_reason = Some(reason);
+                bee.suggested_action = Some(action);
+            }
+
+            bee
+        })
+        .collect()
+}
+
+fn store_hive_relationship_rank(state: &str) -> u8 {
+    match state {
+        "conflict" => 5,
+        "blocked" => 4,
+        "cowork_active" => 3,
+        "handoff_ready" => 2,
+        "near" => 1,
+        _ => 0,
+    }
+}
+
+fn store_hive_relationship_annotation(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if let Some(topic) = trimmed.strip_prefix("topic:") {
+        let topic = topic.trim();
+        return (!topic.is_empty()).then(|| topic.to_string());
+    }
+    if let Some(area) = trimmed.strip_prefix("area:") {
+        let area = area.trim();
+        return (!area.is_empty()).then(|| area.to_string());
+    }
+    None
+}
+
+fn derive_store_hive_relationship(
+    current: &HiveSessionRecord,
+    peer: &HiveSessionRecord,
+) -> Option<(String, String, String)> {
+    if current.blocked_by.iter().any(|value| value == &peer.session) {
+        return Some((
+            "blocked".to_string(),
+            format!("waiting on peer {}", peer.session),
+            "wait_for_peer".to_string(),
+        ));
+    }
+
+    let current_cowork = current.cowork_with.iter().any(|value| value == &peer.session);
+    let peer_cowork = peer.cowork_with.iter().any(|value| value == &current.session);
+    if current_cowork && peer_cowork {
+        return Some((
+            "cowork_active".to_string(),
+            "mutual cowork coordination".to_string(),
+            "coordinate_live".to_string(),
+        ));
+    }
+
+    if current.handoff_target.as_deref() == Some(peer.session.as_str())
+        || peer.handoff_target.as_deref() == Some(current.session.as_str())
+    {
+        return Some((
+            "handoff_ready".to_string(),
+            "live handoff boundary detected".to_string(),
+            "follow_handoff".to_string(),
+        ));
+    }
+
+    let exact = current
+        .touches
+        .iter()
+        .filter_map(|touch| normalized_hive_text(Some(touch.as_str())))
+        .filter(|touch| {
+            peer.touches
+                .iter()
+                .filter_map(|other| normalized_hive_text(Some(other.as_str())))
+                .any(|other| other == *touch)
+        })
+        .collect::<Vec<_>>();
+    if !exact.is_empty() {
+        return Some((
+            "conflict".to_string(),
+            format!("shared touch {}", exact.join(",")),
+            "stop_and_cowork".to_string(),
+        ));
+    }
+
+    let nearby = current
+        .touches
+        .iter()
+        .filter_map(|touch| store_hive_relationship_annotation(touch))
+        .filter(|touch| {
+            peer.touches
+                .iter()
+                .filter_map(|other| store_hive_relationship_annotation(other))
+                .any(|other| other == *touch)
+        })
+        .collect::<Vec<_>>();
+    if !nearby.is_empty() {
+        return Some((
+            "near".to_string(),
+            format!("shared area {}", nearby.join(",")),
+            "cowork".to_string(),
+        ));
     }
 
     None

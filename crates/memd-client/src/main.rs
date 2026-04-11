@@ -1969,7 +1969,18 @@ enum HiveSubcommand {
     Roster(HiveRosterArgs),
     Follow(HiveFollowArgs),
     Handoff(HiveHandoffArgs),
+    Cowork {
+        #[command(subcommand)]
+        command: HiveCoworkSubcommand,
+    },
     Queen(HiveQueenArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum HiveCoworkSubcommand {
+    Request(HiveCoworkArgs),
+    Ack(HiveCoworkArgs),
+    Decline(HiveCoworkArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2045,6 +2056,36 @@ struct HiveHandoffArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct HiveCoworkArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    output: PathBuf,
+
+    #[arg(long)]
+    to_session: Option<String>,
+
+    #[arg(long)]
+    to_worker: Option<String>,
+
+    #[arg(long)]
+    task_id: Option<String>,
+
+    #[arg(long, value_delimiter = ',')]
+    scope: Vec<String>,
+
+    #[arg(long)]
+    reason: Option<String>,
+
+    #[arg(long)]
+    note: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 struct HiveQueenArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     output: PathBuf,
@@ -2075,6 +2116,9 @@ struct HiveQueenArgs {
 
     #[arg(long)]
     summary: bool,
+
+    #[arg(long)]
+    cowork_auto_send: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3203,6 +3247,37 @@ async fn main() -> anyhow::Result<()> {
                     println!("{}", render_hive_handoff_summary(&response));
                 }
             }
+            Some(HiveSubcommand::Cowork { command: cowork_args }) => match cowork_args {
+                HiveCoworkSubcommand::Request(cowork_args) => {
+                    let response =
+                        run_hive_cowork_command(cowork_args, &default_base_url(), "request")
+                            .await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+                HiveCoworkSubcommand::Ack(cowork_args) => {
+                    let response =
+                        run_hive_cowork_command(cowork_args, &default_base_url(), "ack").await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+                HiveCoworkSubcommand::Decline(cowork_args) => {
+                    let response =
+                        run_hive_cowork_command(cowork_args, &default_base_url(), "decline")
+                            .await?;
+                    if cowork_args.json {
+                        print_json(&response)?;
+                    } else {
+                        println!("{}", render_hive_cowork_summary(&response));
+                    }
+                }
+            },
             Some(HiveSubcommand::Queen(queen_args)) => {
                 let response = run_hive_queen_command(queen_args, &default_base_url()).await?;
                 if queen_args.json {
@@ -11923,12 +11998,14 @@ fn build_hive_heartbeat(
         next_recovery.as_deref(),
         pressure.as_deref(),
     );
+    let working = topic_claim.clone().or_else(|| focus.clone()).or_else(|| next_recovery.clone());
     let scope_claims = derive_hive_scope_claims(
         claims_state.as_ref(),
         focus.as_deref(),
         pressure.as_deref(),
         next_recovery.as_deref(),
     );
+    let touches = scope_claims.clone();
     let task_id = derive_hive_task_id(&scope_claims, topic_claim.as_deref());
     let worker_name = infer_worker_agent_from_env().or_else(|| {
         agent.as_deref().map(|value| {
@@ -12005,6 +12082,12 @@ fn build_hive_heartbeat(
             next_recovery.as_deref(),
             pressure.as_deref(),
         ),
+        working,
+        touches,
+        blocked_by: Vec::new(),
+        cowork_with: Vec::new(),
+        handoff_target: None,
+        offered_to: Vec::new(),
         needs_help: false,
         needs_review: false,
         handoff_state: None,
@@ -12129,6 +12212,12 @@ async fn publish_bundle_heartbeat(state: &BundleHeartbeatState) -> anyhow::Resul
         pressure: state.pressure.clone(),
         next_recovery: state.next_recovery.clone(),
         next_action: state.next_action.clone(),
+        working: state.working.clone(),
+        touches: state.touches.clone(),
+        blocked_by: state.blocked_by.clone(),
+        cowork_with: state.cowork_with.clone(),
+        handoff_target: state.handoff_target.clone(),
+        offered_to: state.offered_to.clone(),
         needs_help: state.needs_help,
         needs_review: state.needs_review,
         handoff_state: state.handoff_state.clone(),
@@ -18643,6 +18732,12 @@ fn execute_helper_verifier_step(
                 pressure: None,
                 next_recovery: None,
                 next_action: None,
+                working: None,
+                touches: Vec::new(),
+                blocked_by: Vec::new(),
+                cowork_with: Vec::new(),
+                handoff_target: None,
+                offered_to: Vec::new(),
                 needs_help: false,
                 needs_review: false,
                 handoff_state: None,
