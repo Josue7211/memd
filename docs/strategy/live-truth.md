@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Live Truth
 
 `memd` should behave like a truth-first external cortex, not a refresh-only note generator.

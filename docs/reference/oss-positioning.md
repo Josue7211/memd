@@ -1,5 +1,7 @@
 # OSS Positioning
 
+> Reference doc. For current project truth use [[ROADMAP]] first.
+
 ## Goal
 
 `memd` should be usable by anyone, not only by one homelab or one agent stack.

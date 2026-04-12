@@ -1,11 +1,19 @@
 # memd
 
-`memd` is a multiharness second-brain memory substrate for the human.
+`memd` is a multiharness second-brain memory substrate for humans and agents.
 
 It turns raw work into compact, source-linked memory that stays usable across
 sessions, harnesses, machines, and projects. The point is not to store more
 context. The point is to make memory reliable: read once, remember once, reuse
 everywhere, and always keep a path back to the evidence.
+
+## Start Here
+
+- canonical entrypoint: [[START-HERE]]
+- current project state: [[ROADMAP]]
+- fresh-session recovery: [[docs/WHERE-AM-I.md|WHERE-AM-I]]
+- current milestone: [[docs/verification/milestones/MILESTONE-v1.md|MILESTONE-v1]]
+- current priority harnesses: Codex, OpenCode, Hermes, OpenClaw
 
 ## Architecture
 

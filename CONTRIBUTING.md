@@ -2,6 +2,9 @@
 
 Thanks for helping improve `memd`.
 
+> If you are recovering after a fresh session, start with [[ROADMAP]] and
+> [[docs/WHERE-AM-I.md|WHERE-AM-I]] before reading process docs.
+
 ## Before You Start
 
 Read these first:
@@ -16,11 +19,12 @@ Read these first:
 - [Security Policy](./SECURITY.md)
 
 `memd` is not a generic note store. Contributions should improve compact,
-durable, inspectable memory behavior for agents.
+durable, inspectable memory behavior for humans and agents.
 
-The primary user story is agent continuity: `memd` should help Codex or another
-agent persist working state, retrieve evidence, and compile durable knowledge
-without depending on chat history alone.
+The primary user story is memory continuity across priority harnesses: Codex,
+OpenCode, Hermes, and OpenClaw should all be able to persist working state,
+retrieve evidence, and compile durable knowledge without depending on chat
+history alone.
 
 ## Good Contribution Areas
 

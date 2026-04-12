@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Backend Ownership Split
 
 This repo owns the memory control plane.

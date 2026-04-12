@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # RAG Adapter
 
 `memd` keeps the memory control plane in Rust and treats long-term semantic

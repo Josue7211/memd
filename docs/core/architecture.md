@@ -1,8 +1,11 @@
 # Architecture
 
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and
+> [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 ## Summary
 
-`memd` is a multiharness second-brain memory substrate for the human.
+`memd` is a multiharness second-brain memory substrate for humans and agents.
 
 It is the control plane under:
 
@@ -10,6 +13,13 @@ It is the control plane under:
 - many harnesses
 - many sessions
 - many agents
+
+Current proving-ground harnesses:
+
+- Codex
+- OpenCode
+- Hermes
+- OpenClaw
 
 The design target is:
 

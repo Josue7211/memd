@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Redundancy Policy
 
 `memd` should prevent duplicate memory at the source, not after the fact.

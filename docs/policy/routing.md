@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Routing
 
 `memd` uses a typed retrieval router so clients can ask for the right memory tier without pulling the entire corpus.

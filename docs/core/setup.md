@@ -1,5 +1,9 @@
 # Setup Guide
 
+> For fresh-session recovery do not start here. Start with [[ROADMAP]] and
+> [[docs/WHERE-AM-I.md|WHERE-AM-I]]. Use this doc once you already know what
+> state the project is in.
+
 This is the longer setup and usage path for `memd`. The README only keeps the
 minimal happy path.
 

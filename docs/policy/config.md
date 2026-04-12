@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Config Guide
 
 `memd` setup should be mostly CLI-driven. The bundle files exist so agents and

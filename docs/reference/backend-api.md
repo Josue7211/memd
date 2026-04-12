@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Backend API Contract
 
 This is the HTTP contract between `memd-rag` and `rag-sidecar`.

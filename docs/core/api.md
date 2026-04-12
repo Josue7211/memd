@@ -1,5 +1,8 @@
 # API
 
+> Reference doc. Not a status or recovery surface. Start with [[ROADMAP]] and
+> [[docs/WHERE-AM-I.md|WHERE-AM-I]] if you need current project state first.
+
 ## Design Rules
 
 - compact responses by default

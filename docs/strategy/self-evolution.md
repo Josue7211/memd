@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Self-Evolution Pipeline
 
 `memd` treats self-evolution as a controlled pipeline, not an ad hoc branch workflow.

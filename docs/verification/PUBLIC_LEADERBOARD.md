@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # memd public leaderboard
 
 - generated_at: 2026-04-10T16:39:12.404137064+00:00

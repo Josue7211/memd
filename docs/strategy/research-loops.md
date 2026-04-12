@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Research Loop Manifest
 
 Autoresearch uses a loop-first workflow to keep `memd`’s memory substrate lean, reliable, and token efficient. Each loop represents a small, reversible experiment with a clear target, metric, stop condition, and expected risk profile. Single-loop runs execute one loop at a time; `--auto` sweeps can run the active loop set in parallel, then report the percent improvement and token savings they delivered before handing accepted lessons to autodream for consolidation. When autoresearch detects a loop has exhausted its gains, it either refreshes the loop (with a higher token-efficiency threshold) or picks the next candidate from the gap queue.

@@ -1,3 +1,5 @@
+> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
+
 # Obsidian Vault Bridge
 
 `memd` can import an Obsidian vault directly from the local vault directory.
