@@ -664,6 +664,58 @@
         );
     }
 
+    #[tokio::test]
+    async fn lookup_with_fallbacks_recovers_status_memory_when_query_is_fuzzy_and_terms_overlap() {
+        let state = MockRuntimeState::default();
+        let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+        let client = MemdClient::new(&base_url).expect("client");
+        let req = SearchMemoryRequest {
+            query: Some("ralph roadmap progress state current phase next step".to_string()),
+            route: Some(memd_schema::RetrievalRoute::ProjectFirst),
+            intent: Some(memd_schema::RetrievalIntent::General),
+            scopes: vec![
+                memd_schema::MemoryScope::Project,
+                memd_schema::MemoryScope::Synced,
+                memd_schema::MemoryScope::Global,
+            ],
+            kinds: vec![memd_schema::MemoryKind::Status],
+            statuses: vec![memd_schema::MemoryStatus::Active],
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            tags: Vec::new(),
+            stages: vec![memd_schema::MemoryStage::Canonical],
+            limit: Some(6),
+            max_chars_per_item: Some(280),
+        };
+
+        let response = lookup_with_fallbacks(
+            &client,
+            &req,
+            "ralph roadmap progress state current phase next step",
+        )
+        .await
+        .expect("lookup fallback");
+
+        assert_eq!(response.items.len(), 1);
+        assert!(
+            response.items[0]
+                .content
+                .contains("ralph roadmap progress state")
+        );
+        assert_eq!(
+            response.items[0].source_path.as_deref(),
+            Some("ralph-roadmap-progress-state")
+        );
+        assert!(
+            *state.search_count.lock().expect("lock search count") >= 2,
+            "expected broad fallback search attempts"
+        );
+    }
+
     #[test]
     fn lookup_markdown_mentions_pre_answer_protocol() {
         let response = memd_schema::SearchMemoryResponse {

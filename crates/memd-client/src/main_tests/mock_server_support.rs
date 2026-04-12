@@ -904,6 +904,8 @@ pub(crate) async fn mock_search_memory(
     let query = req.query.clone().unwrap_or_default();
     let items = if req.tags.iter().any(|tag| tag == "resume_state") {
         Vec::new()
+    } else if query.contains("ralph roadmap progress state") {
+        Vec::new()
     } else if req
         .tags
         .iter()
@@ -970,6 +972,61 @@ pub(crate) async fn mock_search_memory(
             status: memd_schema::MemoryStatus::Stale,
             stage: memd_schema::MemoryStage::Canonical,
         }]
+    } else if req.query.is_none() {
+        vec![
+            memd_schema::MemoryItem {
+                id: uuid::Uuid::new_v4(),
+                content: "hive resume state".to_string(),
+                redundancy_key: Some("Status|Project|demo|main||hive|resume|state".to_string()),
+                belief_branch: None,
+                preferred: false,
+                kind: memd_schema::MemoryKind::Status,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: memd_schema::MemoryVisibility::Workspace,
+                source_agent: Some("codex@session-a".to_string()),
+                source_system: Some("memd-resume-state".to_string()),
+                source_path: None,
+                source_quality: Some(memd_schema::SourceQuality::Derived),
+                confidence: 0.94,
+                ttl_seconds: Some(86_400),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["resume_state".to_string(), "session_state".to_string()],
+                status: memd_schema::MemoryStatus::Active,
+                stage: memd_schema::MemoryStage::Canonical,
+            },
+            memd_schema::MemoryItem {
+                id: uuid::Uuid::new_v4(),
+                content: "ralph roadmap progress state: current phase Phase E. next step cross-harness wake-packet proof. previous phase Phase D complete. FEATURE-V1-WAKE-PACKET still auditing.".to_string(),
+                redundancy_key: Some("Status|Project|memd|main||audit|complete|cros|current|d|e|feature|harnes|next|packet|phase|previou|progres|proof|ralph|roadmap|state|step|still|v1|wake".to_string()),
+                belief_branch: None,
+                preferred: false,
+                kind: memd_schema::MemoryKind::Status,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: memd_schema::MemoryVisibility::Workspace,
+                source_agent: Some("codex@session-a".to_string()),
+                source_system: Some("session".to_string()),
+                source_path: Some("ralph-roadmap-progress-state".to_string()),
+                source_quality: Some(memd_schema::SourceQuality::Derived),
+                confidence: 0.99,
+                ttl_seconds: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["roadmap".to_string(), "phase-e".to_string(), "ralph".to_string()],
+                status: memd_schema::MemoryStatus::Active,
+                stage: memd_schema::MemoryStage::Canonical,
+            }
+        ]
     } else {
         vec![memd_schema::MemoryItem {
             id: uuid::Uuid::new_v4(),
