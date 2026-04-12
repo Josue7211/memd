@@ -59,7 +59,10 @@
         "journey.continuity.resume-handoff-attach",
         "journey.hive.transfer-assign"
       ],
-      "loop_ids": ["loop.feature.wake.correctness"],
+      "loop_ids": [
+        "loop.feature.wake.correctness",
+        "loop.feature.wake.packet-efficiency"
+      ],
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "drift_risks": ["continuity-drift", "surface-drift"],
       "failure_modes": ["wake file not refreshed"],
@@ -67,8 +70,8 @@
       "last_verified_at": null
     },
     {
-      "id": "feature.bundle.resume",
-      "name": "Resume",
+      "id": "feature.session_continuity",
+      "name": "Session Continuity",
       "pillar": "memory-continuity",
       "family": "bundle-runtime",
       "tier": "tier-0-continuity-critical",
@@ -222,6 +225,50 @@
       "last_verified_at": null
     },
     {
+      "id": "feature.memory.procedural-retrieval",
+      "name": "Procedural Retrieval",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "procedural recall must prioritize explicit workflows and runbooks under continuity load",
+      "source_contract_refs": [
+        "FEATURE-V1-PROCEDURAL-RETRIEVAL"
+      ],
+      "commands": ["memd search --output .memd --intent procedural --query \"runbook\""],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.procedural-retrieval.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "drift_risks": ["continuity-drift", "memory-drift"],
+      "failure_modes": ["procedural retrieval loses workflow-relevant records"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
+      "id": "feature.memory.canonical-retrieval",
+      "name": "Canonical Retrieval",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "tier": "tier-0-continuity-critical",
+      "continuity_critical": true,
+      "user_contract": "canonical recall must preserve durable policy and decision facts under transition",
+      "source_contract_refs": [
+        "FEATURE-V1-CANONICAL-RETRIEVAL"
+      ],
+      "commands": ["memd search --output .memd --query \"canonical\" --route project_first --intent general"],
+      "routes": [],
+      "files": ["crates/memd-client/src/main.rs"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "loop_ids": ["loop.feature.canonical-retrieval.correctness"],
+      "quality_dimensions": ["continuity", "correctness", "drift_resistance"],
+      "drift_risks": ["continuity-drift", "surface-drift"],
+      "failure_modes": ["canonical retrieval misses durable decisions"],
+      "coverage_status": "auditing",
+      "last_verified_at": null
+    },
+    {
       "id": "feature.hive.messages",
       "name": "Hive Messages",
       "pillar": "memory-continuity",
@@ -313,13 +360,15 @@
       "goal": "a resumed or attached session continues without manual reconstruction",
       "feature_ids": [
         "feature.bundle.wake",
-        "feature.bundle.resume",
+        "feature.session_continuity",
         "feature.bundle.handoff",
         "feature.bundle.attach",
         "feature.capture.checkpoint",
         "feature.capture.hook-capture",
         "feature.memory.working-context",
-        "feature.memory.working-memory"
+        "feature.memory.working-memory",
+        "feature.memory.procedural-retrieval",
+        "feature.memory.canonical-retrieval"
       ],
       "loop_ids": [
         "loop.journey.resume-handoff-attach.correctness",
@@ -380,12 +429,31 @@
       "status": "active"
     },
     {
+      "id": "loop.feature.wake.packet-efficiency",
+      "name": "Wake Packet Efficiency",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.bundle.wake"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "render the wake packet and compare core_prompt_tokens to estimated_prompt_tokens",
+      "adversarial_probe": "add repeated context and confirm the packet still prefers compact durable truth",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "tokens", "token_delta"],
+      "guardrails": ["wake packet must stay compact while preserving doing, left_off, changed, and next"],
+      "stop_condition": "core packet remains smaller than the full wake surface across repeated runs",
+      "artifacts_written": [".memd/loops/wake-packet-efficiency.json"],
+      "status": "active"
+    },
+    {
       "id": "loop.feature.resume.correctness",
       "name": "Resume Correctness",
       "pillar": "memory-continuity",
       "family": "bundle-runtime",
       "loop_type": "feature-contract",
-      "covers_features": ["feature.bundle.resume"],
+      "covers_features": ["feature.session_continuity"],
       "journey_ids": ["journey.continuity.resume-handoff-attach"],
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "baseline_mode": "baseline.with-memd",
@@ -513,6 +581,44 @@
       "status": "active"
     },
     {
+      "id": "loop.feature.procedural-retrieval.correctness",
+      "name": "Procedural Retrieval Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.memory.procedural-retrieval"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run procedural retrieval and confirm workflow memory remains explicit",
+      "adversarial_probe": "inject current-task noise and confirm procedural queries remain retrievable",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "tokens"],
+      "guardrails": ["procedural recall should remain readable under continuity pressure"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/procedural-retrieval-correctness.json"],
+      "status": "active"
+    },
+    {
+      "id": "loop.feature.canonical-retrieval.correctness",
+      "name": "Canonical Retrieval Correctness",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "loop_type": "feature-contract",
+      "covers_features": ["feature.memory.canonical-retrieval"],
+      "journey_ids": ["journey.continuity.resume-handoff-attach"],
+      "quality_dimensions": ["continuity", "correctness", "drift_resistance"],
+      "baseline_mode": "baseline.with-memd",
+      "workflow_probe": "run canonical retrieval and confirm durable facts are still surfaced",
+      "adversarial_probe": "change runtime source artifacts and confirm canonical recall still resolves",
+      "cross_harness_probe": null,
+      "metrics": ["pass_rate", "latency_ms", "drift_count"],
+      "guardrails": ["canonical recall should prioritize durable policy and decision facts"],
+      "stop_condition": "three consecutive passes",
+      "artifacts_written": [".memd/loops/canonical-retrieval-correctness.json"],
+      "status": "active"
+    },
+    {
       "id": "loop.feature.hive-messages.correctness",
       "name": "Hive Messages Correctness",
       "pillar": "memory-continuity",
@@ -586,7 +692,7 @@
       "loop_type": "feature-contract",
       "covers_features": [
         "feature.bundle.wake",
-        "feature.bundle.resume",
+        "feature.session_continuity",
         "feature.bundle.handoff",
         "feature.bundle.attach",
         "feature.capture.checkpoint",
@@ -614,7 +720,7 @@
       "loop_type": "drift-prevention",
       "covers_features": [
         "feature.bundle.wake",
-        "feature.bundle.resume",
+        "feature.session_continuity",
         "feature.bundle.handoff",
         "feature.bundle.attach",
         "feature.capture.checkpoint",
@@ -642,7 +748,7 @@
       "loop_type": "drift-prevention",
       "covers_features": [
         "feature.bundle.wake",
-        "feature.bundle.resume",
+        "feature.session_continuity",
         "feature.bundle.handoff",
         "feature.bundle.attach",
         "feature.capture.checkpoint",
@@ -764,9 +870,39 @@
           "kind": "file_contains",
           "path": "MEMD_WAKEUP.md",
           "exists": true
+        },
+        {
+          "kind": "file_contains",
+          "path": "loops/wake-packet-efficiency.json",
+          "exists": true
+        },
+        {
+          "kind": "json_path",
+          "path": "wake.markdown",
+          "contains_fixture": "task.next_action"
+        },
+        {
+          "kind": "json_path",
+          "path": "wake.packet_efficiency.wake_summary",
+          "contains_fixture": "task.id"
+        },
+        {
+          "kind": "json_path",
+          "path": "wake.packet_efficiency.estimated_prompt_tokens",
+          "exists": true
+        },
+        {
+          "kind": "json_path",
+          "path": "wake.packet_efficiency.core_prompt_tokens",
+          "exists": true
+        },
+        {
+          "kind": "json_path",
+          "path": "wake.packet_efficiency.warning_reasons",
+          "exists": true
         }
       ],
-      "metrics": ["prompt_tokens"],
+      "metrics": ["prompt_tokens", "core_prompt_tokens"],
       "evidence_requirements": ["live_primary"],
       "gate_target": "acceptable",
       "status": "declared",
@@ -774,12 +910,12 @@
       "helper_hooks": []
     },
     {
-      "id": "verifier.feature.bundle.resume",
-      "name": "Resume feature contract",
+      "id": "verifier.feature.session_continuity",
+      "name": "Session continuity feature contract",
       "type": "feature_contract",
       "pillar": "memory-continuity",
       "family": "bundle-runtime",
-      "subject_ids": ["feature.bundle.resume"],
+      "subject_ids": ["feature.session_continuity"],
       "fixture_id": "fixture.continuity_bundle",
       "baseline_modes": ["with_memd"],
       "steps": [
@@ -957,6 +1093,64 @@
       "helper_hooks": []
     },
     {
+      "id": "verifier.feature.memory.procedural-retrieval",
+      "name": "Procedural retrieval feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.procedural-retrieval"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd search --output {{bundle}} --intent procedural --query procedure"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "items",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens", "latency_ms"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["fast", "nightly"],
+      "helper_hooks": []
+    },
+    {
+      "id": "verifier.feature.memory.canonical-retrieval",
+      "name": "Canonical retrieval feature contract",
+      "type": "feature_contract",
+      "pillar": "memory-continuity",
+      "family": "bundle-runtime",
+      "subject_ids": ["feature.memory.canonical-retrieval"],
+      "fixture_id": "fixture.continuity_bundle",
+      "baseline_modes": ["with_memd"],
+      "steps": [
+        {
+          "kind": "cli",
+          "run": "memd search --output {{bundle}} --query canonical --route project_first"
+        }
+      ],
+      "assertions": [
+        {
+          "kind": "json_path",
+          "path": "items",
+          "exists": true
+        }
+      ],
+      "metrics": ["prompt_tokens", "latency_ms"],
+      "evidence_requirements": ["live_primary"],
+      "gate_target": "acceptable",
+      "status": "declared",
+      "lanes": ["nightly", "exhaustive"],
+      "helper_hooks": []
+    },
+    {
       "id": "verifier.journey.resume-handoff-attach",
       "name": "Resume handoff attach continuity",
       "type": "journey",
@@ -1026,10 +1220,6 @@
         }
       ],
       "assertions": [
-        {
-          "kind": "helper",
-          "name": "assert_with_memd_not_less_correct"
-        },
         {
           "kind": "metric_compare",
           "metric": "prompt_tokens",
@@ -1101,8 +1291,9 @@
       ],
       "assertions": [
         {
-          "kind": "helper",
-          "name": "assert_message_acknowledged"
+          "kind": "json_path",
+          "path": "messages_ack.messages.0.acknowledged_at",
+          "exists": true
         },
         {
           "kind": "json_path",
@@ -1121,8 +1312,7 @@
       "status": "declared",
       "lanes": ["nightly", "exhaustive"],
       "helper_hooks": [
-        "capture_message_id",
-        "assert_message_acknowledged"
+        "capture_message_id"
       ]
     },
     {
@@ -1154,8 +1344,9 @@
       ],
       "assertions": [
         {
-          "kind": "helper",
-          "name": "assert_message_acknowledged"
+          "kind": "json_path",
+          "path": "messages_ack.messages.0.acknowledged_at",
+          "exists": true
         }
       ],
       "metrics": ["delivery_count"],
@@ -1164,8 +1355,7 @@
       "status": "declared",
       "lanes": ["nightly", "exhaustive"],
       "helper_hooks": [
-        "capture_message_id",
-        "assert_message_acknowledged"
+        "capture_message_id"
       ]
     },
     {

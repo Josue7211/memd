@@ -26,8 +26,8 @@ pub(crate) fn build_claude_code_harness_pack(
             bundle_root.join("agents").join("CLAUDE.md.example"),
         ],
         commands: vec![
-            "memd wake --output .memd --intent current_task --write".to_string(),
-            "memd resume --output .memd --intent current_task".to_string(),
+            "memd wake --output .memd --write".to_string(),
+            "memd resume --output .memd".to_string(),
             "memd lookup --output .memd --query \"what did we already decide about this?\""
                 .to_string(),
         ],

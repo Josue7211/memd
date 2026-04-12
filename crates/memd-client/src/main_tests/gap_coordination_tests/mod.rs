@@ -157,19 +157,35 @@ fn describes_eval_changes_against_baseline() {
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
-    assert!(changes.iter().any(|value| value.contains("score 72 -> 88")));
-    assert!(changes.iter().any(|value| value.contains("working 2 -> 3")));
     assert!(
         changes
             .iter()
-            .any(|value| value.contains("rehydration 1 -> 2"))
+            .any(|value: &String| value.contains("score 72 -> 88"))
     );
-    assert!(changes.iter().any(|value| value.contains("inbox 3 -> 0")));
-    assert!(changes.iter().any(|value| value.contains("lanes 1 -> 2")));
     assert!(
         changes
             .iter()
-            .any(|value| value.contains("semantic 0 -> 1"))
+            .any(|value: &String| value.contains("working 2 -> 3"))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|value: &String| value.contains("rehydration 1 -> 2"))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|value: &String| value.contains("inbox 3 -> 0"))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|value: &String| value.contains("lanes 1 -> 2"))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|value: &String| value.contains("semantic 0 -> 1"))
     );
 }
 
@@ -353,27 +369,27 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
     assert!(
         recommendations
             .iter()
-            .any(|value| value.contains("memd remember"))
+            .any(|value: &String| value.contains("memd remember"))
     );
     assert!(
         recommendations
             .iter()
-            .any(|value| value.contains("compact context"))
+            .any(|value: &String| value.contains("compact context"))
     );
     assert!(
         recommendations
             .iter()
-            .any(|value| value.contains("rehydrate deeper context"))
+            .any(|value: &String| value.contains("rehydrate deeper context"))
     );
     assert!(
         recommendations
             .iter()
-            .any(|value| value.contains("workspace or visibility"))
+            .any(|value: &String| value.contains("workspace or visibility"))
     );
     assert!(
         recommendations
             .iter()
-            .any(|value| value.contains("inbox pressure"))
+            .any(|value: &String| value.contains("inbox pressure"))
     );
     assert!(
         recommendations
@@ -932,6 +948,7 @@ fn collect_gap_repo_evidence_surfaces_repo_docs_and_runtime_signals() {
     let root =
         std::env::temp_dir().join(format!("memd-gap-repo-evidence-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(root.join("docs")).expect("create docs dir");
+    fs::create_dir_all(root.join("docs").join("core")).expect("create docs core dir");
     fs::create_dir_all(root.join(".planning")).expect("create planning dir");
     fs::write(
         root.join("README.md"),
@@ -944,7 +961,7 @@ fn collect_gap_repo_evidence_surfaces_repo_docs_and_runtime_signals() {
     )
     .expect("write roadmap");
     fs::write(
-        root.join("docs").join("setup.md"),
+        root.join("docs").join("core").join("setup.md"),
         "memd init and codex bootstrap",
     )
     .expect("write setup");
@@ -968,7 +985,9 @@ fn collect_gap_repo_evidence_surfaces_repo_docs_and_runtime_signals() {
         "expected ROADMAP evidence"
     );
     assert!(
-        evidence.iter().any(|line| line.contains("docs/core/setup.md:")),
+        evidence
+            .iter()
+            .any(|line| line.contains("docs/core/setup.md:")),
         "expected setup doc evidence"
     );
     assert!(
@@ -1509,6 +1528,7 @@ fn render_memory_surface_summary_surfaces_truth_and_tiers() {
         truth_summary: TruthSummary {
             retrieval_tier: RetrievalTier::Hot,
             truth: "current".to_string(),
+            epistemic_state: "verified".to_string(),
             freshness: "fresh".to_string(),
             confidence: 0.97,
             action_hint: "keep current truth hot".to_string(),
@@ -1518,6 +1538,7 @@ fn render_memory_surface_summary_surfaces_truth_and_tiers() {
             records: vec![TruthRecordSummary {
                 lane: "live_truth".to_string(),
                 truth: "current".to_string(),
+                epistemic_state: "verified".to_string(),
                 freshness: "fresh".to_string(),
                 retrieval_tier: RetrievalTier::Hot,
                 confidence: 0.97,
@@ -1541,6 +1562,7 @@ fn render_memory_surface_summary_surfaces_truth_and_tiers() {
         records: vec![TruthRecordSummary {
             lane: "live_truth".to_string(),
             truth: "current".to_string(),
+            epistemic_state: "verified".to_string(),
             freshness: "fresh".to_string(),
             retrieval_tier: RetrievalTier::Hot,
             confidence: 0.97,
@@ -1550,6 +1572,7 @@ fn render_memory_surface_summary_surfaces_truth_and_tiers() {
     });
 
     assert!(summary.contains("truth=current"));
+    assert!(summary.contains("epistemic=verified"));
     assert!(summary.contains("freshness=fresh"));
     assert!(summary.contains("retrieval=hot"));
     assert!(summary.contains("working:3"));

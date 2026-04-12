@@ -11,7 +11,7 @@ pub(crate) fn build_agent_zero_harness_pack(
 ) -> AgentZeroHarnessPack {
     HarnessPackData {
         name: "Agent Zero",
-        role: "zero-friction resume/remember/handoff pack",
+        role: "zero-friction resume/remember/handoff/spill pack",
         agent: "agent-zero".to_string(),
         project: project.to_string(),
         namespace: namespace.to_string(),
@@ -27,11 +27,13 @@ pub(crate) fn build_agent_zero_harness_pack(
             "memd remember --output .memd --kind decision --content \"Keep the zero-friction lane current.\""
                 .to_string(),
             "memd handoff --output .memd --prompt".to_string(),
+            "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
         behaviors: vec![
             "zero-friction resume before starting work".to_string(),
             "write durable outcomes back".to_string(),
             "emit a shared handoff".to_string(),
+            "spill at compaction boundaries".to_string(),
             "keep the visible bundle in sync".to_string(),
         ],
     }

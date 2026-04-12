@@ -268,6 +268,8 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     assert!(markdown.contains("`$gsd-autonomous` is installed as a skill"));
     let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
         .expect("read claude imports");
+    let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
+        .expect("read codex agents example");
     assert!(claude_imports.contains("@../MEMD_WAKEUP.md"));
     assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
     assert!(claude_imports.contains("@CLAUDE_CODE_WAKEUP.md"));
@@ -276,14 +278,18 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     assert!(claude_imports.contains("use installed `$gsd-*` skills as the GSD interface"));
     assert!(claude_imports.contains("standalone `gsd-*` shell binaries"));
     assert!(claude_imports.contains("`$gsd-autonomous` is installed as a skill"));
+    assert!(codex_agents.contains(".memd/agents/CODEX_WAKEUP.md"));
+    assert!(codex_agents.contains(".memd/agents/CODEX_MEMORY.md"));
+    assert!(codex_agents.contains("Durable truth beats transcript recall."));
+    assert!(codex_agents.contains("memd lookup --output .memd --query"));
+    assert!(codex_agents.contains("stay in `caveman-ultra`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
 
 #[test]
 fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
-    let dir =
-        std::env::temp_dir().join(format!("memd-bundle-voice-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("memd-bundle-voice-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp bundle");
     let config = BundleConfig {
         schema_version: 2,
@@ -330,15 +336,165 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
     };
 
     write_bundle_memory_placeholder(&dir, &config, None, None).expect("write placeholder");
+    write_bundle_config_file(
+        &dir.join("config.json"),
+        &BundleConfigFile {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-demo".to_string()),
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capabilities: vec!["memory".to_string(), "coordination".to_string()],
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("general".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            heartbeat_model: Some(default_heartbeat_model()),
+            voice_mode: Some("normal".to_string()),
+            auto_short_term_capture: true,
+            rag_url: Some("http://127.0.0.1:9000".to_string()),
+            backend: Some(BundleBackendConfigFile {
+                rag: Some(BundleRagConfigFile {
+                    enabled: Some(true),
+                    url: Some("http://127.0.0.1:9000".to_string()),
+                }),
+            }),
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
+        },
+    )
+    .expect("write config");
     write_native_agent_bridge_files(&dir).expect("write native bridge");
 
     let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
     let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
         .expect("read claude imports");
+    let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
+        .expect("read codex agents");
     assert!(memory.contains("default: normal"));
     assert!(memory.contains("avoid forced compression"));
     assert!(claude_imports.contains("default: normal"));
     assert!(claude_imports.contains("avoid forced compression"));
+    assert!(codex_agents.contains("stay in `normal`"));
+    assert!(codex_agents.contains("sets `voice_mode` to `normal`"));
+
+    fs::remove_dir_all(dir).expect("cleanup temp bundle");
+}
+
+#[test]
+fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
+    let dir = std::env::temp_dir().join(format!("memd-bundle-voice-lite-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("create temp bundle");
+    let config = BundleConfig {
+        schema_version: 2,
+        project: "demo".to_string(),
+        namespace: Some("main".to_string()),
+        agent: "codex".to_string(),
+        session: "session-demo".to_string(),
+        tab_id: None,
+        hive_system: Some("codex".to_string()),
+        hive_role: Some("agent".to_string()),
+        capabilities: vec!["memory".to_string(), "coordination".to_string()],
+        hive_groups: vec!["openclaw-stack".to_string()],
+        hive_group_goal: None,
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
+        authority: Some("participant".to_string()),
+        base_url: "http://127.0.0.1:8787".to_string(),
+        route: "auto".to_string(),
+        intent: "general".to_string(),
+        workspace: Some("team-alpha".to_string()),
+        visibility: Some("workspace".to_string()),
+        heartbeat_model: default_heartbeat_model(),
+        voice_mode: "caveman-lite".to_string(),
+        auto_short_term_capture: true,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState::default(),
+        backend: BundleBackendConfig {
+            rag: BundleRagConfig {
+                enabled: true,
+                provider: "lightrag-compatible".to_string(),
+                url: Some("http://127.0.0.1:9000".to_string()),
+            },
+        },
+        hooks: BundleHooksConfig {
+            context: "hooks/memd-context.sh".to_string(),
+            capture: "hooks/memd-capture.sh".to_string(),
+            spill: "hooks/memd-spill.sh".to_string(),
+            context_ps1: "hooks/memd-context.ps1".to_string(),
+            capture_ps1: "hooks/memd-capture.ps1".to_string(),
+            spill_ps1: "hooks/memd-spill.ps1".to_string(),
+        },
+        rag_url: Some("http://127.0.0.1:9000".to_string()),
+    };
+
+    write_bundle_memory_placeholder(&dir, &config, None, None).expect("write placeholder");
+    write_bundle_config_file(
+        &dir.join("config.json"),
+        &BundleConfigFile {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            session: Some("session-demo".to_string()),
+            tab_id: None,
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("agent".to_string()),
+            capabilities: vec!["memory".to_string(), "coordination".to_string()],
+            hive_groups: vec!["openclaw-stack".to_string()],
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            hive_project_enabled: false,
+            hive_project_anchor: None,
+            hive_project_joined_at: None,
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            route: Some("auto".to_string()),
+            intent: Some("general".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            heartbeat_model: Some(default_heartbeat_model()),
+            voice_mode: Some("caveman-lite".to_string()),
+            auto_short_term_capture: true,
+            rag_url: Some("http://127.0.0.1:9000".to_string()),
+            backend: Some(BundleBackendConfigFile {
+                rag: Some(BundleRagConfigFile {
+                    enabled: Some(true),
+                    url: Some("http://127.0.0.1:9000".to_string()),
+                }),
+            }),
+            authority_policy: BundleAuthorityPolicy::default(),
+            authority_state: BundleAuthorityState::default(),
+        },
+    )
+    .expect("write config");
+    write_native_agent_bridge_files(&dir).expect("write native bridge");
+
+    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
+    let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
+        .expect("read claude imports");
+    let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
+        .expect("read codex agents");
+    assert!(memory.contains("default: `caveman-lite`"));
+    assert!(memory.contains("compress, but not to ultra level"));
+    assert!(claude_imports.contains("default: `caveman-lite`"));
+    assert!(
+        claude_imports.contains("match `.memd/config.json` exactly if the user changes voice_mode")
+    );
+    assert!(
+        codex_agents
+            .contains("Valid repo voice modes are `normal`, `caveman-lite`, and `caveman-ultra`.")
+    );
+    assert!(codex_agents.contains("stay in `caveman-lite`"));
+    assert!(codex_agents.contains("sets `voice_mode` to `caveman-lite`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -401,7 +557,7 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
     assert!(memory.contains("session: session-demo"));
     assert!(memory.contains("tab: tab-alpha"));
     assert!(memory.contains("## Voice"));
-    assert!(memory.contains("caveman ultra"));
+    assert!(memory.contains("caveman-ultra"));
     assert!(wakeup.contains("fallback"));
     assert!(dir.join("agents").join("CODEX_MEMORY.md").exists());
     assert!(dir.join("agents").join("CLAUDE_CODE_MEMORY.md").exists());
@@ -513,10 +669,16 @@ fn copies_hook_assets_with_live_capture_scripts() {
     assert!(dir.join("memd-capture.ps1").exists());
     assert!(dir.join("memd-spill.sh").exists());
     assert!(dir.join("memd-spill.ps1").exists());
+    assert!(dir.join("memd-stop-save.sh").exists());
+    assert!(dir.join("memd-stop-save.ps1").exists());
+    assert!(dir.join("memd-precompact-save.sh").exists());
+    assert!(dir.join("memd-precompact-save.ps1").exists());
 
     let install = fs::read_to_string(dir.join("install.sh")).expect("read install.sh");
     assert!(install.contains("memd-capture"));
     assert!(install.contains("memd-hook-capture"));
+    assert!(install.contains("memd-hook-stop-save"));
+    assert!(install.contains("memd-hook-precompact-save"));
 
     fs::remove_dir_all(dir).expect("cleanup hook temp dir");
 }
@@ -559,13 +721,25 @@ fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
         manifest
             .commands
             .iter()
-            .any(|cmd| { cmd.contains("memd wake --output .memd --intent current_task --write") })
+            .any(|cmd| { cmd.contains("memd wake --output .memd --write") })
+    );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd lookup --output .memd --query"))
     );
     assert!(
         manifest
             .commands
             .iter()
             .any(|cmd| cmd.contains("memd hook capture --output .memd"))
+    );
+    assert!(
+        manifest
+            .behaviors
+            .iter()
+            .any(|line| line.contains("pre-answer lookup before memory-dependent responses"))
     );
     assert!(
         manifest
@@ -578,6 +752,7 @@ fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
     assert!(markdown.contains("CODEX_WAKEUP.md"));
     assert!(markdown.contains("CODEX_MEMORY.md"));
     assert!(markdown.contains("turn-scoped cache"));
+    assert!(markdown.contains("memd lookup --output .memd --query"));
     assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
 }
 
@@ -729,7 +904,10 @@ fn harness_registry_exposes_shared_preset_ids_and_defaults() {
     let codex = registry
         .get("codex")
         .expect("codex preset should exist in the shared registry");
-    assert_eq!(codex.default_verbs, vec!["wake", "resume", "checkpoint"]);
+    assert_eq!(
+        codex.default_verbs,
+        vec!["wake", "lookup", "checkpoint", "spill"]
+    );
 }
 
 #[tokio::test]
@@ -866,6 +1044,45 @@ async fn hermes_pack_refreshes_wakeup_and_memory_files_after_capture() {
     fs::remove_dir_all(bundle_root).expect("cleanup hermes refresh temp dir");
 }
 
+#[tokio::test]
+async fn provenance_source_path_survives_across_codex_and_openclaw_memory_surfaces() {
+    let bundle_root =
+        std::env::temp_dir().join(format!("memd-provenance-parity-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&bundle_root).expect("create bundle root");
+    let mut snapshot = codex_test_snapshot("demo", "main", "codex");
+    snapshot.inbox.items[0].item.source_agent = Some("codex@test".to_string());
+    snapshot.inbox.items[0].item.source_system = Some("hook-capture".to_string());
+    snapshot.inbox.items[0].item.source_path = Some("notes/provenance.md".to_string());
+    snapshot.working.rehydration_queue[0].source_agent = Some("codex@test".to_string());
+    snapshot.working.rehydration_queue[0].source_system = Some("hook-capture".to_string());
+    snapshot.working.rehydration_queue[0].source_path = Some("notes/provenance.md".to_string());
+
+    let manifest = crate::harness::codex::build_codex_harness_pack(&bundle_root, "demo", "main");
+    refresh_harness_pack_files(
+        &bundle_root,
+        &snapshot,
+        &manifest,
+        "codex",
+        "refresh",
+        &harness_pack_query_from_snapshot(&snapshot),
+    )
+    .await
+    .expect("refresh harness pack files");
+
+    let codex_memory = fs::read_to_string(bundle_root.join("agents").join("CODEX_MEMORY.md"))
+        .expect("read codex memory");
+    let openclaw_memory = fs::read_to_string(bundle_root.join("agents").join("OPENCLAW_MEMORY.md"))
+        .expect("read openclaw memory");
+
+    let expected_source = "codex@test / hook-capture / notes/provenance.md";
+    assert!(codex_memory.contains(expected_source));
+    assert!(openclaw_memory.contains(expected_source));
+    assert!(codex_memory.contains("notes/provenance.md"));
+    assert!(openclaw_memory.contains("notes/provenance.md"));
+
+    fs::remove_dir_all(bundle_root).expect("cleanup provenance parity temp dir");
+}
+
 #[test]
 fn harness_pack_turn_key_is_stable_for_repeated_recall() {
     for agent in ["codex", "hermes", "openclaw", "opencode", "agent-zero"] {
@@ -914,8 +1131,8 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
     let setup = fs::read_to_string(repo_root.join("docs/core/setup.md")).expect("read setup docs");
     let api = fs::read_to_string(repo_root.join("docs/core/api.md")).expect("read api docs");
-    let positioning =
-        fs::read_to_string(repo_root.join("docs/reference/oss-positioning.md")).expect("read oss docs");
+    let positioning = fs::read_to_string(repo_root.join("docs/reference/oss-positioning.md"))
+        .expect("read oss docs");
     let agent_zero = fs::read_to_string(repo_root.join("integrations/agent-zero/README.md"))
         .expect("read agent zero docs");
     let codex = fs::read_to_string(repo_root.join("integrations/codex/README.md"))
@@ -953,6 +1170,7 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
 
     assert!(codex.contains("turn-first recall/capture pack"));
     assert!(codex.contains("memd hook capture --output .memd --stdin --summary"));
+    assert!(codex.contains("memd hook capture --output .memd --stdin --summary"));
     assert!(codex.contains("Keep using the local bundle markdown"));
     assert!(codex.contains(
         "turn cache is keyed from project, namespace, agent, mode, and normalized query"
@@ -960,10 +1178,12 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
     assert!(codex.contains("Hermes uses the same shared memory core"));
 
     assert!(agent_zero.contains("zero-friction lane"));
+    assert!(agent_zero.contains("memd hook spill --output .memd --stdin --apply"));
     assert!(agent_zero.contains(".memd/agents/AGENT_ZERO_MEMORY.md"));
     assert!(agent_zero.contains("memd handoff --output .memd --prompt"));
 
     assert!(opencode.contains("shared continuity plane"));
+    assert!(opencode.contains("memd hook spill --output .memd --stdin --apply"));
     assert!(opencode.contains(".memd/agents/OPENCODE_MEMORY.md"));
     assert!(opencode.contains("memd handoff --output .memd --prompt"));
 
@@ -1017,6 +1237,7 @@ fn init_bootstrap_summarizes_existing_project_files() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: None,
         visibility: None,
         allow_localhost_read_only_fallback: false,
@@ -1080,6 +1301,7 @@ fn init_bootstrap_writes_source_registry() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: None,
         visibility: None,
         allow_localhost_read_only_fallback: false,
@@ -1141,6 +1363,7 @@ fn refresh_bootstrap_memory_detects_changed_source() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: None,
         visibility: None,
         allow_localhost_read_only_fallback: false,
@@ -1954,6 +2177,7 @@ fn init_output_prefers_project_root_when_seeded_from_repo() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: None,
         visibility: None,
         allow_localhost_read_only_fallback: false,
@@ -1992,6 +2216,7 @@ fn init_output_prefers_global_bundle_when_requested() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: None,
         visibility: None,
         allow_localhost_read_only_fallback: false,
@@ -2148,6 +2373,8 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
     assert!(markdown.contains("## Budget"));
     assert!(markdown.contains("drivers="));
     assert!(markdown.contains("action=\""));
+    assert!(markdown.contains("## Durable Truth"));
+    assert!(markdown.contains("- none"));
     assert!(markdown.contains("## Read First"));
     assert!(markdown.contains("## Memory Objects"));
     assert!(markdown.contains("- context none"));

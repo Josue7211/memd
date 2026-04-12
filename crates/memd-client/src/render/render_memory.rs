@@ -30,11 +30,13 @@ pub(crate) fn render_visible_memory_home(
     follow: bool,
 ) -> String {
     let focus = &response.home.focus_artifact;
+    let epistemic = compact_inline(&focus.freshness, 24);
     let mut output = format!(
-        "memory_home focus={} status={} freshness={} visibility={} workspace={} inbox={} repair={} awareness={} nodes={} edges={}",
+        "memory_home focus={} status={} freshness={} epistemic={} visibility={} workspace={} inbox={} repair={} awareness={} nodes={} edges={}",
         compact_inline(&focus.title, 48),
         visible_memory_status_label(focus.status),
-        compact_inline(&focus.freshness, 24),
+        epistemic,
+        epistemic,
         focus.visibility.map(format_visibility).unwrap_or("none"),
         focus.workspace.as_deref().unwrap_or("none"),
         response.home.inbox_count,
@@ -85,12 +87,15 @@ pub(crate) fn render_visible_memory_artifact_detail(
     follow: bool,
 ) -> String {
     let artifact = &response.artifact;
+    let epistemic = compact_inline(&artifact.freshness, 24);
     let mut output = format!(
-        "memory_artifact id={} title={} status={} kind={} visibility={} workspace={} explain={} timeline={} sources={} workspaces={} sessions={} tasks={} claims={} related={} map_nodes={} map_edges={} actions={}",
+        "memory_artifact id={} title={} status={} kind={} freshness={} epistemic={} visibility={} workspace={} explain={} timeline={} sources={} workspaces={} sessions={} tasks={} claims={} related={} map_nodes={} map_edges={} actions={}",
         short_uuid(artifact.id),
         compact_inline(&artifact.title, 48),
         visible_memory_status_label(artifact.status),
         compact_inline(&artifact.artifact_kind, 24),
+        epistemic,
+        epistemic,
         artifact.visibility.map(format_visibility).unwrap_or("none"),
         artifact.workspace.as_deref().unwrap_or("none"),
         bool_label(response.explain.is_some()),
@@ -885,6 +890,7 @@ mod tests {
             "resume_preview": null,
             "truth_summary": {
                 "truth": "current",
+                "epistemic_state": "verified",
                 "freshness": "fresh",
                 "retrieval_tier": "hot",
                 "confidence": 0.97,
@@ -902,6 +908,7 @@ mod tests {
 
         let summary = render_bundle_status_summary(&status);
         assert!(summary.contains("truth=current"));
+        assert!(summary.contains("epistemic=verified"));
         assert!(summary.contains("freshness=fresh"));
         assert!(summary.contains("retrieval=hot"));
         assert!(summary.contains("conf=0.97"));
@@ -1108,6 +1115,7 @@ mod tests {
         assert!(summary.contains("memory_home focus=runtime spine"));
         assert!(summary.contains("status=current"));
         assert!(summary.contains("freshness=verified"));
+        assert!(summary.contains("epistemic=verified"));
         assert!(summary.contains("visibility=workspace"));
         assert!(summary.contains("workspace=team-alpha"));
         assert!(summary.contains("inbox=3"));
@@ -1216,6 +1224,8 @@ mod tests {
         assert!(summary.contains("title=runtime spine"));
         assert!(summary.contains("status=current"));
         assert!(summary.contains("kind=compiled_page"));
+        assert!(summary.contains("freshness=verified"));
+        assert!(summary.contains("epistemic=verified"));
         assert!(summary.contains("explain=off"));
         assert!(summary.contains("timeline=off"));
         assert!(summary.contains("sources=0"));

@@ -217,9 +217,10 @@ pub(crate) fn render_bundle_memory_object_markdown(
             } else {
                 for item in snapshot.inbox.items.iter().take(6) {
                     markdown.push_str(&format!(
-                        "- id={} kind={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
+                        "- id={} kind={} type={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
                         short_uuid(item.item.id),
                         enum_label_kind(item.item.kind),
+                        typed_memory_label(item.item.kind, item.item.stage),
                         enum_label_status(item.item.status),
                         format!("{:?}", item.item.stage).to_ascii_lowercase(),
                         item.item.confidence,
@@ -408,9 +409,10 @@ pub(crate) fn render_bundle_memory_object_item_markdown(
         MemoryObjectLane::Inbox => {
             let item = snapshot.inbox.items.get(index)?;
             markdown.push_str(&format!(
-                "- id={} kind={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
+                "- id={} kind={} type={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
                 short_uuid(item.item.id),
                 enum_label_kind(item.item.kind),
+                typed_memory_label(item.item.kind, item.item.stage),
                 enum_label_status(item.item.status),
                 format!("{:?}", item.item.stage).to_ascii_lowercase(),
                 item.item.confidence,
@@ -520,6 +522,26 @@ pub(crate) fn render_bundle_memory_object_item_markdown(
 
 pub(crate) fn render_current_task_bundle_snapshot(snapshot: &ResumeSnapshot) -> String {
     let mut markdown = String::new();
+    let continuity = snapshot.continuity_capsule();
+
+    if let Some(current_task) = continuity.current_task.as_deref() {
+        markdown.push_str(&format!("- doing={}\n", compact_inline(current_task, 180)));
+    }
+    if let Some(resume_point) = continuity.resume_point.as_deref() {
+        markdown.push_str(&format!(
+            "- left_off={}\n",
+            compact_inline(resume_point, 180)
+        ));
+    }
+    if let Some(changed) = continuity.changed.as_deref() {
+        markdown.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
+    }
+    if let Some(next_action) = continuity.next_action.as_deref() {
+        markdown.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+    }
+    if let Some(blocker) = continuity.blocker.as_deref() {
+        markdown.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
+    }
 
     let capsule = snapshot.workflow_capsule();
     if !capsule.is_empty() {
@@ -539,7 +561,7 @@ pub(crate) async fn read_memory_surface(
     output: &Path,
     base_url: &str,
 ) -> anyhow::Result<MemorySurfaceResponse> {
-    let snapshot = read_bundle_resume(
+    let snapshot = crate::runtime::read_bundle_resume(
         &ResumeArgs {
             output: output.to_path_buf(),
             project: None,
@@ -631,9 +653,10 @@ pub(crate) fn render_memory_surface_summary(response: &MemorySurfaceResponse) ->
     let truth = &response.truth_summary;
     let head = response.records.first();
     format!(
-        "memory bundle={} truth={} freshness={} retrieval={} conf={:.2} tiers=context:{} working:{} inbox:{} sources:{} rehydrate:{} semantic:{} changes:{} tok={} refresh={} contradictions={} superseded={} action=\"{}\" head={} preview=\"{}\"",
+        "memory bundle={} truth={} epistemic={} freshness={} retrieval={} conf={:.2} tiers=context:{} working:{} inbox:{} sources:{} rehydrate:{} semantic:{} changes:{} tok={} refresh={} contradictions={} superseded={} action=\"{}\" head={} preview=\"{}\"",
         response.bundle_root,
         truth.truth,
+        truth.epistemic_state,
         truth.freshness,
         serde_json::to_string(&truth.retrieval_tier)
             .unwrap_or_else(|_| "\"raw_fallback\"".to_string())

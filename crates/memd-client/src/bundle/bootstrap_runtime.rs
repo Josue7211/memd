@@ -12,8 +12,29 @@ pub(crate) fn default_authority_mode() -> String {
     "shared".to_string()
 }
 
-pub(crate) fn default_voice_mode() -> String {
+pub(crate) fn hardcoded_default_voice_mode() -> String {
     "caveman-ultra".to_string()
+}
+
+pub(crate) fn default_voice_mode() -> String {
+    if let Ok(value) = std::env::var("MEMD_VOICE_MODE") {
+        if let Ok(normalized) = normalize_voice_mode_value(&value) {
+            return normalized;
+        }
+    }
+
+    let config_path = default_global_bundle_root().join("config.json");
+    if let Ok(raw) = fs::read_to_string(&config_path) {
+        if let Ok(config) = serde_json::from_str::<BundleConfigFile>(&raw) {
+            if let Some(voice_mode) = config.voice_mode {
+                if let Ok(normalized) = normalize_voice_mode_value(&voice_mode) {
+                    return normalized;
+                }
+            }
+        }
+    }
+
+    hardcoded_default_voice_mode()
 }
 
 pub(crate) const SHARED_MEMD_BASE_URL: &str = "http://100.104.154.24:8787";
@@ -106,6 +127,10 @@ pub(crate) fn default_bundle_root_path() -> PathBuf {
         if !value.is_empty() {
             return PathBuf::from(value);
         }
+    }
+
+    if let Ok(Some(project_root)) = detect_current_project_root() {
+        return project_root.join(".memd");
     }
 
     default_global_bundle_root()
@@ -1183,4 +1208,78 @@ pub(crate) fn file_modified_at(path: &Path) -> Option<DateTime<Utc>> {
         .ok()
         .and_then(|meta| meta.modified().ok())
         .map(DateTime::<Utc>::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::{Cli, Commands};
+    use crate::test_support::{EnvScope, set_current_dir};
+    use clap::Parser;
+
+    #[test]
+    fn default_bundle_root_path_does_not_use_global_bundle_inside_repo_without_local_bundle() {
+        let mut env = EnvScope::new();
+        let root = std::env::temp_dir().join(format!(
+            "memd-bootstrap-default-bundle-root-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let home = root.join("home");
+        let repo = root.join("repo");
+        let nested = repo.join("src").join("feature");
+        let global_bundle = home.join(".memd");
+
+        fs::create_dir_all(&nested).expect("create nested repo dir");
+        fs::create_dir_all(repo.join(".git")).expect("create repo git dir");
+        fs::create_dir_all(&global_bundle).expect("create global bundle");
+        fs::write(global_bundle.join("config.json"), "{}\n").expect("write global config");
+
+        env.set("HOME", &home);
+        env.remove("MEMD_BUNDLE_ROOT");
+        let _cwd = set_current_dir(&nested);
+
+        let resolved = default_bundle_root_path();
+        assert_eq!(resolved, repo.join(".memd"));
+        assert_ne!(resolved, global_bundle);
+
+        let cli = Cli::parse_from(["memd", "lookup", "--query", "repo bleed check"]);
+        let Commands::Lookup(args) = cli.command else {
+            panic!("expected lookup command");
+        };
+        assert_eq!(args.output, repo.join(".memd"));
+        assert_ne!(args.output, global_bundle);
+
+        drop(_cwd);
+        drop(env);
+        fs::remove_dir_all(root).expect("cleanup temp bundle roots");
+    }
+
+    #[test]
+    fn default_voice_mode_prefers_env_then_global_config_then_hardcoded_fallback() {
+        let mut env = EnvScope::new();
+        let home = std::env::temp_dir().join(format!(
+            "memd-bootstrap-default-voice-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let global_bundle = home.join(".memd");
+
+        fs::create_dir_all(&global_bundle).expect("create global bundle");
+        env.set("HOME", &home);
+        env.remove("MEMD_VOICE_MODE");
+
+        assert_eq!(default_voice_mode(), hardcoded_default_voice_mode());
+
+        fs::write(
+            global_bundle.join("config.json"),
+            "{\n  \"voice_mode\": \"normal\"\n}\n",
+        )
+        .expect("write global config");
+        assert_eq!(default_voice_mode(), "normal");
+
+        env.set("MEMD_VOICE_MODE", "lite");
+        assert_eq!(default_voice_mode(), "caveman-lite");
+
+        drop(env);
+        fs::remove_dir_all(home).expect("cleanup temp home");
+    }
 }

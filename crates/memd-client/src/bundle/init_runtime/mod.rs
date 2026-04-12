@@ -1248,9 +1248,11 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Set up the bundle:\n   - `memd setup --output {bundle}`\n2. Check readiness and repair drift when needed:\n   - `memd doctor --output {bundle}`\n   - `memd doctor --output {bundle} --repair`\n3. Inspect the active config:\n   - `memd config --output {bundle}`\n4. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --intent current_task --write`\n5. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n6. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --intent current_task`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd setup --output {bundle}`\n- `memd doctor --output {bundle}`\n- `memd config --output {bundle}`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Set up the bundle:\n   - `memd setup --output {bundle}`\n2. Check readiness and repair drift when needed:\n   - `memd doctor --output {bundle}`\n   - `memd doctor --output {bundle} --repair`\n3. Inspect the active config:\n   - `memd config --output {bundle}`\n4. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --route {route} --intent {intent} --write`\n5. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n6. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --route {route} --intent {intent}`\n7. Before memory-dependent answers, run bundle-aware recall:\n   - `memd lookup --output {bundle} --query \"...\"`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd setup --output {bundle}`\n- `memd doctor --output {bundle}`\n- `memd config --output {bundle}`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Codex, start from `.memd/agents/CODEX_WAKEUP.md`, then use `memd lookup --output {bundle} --query \"...\"` before memory-dependent answers.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = project,
             bundle = output.display(),
+            route = config.route,
+            intent = config.intent,
         ),
     )
     .with_context(|| format!("write {}", output.join("README.md").display()))?;
@@ -1659,9 +1661,13 @@ pub(crate) fn write_bundle_memory_placeholder(
     }
     markdown.push_str("Refresh it with:\n\n");
     markdown.push_str(&format!(
-        "- `memd resume --output {} --intent current_task`\n- `memd resume --output {} --intent current_task --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
+        "- `memd resume --output {} --route {} --intent {}`\n- `memd resume --output {} --route {} --intent {} --semantic`\n- `memd handoff --output {}`\n- `memd handoff --output {} --semantic`\n\n",
         output.display(),
+        config.route,
+        config.intent,
         output.display(),
+        config.route,
+        config.intent,
         output.display(),
         output.display()
     ));

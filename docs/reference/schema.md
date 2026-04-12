@@ -51,6 +51,8 @@ The control surface adds:
 Inbox items carry reasons like:
 
 - candidate
+- claimed
+- inferred
 - stale
 - contested
 - superseded

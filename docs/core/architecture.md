@@ -1,243 +1,319 @@
 # Architecture
 
-## Diagram
+## Summary
 
-See the product hero source at [docs/assets/product-loop.svg](../assets/product-loop.svg).
-See the detailed architecture image at [docs/assets/architecture-hero.svg](../assets/architecture-hero.svg).
-The landing page image is [docs/assets/product-loop.png](../assets/product-loop.png).
-The full repo map is [docs/assets/codebase-map.png](../assets/codebase-map.png).
+`memd` is a multiharness second-brain memory substrate for the human.
+
+It is the control plane under:
+
+- many models
+- many harnesses
+- many sessions
+- many agents
+
+The design target is:
+
+- read once
+- remember once
+- reuse everywhere
+- resume flawlessly
+- drill deeper only when needed
+
+## Canonical Diagram
+
+See also:
+
+- [memd-10-star-topology-v2.png](../assets/memd-10-star-topology-v2.png)
+- [memd-10-star-live-loop-v2.png](../assets/memd-10-star-live-loop-v2.png)
+- [memd-10-star-capability-map-v2.png](../assets/memd-10-star-capability-map-v2.png)
+- [memd-10-star-overnight-v2.png](../assets/memd-10-star-overnight-v2.png)
+- [memd-10-star-lanes-v1.png](../assets/memd-10-star-lanes-v1.png)
 
 ```mermaid
 flowchart LR
-  subgraph Inputs[Live Inputs]
-    Packs[Harness packs<br/>Codex · Claude Code · OpenClaw · Hermes · Agent Zero · OpenCode]
-    Vault[Obsidian vault]
-    Review[Human review]
+  subgraph Harnesses[Harness packs]
+    H1[Codex]
+    H2[Claude Code]
+    H3[OpenClaw / Hermes]
+    H4[Future harnesses]
   end
 
-  subgraph Core[memd Control Plane]
-    CoreFlow[Core flow<br/>Routing · Working memory · Inbox / explain]
-    Visible[Visible memory]
-    Store[(SQLite store)]
+  subgraph Ingest[Read-once ingest]
+    I1[Turns, docs, artifacts, corrections]
+    I2[Hooks, checkpoints, spill]
+    I3[Resume and handoff packets]
   end
 
-  subgraph Semantic[Semantic Backend]
-    Sidecar[rag-sidecar]
-    Lightrag[LightRAG / compatible backend]
+  subgraph Plane[memd control plane]
+    P1[Working context compiler]
+    P2[Session continuity]
+    P3[Typed retrieval and promotion]
+    P4[Correction, provenance, and authority]
   end
 
-  subgraph Maintenance[Background Maintenance]
-    Worker[memd-worker]
-    Loop[verify / decay / consolidate]
+  subgraph Memory[Typed memory]
+    M1[Working context]
+    M2[Session continuity]
+    M3[Episodic memory]
+    M4[Semantic memory]
+    M5[Procedural memory]
+    M6[Candidate memory]
+    M7[Canonical memory]
   end
 
-  Packs --> CoreFlow
-  Vault -.-> Visible
-  Review -.-> CoreFlow
-  Review -.-> Visible
+  subgraph Surfaces[Recall surfaces]
+    S1[Wake packet]
+    S2[Memory atlas]
+    S3[Canonical deep dive]
+    S4[Raw evidence]
+    S5[Obsidian workspace]
+    S6[Latency briefing]
+  end
 
-  CoreFlow --> Store
-  Store --> Visible
+  subgraph Optional[Optional semantic expansion]
+    O1[Semantic recall backend]
+  end
 
-  CoreFlow --> Sidecar
-  Sidecar --> Lightrag
-  Worker --> Loop --> Store
+  H1 --> I1
+  H2 --> I1
+  H3 --> I1
+  H4 --> I1
+  I1 --> I2 --> I3 --> P1 --> P2 --> P3 --> P4
+  P1 --> M1
+  P2 --> M2
+  P3 --> M3
+  P3 --> M4
+  P3 --> M5
+  P3 --> M6
+  P4 --> M7
+  M7 --> S1
+  M7 --> S2
+  M7 --> S3
+  M7 --> S4
+  M7 --> S5
+  P2 --> S6
+  P3 -. optional .-> O1
 ```
 
-## Summary
+## Native Memory Kinds
 
-`memd` is a memory control plane, not just a storage layer.
+### Working Context
 
-The core idea is:
+- tiny active packet for current reasoning
+- current task, constraints, hypotheses, next move
 
-- harness packs produce live events and compact turn state
-- `memd` keeps live truth synced while work changes
-- corrections replace stale beliefs instead of piling up
-- memd compiles visible pages that stay source-linked
-- the server ships a native visible-memory workbench that surfaces Memory Home,
-  Knowledge Map, truth, repair, and source-linked artifact inspection
-- Obsidian stays a first-class markdown workspace and integration surface
-- Obsidian gives the human-readable graph through wikilinks and backlinks
-- LightRAG indexes the same compiled truth for semantic recall
+### Session Continuity
 
-The important rule is read-once, reuse-many:
+- what we were doing
+- where we left off
+- blockers
+- open loops
+- next action
 
-- raw sources are ingested once
-- compiled pages become the default review surface
-- source evidence stays linked and drillable
-- semantic recall should point back to the compiled page, not replace it
+### Episodic Memory
 
-## What Lives Where
+- what happened
+- when
+- in what context
+- with what result
 
-### Harness Packs
+### Semantic Memory
 
-Harness packs are the entry point for live work.
+- stable truths
+- decisions
+- constraints
+- architecture facts
 
-They do the turn-local jobs:
+### Procedural Memory
 
-- pull the smallest useful context
-- capture turn output and checkpoints
-- preserve session and tab scope
-- keep repeated reads in the same turn on a cache
+- how to do things
+- workflows
+- operating patterns
+- learned recovery behavior
 
-Current packs:
+### Candidate Memory
 
-- Codex
-- Claude Code
-- Agent Zero
-- OpenClaw
-- Hermes
-- OpenCode
+- repeated signals not yet trusted enough
+- holding lane before promotion
 
-### Control Plane
+### Canonical Memory
 
-`memd` owns the policy layer in front of every backend.
+- durable trusted memory
+- promoted semantic, episodic, and procedural memory
+- promotion is stage-aware: candidate items can be promoted to canonical stage and then carry canonical truth behavior through retrieval and resume surfaces
 
-It decides:
+## Typed Memory First Slice
 
-- what is hot enough to surface
-- what should stay compact
-- what should be evicted or rehydrated
-- how to rank by freshness, trust, provenance, and scope
-- how to handle contested or stale facts
+Current runtime slice now exposes top-level typed-memory families in live surfaces:
 
-This is the layer that should get better over time.
+- `semantic`
+- `procedural`
+- `episodic`
+- `session_continuity`
+- `candidate`
+- `canonical`
 
-### Visible Memory
+This does not replace stored `MemoryKind`.
+It is the first behavioral bridge from storage kinds into the 10-star model.
 
-Visible memory is the product surface.
+Current live behavior:
 
-It includes:
+- lookup chooses default storage kinds from retrieval intent
+- lookup output prints the active retrieval plan and typed-memory targets
+- bundle and resume inspection surfaces expose typed-memory labels on durable inbox items
+- compiled memory quality probes now include `session_continuity`, and benchmark artifacts surface the typed retrieval evidence in `latest.md`
 
-- `MEMD_MEMORY.md`
-- lane pages
-- item pages
-- event pages
-- skill pages
-- pack pages
-- Obsidian wikilink navigation
-- the native Memory Home / Knowledge Map shell
-- vault-aware bridge affordances for opening artifacts in the user's real Obsidian workspace
+## Native Control Functions
 
-This is where a user should answer:
+### Correction And Provenance
 
-- what do I know
-- what am I doing
-- what changed
-- what needs attention
-- where does this artifact live in my vault
+Must keep:
 
-### Semantic Backend
-
-LightRAG is the long-term recall backend.
-
-It should:
-
-- index the same truth compiled by memd
-- help find related memory when direct lookup is not enough
-- stay behind the control plane
-- never become the only visible representation of memory
-
-### Provenance and Verification
-
-Mempalace is a good reminder that raw evidence matters.
-
-`memd` should keep:
-
-- source links
-- confidence
+- source
 - freshness
-- contradiction state
-- verification state
+- confidence
+- conflict state
 - promotion history
 
-If a fact is important, it needs a path back to the source and a reason for being trusted.
+### Wake Packet Compiler
 
-## Layer Model
+Must compile small action-ready packets that answer:
 
-### Tier 0: Local Working Memory
+- what are we doing
+- where did we stop
+- what changed
+- what next
 
-Purpose:
+### Hive Coordination
 
-- per-session scratchpad
-- active hypotheses
-- current task context
+Must support:
 
-Properties:
+- per-agent local working state
+- shared truth
+- shared procedures
+- handoff packets
+- latency briefing as first-hop warm start
+- transport capability for future KV/prefix reuse
 
-- fast
-- volatile
-- not canonical
+## Surfaces
 
-### Tier 1: Synced Short-Term State
+These are surfaces over memory, not the substrate itself:
 
-Purpose:
+- wake packet
+- memory atlas
+- canonical deep dive
+- raw evidence
+- Obsidian workspace
 
-- active project focus
-- recent decisions
-- current blockers
-- machine and session status
+## Memory Atlas
 
-Properties:
+The memory atlas is the multidimensional navigation layer over canonical memory.
 
-- shared across machines
-- short TTL
-- optimized for current work
+It is not truth itself.
 
-### Tier 2: Dreamed Candidate Memory
+It should support:
 
-Purpose:
+- region navigation
+- linked expansion
+- neighborhood traversal
+- zoom from summary to evidence
+- multiple dimensions at once
 
-- compressed repeated signal
-- reusable patterns
-- candidate facts for promotion
+Dimensions include:
 
-Properties:
+- time
+- salience
+- trust
+- provenance
+- memory type
+- lane
+- scope
+- harness
 
-- not canonical
-- requires policy evaluation
+Starter atlas lanes:
 
-### Tier 3: Canonical Long-Term Memory
+- inspiration
+- design
+- architecture
+- research
+- workflow
+- preference
 
-Purpose:
+Lanes group memory by domain across kinds.
 
-- durable project and global knowledge
+## Obsidian
 
-Split:
+Obsidian is:
 
-- `project`
-- `global`
+- a first-class human workspace
+- a readable rendered surface
+- a source lane for notes and artifacts
 
-Backends:
+Obsidian is not:
 
-- structured metadata in `memd`
-- semantic retrieval in LightRAG or another backend
-- graph layer later
+- the control plane
+- canonical truth by itself
 
-## Control Plane
+## Semantic Expansion
 
-`memd` owns:
+Semantic backends are optional helpers.
 
-- routing
-- lifecycle
-- dedupe
-- TTL
-- freshness
-- supersession
-- ranking
-- retrieval shaping
+They may help with:
 
-LightRAG is the intended long-term semantic backend path; `memd` stays the control plane in front of it.
+- fuzzy related-context retrieval
+- long-range association
+- semantic expansion
 
-No external component should write canonical long-term memory directly.
+They must not:
 
-The core binaries are cross-platform. Only deploy helpers like `deploy/systemd/` are Linux-specific.
+- outrank canonical memory
+- replace provenance
+- become the main truth layer
 
-## Selective Router
+## Live Loop
 
-Retrieval requests are classified by:
+1. capture raw event, artifact, or correction
+2. update working context
+3. update session continuity
+4. write episodic memory
+5. repair semantic truth
+6. update procedural memory
+7. compile wake packet
 
-- route
+### Phase A Raw Truth Spine
+
+1. capture raw event, artifact, or correction
+2. preserve source linkage immediately
+3. write bundle-local raw spine record
+4. write candidate or canonical memory
+5. keep raw evidence reachable for later resume, atlas, and promotion flows
+
+### Phase B Session Continuity
+
+1. answer what we are doing
+2. answer where we left off
+3. answer what changed
+4. answer what next
+5. keep those answers compact enough for fresh-session resume without transcript rebuild
+
+## Overnight Loop
+
+1. dream
+2. autodream
+3. autoresearch
+4. autoevolve
+5. promote accepted gains into semantic, procedural, and canonical memory
+
+## Architectural Rule
+
+Raw truth comes first.
+
+Everything else exists to:
+
+- make that truth reusable
+- make it navigable
+- make it resumable
+- make it trustworthy
 - intent
 
 The router then picks the smallest useful tier order instead of treating every query as a full corpus search.
@@ -295,9 +371,13 @@ That means:
 
 ## Retrieval Order
 
-1. local
-2. synced short-term
-3. project long-term
-4. global long-term
+1. latency briefing
+2. wake packet
+3. session continuity
+4. typed retrieval
+5. atlas expansion
+6. canonical deep dive
+7. raw evidence
 
-Compact summaries should outrank raw documents. Raw documents are fallback evidence, not the default first payload.
+Compact packets should outrank raw documents.
+Raw documents are fallback evidence, not the default first payload.

@@ -55,11 +55,10 @@ fn path_text_ends_with(value: impl AsRef<Path>, needle: &str) -> bool {
 }
 
 fn public_benchmark_fixture_path(dataset: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../fixtures/{dataset}-mini.json"
-    ))
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/{dataset}-mini.json"))
 }
 
+#[allow(dead_code)]
 fn assert_path_tail(actual: &str, expected: &Path) {
     let expected = fs::canonicalize(expected).unwrap_or_else(|_| expected.to_path_buf());
     assert!(
@@ -182,20 +181,19 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
     }
 }
 
-
 mod mock_server_support;
 pub(crate) use self::mock_server_support::*;
+mod autoresearch_evolution_tests;
 mod awareness_hive_tests;
-mod bootstrap_harness_tests;
 mod benchmark_runtime_tests;
+mod bootstrap_harness_tests;
+mod gap_coordination_tests;
 mod hive_coordination_tests;
 mod public_benchmark_tests;
-mod runtime_verification_tests;
 mod runtime_memory_tests;
+mod runtime_verification_tests;
 mod skill_workflow_tests;
 mod tasks_hive_tests;
-mod gap_coordination_tests;
-mod autoresearch_evolution_tests;
 mod test_support;
-pub(crate) use self::test_support::*;
 use self::autoresearch_evolution_tests::test_autoresearch_snapshot;
+pub(crate) use self::test_support::*;

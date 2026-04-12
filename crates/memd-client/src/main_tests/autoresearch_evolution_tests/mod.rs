@@ -118,6 +118,70 @@ pub(super) fn test_autoresearch_snapshot(
     }
 }
 
+pub(super) fn test_autoresearch_pressure_snapshot(
+    refresh_recommended: bool,
+    redundant_items: usize,
+    inbox_items: usize,
+) -> ResumeSnapshot {
+    let mut snapshot = test_autoresearch_snapshot(
+        refresh_recommended,
+        vec!["summary".to_string(); redundant_items.max(1)],
+        vec!["changed file".to_string(); redundant_items.max(1)],
+    );
+    snapshot.working.used_chars = 1510;
+    snapshot.working.remaining_chars = 90;
+    snapshot.working.truncated = true;
+    snapshot.context.records = (0..6)
+        .map(|index| memd_schema::CompactMemoryRecord {
+            id: uuid::Uuid::new_v4(),
+            record: format!("context duplicate {} keep wake packet compact", index),
+        })
+        .collect();
+    snapshot.inbox.items = (0..inbox_items)
+        .map(|index| memd_schema::InboxMemoryItem {
+            item: memd_schema::MemoryItem {
+                id: uuid::Uuid::new_v4(),
+                content: format!("resume pressure {}", index),
+                redundancy_key: Some("same".to_string()),
+                belief_branch: None,
+                preferred: true,
+                kind: memd_schema::MemoryKind::Status,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("demo".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: memd_schema::MemoryVisibility::Workspace,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: 0.8,
+                ttl_seconds: Some(86_400),
+                created_at: chrono::Utc::now(),
+                status: memd_schema::MemoryStatus::Active,
+                stage: memd_schema::MemoryStage::Candidate,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                updated_at: chrono::Utc::now(),
+                tags: vec!["checkpoint".to_string()],
+            },
+            reasons: vec!["stale".to_string()],
+        })
+        .collect();
+    snapshot.semantic = Some(RagRetrieveResponse {
+        status: "ok".to_string(),
+        mode: RagRetrieveMode::Auto,
+        items: (0..4)
+            .map(|index| memd_rag::RagRetrieveItem {
+                content: format!("semantic evidence {index}"),
+                score: 0.7 - (index as f32 * 0.05),
+                source: Some(format!("semantic-{index}")),
+            })
+            .collect(),
+    });
+    snapshot
+}
+
 fn seed_autoresearch_snapshot_cache(output: &Path, snapshot: &ResumeSnapshot) {
     seed_autoresearch_snapshot_cache_with_limits(output, snapshot, 8, 4, true);
 }
@@ -441,6 +505,109 @@ async fn run_prompt_surface_loop_warns_when_refresh_is_recommended() {
             .get("refresh_recommended")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
+    );
+
+    fs::remove_dir_all(output).expect("cleanup temp output");
+}
+
+#[tokio::test]
+async fn execute_autoresearch_loop_writes_wake_packet_efficiency_artifact() {
+    let output = std::env::temp_dir().join(format!(
+        "memd-wake-packet-artifact-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&output).expect("create temp output");
+    write_test_bundle_config(&output, "http://127.0.0.1:59999");
+    let snapshot = test_autoresearch_snapshot(
+        false,
+        vec!["summary".to_string()],
+        vec!["changed file".to_string()],
+    );
+    seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+    let descriptor = AUTORESEARCH_LOOPS
+        .iter()
+        .find(|descriptor| descriptor.slug == "prompt-efficiency")
+        .expect("prompt efficiency descriptor");
+    execute_autoresearch_loop(&output, "http://127.0.0.1:59999", descriptor)
+        .await
+        .expect("execute prompt efficiency loop");
+
+    let raw = fs::read_to_string(output.join("loops/wake-packet-efficiency.json"))
+        .expect("read wake packet artifact");
+    let artifact: serde_json::Value =
+        serde_json::from_str(&raw).expect("parse wake packet artifact");
+
+    assert_eq!(artifact["slug"], "prompt-efficiency");
+    assert!(
+        artifact["wake_summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("wake project=")
+    );
+    assert!(
+        artifact["estimated_prompt_tokens"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+    );
+    assert!(
+        artifact["core_prompt_tokens"]
+            .as_u64()
+            .is_some_and(|value| value <= artifact["estimated_prompt_tokens"].as_u64().unwrap_or(0))
+    );
+    assert_eq!(artifact["context_pressure"], "low");
+
+    fs::remove_dir_all(output).expect("cleanup temp output");
+}
+
+#[tokio::test]
+async fn run_prompt_surface_loop_records_high_pressure_diagnostics() {
+    let output = std::env::temp_dir().join(format!(
+        "memd-prompt-surface-pressure-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&output).expect("create temp output");
+    write_test_bundle_config(&output, "http://127.0.0.1:59999");
+    let snapshot = test_autoresearch_pressure_snapshot(false, 3, 5);
+    seed_autoresearch_snapshot_cache(&output, &snapshot);
+
+    let descriptor = AUTORESEARCH_LOOPS
+        .iter()
+        .find(|descriptor| descriptor.slug == "prompt-efficiency")
+        .expect("prompt efficiency descriptor");
+    let record = run_prompt_efficiency_loop(&output, "http://127.0.0.1:59999", descriptor, 0, None)
+        .await
+        .expect("run prompt efficiency loop");
+
+    assert!(
+        matches!(record.status.as_deref(), Some("warning" | "success")),
+        "unexpected status: {:?}",
+        record.status
+    );
+    let reasons = record
+        .metadata
+        .get("warning_reasons")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        reasons
+            .iter()
+            .any(|value| value.as_str() == Some("context_pressure=high"))
+    );
+    assert_eq!(
+        record
+            .metadata
+            .get("context_pressure")
+            .and_then(serde_json::Value::as_str),
+        Some("high")
+    );
+    assert_eq!(
+        record
+            .metadata
+            .get("refresh_recommended")
+            .and_then(serde_json::Value::as_bool),
+        Some(false)
     );
 
     fs::remove_dir_all(output).expect("cleanup temp output");
@@ -2082,4 +2249,35 @@ fn ui_commands_parse_artifact_and_map_modes() {
         },
         _ => panic!("expected ui command"),
     }
+}
+
+#[test]
+fn lookup_cli_defaults_stay_on_repo_b_bundle_not_repo_a_global_memory() {
+    let temp_root =
+        std::env::temp_dir().join(format!("memd-cli-repo-isolation-{}", uuid::Uuid::new_v4()));
+    let repo_b = temp_root.join("repo-b");
+    fs::create_dir_all(repo_b.join(".git")).expect("create repo b git dir");
+    let args = apply_lookup_bundle_defaults(
+        LookupArgs {
+            output: repo_b.join(".memd"),
+            query: "what did we decide?".to_string(),
+            project: None,
+            namespace: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            kind: Vec::new(),
+            tag: Vec::new(),
+            include_stale: false,
+            limit: None,
+            verbose: false,
+            json: false,
+        },
+        None,
+    );
+    assert_eq!(args.project.as_deref(), Some("repo-b"));
+    assert_eq!(args.namespace.as_deref(), Some("main"));
+
+    fs::remove_dir_all(temp_root).expect("cleanup temp root");
 }

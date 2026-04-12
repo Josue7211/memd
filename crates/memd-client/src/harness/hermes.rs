@@ -11,7 +11,7 @@ pub(crate) fn build_hermes_harness_pack(
 ) -> HermesHarnessPack {
     HarnessPackData {
         name: "Hermes",
-        role: "adoption-focused wake/capture pack",
+        role: "adoption-focused wake/capture/spill pack",
         agent: "hermes".to_string(),
         project: project.to_string(),
         namespace: namespace.to_string(),
@@ -23,13 +23,15 @@ pub(crate) fn build_hermes_harness_pack(
             bundle_root.join("agents").join("HERMES_MEMORY.md"),
         ],
         commands: vec![
-            "memd wake --output .memd --intent current_task --write".to_string(),
-            "memd resume --output .memd --intent current_task --semantic".to_string(),
+            "memd wake --output .memd --write".to_string(),
+            "memd resume --output .memd --semantic".to_string(),
             "memd hook capture --output .memd --stdin --summary".to_string(),
+            "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
         behaviors: vec![
             "onboarding-friendly wake before the turn".to_string(),
             "capture after the turn".to_string(),
+            "spill at compaction boundaries".to_string(),
             "turn-scoped cache".to_string(),
             "cloud-first reach with self-host later".to_string(),
         ],

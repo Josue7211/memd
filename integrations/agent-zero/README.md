@@ -21,6 +21,7 @@ This preset comes from the shared harness schema.
 - `wake`
 - `remember`
 - `handoff`
+- `spill`
 
 ## Shared Core
 
@@ -32,6 +33,7 @@ This pack is meant to feel frictionless for a fresh session:
 2. read the generated wake and memory files for the current lane
 3. write durable outcomes back with `memd remember`
 4. emit a handoff when another client needs to take over
+5. spill at compaction boundaries
 
 Use the Agent Zero-specific entrypoint:
 
@@ -52,6 +54,7 @@ If you are using a bundle, read:
 memd resume --output .memd
 memd remember --output .memd --kind decision --content "Keep the zero-friction lane current."
 memd handoff --output .memd --prompt
+memd hook spill --output .memd --stdin --apply
 ```
 
 ## Shell Hook Example

@@ -68,8 +68,8 @@ fn write_benchmark_registry_docs_writes_expected_markdown_outputs() {
 fn build_benchmark_gap_candidates_surfaces_unbenchmarked_continuity_feature() {
     let mut registry = test_benchmark_registry();
     registry.features = vec![BenchmarkFeatureRecord {
-        id: "feature.bundle.resume".to_string(),
-        name: "Resume".to_string(),
+        id: "feature.session_continuity".to_string(),
+        name: "Session Continuity".to_string(),
         pillar: "memory-continuity".to_string(),
         family: "bundle-runtime".to_string(),
         tier: "tier-0-continuity-critical".to_string(),
@@ -114,9 +114,9 @@ fn build_telemetry_benchmark_coverage_surfaces_registry_gaps() {
     let coverage = build_telemetry_benchmark_coverage(&output)
         .expect("build telemetry coverage")
         .expect("telemetry coverage");
-    assert_eq!(coverage.continuity_critical_total, 11);
+    assert_eq!(coverage.continuity_critical_total, 13);
     assert_eq!(coverage.continuity_critical_benchmarked, 0);
-    assert_eq!(coverage.missing_loop_count, 11);
+    assert_eq!(coverage.missing_loop_count, 13);
     assert!(
         coverage
             .gap_candidates
@@ -134,7 +134,7 @@ fn render_morning_operator_summary_surfaces_top_regressions() {
         current_benchmark_max_score: 100,
         top_continuity_failures: vec!["resume continuity drift".to_string()],
         top_verification_regressions: vec![
-            "verifier.feature.bundle.resume status=failing gate=fragile".to_string(),
+            "verifier.feature.session_continuity status=failing gate=fragile".to_string(),
         ],
         top_verification_pressure: vec![
             "verifier.feature.hive.messages-send-ack status=passing gate=acceptable target=acceptable continuity_critical=true".to_string(),
@@ -148,7 +148,7 @@ fn render_morning_operator_summary_surfaces_top_regressions() {
     assert!(summary.contains("resume continuity drift"));
     assert!(summary.contains("Verification Regressions"));
     assert!(summary.contains("Verification Pressure"));
-    assert!(summary.contains("verifier.feature.bundle.resume status=failing gate=fragile"));
+    assert!(summary.contains("verifier.feature.session_continuity status=failing gate=fragile"));
     assert!(
         summary.contains("verifier.feature.hive.messages-send-ack status=passing gate=acceptable")
     );
@@ -348,7 +348,7 @@ fn write_continuity_journey_artifacts_writes_expected_outputs() {
             "baseline.with-memd".to_string(),
         ],
         feature_ids: vec![
-            "feature.bundle.resume".to_string(),
+            "feature.session_continuity".to_string(),
             "feature.bundle.handoff".to_string(),
         ],
         artifact_paths: Vec::new(),

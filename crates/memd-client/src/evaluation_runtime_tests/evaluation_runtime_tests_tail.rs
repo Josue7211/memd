@@ -198,12 +198,12 @@
 
     fn test_failing_tier_zero_verifier() -> VerifierRecord {
         VerifierRecord {
-            id: "verifier.feature.bundle.resume.failing".to_string(),
+            id: "verifier.feature.session_continuity.failing".to_string(),
             name: "Resume feature failing".to_string(),
             verifier_type: "feature_contract".to_string(),
             pillar: "memory-continuity".to_string(),
             family: "bundle-runtime".to_string(),
-            subject_ids: vec!["feature.bundle.resume".to_string()],
+            subject_ids: vec!["feature.session_continuity".to_string()],
             fixture_id: "fixture.continuity_bundle".to_string(),
             baseline_modes: vec!["with_memd".to_string()],
             steps: Vec::new(),

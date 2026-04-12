@@ -37,11 +37,9 @@ use self::support::{
     hash_bytes, hash_content, infer_path_migration, is_text_like_attachment, note_matches_scope,
     register_path_migration, should_skip_vault_path, system_time_to_utc,
 };
-use parsing::{
-    fallback_attachment_match, parse_attachment_from_raw, parse_markdown_note_from_raw,
-};
 #[cfg(test)]
 use parsing::parse_markdown_note;
+use parsing::{fallback_attachment_match, parse_attachment_from_raw, parse_markdown_note_from_raw};
 
 const MEMD_ROUNDTRIP_BEGIN: &str = "<!-- memd:begin -->";
 const MEMD_ROUNDTRIP_END: &str = "<!-- memd:end -->";

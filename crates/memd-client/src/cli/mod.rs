@@ -408,7 +408,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 if let Some(session) = args.session.as_deref() {
                     set_bundle_session(&args.output, session)?;
                 }
-                let snapshot = read_bundle_resume(
+                let snapshot = crate::runtime::read_bundle_resume(
                     &ResumeArgs {
                         output: args.output.clone(),
                         project: None,
@@ -461,7 +461,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "opencode");
             let openclaw_pack =
                 harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "openclaw");
-            let snapshot = match read_bundle_resume(&args, &base_url).await {
+            let snapshot = match crate::runtime::read_bundle_resume(&args, &base_url).await {
                 Ok(snapshot) => snapshot,
                 Err(err)
                     if codex_pack
@@ -551,8 +551,8 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Refresh(args) => {
-            invalidate_bundle_runtime_caches(&args.output)?;
-            let snapshot = read_bundle_resume(&args, &base_url).await?;
+            crate::runtime::invalidate_bundle_runtime_caches(&args.output)?;
+            let snapshot = crate::runtime::read_bundle_resume(&args, &base_url).await?;
             write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot, "refresh").await?;
             let _ = refresh_harness_pack_files_for_snapshot(
@@ -602,7 +602,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_workspace_watch(&client, &base_url, &args).await?;
         }
         Commands::Handoff(args) => {
-            let snapshot = read_bundle_handoff(&args, &base_url).await?;
+            let snapshot = crate::runtime::read_bundle_handoff(&args, &base_url).await?;
             write_bundle_memory_files(&args.output, &snapshot.resume, Some(&snapshot), false)
                 .await?;
             auto_checkpoint_live_snapshot(&args.output, &base_url, &snapshot.resume, "handoff")
@@ -630,6 +630,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint(args) => {
+            let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = match checkpoint_with_bundle_defaults(&args, &base_url).await {
                 Ok(response) => response,
                 Err(err) => {
@@ -646,11 +647,11 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                     return Err(err);
                 }
             };
-            let snapshot = read_bundle_resume(
+            let snapshot = crate::runtime::read_bundle_resume(
                 &ResumeArgs {
                     output: args.output.clone(),
-                    project: args.project.clone(),
-                    namespace: args.namespace.clone(),
+                    project: args.project.clone().or(default_project),
+                    namespace: args.namespace.clone().or(default_namespace),
                     agent: None,
                     workspace: args.workspace.clone(),
                     visibility: args.visibility.clone(),
@@ -678,12 +679,13 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             print_json(&response)?;
         }
         Commands::Remember(args) => {
+            let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = remember_with_bundle_defaults(&args, &base_url).await?;
-            let snapshot = read_bundle_resume(
+            let snapshot = crate::runtime::read_bundle_resume(
                 &ResumeArgs {
                     output: args.output.clone(),
-                    project: args.project.clone(),
-                    namespace: args.namespace.clone(),
+                    project: args.project.clone().or(default_project),
+                    namespace: args.namespace.clone().or(default_namespace),
                     agent: None,
                     workspace: args.workspace.clone(),
                     visibility: args.visibility.clone(),

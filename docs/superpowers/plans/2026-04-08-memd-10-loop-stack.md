@@ -1,5 +1,9 @@
 # memd 10-Loop Autoresearch Stack Implementation Plan
 
+This is a slice plan, not a roadmap.
+
+Roadmap truth lives in `ROADMAP.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Expand memd's autoresearch system into a 10-loop stack that catches weak or false-green improvements fast while still tracking real gains in runtime, hive coordination, memory hygiene, and repo hygiene.

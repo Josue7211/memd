@@ -44,16 +44,16 @@ and spill at compaction boundaries.
 
 Hermes is the adoption-focused harness pack: it now comes from the shared
 preset schema, uses the same memory core, and centers onboarding, cloud-first
-reach, and self-host later.
+reach, self-host later, and spill.
 
 Agent Zero is the zero-friction harness pack: it now comes from the shared
 preset schema, uses the same memory core, and centers fast resume, durable
-remember, and a clean handoff path for fresh sessions.
+remember, clean handoff, spill, and a clean handoff path for fresh sessions.
 
 OpenCode is the shared-lane harness pack: it now comes from the shared preset
 schema, uses the same visible-bundle contract, and centers resume, durable
-remember, and handoff flows for agent clients that need explicit continuity
-commands.
+remember, handoff, and spill flows for agent clients that need explicit
+continuity commands.
 
 The pack browse surface is `memd packs --root .memd --summary`, with
 `memd packs --root .memd --json` for UI integration.

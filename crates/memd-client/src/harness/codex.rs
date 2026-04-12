@@ -11,7 +11,7 @@ pub(crate) fn build_codex_harness_pack(
 ) -> CodexHarnessPack {
     HarnessPackData {
         name: "Codex",
-        role: "turn-first recall/capture pack",
+        role: "turn-first recall/capture/spill pack",
         agent: "codex".to_string(),
         project: project.to_string(),
         namespace: namespace.to_string(),
@@ -23,13 +23,18 @@ pub(crate) fn build_codex_harness_pack(
             bundle_root.join("agents").join("CODEX_MEMORY.md"),
         ],
         commands: vec![
-            "memd wake --output .memd --intent current_task --write".to_string(),
-            "memd resume --output .memd --intent current_task".to_string(),
+            "memd wake --output .memd --write".to_string(),
+            "memd resume --output .memd".to_string(),
+            "memd lookup --output .memd --query \"what did we already decide about this?\""
+                .to_string(),
             "memd hook capture --output .memd --stdin --summary".to_string(),
+            "memd hook spill --output .memd --stdin --apply".to_string(),
         ],
         behaviors: vec![
             "recall before turn".to_string(),
+            "pre-answer lookup before memory-dependent responses".to_string(),
             "capture after turn".to_string(),
+            "spill at compaction boundaries".to_string(),
             "turn-scoped cache".to_string(),
         ],
     }

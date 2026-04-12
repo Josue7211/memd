@@ -1,19 +1,66 @@
 use super::*;
 
+pub(crate) fn append_raw_spine_record(
+    output: &Path,
+    event_type: &str,
+    stage: &str,
+    project: Option<&str>,
+    namespace: Option<&str>,
+    workspace: Option<&str>,
+    source_system: Option<&str>,
+    source_path: Option<&str>,
+    confidence: Option<f32>,
+    tags: &[String],
+    content: &str,
+) -> anyhow::Result<()> {
+    let tag_refs = tags.iter().map(String::as_str).collect::<Vec<_>>();
+    let record = derive_raw_spine_record(
+        event_type,
+        stage,
+        source_system,
+        source_path,
+        project,
+        namespace,
+        workspace,
+        confidence,
+        &tag_refs,
+        content,
+    );
+    write_raw_spine_records(output, &[record])
+}
+
+pub(crate) fn infer_bundle_identity_defaults(output: &Path) -> (Option<String>, Option<String>) {
+    let Some(project_root) = infer_bundle_project_root(output) else {
+        return (None, None);
+    };
+
+    let project = project_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let namespace = project.as_ref().map(|_| "main".to_string());
+    (project, namespace)
+}
+
 pub(crate) async fn remember_with_bundle_defaults(
     args: &RememberArgs,
     base_url: &str,
 ) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let session = runtime.as_ref().and_then(|config| config.session.clone());
+    let (inferred_project, inferred_namespace) = infer_bundle_identity_defaults(&args.output);
     let project = args
         .project
         .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()))
+        .or(inferred_project);
     let namespace = args
         .namespace
         .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
+        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()))
+        .or(inferred_namespace);
     let workspace = args
         .workspace
         .clone()
@@ -81,7 +128,7 @@ pub(crate) async fn remember_with_bundle_defaults(
     let supersedes = parse_uuid_list(&args.supersede)?;
 
     let client = MemdClient::new(&base_url)?;
-    client
+    let response = client
         .store(&memd_schema::StoreMemoryRequest {
             content,
             kind,
@@ -102,7 +149,23 @@ pub(crate) async fn remember_with_bundle_defaults(
             tags: args.tag.clone(),
             status: Some(MemoryStatus::Active),
         })
-        .await
+        .await?;
+
+    append_raw_spine_record(
+        &args.output,
+        "remember",
+        "canonical",
+        response.item.project.as_deref(),
+        response.item.namespace.as_deref(),
+        response.item.workspace.as_deref(),
+        response.item.source_system.as_deref(),
+        response.item.source_path.as_deref(),
+        Some(response.item.confidence),
+        &response.item.tags,
+        &response.item.content,
+    )?;
+
+    Ok(response)
 }
 
 pub(crate) async fn checkpoint_with_bundle_defaults(
@@ -110,7 +173,21 @@ pub(crate) async fn checkpoint_with_bundle_defaults(
     base_url: &str,
 ) -> anyhow::Result<memd_schema::StoreMemoryResponse> {
     let translated = checkpoint_as_remember_args(args);
-    remember_with_bundle_defaults(&translated, base_url).await
+    let response = remember_with_bundle_defaults(&translated, base_url).await?;
+    append_raw_spine_record(
+        &args.output,
+        "checkpoint",
+        "candidate",
+        translated.project.as_deref(),
+        translated.namespace.as_deref(),
+        translated.workspace.as_deref(),
+        translated.source_system.as_deref(),
+        translated.source_path.as_deref(),
+        translated.confidence,
+        &translated.tag,
+        translated.content.as_deref().unwrap_or_default(),
+    )?;
+    Ok(response)
 }
 
 pub(crate) fn remember_args_from_hook_capture(
@@ -965,5 +1042,26 @@ pub(crate) fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs
         content: args.content.clone(),
         input: args.input.clone(),
         stdin: args.stdin,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_bundle_identity_defaults_bind_repo_without_runtime_config() {
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-checkpoint-defaults-{}", uuid::Uuid::new_v4()));
+        let repo_root = temp_root.join("repo-b");
+        let bundle_root = repo_root.join(".memd");
+
+        fs::create_dir_all(repo_root.join(".git")).expect("create repo git dir");
+
+        let (project, namespace) = infer_bundle_identity_defaults(&bundle_root);
+        assert_eq!(project.as_deref(), Some("repo-b"));
+        assert_eq!(namespace.as_deref(), Some("main"));
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
     }
 }

@@ -4,11 +4,11 @@ mod commands_runtime;
 mod ops_runtime;
 
 #[allow(unused_imports)]
+pub(crate) use crate::workflow::*;
+#[allow(unused_imports)]
 pub(crate) use commands_runtime::*;
 #[allow(unused_imports)]
 pub(crate) use ops_runtime::*;
-#[allow(unused_imports)]
-pub(crate) use crate::workflow::*;
 
 pub(crate) fn render_hive_project_summary(response: &HiveProjectResponse) -> String {
     format!(

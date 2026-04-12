@@ -40,6 +40,10 @@ It does not create a second coordination store.
 - `assign_task`
 - `request_task_help`
 - `request_task_review`
+- `bash_exec`
+  - isolated `just-bash` shell rooted at `project`, `bundle`, or `integration`
+  - default overlay mode keeps writes in memory only
+  - set `allow_write: true` only when you want disk writes inside that root
 
 ## Environment
 
@@ -62,6 +66,8 @@ cd integrations/mcp-hive
 npm install
 ```
 
+This package now installs `just-bash` and exposes it through `bash_exec`.
+
 ## Example MCP entry
 
 ```json
@@ -72,6 +78,33 @@ npm install
     "env": {
       "MEMD_BUNDLE_ROOT": "/absolute/path/to/project/.memd"
     }
+  }
+}
+```
+
+## Example `bash_exec`
+
+Read-only repo inspection:
+
+```json
+{
+  "name": "bash_exec",
+  "arguments": {
+    "script": "pwd && rg -n \"voice_mode\" .memd/config.json",
+    "root": "project"
+  }
+}
+```
+
+Writable bundle update:
+
+```json
+{
+  "name": "bash_exec",
+  "arguments": {
+    "script": "echo test >> notes.txt",
+    "root": "bundle",
+    "allow_write": true
   }
 }
 ```

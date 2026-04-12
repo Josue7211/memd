@@ -7,7 +7,7 @@ This preset comes from the shared harness schema.
 - pack id: `opencode`
 - entrypoint: `memd resume --output .memd --intent current_task`
 - cache policy: shared-lane continuity cache
-- tone: explicit continuity verbs
+- tone: explicit continuity and spill verbs
 
 ## Surface Set
 
@@ -21,6 +21,7 @@ This preset comes from the shared harness schema.
 - `resume`
 - `remember`
 - `handoff`
+- `spill`
 
 ## Shared Core
 
@@ -33,6 +34,7 @@ explicit:
 2. read the generated wake and memory files for the shared lane
 3. write durable outcomes back with `memd remember`
 4. emit a handoff when another client needs to take over
+5. spill at compaction boundaries
 
 Use the OpenCode-specific entrypoint:
 
@@ -53,6 +55,7 @@ If you are using a bundle, read:
 memd resume --output .memd
 memd remember --output .memd --kind decision --content "Keep the shared lane current."
 memd handoff --output .memd --prompt
+memd hook spill --output .memd --stdin --apply
 ```
 
 ## Shell Hook Example

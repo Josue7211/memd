@@ -251,7 +251,8 @@ pub(crate) fn render_working_summary(response: &WorkingMemoryResponse, follow: b
             .take(3)
             .map(|trace| {
                 format!(
-                    "{}:{}",
+                    "{}:{}:{}",
+                    trace.typed_memory,
                     trace.event_type,
                     compact_inline(&trace.summary, 40)
                 )
@@ -324,6 +325,93 @@ pub(crate) fn render_policy_summary(response: &MemoryPolicyResponse, follow: boo
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use memd_schema::{
+        CompactMemoryRecord, MemoryKind, MemoryScope, MemoryStage, MemoryVisibility,
+        SourceMemoryRecord, SourceMemoryResponse, WorkingMemoryPolicyState,
+        WorkingMemoryTraceRecord,
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
+        let response = WorkingMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project, MemoryScope::Synced],
+            budget_chars: 1600,
+            used_chars: 240,
+            remaining_chars: 1360,
+            truncated: false,
+            policy: WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: vec![CompactMemoryRecord {
+                id: Uuid::new_v4(),
+                record: "current task: lock typed trace families".to_string(),
+            }],
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: vec![WorkingMemoryTraceRecord {
+                item_id: Uuid::new_v4(),
+                entity_id: Some(Uuid::new_v4()),
+                memory_kind: MemoryKind::Status,
+                memory_stage: MemoryStage::Candidate,
+                typed_memory: "session_continuity+candidate".to_string(),
+                event_type: "retrieved_context".to_string(),
+                summary: "continuity state entered working set".to_string(),
+                occurred_at: Utc::now(),
+                salience_score: 0.82,
+            }],
+            semantic_consolidation: None,
+        };
+
+        let summary = render_working_summary(&response, true);
+        assert!(summary.contains("trace_trail=session_continuity+candidate:retrieved_context:continuity state entered working set"));
+    }
+
+    #[test]
+    fn render_source_summary_surfaces_provenance_trail_and_tags() {
+        let response = SourceMemoryResponse {
+            sources: vec![SourceMemoryRecord {
+                source_agent: Some("codex@test".to_string()),
+                source_system: Some("hook-capture".to_string()),
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("core".to_string()),
+                visibility: MemoryVisibility::Workspace,
+                item_count: 3,
+                active_count: 2,
+                candidate_count: 1,
+                derived_count: 0,
+                synthetic_count: 0,
+                contested_count: 0,
+                avg_confidence: 0.88,
+                trust_score: 0.93,
+                last_seen_at: Some(Utc::now()),
+                tags: vec!["raw-spine".to_string(), "correction".to_string()],
+            }],
+        };
+
+        let summary = render_source_summary(&response, true);
+        assert!(summary.contains("source_memory sources=1"));
+        assert!(summary.contains("top=codex@test"));
+        assert!(summary.contains("system=hook-capture"));
+        assert!(summary.contains("workspace=core"));
+        assert!(summary.contains("items=3"));
+        assert!(summary.contains("trust=0.93"));
+        assert!(summary.contains("avg_confidence=0.88"));
+        assert!(summary.contains("trail=codex@test:hook-capture:core:3:0.93"));
+        assert!(summary.contains("tags=raw-spine|correction"));
+    }
 }
 
 pub(crate) fn render_skill_policy_summary(response: &MemoryPolicyResponse, follow: bool) -> String {
@@ -413,19 +501,19 @@ pub(crate) fn render_skill_catalog_match_summary(
         catalog.custom.len(),
     );
     if let Some(first) = matches.first() {
-            output.push_str(&format!(
-                " best={} source={} status={} path={} next={} usage={} decision={}",
-                first.name,
-                first.source,
-                first.status,
-                first
-                    .path
-                    .as_ref()
-                    .map(|path: &std::path::PathBuf| path.display().to_string())
-                    .unwrap_or_else(|| "builtin".to_string()),
-                skill_activation_path(first),
-                first.usage,
-                first.decision
+        output.push_str(&format!(
+            " best={} source={} status={} path={} next={} usage={} decision={}",
+            first.name,
+            first.source,
+            first.status,
+            first
+                .path
+                .as_ref()
+                .map(|path: &std::path::PathBuf| path.display().to_string())
+                .unwrap_or_else(|| "builtin".to_string()),
+            skill_activation_path(first),
+            first.usage,
+            first.decision
         ));
     }
     output

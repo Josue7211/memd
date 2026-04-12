@@ -7,11 +7,12 @@ use std::{
 use anyhow::Context;
 use serde::Serialize;
 
+use crate::append_raw_spine_record;
+use crate::runtime::retrieval_runtime::{resolve_default_bundle_root, resolve_rag_url};
 use crate::{
     IngestArgs, RagSyncArgs, parse_memory_kind_value, parse_memory_scope_value,
     parse_memory_visibility_value, parse_source_quality_value, parse_uuid_list,
 };
-use crate::runtime::retrieval_runtime::{resolve_default_bundle_root, resolve_rag_url};
 use memd_client::MemdClient;
 use memd_multimodal::{
     MultimodalChunk, MultimodalIngestPlan, build_ingest_plan, extract_chunks, to_sidecar_requests,
@@ -257,6 +258,21 @@ async fn ingest_text_memory(
 
     if args.apply {
         let candidate = client.candidate(&req).await?;
+        let output =
+            resolve_default_bundle_root()?.unwrap_or_else(crate::bundle::default_bundle_root_path);
+        append_raw_spine_record(
+            &output,
+            "ingest",
+            "candidate",
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            req.source_system.as_deref().or(Some("ingest")),
+            req.source_path.as_deref(),
+            req.confidence,
+            &req.tags,
+            &req.content,
+        )?;
         Ok(IngestAutoRouteResult {
             route: "memory".to_string(),
             request: Some(req),

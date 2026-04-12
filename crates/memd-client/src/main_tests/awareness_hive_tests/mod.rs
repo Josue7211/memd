@@ -222,6 +222,7 @@ fn project_awareness_local_prunes_dead_sibling_without_active_claims() {
             last_seen: Utc::now() - chrono::TimeDelta::minutes(30),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         })
         .expect("serialize heartbeat")
             + "\n",
@@ -1356,6 +1357,7 @@ fn render_hive_roster_summary_prefers_worker_names_and_role_lane_task() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         }],
     };
 
@@ -1415,6 +1417,7 @@ fn render_hive_roster_summary_prefers_display_name_for_generic_workers() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         }],
     };
 
@@ -1602,6 +1605,7 @@ fn render_hive_follow_summary_surfaces_messages_receipts_and_overlap_risk() {
             risk: Some("medium".to_string()),
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         },
         work_summary: "Review parser handoff".to_string(),
         touch_points: vec![
@@ -1720,6 +1724,7 @@ fn render_hive_follow_watch_frame_includes_timestamp_and_summary() {
             risk: Some("medium".to_string()),
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         },
         work_summary: "Review parser handoff".to_string(),
         touch_points: vec!["crates/memd-client/src/main.rs".to_string()],
@@ -1735,6 +1740,7 @@ fn render_hive_follow_watch_frame_includes_timestamp_and_summary() {
 
     let frame = render_hive_follow_watch_frame(
         &response,
+        None,
         DateTime::parse_from_rfc3339("2026-04-09T22:30:00Z")
             .expect("parse timestamp")
             .with_timezone(&Utc),
@@ -1864,6 +1870,7 @@ fn render_hive_queen_summary_surfaces_explicit_actions() {
                 "memd hive queen --reroute-session session-lorentz --summary".to_string(),
             ),
             retire_command: None,
+            cowork_command: None,
         }],
         recent_receipts: vec![
             "queen_assign session-lorentz review-parser".to_string(),
@@ -1885,9 +1892,7 @@ fn render_hive_queen_summary_surfaces_explicit_actions() {
     assert!(
         summary.contains("reroute=`memd hive queen --reroute-session session-lorentz --summary`")
     );
-    assert!(
-        summary.contains("deny=`memd hive queen --deny-session session-lorentz --summary`")
-    );
+    assert!(summary.contains("deny=`memd hive queen --deny-session session-lorentz --summary`"));
 }
 
 #[test]
@@ -1936,6 +1941,7 @@ fn render_hive_board_summary_surfaces_board_sections() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         }],
         blocked_bees: vec!["Avicenna overlap on crates/memd-client/src/main.rs".to_string()],
         stale_bees: vec!["session-old".to_string()],
@@ -1998,6 +2004,7 @@ fn hive_board_response_includes_dashboard_panels() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         }],
         blocked_bees: vec!["Avicenna overlap".to_string()],
         stale_bees: vec!["session-old".to_string()],
@@ -2091,6 +2098,7 @@ async fn run_hive_handoff_command_emits_message_and_receipt_for_target_worker() 
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
         sessions.push(memd_schema::HiveSessionRecord {
             session: "session-avicenna".to_string(),
@@ -2134,6 +2142,7 @@ async fn run_hive_handoff_command_emits_message_and_receipt_for_target_worker() 
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
     }
 
@@ -2289,6 +2298,7 @@ async fn hive_handoff_is_visible_in_target_inbox_and_follow_surfaces() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
         sessions.push(memd_schema::HiveSessionRecord {
             session: "session-noether".to_string(),
@@ -2332,6 +2342,7 @@ async fn hive_handoff_is_visible_in_target_inbox_and_follow_surfaces() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
     }
 
@@ -2452,6 +2463,7 @@ async fn run_hive_board_command_prunes_retired_stale_bees_from_default_view() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
         sessions.push(memd_schema::HiveSessionRecord {
             session: "session-stale".to_string(),
@@ -2495,6 +2507,7 @@ async fn run_hive_board_command_prunes_retired_stale_bees_from_default_view() {
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now() - chrono::TimeDelta::minutes(45),
+            ..memd_schema::HiveSessionRecord::default()
         });
     }
 
@@ -3134,6 +3147,7 @@ fn render_bundle_heartbeat_summary_surfaces_presence_and_focus() {
         last_seen: Utc::now(),
         authority_mode: Some("shared".to_string()),
         authority_degraded: false,
+        ..BundleHeartbeatState::default()
     };
 
     let summary = render_bundle_heartbeat_summary(&state);
@@ -3194,6 +3208,7 @@ fn shared_awareness_scope_prefers_workspace_over_project_filters() {
         base_url: None,
         route: None,
         intent: None,
+        voice_mode: None,
         workspace: Some("initiative-alpha".to_string()),
         visibility: None,
         heartbeat_model: None,
@@ -3461,6 +3476,7 @@ async fn propagate_hive_metadata_does_not_overwrite_sibling_worker_identity() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: Some("shared".to_string()),
         visibility: Some("workspace".to_string()),
         allow_localhost_read_only_fallback: false,
@@ -3495,6 +3511,7 @@ async fn propagate_hive_metadata_does_not_overwrite_sibling_worker_identity() {
         rag_url: None,
         route: "auto".to_string(),
         intent: "current_task".to_string(),
+        voice_mode: None,
         workspace: Some("shared".to_string()),
         visibility: Some("workspace".to_string()),
         allow_localhost_read_only_fallback: false,

@@ -83,9 +83,9 @@ impl RetrievalPlan {
                 MemoryScope::Global => 0.5,
             },
             RetrievalIntent::CurrentTask => match scope {
-                MemoryScope::Local => 1.1,
-                MemoryScope::Synced => 0.95,
-                MemoryScope::Project => 0.5,
+                MemoryScope::Local => 0.55,
+                MemoryScope::Synced => 1.0,
+                MemoryScope::Project => 1.15,
                 MemoryScope::Global => -0.2,
             },
             RetrievalIntent::Decision => match scope {
@@ -143,7 +143,7 @@ impl RetrievalPlan {
 fn default_route_for_intent(intent: RetrievalIntent) -> RetrievalRoute {
     match intent {
         RetrievalIntent::General | RetrievalIntent::Fact => RetrievalRoute::All,
-        RetrievalIntent::CurrentTask => RetrievalRoute::LocalFirst,
+        RetrievalIntent::CurrentTask => RetrievalRoute::ProjectFirst,
         RetrievalIntent::Decision
         | RetrievalIntent::Runbook
         | RetrievalIntent::Procedural
@@ -158,17 +158,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_task_defaults_to_local_first() {
+    fn current_task_defaults_to_project_first() {
         let plan = RetrievalPlan::resolve(None, Some(RetrievalIntent::CurrentTask));
-        assert_eq!(plan.route, RetrievalRoute::LocalFirst);
+        assert_eq!(plan.route, RetrievalRoute::ProjectFirst);
         assert_eq!(
             plan.scopes(),
             vec![
-                MemoryScope::Local,
-                MemoryScope::Synced,
                 MemoryScope::Project,
+                MemoryScope::Synced,
+                MemoryScope::Local,
                 MemoryScope::Global
             ]
+        );
+        assert!(
+            plan.intent_scope_bonus(MemoryScope::Project)
+                > plan.intent_scope_bonus(MemoryScope::Local)
         );
     }
 

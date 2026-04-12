@@ -6,6 +6,7 @@ pub(crate) use render_memory_summary::*;
 
 pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
+    let continuity = snapshot.continuity_capsule();
     output.push_str("# r\n\n");
     output.push_str(&format!(
         "- p={} | n={} | a={} | w={} | v={} | r={} | i={}\n",
@@ -48,6 +49,33 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
     if !current_task.is_empty() {
         output.push_str("\n## T\n\n");
         output.push_str(&current_task);
+    }
+
+    if continuity.current_task.is_some()
+        || continuity.resume_point.is_some()
+        || continuity.changed.is_some()
+        || continuity.next_action.is_some()
+        || continuity.blocker.is_some()
+    {
+        output.push_str("\n## C\n\n");
+        if let Some(current_task) = continuity.current_task.as_deref() {
+            output.push_str(&format!("- doing={}\n", compact_inline(current_task, 180)));
+        }
+        if let Some(resume_point) = continuity.resume_point.as_deref() {
+            output.push_str(&format!(
+                "- left_off={}\n",
+                compact_inline(resume_point, 180)
+            ));
+        }
+        if let Some(changed) = continuity.changed.as_deref() {
+            output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
+        }
+        if let Some(next_action) = continuity.next_action.as_deref() {
+            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+        }
+        if let Some(blocker) = continuity.blocker.as_deref() {
+            output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
+        }
     }
 
     let event_spine = snapshot.event_spine();
@@ -180,6 +208,33 @@ pub(crate) fn render_resume_prompt(snapshot: &crate::ResumeSnapshot) -> String {
 
 fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
     let mut output = String::new();
+    let continuity = snapshot.continuity_capsule();
+
+    if continuity.current_task.is_some()
+        || continuity.resume_point.is_some()
+        || continuity.changed.is_some()
+        || continuity.next_action.is_some()
+        || continuity.blocker.is_some()
+    {
+        if let Some(current_task) = continuity.current_task.as_deref() {
+            output.push_str(&format!("- doing={}\n", compact_inline(current_task, 180)));
+        }
+        if let Some(resume_point) = continuity.resume_point.as_deref() {
+            output.push_str(&format!(
+                "- left_off={}\n",
+                compact_inline(resume_point, 180)
+            ));
+        }
+        if let Some(changed) = continuity.changed.as_deref() {
+            output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
+        }
+        if let Some(next_action) = continuity.next_action.as_deref() {
+            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+        }
+        if let Some(blocker) = continuity.blocker.as_deref() {
+            output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
+        }
+    }
 
     let capsule = snapshot.workflow_capsule();
     if !capsule.is_empty() {
@@ -197,6 +252,7 @@ fn render_current_task_snapshot(snapshot: &crate::ResumeSnapshot) -> String {
 
 pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String {
     let mut output = String::new();
+    let continuity = snapshot.resume.continuity_capsule();
     output.push_str("# h\n\n");
     output.push_str(&format!(
         "- at={} | p={} | n={} | a={} | w={} | v={} | r={} | i={}\n",
@@ -230,6 +286,33 @@ pub(crate) fn render_handoff_prompt(snapshot: &crate::HandoffSnapshot) -> String
             ));
         }
         output.push('\n');
+    }
+
+    if continuity.current_task.is_some()
+        || continuity.resume_point.is_some()
+        || continuity.changed.is_some()
+        || continuity.next_action.is_some()
+        || continuity.blocker.is_some()
+    {
+        output.push_str("\n## C\n\n");
+        if let Some(current_task) = continuity.current_task.as_deref() {
+            output.push_str(&format!("- doing={}\n", compact_inline(current_task, 180)));
+        }
+        if let Some(resume_point) = continuity.resume_point.as_deref() {
+            output.push_str(&format!(
+                "- left_off={}\n",
+                compact_inline(resume_point, 180)
+            ));
+        }
+        if let Some(changed) = continuity.changed.as_deref() {
+            output.push_str(&format!("- changed={}\n", compact_inline(changed, 180)));
+        }
+        if let Some(next_action) = continuity.next_action.as_deref() {
+            output.push_str(&format!("- next={}\n", compact_inline(next_action, 180)));
+        }
+        if let Some(blocker) = continuity.blocker.as_deref() {
+            output.push_str(&format!("- blocker={}\n", compact_inline(blocker, 180)));
+        }
     }
 
     let mut ri_parts_resume = Vec::new();
@@ -353,4 +436,153 @@ pub(crate) fn render_maintenance_report_summary(
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_resume_snapshot() -> crate::ResumeSnapshot {
+        crate::ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 60,
+                remaining_chars: 1540,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "Follow the active current-task lane".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "Reload the shared workspace handoff".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "One review item is still open".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        updated_at: chrono::Utc::now(),
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        tags: vec!["checkpoint".to_string()],
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: crate::SessionClaimsState::default(),
+            recent_repo_changes: vec!["status M crates/memd-client/src/render.rs".to_string()],
+            change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        }
+    }
+
+    #[test]
+    fn render_resume_prompt_surfaces_explicit_continuity_answers() {
+        let prompt = render_resume_prompt(&sample_resume_snapshot());
+        assert!(prompt.contains("## T"));
+        assert!(prompt.contains("## C"));
+        assert!(prompt.contains("- doing="));
+        assert!(prompt.contains("- left_off="));
+        assert!(prompt.contains("- changed="));
+        assert!(prompt.contains("- next="));
+        assert!(prompt.contains("- blocker="));
+    }
+
+    #[test]
+    fn render_handoff_prompt_surfaces_explicit_continuity_answers() {
+        let handoff = crate::HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume: sample_resume_snapshot(),
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            target_session: Some("session-noether".to_string()),
+            target_bundle: Some(".memd".to_string()),
+        };
+
+        let prompt = render_handoff_prompt(&handoff);
+        assert!(prompt.contains("## C"));
+        assert!(prompt.contains("- doing="));
+        assert!(prompt.contains("- left_off="));
+        assert!(prompt.contains("- changed="));
+        assert!(prompt.contains("- next="));
+        assert!(prompt.contains("- blocker=One review item is still open"));
+    }
 }

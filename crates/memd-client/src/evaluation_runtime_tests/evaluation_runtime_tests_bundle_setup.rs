@@ -31,6 +31,13 @@
         ));
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
         assert!(
+            response.agents[0]
+                .native_hint
+                .as_deref()
+                .unwrap_or_default()
+                .contains("CODEX_WAKEUP.md")
+        );
+        assert!(
             response.agents.iter().any(|agent| path_text_ends_with(
                 &agent.memory_file,
                 "agents/AGENT_ZERO_MEMORY.md"
@@ -228,6 +235,281 @@
             String::from_utf8_lossy(&source.stdout),
             "Demo Codex proof-alpha"
         );
+
+        fs::remove_dir_all(root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn attach_snippet_executes_wake_with_bundle_route_intent_and_env_defaults() {
+        let root =
+            std::env::temp_dir().join(format!("memd-attach-exec-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let bin_dir = root.join("bin");
+        let log_path = root.join("memd.log");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        fs::write(
+            bundle.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "local_first",
+  "intent": "general",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            bundle.join("env"),
+            "MEMD_PROJECT=demo\nMEMD_NAMESPACE=main\nMEMD_WORKSPACE=shared\nMEMD_VISIBILITY=workspace\n",
+        )
+        .expect("write env");
+        fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
+        fs::write(
+            bin_dir.join("memd"),
+            format!(
+                "#!/usr/bin/env bash\nprintf '%s|project=%s|workspace=%s|bundle=%s\\n' \"$*\" \"${{MEMD_PROJECT:-}}\" \"${{MEMD_WORKSPACE:-}}\" \"${{MEMD_BUNDLE_ROOT:-}}\" >> {}\n",
+                shell_single_quote(log_path.to_string_lossy().as_ref())
+            ),
+        )
+        .expect("write fake memd");
+        let mut perms = fs::metadata(bin_dir.join("memd"))
+            .expect("stat fake memd")
+            .permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o755);
+            fs::set_permissions(bin_dir.join("memd"), perms).expect("chmod fake memd");
+        }
+
+        let attach = render_attach_snippet("bash", &bundle).expect("attach snippet");
+        let shell_script = format!("{attach}\nsleep 0.2\n");
+        let path = std::env::var("PATH").unwrap_or_default();
+        let source = Command::new("bash")
+            .arg("-lc")
+            .arg(shell_script)
+            .env("PATH", format!("{}:{}", bin_dir.display(), path))
+            .output()
+            .expect("run attach snippet");
+        assert!(
+            source.status.success(),
+            "attach snippet failed: {}",
+            String::from_utf8_lossy(&source.stderr)
+        );
+
+        let log = fs::read_to_string(&log_path).expect("read memd log");
+        let wake_line = log
+            .lines()
+            .find(|line| line.contains("wake --output"))
+            .expect("wake line");
+        assert!(wake_line.contains("--route local_first --intent general --write"));
+        assert!(wake_line.contains("project=demo"));
+        assert!(wake_line.contains("workspace=shared"));
+        assert!(wake_line.contains(&format!("bundle={}", bundle.display())));
+
+        fs::remove_dir_all(root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn codex_and_claude_profiles_execute_same_bundle_defaults() {
+        let root =
+            std::env::temp_dir().join(format!("memd-profile-exec-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let bin_dir = root.join("bin");
+        let codex_log = root.join("codex.log");
+        let claude_log = root.join("claude.log");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        fs::write(
+            bundle.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "codex-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "project_first",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            bundle.join("env"),
+            "MEMD_PROJECT=demo\nMEMD_NAMESPACE=main\nMEMD_WORKSPACE=shared\nMEMD_VISIBILITY=workspace\nMEMD_VOICE_MODE=normal\n",
+        )
+        .expect("write env");
+        fs::write(bundle.join("backend.env"), "").expect("write backend env");
+        fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
+        fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
+        fs::write(
+            bundle.join("agents").join("CODEX_WAKEUP.md"),
+            "# codex wakeup\n",
+        )
+        .expect("write codex wakeup");
+        fs::write(
+            bundle.join("agents").join("watch.sh"),
+            "#!/usr/bin/env bash\nexit 0\n",
+        )
+        .expect("write watch helper");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(bundle.join("agents").join("watch.sh"))
+                .expect("stat watch helper")
+                .permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(bundle.join("agents").join("watch.sh"), perms)
+                .expect("chmod watch helper");
+        }
+        fs::write(
+            bin_dir.join("memd"),
+            "#!/usr/bin/env bash\nprintf '%s|agent=%s|project=%s|workspace=%s\\n' \"$*\" \"${MEMD_AGENT:-}\" \"${MEMD_PROJECT:-}\" \"${MEMD_WORKSPACE:-}\" >> \"$MEMD_LOG_PATH\"\n",
+        )
+        .expect("write fake memd");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(bin_dir.join("memd"))
+                .expect("stat fake memd")
+                .permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(bin_dir.join("memd"), perms).expect("chmod fake memd");
+        }
+
+        let path = std::env::var("PATH").unwrap_or_default();
+
+        let codex_profile = render_agent_shell_profile(&bundle, Some("codex"));
+        let codex = Command::new("bash")
+            .arg("-lc")
+            .arg(codex_profile)
+            .env("PATH", format!("{}:{}", bin_dir.display(), path))
+            .env("MEMD_LOG_PATH", &codex_log)
+            .output()
+            .expect("run codex profile");
+        assert!(
+            codex.status.success(),
+            "codex profile failed: {}",
+            String::from_utf8_lossy(&codex.stderr)
+        );
+
+        let claude_profile = render_agent_shell_profile(&bundle, Some("claude-code"));
+        let claude = Command::new("bash")
+            .arg("-lc")
+            .arg(claude_profile)
+            .env("PATH", format!("{}:{}", bin_dir.display(), path))
+            .env("MEMD_LOG_PATH", &claude_log)
+            .output()
+            .expect("run claude profile");
+        assert!(
+            claude.status.success(),
+            "claude profile failed: {}",
+            String::from_utf8_lossy(&claude.stderr)
+        );
+
+        let codex_log_text = fs::read_to_string(&codex_log).expect("read codex log");
+        let claude_log_text = fs::read_to_string(&claude_log).expect("read claude log");
+        let codex_wake = codex_log_text
+            .lines()
+            .find(|line| line.contains("wake --output"))
+            .expect("codex wake line");
+        let claude_wake = claude_log_text
+            .lines()
+            .find(|line| line.contains("wake --output"))
+            .expect("claude wake line");
+
+        assert!(codex_wake.contains("--route project_first --intent current_task --write"));
+        assert!(claude_wake.contains("--route project_first --intent current_task --write"));
+        assert!(codex_wake.contains("agent=codex"));
+        assert!(claude_wake.contains("agent=claude-code"));
+        assert!(codex_wake.contains("project=demo"));
+        assert!(claude_wake.contains("project=demo"));
+        assert!(codex_wake.contains("workspace=shared"));
+        assert!(claude_wake.contains("workspace=shared"));
+
+        fs::remove_dir_all(root).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn openclaw_profile_executes_same_bundle_defaults() {
+        let root =
+            std::env::temp_dir().join(format!("memd-openclaw-profile-{}", uuid::Uuid::new_v4()));
+        let bundle = root.join(".memd");
+        let bin_dir = root.join("bin");
+        let log_path = root.join("openclaw.log");
+        fs::create_dir_all(&bundle).expect("create bundle");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        fs::write(
+            bundle.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "openclaw",
+  "session": "openclaw-a",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "project_first",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+        )
+        .expect("write config");
+        fs::write(
+            bundle.join("env"),
+            "MEMD_PROJECT=demo\nMEMD_NAMESPACE=main\nMEMD_WORKSPACE=shared\nMEMD_VISIBILITY=workspace\n",
+        )
+        .expect("write env");
+        fs::write(bundle.join("backend.env"), "").expect("write backend env");
+        fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
+        fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
+        fs::write(
+            bin_dir.join("memd"),
+            "#!/usr/bin/env bash\nprintf '%s|agent=%s|project=%s|workspace=%s\\n' \"$*\" \"${MEMD_AGENT:-}\" \"${MEMD_PROJECT:-}\" \"${MEMD_WORKSPACE:-}\" >> \"$MEMD_LOG_PATH\"\n",
+        )
+        .expect("write fake memd");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(bin_dir.join("memd"))
+                .expect("stat fake memd")
+                .permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(bin_dir.join("memd"), perms).expect("chmod fake memd");
+        }
+
+        let path = std::env::var("PATH").unwrap_or_default();
+        let profile = render_agent_shell_profile(&bundle, Some("openclaw"));
+        let output = Command::new("bash")
+            .arg("-lc")
+            .arg(profile)
+            .env("PATH", format!("{}:{}", bin_dir.display(), path))
+            .env("MEMD_LOG_PATH", &log_path)
+            .output()
+            .expect("run openclaw profile");
+        assert!(
+            output.status.success(),
+            "openclaw profile failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let log_text = fs::read_to_string(&log_path).expect("read openclaw log");
+        let wake_line = log_text
+            .lines()
+            .find(|line| line.contains("wake --output"))
+            .expect("openclaw wake line");
+        assert!(wake_line.contains("--route project_first --intent current_task --write"));
+        assert!(wake_line.contains("agent=openclaw"));
+        assert!(wake_line.contains("project=demo"));
+        assert!(wake_line.contains("workspace=shared"));
 
         fs::remove_dir_all(root).expect("cleanup temp project");
     }

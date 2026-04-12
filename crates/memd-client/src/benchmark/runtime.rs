@@ -923,6 +923,45 @@ pub(crate) async fn run_feature_benchmark_command(
             "memory_quality score={}/{} latency_ms={}",
             report.score, report.max_score, report.latency_ms
         ));
+        if let Some(probe) = report
+            .probes
+            .iter()
+            .find(|probe| probe.query == "session_continuity+candidate")
+            .or_else(|| {
+                report
+                    .probes
+                    .iter()
+                    .find(|probe| probe.query == "session_continuity")
+            })
+        {
+            let query_label = if probe.query == "session_continuity" {
+                "session_continuity+candidate"
+            } else {
+                probe.query.as_str()
+            };
+            evidence.push(format!(
+                "typed_retrieval_probe={} best_score={} best_path={} best_section={}",
+                query_label,
+                probe.best_score,
+                probe.best_path.as_deref().unwrap_or("none"),
+                probe.best_section.as_deref().unwrap_or("none")
+            ));
+        }
+        for typed_query in ["procedural", "canonical"] {
+            if let Some(probe) = report
+                .probes
+                .iter()
+                .find(|probe| probe.query == typed_query)
+            {
+                evidence.push(format!(
+                    "typed_retrieval_probe={} best_score={} best_path={} best_section={}",
+                    probe.query,
+                    probe.best_score,
+                    probe.best_path.as_deref().unwrap_or("none"),
+                    probe.best_section.as_deref().unwrap_or("none")
+                ));
+            }
+        }
     }
     if let Some((repo_root, registry)) = benchmark_registry.as_ref() {
         evidence.push(format!(

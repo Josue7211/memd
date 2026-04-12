@@ -102,16 +102,16 @@ OpenClaw is the second harness pack after Codex and uses the same shared hook
 kit, but its primary flow is context + spill instead of wake + capture.
 
 Hermes is the adoption-focused harness pack after OpenClaw and uses the same
-shared hook kit, but its primary flow is onboarding-friendly wake + capture
-with cloud-first reach and self-host later.
+shared hook kit, but its primary flow is onboarding-friendly wake + capture +
+spill with cloud-first reach and self-host later.
 
 Agent Zero is the zero-friction harness pack after Hermes and uses the same
-shared hook kit, but its primary flow is fast resume + durable remember + clean
-handoff for fresh sessions.
+shared hook kit, but its primary flow is fast resume + durable remember +
+clean handoff + spill for fresh sessions.
 
 OpenCode is the shared-lane harness pack after Agent Zero and uses the same
-shared hook kit, but its primary flow is resume + remember + handoff for
-explicit continuity clients.
+shared hook kit, but its primary flow is resume + remember + handoff + spill
+for explicit continuity clients.
 
 ## Environment
 
@@ -201,6 +201,31 @@ For `corrected fact:` / `corrected decision:` / `corrected preference:` /
 `corrected constraint:` / `correction:` payloads, `memd` now infers that
 supersede query automatically when no explicit supersede target is provided.
 
+## Stop Save Hook
+
+```bash
+./memd-stop-save.sh
+```
+
+This is the parity hook against MemPalace's periodic save checkpoint. It reads
+the session transcript metadata from stdin and blocks every `MEMD_SAVE_INTERVAL`
+user messages. The block reason forces the agent to persist state into `memd`
+before ending the turn instead of relying on manual memory discipline.
+
+Use it for harnesses that support a `Stop` hook.
+
+## PreCompact Save Hook
+
+```bash
+./memd-precompact-save.sh
+```
+
+This hook always blocks right before context compaction and tells the agent to
+checkpoint, write durable truth, and spill any available compaction packet
+before compaction proceeds.
+
+Use it for harnesses that support a `PreCompact` hook.
+
 ## Install on Unix
 
 ```bash
@@ -215,6 +240,25 @@ Optional:
 
 ```bash
 ./memd-spill.sh --stdin --apply < compaction.json
+```
+
+## Example Hook Wiring
+
+For Codex-compatible hook runners:
+
+```json
+{
+  "Stop": [{
+    "type": "command",
+    "command": "/absolute/path/to/memd-hook-stop-save",
+    "timeout": 30
+  }],
+  "PreCompact": [{
+    "type": "command",
+    "command": "/absolute/path/to/memd-hook-precompact-save",
+    "timeout": 30
+  }]
+}
 ```
 
 ## Install on Windows

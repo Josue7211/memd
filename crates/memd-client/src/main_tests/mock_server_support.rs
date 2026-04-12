@@ -12,6 +12,7 @@ pub(crate) struct MockHiveState {
 #[derive(Clone, Default)]
 pub(crate) struct MockRuntimeState {
     pub(crate) stored: Arc<Mutex<Vec<memd_schema::StoreMemoryRequest>>>,
+    pub(crate) candidates: Arc<Mutex<Vec<memd_schema::CandidateMemoryRequest>>>,
     pub(crate) repaired: Arc<Mutex<Vec<memd_schema::RepairMemoryRequest>>>,
     pub(crate) session_upserts: Arc<Mutex<Vec<memd_schema::HiveSessionUpsertRequest>>>,
     pub(crate) session_retires: Arc<Mutex<Vec<memd_schema::HiveSessionRetireRequest>>>,
@@ -21,6 +22,7 @@ pub(crate) struct MockRuntimeState {
     pub(crate) receipts: Arc<Mutex<Vec<HiveCoordinationReceiptRecord>>>,
     pub(crate) task_records: Arc<Mutex<Vec<HiveTaskRecord>>>,
     pub(crate) search_count: Arc<Mutex<usize>>,
+    pub(crate) search_requests: Arc<Mutex<Vec<memd_schema::SearchMemoryRequest>>>,
     pub(crate) source_requests: Arc<Mutex<Vec<memd_schema::SourceMemoryRequest>>>,
     pub(crate) context_compact_response: Arc<Mutex<Option<memd_schema::CompactContextResponse>>>,
     pub(crate) working_response: Arc<Mutex<Option<memd_schema::WorkingMemoryResponse>>>,
@@ -894,6 +896,11 @@ pub(crate) async fn mock_search_memory(
     Json(req): Json<memd_schema::SearchMemoryRequest>,
 ) -> Json<memd_schema::SearchMemoryResponse> {
     *state.search_count.lock().expect("lock search count") += 1;
+    state
+        .search_requests
+        .lock()
+        .expect("lock search requests")
+        .push(req.clone());
     let query = req.query.clone().unwrap_or_default();
     let items = if req.tags.iter().any(|tag| tag == "resume_state") {
         Vec::new()
@@ -1035,6 +1042,48 @@ pub(crate) async fn mock_store_memory(
     })
 }
 
+pub(crate) async fn mock_candidate_memory(
+    State(state): State<MockRuntimeState>,
+    Json(req): Json<memd_schema::CandidateMemoryRequest>,
+) -> Json<memd_schema::CandidateMemoryResponse> {
+    state
+        .candidates
+        .lock()
+        .expect("lock candidates")
+        .push(req.clone());
+    Json(memd_schema::CandidateMemoryResponse {
+        item: memd_schema::MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: req.content,
+            redundancy_key: Some("candidate".to_string()),
+            belief_branch: req.belief_branch,
+            preferred: false,
+            kind: req.kind,
+            scope: req.scope,
+            project: req.project,
+            namespace: req.namespace,
+            workspace: req.workspace,
+            visibility: req
+                .visibility
+                .unwrap_or(memd_schema::MemoryVisibility::Private),
+            source_agent: req.source_agent,
+            source_system: req.source_system,
+            source_path: req.source_path,
+            source_quality: req.source_quality,
+            confidence: req.confidence.unwrap_or(0.7),
+            ttl_seconds: req.ttl_seconds,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: req.last_verified_at,
+            supersedes: req.supersedes,
+            tags: req.tags,
+            status: memd_schema::MemoryStatus::Active,
+            stage: memd_schema::MemoryStage::Candidate,
+        },
+        duplicate_of: None,
+    })
+}
+
 pub(crate) async fn mock_repair_memory(
     State(state): State<MockRuntimeState>,
     Json(req): Json<memd_schema::RepairMemoryRequest>,
@@ -1129,6 +1178,7 @@ pub(crate) async fn mock_hive_session_upsert(
         risk: req.risk,
         status: req.status.unwrap_or_else(|| "live".to_string()),
         last_seen: Utc::now(),
+        ..memd_schema::HiveSessionRecord::default()
     };
     {
         let mut records = state.session_records.lock().expect("lock session records");
@@ -1600,7 +1650,10 @@ pub(crate) fn spawn_blocking_mock_sidecar_server() -> String {
     format!("http://{}", addr)
 }
 
-pub(crate) async fn spawn_mock_runtime_server(state: MockRuntimeState, slow_hive_upsert: bool) -> String {
+pub(crate) async fn spawn_mock_runtime_server(
+    state: MockRuntimeState,
+    slow_hive_upsert: bool,
+) -> String {
     let hive_route = if slow_hive_upsert {
         post(mock_slow_hive_session_upsert)
     } else {
@@ -1617,6 +1670,7 @@ pub(crate) async fn spawn_mock_runtime_server(state: MockRuntimeState, slow_hive
         .route("/memory/source", get(mock_source_memory))
         .route("/memory/search", post(mock_search_memory))
         .route("/memory/store", post(mock_store_memory))
+        .route("/memory/candidates", post(mock_candidate_memory))
         .route("/memory/repair", post(mock_repair_memory))
         .route("/coordination/inbox", get(mock_hive_coordination_inbox))
         .route(
@@ -1706,6 +1760,7 @@ pub(crate) async fn spawn_mock_hive_server() -> String {
     format!("http://{}", addr)
 }
 
+#[allow(dead_code)]
 pub(crate) fn push_mock_runtime_hive_session(
     state: &MockRuntimeState,
     session: &str,
@@ -1765,5 +1820,6 @@ pub(crate) fn push_mock_runtime_hive_session(
             risk: None,
             status: "active".to_string(),
             last_seen: Utc::now(),
+            ..memd_schema::HiveSessionRecord::default()
         });
 }

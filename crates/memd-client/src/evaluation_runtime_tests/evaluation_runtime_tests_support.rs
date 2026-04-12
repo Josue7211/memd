@@ -234,6 +234,8 @@
         assert!(markdown.contains("`$gsd-autonomous` is installed as a skill"));
         let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
             .expect("read claude imports");
+        let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
+            .expect("read codex agents example");
         assert!(claude_imports.contains("@../MEMD_WAKEUP.md"));
         assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
         assert!(claude_imports.contains("@CLAUDE_CODE_WAKEUP.md"));
@@ -242,6 +244,10 @@
         assert!(claude_imports.contains("use installed `$gsd-*` skills as the GSD interface"));
         assert!(claude_imports.contains("standalone `gsd-*` shell binaries"));
         assert!(claude_imports.contains("`$gsd-autonomous` is installed as a skill"));
+        assert!(codex_agents.contains(".memd/agents/CODEX_WAKEUP.md"));
+        assert!(codex_agents.contains("Durable truth beats transcript recall."));
+        assert!(codex_agents.contains("memd lookup --output .memd --query"));
+        assert!(codex_agents.contains("stay in `caveman-ultra`"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -418,10 +424,16 @@
         assert!(dir.join("memd-capture.ps1").exists());
         assert!(dir.join("memd-spill.sh").exists());
         assert!(dir.join("memd-spill.ps1").exists());
+        assert!(dir.join("memd-stop-save.sh").exists());
+        assert!(dir.join("memd-stop-save.ps1").exists());
+        assert!(dir.join("memd-precompact-save.sh").exists());
+        assert!(dir.join("memd-precompact-save.ps1").exists());
 
         let install = fs::read_to_string(dir.join("install.sh")).expect("read install.sh");
         assert!(install.contains("memd-capture"));
         assert!(install.contains("memd-hook-capture"));
+        assert!(install.contains("memd-hook-stop-save"));
+        assert!(install.contains("memd-hook-precompact-save"));
 
         fs::remove_dir_all(dir).expect("cleanup hook temp dir");
     }
@@ -463,7 +475,7 @@
         );
         assert!(
             manifest.commands.iter().any(|cmd| {
-                cmd.contains("memd wake --output .memd --intent current_task --write")
+                cmd.contains("memd wake --output .memd --write")
             })
         );
         assert!(
@@ -637,7 +649,7 @@
         let codex = registry
             .get("codex")
             .expect("codex preset should exist in the shared registry");
-        assert_eq!(codex.default_verbs, vec!["wake", "resume", "checkpoint"]);
+        assert_eq!(codex.default_verbs, vec!["wake", "lookup", "checkpoint", "spill"]);
     }
 
     #[tokio::test]
@@ -861,8 +873,9 @@
         assert!(positioning.contains("Agent Zero is the zero-friction harness pack"));
         assert!(positioning.contains("OpenCode is the shared-lane harness pack"));
 
-        assert!(codex.contains("turn-first recall/capture pack"));
+        assert!(codex.contains("turn-first recall/capture/spill pack"));
         assert!(codex.contains("memd hook capture --output .memd --stdin --summary"));
+        assert!(codex.contains("memd hook spill --output .memd --stdin --apply"));
         assert!(codex.contains("Keep using the local bundle markdown"));
         assert!(codex.contains(
             "turn cache is keyed from project, namespace, agent, mode, and normalized query"
@@ -870,10 +883,12 @@
         assert!(codex.contains("Hermes uses the same shared memory core"));
 
         assert!(agent_zero.contains("zero-friction lane"));
+        assert!(agent_zero.contains("memd hook spill --output .memd --stdin --apply"));
         assert!(agent_zero.contains(".memd/agents/AGENT_ZERO_MEMORY.md"));
         assert!(agent_zero.contains("memd handoff --output .memd --prompt"));
 
         assert!(opencode.contains("shared continuity plane"));
+        assert!(opencode.contains("memd hook spill --output .memd --stdin --apply"));
         assert!(opencode.contains(".memd/agents/OPENCODE_MEMORY.md"));
         assert!(opencode.contains("memd handoff --output .memd --prompt"));
 

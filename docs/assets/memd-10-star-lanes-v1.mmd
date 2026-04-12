@@ -1,0 +1,72 @@
+%%{
+  init: {
+    "theme": "base",
+    "flowchart": {
+      "curve": "linear",
+      "nodeSpacing": 32,
+      "rankSpacing": 50,
+      "padding": 14
+    },
+    "themeVariables": {
+      "background": "#0b1020",
+      "primaryColor": "#111a31",
+      "primaryTextColor": "#e8eefc",
+      "primaryBorderColor": "#78a9ff",
+      "lineColor": "#8fb4ff",
+      "clusterBkg": "transparent",
+      "clusterBorder": "#28406f",
+      "fontFamily": "JetBrains Mono, Fira Code, ui-monospace, monospace",
+      "fontSize": "20px",
+      "edgeLabelBackground": "#0b1020"
+    }
+  }
+}%%
+flowchart LR
+    subgraph Lanes["Memory atlas lanes"]
+      direction TB
+      L1["Inspiration lane"]
+      L2["Design lane"]
+      L3["Architecture lane"]
+      L4["Research lane"]
+      L5["Workflow lane"]
+      L6["Preference lane"]
+    end
+
+    subgraph Atlas["Canonical memory + memory atlas"]
+      direction TB
+      A1[("Canonical memory")]
+      A2["Memory atlas"]
+      A3["Wake packet"]
+      A4["Canonical deep dive"]
+      A5["Raw evidence"]
+    end
+
+    subgraph Kinds["Kinds inside each lane"]
+      direction TB
+      K1["Episodic"]
+      K2["Semantic"]
+      K3["Procedural"]
+      K4["Candidate"]
+      K5["Canonical"]
+    end
+
+    L1 --> A2
+    L2 --> A2
+    L3 --> A2
+    L4 --> A2
+    L5 --> A2
+    L6 --> A2
+
+    A1 --> A2
+    A2 --> A3
+    A2 --> A4
+    A4 --> A5
+
+    A2 --> K1
+    A2 --> K2
+    A2 --> K3
+    A2 --> K4
+    A2 --> K5
+
+    classDef node fill:#111a31,stroke:#78a9ff,color:#e8eefc,stroke-width:2px;
+    class L1,L2,L3,L4,L5,L6,A1,A2,A3,A4,A5,K1,K2,K3,K4,K5 node;

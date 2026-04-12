@@ -122,6 +122,20 @@ memd events --root .memd --query working --summary
 memd events --root .memd --open working --summary
 ```
 
+Inspect the raw truth spine:
+
+```bash
+cat .memd/state/raw-spine.jsonl
+```
+
+The raw spine should show source-linked records from:
+
+- `memd remember`
+- `memd checkpoint`
+- `memd ingest`
+- `memd hook capture`
+- `memd hook spill --apply`
+
 ## Codex Harness Pack
 
 Codex is the first harness pack in memd. The pack keeps the bundle local-first:
@@ -187,16 +201,17 @@ compact context before the task and spill at compaction boundaries.
 
 Hermes is the adoption-focused harness pack. It also comes from the shared
 preset schema. It uses the same bundle truth, but its primary loop is
-onboarding-friendly wake and capture with cloud-first reach and self-host
-later.
+onboarding-friendly wake, capture, and spill with cloud-first reach and
+self-host later.
 
 Agent Zero is the zero-friction harness pack. It also comes from the shared
 preset schema. It uses the same bundle truth, but its primary loop is fast
-resume, durable remember, and clean handoff for fresh sessions.
+resume, durable remember, clean handoff, and spill for fresh sessions.
 
 OpenCode is the shared-lane harness pack. It also comes from the shared
 preset schema. It uses the same bundle truth, but its primary loop is resume,
-remember, and handoff for clients that want explicit continuity commands.
+remember, handoff, and spill for clients that want explicit continuity
+commands.
 
 ## Core Bundle Commands
 

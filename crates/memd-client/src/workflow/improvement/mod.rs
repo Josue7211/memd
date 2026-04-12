@@ -265,7 +265,7 @@ pub(crate) async fn apply_improvement_action(
         }
         "refresh_resume" => {
             let runtime = read_bundle_runtime_config(output)?;
-            let snapshot = read_bundle_resume(
+            let snapshot = crate::runtime::read_bundle_resume(
                 &ResumeArgs {
                     output: output.to_path_buf(),
                     project: runtime.as_ref().and_then(|value| value.project.clone()),
@@ -466,42 +466,25 @@ pub(crate) async fn sync_resume_state_record(
     effective_agent: Option<&str>,
     snapshot: &ResumeSnapshot,
 ) -> anyhow::Result<()> {
-    let Some(content) = build_resume_state_record_content(snapshot) else {
+    let Some(store_request) = build_resume_state_store_request(
+        project_root,
+        project,
+        namespace,
+        workspace,
+        visibility,
+        effective_agent,
+        snapshot,
+    ) else {
         return Ok(());
     };
 
-    let scope = if project.is_some() {
-        MemoryScope::Project
-    } else {
-        MemoryScope::Synced
-    };
     let tags = vec!["resume_state".to_string(), "session_state".to_string()];
-    let store_request = StoreMemoryRequest {
-        content: content.clone(),
-        kind: MemoryKind::Status,
-        scope,
-        project: project.map(ToOwned::to_owned),
-        namespace: namespace.map(ToOwned::to_owned),
-        workspace: workspace.map(ToOwned::to_owned),
-        visibility,
-        belief_branch: None,
-        source_agent: effective_agent.map(ToOwned::to_owned),
-        source_system: Some("memd-resume-state".to_string()),
-        source_path: project_root.map(|path| path.display().to_string()),
-        source_quality: Some(memd_schema::SourceQuality::Derived),
-        confidence: Some(0.94),
-        ttl_seconds: Some(86_400),
-        last_verified_at: Some(Utc::now()),
-        supersedes: Vec::new(),
-        tags: tags.clone(),
-        status: Some(MemoryStatus::Active),
-    };
     let existing = client
         .search(&SearchMemoryRequest {
             query: None,
-            route: Some(RetrievalRoute::LocalFirst),
+            route: Some(RetrievalRoute::SyncedOnly),
             intent: Some(RetrievalIntent::CurrentTask),
-            scopes: vec![scope],
+            scopes: vec![MemoryScope::Synced],
             kinds: vec![MemoryKind::Status],
             statuses: vec![MemoryStatus::Active],
             project: project.map(ToOwned::to_owned),
@@ -522,7 +505,7 @@ pub(crate) async fn sync_resume_state_record(
             .repair(&RepairMemoryRequest {
                 id: existing.id,
                 mode: MemoryRepairMode::CorrectMetadata,
-                confidence: Some(0.94),
+                confidence: Some(0.62),
                 status: Some(MemoryStatus::Active),
                 workspace: workspace.map(ToOwned::to_owned),
                 visibility,
@@ -530,7 +513,7 @@ pub(crate) async fn sync_resume_state_record(
                 source_system: Some("memd-resume-state".to_string()),
                 source_path: project_root.map(|path| path.display().to_string()),
                 source_quality: Some(memd_schema::SourceQuality::Derived),
-                content: Some(content),
+                content: Some(store_request.content.clone()),
                 tags: Some(tags),
                 supersedes: Vec::new(),
             })
@@ -547,6 +530,38 @@ pub(crate) async fn sync_resume_state_record(
     }
 
     Ok(())
+}
+
+pub(crate) fn build_resume_state_store_request(
+    project_root: Option<&Path>,
+    project: Option<&str>,
+    namespace: Option<&str>,
+    workspace: Option<&str>,
+    visibility: Option<memd_schema::MemoryVisibility>,
+    effective_agent: Option<&str>,
+    snapshot: &ResumeSnapshot,
+) -> Option<StoreMemoryRequest> {
+    let content = build_resume_state_record_content(snapshot)?;
+    Some(StoreMemoryRequest {
+        content,
+        kind: MemoryKind::Status,
+        scope: MemoryScope::Synced,
+        project: project.map(ToOwned::to_owned),
+        namespace: namespace.map(ToOwned::to_owned),
+        workspace: workspace.map(ToOwned::to_owned),
+        visibility,
+        belief_branch: None,
+        source_agent: effective_agent.map(ToOwned::to_owned),
+        source_system: Some("memd-resume-state".to_string()),
+        source_path: project_root.map(|path| path.display().to_string()),
+        source_quality: Some(memd_schema::SourceQuality::Derived),
+        confidence: Some(0.62),
+        ttl_seconds: Some(3_600),
+        last_verified_at: Some(Utc::now()),
+        supersedes: Vec::new(),
+        tags: vec!["resume_state".to_string(), "session_state".to_string()],
+        status: Some(MemoryStatus::Active),
+    })
 }
 
 pub(crate) fn build_resume_state_record_content(snapshot: &ResumeSnapshot) -> Option<String> {
@@ -571,6 +586,95 @@ pub(crate) fn build_resume_state_record_content(snapshot: &ResumeSnapshot) -> Op
         None
     } else {
         Some(lines.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use memd_schema::MemoryVisibility;
+
+    fn sample_snapshot() -> ResumeSnapshot {
+        ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "remembered project fact".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "follow durable truth".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        }
+    }
+
+    #[test]
+    fn resume_state_store_request_stays_in_synced_scope() {
+        let snapshot = sample_snapshot();
+        let request = build_resume_state_store_request(
+            Some(Path::new("/tmp/demo")),
+            Some("memd"),
+            Some("main"),
+            Some("team-alpha"),
+            Some(MemoryVisibility::Workspace),
+            Some("codex@session-1"),
+            &snapshot,
+        )
+        .expect("build resume state request");
+
+        assert_eq!(request.scope, MemoryScope::Synced);
+        assert_eq!(request.confidence, Some(0.62));
+        assert_eq!(request.ttl_seconds, Some(3_600));
+        assert_eq!(request.source_system.as_deref(), Some("memd-resume-state"));
+        assert!(request.tags.iter().any(|tag| tag == "resume_state"));
+        assert!(request.tags.iter().any(|tag| tag == "session_state"));
     }
 }
 
@@ -627,7 +731,7 @@ pub(crate) async fn gap_report(args: &GapArgs) -> anyhow::Result<GapReport> {
         evidence.push("no previous memd eval snapshot in .memd/evals/latest.json".to_string());
     }
 
-    let resume = read_bundle_resume(
+    let resume = crate::runtime::read_bundle_resume(
         &ResumeArgs {
             output: args.output.clone(),
             project: runtime.as_ref().and_then(|value| value.project.clone()),

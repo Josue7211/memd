@@ -815,6 +815,7 @@ pub(crate) use awareness::*;
 
 pub(crate) fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::Result<String> {
     let shell = shell.trim().to_ascii_lowercase();
+    let (startup_route, startup_intent) = bundle_startup_route_intent(bundle_path);
     let project_hive_enabled = read_bundle_runtime_config(bundle_path)
         .ok()
         .flatten()
@@ -825,11 +826,13 @@ pub(crate) fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
 source "$MEMD_BUNDLE_ROOT/env"
 {base_url_block}nohup memd heartbeat --output "$MEMD_BUNDLE_ROOT" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &
-memd wake --output "$MEMD_BUNDLE_ROOT" --intent current_task --write
+memd wake --output "$MEMD_BUNDLE_ROOT" --route {startup_route} --intent {startup_intent} --write
 # pre-answer durable recall:
 # .memd/agents/lookup.sh --query "what did we already decide?"
 "#,
             bundle_path = bundle_path.display(),
+            startup_route = compact_bundle_value(&startup_route),
+            startup_intent = compact_bundle_value(&startup_intent),
             base_url_block = if project_hive_enabled {
                 format!(
                     "if [[ -z \"${{MEMD_BASE_URL:-}}\" || \"${{MEMD_BASE_URL}}\" =~ ^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$) ]]; then\n  export MEMD_BASE_URL=\"{}\"\nfi\n",
@@ -843,11 +846,13 @@ memd wake --output "$MEMD_BUNDLE_ROOT" --intent current_task --write
             r#"$env:MEMD_BUNDLE_ROOT = "{bundle_path}"
 . (Join-Path $env:MEMD_BUNDLE_ROOT "env.ps1")
 {base_url_block}Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput "$env:TEMP\memd-heartbeat.log" -RedirectStandardError "$env:TEMP\memd-heartbeat.err"
-memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write
+memd wake --output $env:MEMD_BUNDLE_ROOT --route {startup_route} --intent {startup_intent} --write
 # pre-answer durable recall:
 # .memd/agents/lookup.ps1 --query "what did we already decide?"
 "#,
             bundle_path = escape_ps1(&bundle_path.display().to_string()),
+            startup_route = escape_ps1(&startup_route),
+            startup_intent = escape_ps1(&startup_intent),
             base_url_block = if project_hive_enabled {
                 format!(
                     "if ([string]::IsNullOrWhiteSpace($env:MEMD_BASE_URL) -or $env:MEMD_BASE_URL -match '^(https?://)?(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/|$)') {{ $env:MEMD_BASE_URL = \"{}\" }}\n",

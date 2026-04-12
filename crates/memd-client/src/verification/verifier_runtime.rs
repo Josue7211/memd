@@ -97,15 +97,51 @@ pub(crate) async fn execute_cli_verifier_step(
             let wakeup = render_bundle_wakeup_markdown(&materialized.bundle_root, &snapshot, false);
             write_wakeup_markdown_files(&materialized.bundle_root, &wakeup)
                 .context("write verifier wakeup markdown")?;
+            let prompt_efficiency = crate::workflow::AUTORESEARCH_LOOPS
+                .iter()
+                .find(|descriptor| descriptor.slug == "prompt-efficiency")
+                .context("missing prompt-efficiency autoresearch descriptor")?;
+            let packet_efficiency_record = crate::workflow::build_prompt_efficiency_record(
+                &snapshot,
+                prompt_efficiency,
+                0,
+                None,
+            );
+            crate::workflow::write_wake_packet_efficiency_artifacts(
+                &materialized.bundle_root,
+                &snapshot,
+                &packet_efficiency_record,
+            )
+            .context("write verifier wake packet efficiency artifact")?;
+            let packet_efficiency_path = materialized
+                .bundle_root
+                .join("loops/wake-packet-efficiency.json");
+            let packet_efficiency = serde_json::from_str::<JsonValue>(
+                &fs::read_to_string(&packet_efficiency_path)
+                    .with_context(|| format!("read {}", packet_efficiency_path.display()))?,
+            )
+            .with_context(|| {
+                format!(
+                    "parse wake packet efficiency artifact {}",
+                    packet_efficiency_path.display()
+                )
+            })?;
             state.metrics.insert(
                 "prompt_tokens".to_string(),
                 json!(snapshot.estimated_prompt_tokens()),
+            );
+            state.metrics.insert(
+                "core_prompt_tokens".to_string(),
+                json!(snapshot.core_prompt_tokens()),
             );
             state.outputs.insert(
                 "wake".to_string(),
                 json!({
                     "bundle": materialized.bundle_root.display().to_string(),
                     "wakeup_path": materialized.bundle_root.join("MEMD_WAKEUP.md").display().to_string(),
+                    "markdown": wakeup,
+                    "packet_efficiency_path": packet_efficiency_path.display().to_string(),
+                    "packet_efficiency": packet_efficiency,
                 }),
             );
         }
@@ -807,86 +843,101 @@ pub(crate) fn evaluate_verifier_assertions(
     state: &VerifierExecutionState,
 ) -> anyhow::Result<bool> {
     for assertion in &verifier.assertions {
-        let passed = match assertion.kind.as_str() {
-            "file_contains" => {
-                let path = assertion
-                    .path
-                    .as_deref()
-                    .context("file_contains assertion missing path")?;
-                let file_path = materialized.bundle_root.join(path);
-                match assertion.exists {
-                    Some(false) => !file_path.exists(),
-                    _ => {
-                        let contents = fs::read_to_string(&file_path)
-                            .with_context(|| format!("read {}", file_path.display()))?;
-                        if let Some(expected_key) = assertion.equals_fixture.as_deref() {
-                            let expected = materialized.fixture_vars.get(expected_key).with_context(
-                                || format!("missing verifier fixture var {expected_key}"),
-                            )?;
-                            contents == *expected
-                        } else if let Some(expected_key) = assertion.contains_fixture.as_deref() {
-                            let expected = materialized.fixture_vars.get(expected_key).with_context(
-                                || format!("missing verifier fixture var {expected_key}"),
-                            )?;
-                            contents.contains(expected)
-                        } else {
-                            true
+        let passed =
+            match assertion.kind.as_str() {
+                "file_contains" => {
+                    let path = assertion
+                        .path
+                        .as_deref()
+                        .context("file_contains assertion missing path")?;
+                    let file_path = materialized.bundle_root.join(path);
+                    match assertion.exists {
+                        Some(false) => !file_path.exists(),
+                        _ => {
+                            let contents = fs::read_to_string(&file_path)
+                                .with_context(|| format!("read {}", file_path.display()))?;
+                            if let Some(expected_key) = assertion.equals_fixture.as_deref() {
+                                let expected =
+                                    materialized.fixture_vars.get(expected_key).with_context(
+                                        || format!("missing verifier fixture var {expected_key}"),
+                                    )?;
+                                contents == *expected
+                            } else if let Some(expected_key) = assertion.contains_fixture.as_deref()
+                            {
+                                let expected =
+                                    materialized.fixture_vars.get(expected_key).with_context(
+                                        || format!("missing verifier fixture var {expected_key}"),
+                                    )?;
+                                contents.contains(expected)
+                            } else {
+                                true
+                            }
                         }
                     }
                 }
-            }
-            "json_path" => {
-                let path = assertion
-                    .path
-                    .as_deref()
-                    .context("json_path assertion missing path")?;
-                let value = resolve_assertion_value(state, path);
-                match assertion.exists {
-                    Some(false) => value.is_none(),
-                    _ => {
-                        let value = value.context("json_path assertion missing value")?;
-                        if let Some(expected_key) = assertion.equals_fixture.as_deref() {
-                            let expected = materialized.fixture_vars.get(expected_key).with_context(
-                                || format!("missing verifier fixture var {expected_key}"),
-                            )?;
-                            value.to_string() == *expected
-                        } else if let Some(expected_key) = assertion.contains_fixture.as_deref() {
-                            let expected = materialized.fixture_vars.get(expected_key).with_context(
-                                || format!("missing verifier fixture var {expected_key}"),
-                            )?;
-                            value.to_string().contains(expected)
-                        } else {
-                            true
+                "json_path" => {
+                    let path = assertion
+                        .path
+                        .as_deref()
+                        .context("json_path assertion missing path")?;
+                    let value = resolve_assertion_value(state, path);
+                    match assertion.exists {
+                        Some(false) => value.is_none(),
+                        _ => {
+                            let value = value.context("json_path assertion missing value")?;
+                            if let Some(expected_key) = assertion.equals_fixture.as_deref() {
+                                let expected =
+                                    materialized.fixture_vars.get(expected_key).with_context(
+                                        || format!("missing verifier fixture var {expected_key}"),
+                                    )?;
+                                value
+                                    .as_str()
+                                    .map(|s| s.to_owned())
+                                    .unwrap_or_else(|| value.to_string())
+                                    == *expected
+                            } else if let Some(expected_key) = assertion.contains_fixture.as_deref()
+                            {
+                                let expected =
+                                    materialized.fixture_vars.get(expected_key).with_context(
+                                        || format!("missing verifier fixture var {expected_key}"),
+                                    )?;
+                                value
+                                    .as_str()
+                                    .map(|s| s.to_owned())
+                                    .unwrap_or_else(|| value.to_string())
+                                    .contains(expected)
+                            } else {
+                                true
+                            }
                         }
                     }
                 }
-            }
-            "metric_compare" => {
-                let metric = assertion
-                    .metric
-                    .as_deref()
-                    .context("metric_compare assertion missing metric")?;
-                let op = assertion.op.as_deref().unwrap_or("==");
-                let left = assertion
-                    .left
-                    .as_deref()
-                    .context("metric_compare assertion missing left baseline")?;
-                let right = assertion
-                    .right
-                    .as_deref()
-                    .context("metric_compare assertion missing right baseline")?;
-                let left_metrics = state
-                    .baselines
-                    .get(left)
-                    .context(format!("missing verifier baseline {left}"))?;
-                let right_metrics = state
-                    .baselines
-                    .get(right)
-                    .context(format!("missing verifier baseline {right}"))?;
-                verifier_metric_compare(metric, op, left_metrics, right_metrics)
-            }
-            other => anyhow::bail!("unsupported verifier assertion kind {other}"),
-        };
+                "metric_compare" => {
+                    let metric = assertion
+                        .metric
+                        .as_deref()
+                        .context("metric_compare assertion missing metric")?;
+                    let op = assertion.op.as_deref().unwrap_or("==");
+                    let left = assertion
+                        .left
+                        .as_deref()
+                        .context("metric_compare assertion missing left baseline")?;
+                    let right = assertion
+                        .right
+                        .as_deref()
+                        .context("metric_compare assertion missing right baseline")?;
+                    let left_metrics = state
+                        .baselines
+                        .get(left)
+                        .context(format!("missing verifier baseline {left}"))?;
+                    let right_metrics = state
+                        .baselines
+                        .get(right)
+                        .context(format!("missing verifier baseline {right}"))?;
+                    verifier_metric_compare(metric, op, left_metrics, right_metrics)
+                }
+                other => anyhow::bail!("unsupported verifier assertion kind {other}"),
+            };
         if !passed {
             return Ok(false);
         }
@@ -900,6 +951,9 @@ pub(crate) async fn run_verifier_record(
     base_url_override: Option<&str>,
 ) -> anyhow::Result<VerifierRunRecord> {
     let materialized = materialize_fixture(fixture, base_url_override)?;
+    seed_materialized_fixture_sessions(&materialized)
+        .await
+        .context("seed verifier fixture sessions")?;
     let evidence_id = format!("evidence:{}:latest", verifier.id);
     let execution = execute_verifier_steps(verifier, &materialized).await?;
     let evidence_tiers = vec!["live_primary".to_string()];

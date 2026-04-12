@@ -49,27 +49,34 @@
         );
         assert!(
             manifest.commands.iter().any(|cmd| {
-                cmd.contains("memd wake --output .memd --intent current_task --write")
+                cmd.contains("memd wake --output .memd --write")
             })
         );
-        assert!(
-            manifest
-                .commands
-                .iter()
-                .any(|cmd| cmd.contains("memd hook capture --output .memd"))
-        );
-        assert!(
-            manifest
-                .behaviors
-                .iter()
-                .any(|line| line.contains("onboarding-friendly wake"))
-        );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd hook capture --output .memd"))
+    );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd hook spill --output .memd --stdin --apply"))
+    );
+    assert!(
+        manifest
+            .behaviors
+            .iter()
+            .any(|line| line.contains("onboarding-friendly wake"))
+    );
 
         let markdown = render_hermes_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("HERMES_WAKEUP.md"));
-        assert!(markdown.contains("HERMES_MEMORY.md"));
-        assert!(markdown.contains("onboarding-friendly wake"));
-        assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
+    assert!(markdown.contains("HERMES_WAKEUP.md"));
+    assert!(markdown.contains("HERMES_MEMORY.md"));
+    assert!(markdown.contains("onboarding-friendly wake"));
+    assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
+    assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
     }
 
     #[test]
@@ -100,24 +107,31 @@
                 .iter()
                 .any(|cmd| cmd.contains("memd resume --output .memd"))
         );
-        assert!(
-            manifest
-                .commands
-                .iter()
-                .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
-        );
-        assert!(
-            manifest
-                .behaviors
-                .iter()
-                .any(|line| line.contains("zero-friction resume"))
-        );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
+    );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd hook spill --output .memd --stdin --apply"))
+    );
+    assert!(
+        manifest
+            .behaviors
+            .iter()
+            .any(|line| line.contains("zero-friction resume"))
+    );
 
         let markdown = render_agent_zero_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("AGENT_ZERO_WAKEUP.md"));
-        assert!(markdown.contains("AGENT_ZERO_MEMORY.md"));
-        assert!(markdown.contains("zero-friction resume"));
-        assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    assert!(markdown.contains("AGENT_ZERO_WAKEUP.md"));
+    assert!(markdown.contains("AGENT_ZERO_MEMORY.md"));
+    assert!(markdown.contains("zero-friction resume"));
+    assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     }
 
     #[tokio::test]
@@ -185,24 +199,31 @@
                 .iter()
                 .any(|cmd| cmd.contains("memd resume --output .memd"))
         );
-        assert!(
-            manifest
-                .commands
-                .iter()
-                .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
-        );
-        assert!(
-            manifest
-                .behaviors
-                .iter()
-                .any(|line| line.contains("write durable outcomes back"))
-        );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd handoff --output .memd --prompt"))
+    );
+    assert!(
+        manifest
+            .commands
+            .iter()
+            .any(|cmd| cmd.contains("memd hook spill --output .memd --stdin --apply"))
+    );
+    assert!(
+        manifest
+            .behaviors
+            .iter()
+            .any(|line| line.contains("write durable outcomes back"))
+    );
 
         let markdown = render_opencode_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("OPENCODE_WAKEUP.md"));
-        assert!(markdown.contains("OPENCODE_MEMORY.md"));
-        assert!(markdown.contains("emit a shared handoff"));
-        assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    assert!(markdown.contains("OPENCODE_WAKEUP.md"));
+    assert!(markdown.contains("OPENCODE_MEMORY.md"));
+    assert!(markdown.contains("emit a shared handoff"));
+    assert!(markdown.contains("memd remember --output .memd --kind decision"));
+    assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     }
 
     #[tokio::test]

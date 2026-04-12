@@ -181,6 +181,7 @@ async fn run_tasks_command_rejects_colliding_assignment_target_lane() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         },
     );
 
@@ -304,6 +305,7 @@ async fn run_tasks_command_rejects_colliding_help_target_lane() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         },
     );
 
@@ -426,6 +428,7 @@ async fn run_tasks_command_rejects_colliding_review_target_lane() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         },
     );
 
@@ -547,6 +550,7 @@ async fn hive_join_reroutes_colliding_worker_lane_into_new_worktree() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         },
     );
     let conflict = detect_bundle_lane_collision(&current_bundle, Some("codex-a"))
@@ -617,8 +621,7 @@ async fn hive_join_reroutes_colliding_worker_lane_into_new_worktree() {
 #[tokio::test]
 async fn run_hive_command_reports_live_session_rebind() {
     let _home_lock = lock_home_mutation();
-    let temp_root =
-        std::env::temp_dir().join(format!("memd-hive-rebind-{}", uuid::Uuid::new_v4()));
+    let temp_root = std::env::temp_dir().join(format!("memd-hive-rebind-{}", uuid::Uuid::new_v4()));
     let home = temp_root.join("home");
     let repo_root = temp_root.join("repo");
     let global_root = home.join(".memd");
@@ -808,6 +811,7 @@ async fn run_hive_command_surfaces_lane_reroute() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         },
     );
 

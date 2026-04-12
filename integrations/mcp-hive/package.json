@@ -8,6 +8,7 @@
     "memd-hive-mcp": "./server.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "just-bash": "^2.14.1"
   }
 }

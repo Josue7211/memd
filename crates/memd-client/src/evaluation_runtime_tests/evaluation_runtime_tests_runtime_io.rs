@@ -920,7 +920,7 @@
         assert!(wakeup.contains("# memd wake-up"));
         assert!(wakeup.contains("Read first."));
         assert!(wakeup.contains("memd must preserve important user corrections"));
-        assert!(wakeup.contains("Default voice: caveman ultra"));
+        assert!(wakeup.contains("Default voice: caveman-ultra"));
         let remember_decision = fs::read_to_string(dir.join("agents/remember-decision.sh"))
             .expect("read remember decision helper");
         let remember_short =
@@ -1361,7 +1361,7 @@
         fs::create_dir_all(&compiled).expect("create compiled memory dir");
         fs::write(
             compiled.join("working.md"),
-            "# Working\n\nworking memory is the current lane.\n",
+            "# Working\n\nworking memory is the current lane.\n\nsession_continuity stays hot.\n",
         )
         .expect("write working page");
         fs::write(
@@ -1435,6 +1435,12 @@
                 .probes
                 .iter()
                 .any(|probe| probe.query == "working" && probe.best_score > 0)
+        );
+        assert!(
+            report
+                .probes
+                .iter()
+                .any(|probe| probe.query == "session_continuity" && probe.best_score > 0)
         );
         assert!(
             report

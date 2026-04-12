@@ -372,6 +372,93 @@ pub(crate) fn seed_materialized_fixture(
     Ok(())
 }
 
+pub(crate) async fn seed_materialized_fixture_sessions(
+    materialized: &MaterializedFixture,
+) -> anyhow::Result<()> {
+    if materialized._session_bundles.is_empty() {
+        return Ok(());
+    }
+
+    let Some(base_url) = materialized
+        ._session_bundles
+        .values()
+        .find_map(|bundle_root| {
+            read_bundle_runtime_config(bundle_root)
+                .ok()
+                .flatten()
+                .and_then(|runtime| runtime.base_url)
+        })
+    else {
+        return Ok(());
+    };
+
+    let client = MemdClient::new(base_url)?;
+    for bundle_root in materialized._session_bundles.values() {
+        let runtime = read_bundle_runtime_config(bundle_root)?
+            .context("fixture session runtime config missing")?;
+        let Some(session) = runtime.session.clone() else {
+            continue;
+        };
+        let request = memd_schema::HiveSessionUpsertRequest {
+            session,
+            tab_id: runtime.tab_id.clone(),
+            agent: runtime.agent.clone(),
+            effective_agent: runtime
+                .agent
+                .as_deref()
+                .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
+            hive_system: runtime.hive_system.clone(),
+            hive_role: runtime.hive_role.clone(),
+            worker_name: runtime.agent.clone(),
+            display_name: runtime.agent.clone(),
+            role: runtime.hive_role.clone().or(Some("agent".to_string())),
+            capabilities: runtime.capabilities.clone(),
+            hive_groups: runtime.hive_groups.clone(),
+            lane_id: None,
+            hive_group_goal: runtime.hive_group_goal.clone(),
+            authority: runtime.authority.clone(),
+            heartbeat_model: runtime.heartbeat_model.clone(),
+            project: runtime.project.clone(),
+            namespace: runtime.namespace.clone(),
+            workspace: runtime.workspace.clone(),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
+            visibility: runtime.visibility.clone(),
+            base_url: runtime.base_url.clone(),
+            base_url_healthy: Some(true),
+            host: None,
+            pid: None,
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            status: Some("live".to_string()),
+            next_action: None,
+            working: None,
+            touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
+            needs_help: false,
+            needs_review: false,
+            handoff_state: None,
+            confidence: None,
+            risk: None,
+        };
+        client
+            .upsert_hive_session(&request)
+            .await
+            .context("seed fixture hive session")?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn materialize_fixture(
     fixture: &FixtureRecord,
     base_url_override: Option<&str>,

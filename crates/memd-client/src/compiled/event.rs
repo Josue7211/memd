@@ -484,14 +484,42 @@ pub(crate) fn render_compiled_event_index_markdown(
     output.push_str(&format!("- Kinds: `{}`\n", index.kind_count));
     output.push_str(&format!("- Items: `{}`\n\n", index.item_count));
     if index.pages.is_empty() {
-        output.push_str("No compiled event pages found.\n");
-        return output;
+        output.push_str("No compiled event pages found.\n\n");
+    } else {
+        output.push_str("## Pages\n\n");
+        for page in &index.pages {
+            output.push_str(&format!("- `{}`\n", page));
+        }
+        output.push('\n');
     }
-    output.push_str("## Pages\n\n");
-    for page in &index.pages {
-        output.push_str(&format!("- `{}`\n", page));
+
+    if let Ok(raw_spine) = render_raw_spine_markdown(bundle_root) {
+        if !raw_spine.is_empty() {
+            output.push_str(&raw_spine);
+        }
     }
     output
+}
+
+fn render_raw_spine_markdown(bundle_root: &Path) -> anyhow::Result<String> {
+    let records = crate::runtime::read_raw_spine_records(bundle_root)?;
+    if records.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut markdown = String::from("## Raw Spine\n\n");
+    for record in records.iter().take(24) {
+        markdown.push_str(&format!(
+            "- `{}` stage=`{}` source=`{}` path=`{}` preview=`{}`\n",
+            record.event_type,
+            record.stage,
+            record.source_system.as_deref().unwrap_or("none"),
+            record.source_path.as_deref().unwrap_or("none"),
+            record.content_preview
+        ));
+    }
+    markdown.push('\n');
+    Ok(markdown)
 }
 
 pub(crate) fn render_compiled_event_search_summary(
@@ -548,6 +576,107 @@ pub(crate) fn render_compiled_event_page_markdown(path: &Path, content: &str) ->
         output.push('\n');
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_snapshot() -> ResumeSnapshot {
+        ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("core".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![
+                    memd_schema::MemoryScope::Project,
+                    memd_schema::MemoryScope::Synced,
+                ],
+                records: Vec::new(),
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![
+                    memd_schema::MemoryScope::Project,
+                    memd_schema::MemoryScope::Synced,
+                ],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::ProjectFirst,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        }
+    }
+
+    #[test]
+    fn write_bundle_event_files_includes_raw_spine_section() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-raw-spine-pages-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create bundle dir");
+
+        crate::runtime::write_raw_spine_records(
+            &dir,
+            &[crate::runtime::derive_raw_spine_record(
+                "hook_capture",
+                "candidate",
+                Some("hook-capture"),
+                Some(".memd/agents/CODEX_WAKEUP.md"),
+                Some("memd"),
+                Some("main"),
+                Some("core"),
+                Some(0.9),
+                &["raw-spine", "correction"],
+                "decision: preserve raw truth before promotion",
+            )],
+        )
+        .expect("write raw spine");
+
+        let snapshot = test_snapshot();
+        write_bundle_event_files(&dir, &snapshot, None).expect("write bundle event files");
+
+        let latest =
+            std::fs::read_to_string(dir.join("compiled/events/latest.md")).expect("read latest");
+        assert!(latest.contains("## Raw Spine"));
+        assert!(latest.contains("hook_capture"));
+        assert!(latest.contains(".memd/agents/CODEX_WAKEUP.md"));
+
+        std::fs::remove_dir_all(&dir).expect("cleanup bundle dir");
+    }
 }
 
 fn event_kind_title(kind: &str) -> String {

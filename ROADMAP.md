@@ -1,8 +1,23 @@
 # memd Roadmap
 
+`ROADMAP.md` is the single roadmap source of truth for this repo.
+
+Other planning docs may exist, but they are execution artifacts, design specs,
+or historical plans. They do not replace this file as roadmap truth.
+
 ## Vision
 
-`memd` is a universal memory substrate for agents and agent-powered applications.
+`memd` is a multiharness second-brain memory substrate for the human.
+
+It should connect:
+
+- models
+- harnesses
+- agents
+- tools
+- workflows
+
+through one persistent memory system.
 
 Priority 1 is Codex memory: if Codex cannot persist, retrieve, and inspect its
 own state across sessions, the system is not doing its job.
@@ -25,9 +40,13 @@ The top-line product contract is live-state cognition:
 It should solve memory as infrastructure:
 
 - token-efficient delivery is the first constraint
-- local working memory
-- shared short-term state
-- cross-project long-term knowledge
+- working context
+- session continuity
+- episodic memory
+- semantic memory
+- procedural memory
+- candidate memory
+- canonical memory
 - durable retrieval with evidence
 - lifecycle, dedupe, freshness, and contradiction handling
 - brain-inspired primitives:
@@ -46,6 +65,402 @@ It should solve memory as infrastructure:
   - social/source memory
 
 The target is not a feature. The target is an open-source platform.
+
+## Canonical Model Roadmap
+
+This roadmap is the Ralph roadmap.
+
+Execution rules live here, not in a second competing roadmap file.
+
+### Ralph Rules
+
+Every loop must:
+
+1. start from the current theory docs
+2. target one bounded capability
+3. write artifacts, not just code
+4. run verification
+5. report what passed and what failed
+6. stop only on pass criteria
+7. roll back or narrow scope if guardrails fail
+
+### Global Evidence Requirements
+
+Every phase should leave:
+
+- spec or design delta
+- implementation delta
+- verification evidence
+- token-cost evidence where relevant
+- failure notes if something regressed
+
+### Global Guardrails
+
+No phase may:
+
+- weaken raw truth retention
+- weaken source provenance
+- increase transcript dependence
+- hide corrections
+- make canonical truth fuzzier
+
+The canonical model phases are the execution roadmap:
+
+### Phase A: Raw Truth Spine
+
+Goal:
+
+- capture once
+- keep raw evidence
+- never lose source linkage
+
+Deliver:
+
+- one raw event spine model
+- source-linked ingest path
+- read-once source registry
+
+Pass:
+
+- all major harness inputs can enter one raw event spine
+- artifacts and corrections stay source-linked
+
+Evidence:
+
+- ingest tests
+- source registry behavior
+- provenance drilldown
+
+Fail:
+
+- raw artifacts lose source linkage
+- reread behavior still duplicates unchanged sources
+
+Rollback:
+
+- revert new ingest transforms that degrade source fidelity
+
+Plan:
+
+- [2026-04-11-phase-a-raw-truth-spine.md](./docs/superpowers/plans/2026-04-11-phase-a-raw-truth-spine.md)
+
+### Phase B: Session Continuity
+
+Goal:
+
+- flawless resume on a fresh session
+
+Deliver:
+
+- current-task state
+- open loops
+- blockers
+- next action
+- branch/workspace/session context
+
+Pass:
+
+- a new session can answer what we are doing, where we stopped, what changed, and what next without transcript rebuild
+
+Evidence:
+
+- resume tests
+- handoff tests
+- attach/resume journey evidence
+
+Fail:
+
+- fresh sessions still require manual reconstruction
+
+Rollback:
+
+- revert resume compaction changes that drop critical continuity
+
+Plan:
+
+- [2026-04-11-phase-b-session-continuity.md](./docs/superpowers/plans/2026-04-11-phase-b-session-continuity.md)
+
+### Phase C: Typed Memory
+
+Goal:
+
+- separate memory by kind instead of one flat store
+
+Required kinds:
+
+- working context
+- session continuity
+- episodic memory
+- semantic memory
+- procedural memory
+- candidate memory
+- canonical memory
+
+Pass:
+
+- working context, session continuity, episodic, semantic, procedural, candidate, and canonical memory all exist as explicit system concepts
+
+Evidence:
+
+- schema/docs alignment
+- retrieval traces showing type-aware behavior
+
+Fail:
+
+- flat memory bucket still dominates retrieval and writeback
+
+Rollback:
+
+- revert fake type labels with no behavioral effect
+
+Plan:
+
+- [2026-04-11-phase-c-typed-memory.md](./docs/superpowers/plans/2026-04-11-phase-c-typed-memory.md)
+
+### Phase D: Canonical Truth
+
+Goal:
+
+- durable trusted memory with correction overwrite and provenance
+
+Deliver:
+
+- correction overwrite path
+- trust state
+- freshness
+- conflict handling
+- promotion rules
+
+Pass:
+
+- stale beliefs can be replaced
+- confidence and source remain inspectable
+- canonical truth is not silently overwritten by fuzzy recall
+
+Evidence:
+
+- correction tests
+- provenance drilldown tests
+- belief conflict tests
+
+Fail:
+
+- memory drift
+- hidden corrections
+- trust ambiguity
+
+Rollback:
+
+- revert promotion or merge logic that hides contradictions
+
+Plan:
+
+- `verified`
+
+### Phase E: Wake Packet Compiler
+
+Goal:
+
+- compile small, action-ready memory packets
+
+Deliver:
+
+- wake packet schema
+- packet compiler
+- packet evaluation
+
+Pass:
+
+- prompt size drops because packets replace repeated rereads
+- resume quality stays equal or improves
+- repeated-context cost drops materially
+
+Evidence:
+
+- prompt size comparisons
+- task success comparisons
+- resume quality evals
+
+Fail:
+
+- packets get smaller but quality drops
+- packets still require reread fallback too often
+
+Rollback:
+
+- revert over-compression paths
+
+Plan:
+
+- `pending`
+
+### Phase F: Memory Atlas
+
+Goal:
+
+- multidimensional navigation over canonical memory
+
+Deliver:
+
+- atlas model
+- region/neighbor/trail navigation
+- progressive zoom from packet to evidence
+
+Pass:
+
+- users and agents can move from wake packet to linked regions to evidence without falling back to giant transcript search
+
+Evidence:
+
+- atlas navigation demos
+- trail-to-evidence verification
+- user-path examples
+
+Fail:
+
+- atlas duplicates truth instead of navigating it
+- atlas becomes visual fluff with no retrieval advantage
+
+Rollback:
+
+- revert atlas features that do not improve navigation behavior
+
+Plan:
+
+- `pending`
+
+### Phase G: Procedural Learning
+
+Goal:
+
+- learn how to operate, not just what is true
+
+Deliver:
+
+- learned procedures
+- operating policies
+- reusable workflows
+- recovery patterns
+
+Pass:
+
+- repeated successful workflows can be promoted into durable procedural memory
+
+Evidence:
+
+- repeated task traces
+- procedural reuse tests
+- policy reuse examples
+
+Fail:
+
+- procedures exist only as docs with no runtime effect
+
+Rollback:
+
+- revert procedural promotion that causes bad automation or brittle habits
+
+Plan:
+
+- `pending`
+
+### Phase H: Hive Coordination
+
+Goal:
+
+- one second brain across harnesses and agents
+
+Deliver:
+
+- shared truth
+- shared procedures
+- local working-state isolation
+- handoff packets
+- ownership and freshness rules
+
+Pass:
+
+- handoffs preserve intent, truth, and next action across harness boundaries
+
+Evidence:
+
+- cross-harness continuity tests
+- hive handoff journey tests
+- ownership/conflict tests
+
+Fail:
+
+- shared memory contamination
+- handoffs lose intent or context
+
+Rollback:
+
+- revert unsafe sharing paths and narrow scope boundaries
+
+Plan:
+
+- `pending`
+
+### Phase I: Overnight Evolution
+
+Goal:
+
+- real always-on improvement loops
+
+Deliver:
+
+- dream
+- autodream
+- autoresearch
+- autoevolve
+- accepted-learning promotion
+
+Pass:
+
+- dream, autodream, autoresearch, and autoevolve update memory quality without lowering trust
+- accepted improvements measurably improve memory behavior
+
+Evidence:
+
+- loop telemetry
+- before/after evaluation deltas
+- rollback records
+
+Fail:
+
+- self-improvement lowers trust
+- speculative changes get promoted without proof
+
+Rollback:
+
+- revert accepted-learning promotion and freeze the loop
+
+Plan:
+
+- `pending`
+
+### Loop Mapping
+
+The existing research loops map into this roadmap:
+
+- Prompt Surface Compression -> Phase E
+- Live Truth Freshness -> Phases A and D
+- Capability Contract Detection -> Phase H
+- Event Spine Compaction -> Phase A
+- Correction Learning -> Phase D
+- Long-Context Avoidance -> Phases B and E
+- Cross-Harness Portability -> Phase H
+- Controlled Self-Evolution -> Phase I
+- Branch Review Quality -> all phases
+- Docs Spec Drift -> all phases
+
+Historical Ralph artifact:
+
+- [2026-04-11-memd-ralph-roadmap.md](./docs/superpowers/specs/2026-04-11-memd-ralph-roadmap.md)
+
+Flagship moat benchmark:
+
+- fresh session resume plus cross-harness continuation
 
 ## Product Standard
 
@@ -66,6 +481,8 @@ The product standard is:
 - multimodal continuity instead of text-only continuity
 - compact shared working state instead of repeated rereads
 - memory IR that can be rendered, compacted, and audited
+- read-once memory instead of repeated context rebuilding
+- a human-owned second brain instead of per-agent isolated memory
 
 In practical terms:
 
@@ -97,8 +514,13 @@ agent's own memory substrate.
 The first practical consumer is Codex, so the memory stack should be optimized
 for Codex continuity before broader integrations get the same polish.
 
-The north star is true latent briefing: a multimodal shared working state that
-updates live and compresses away repeated rereads.
+The north star is a multiharness second brain with read-once memory:
+
+- live updates
+- flawless resume
+- canonical truth
+- procedural learning
+- major repeated-context reduction
 
 The roadmap now starts with repository foundations so the project can be
 worked on cleanly in public before the memory stack keeps expanding.
@@ -128,7 +550,6 @@ behavior is verified under real multi-session and multi-harness use.
 What is already real in the repo:
 
 - the core works without RAG
-- LightRAG is the intended long-term semantic backend
 - Obsidian vault ingest already exists as a filesystem-first source lane
 - Obsidian compiled evidence pages now exist as a first-class workspace lane
 - project bundles make the long-term path configurable
@@ -156,6 +577,7 @@ What is still not good enough yet:
 - capability discovery still needs to inventory plugin-backed workflows, not just memory files and a curated skill list
 - bridge generation still needs to turn discovered portable capabilities into actual installed surfaces across harnesses instead of leaving them trapped in one plugin system
 - corrections from the user still need to consolidate into durable operating policy so `memd`, dream, and autoresearch stop repeating the same deployment or workflow mistakes
+- the theory has only recently locked around typed memory, memory atlas, and multiharness second-brain ownership, so the code and docs still lag the model
 
 ## Deployment Tiers
 

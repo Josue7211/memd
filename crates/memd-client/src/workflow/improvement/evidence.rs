@@ -91,12 +91,36 @@ pub(crate) fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
     }
 
     for (path, label, keywords) in [
-        (project_root.join("AGENTS.md"), "AGENTS.md", &["memd", "memory", "bootstrap"][..]),
-        (project_root.join("CLAUDE.md"), "CLAUDE.md", &["memd", "memory", "hook"][..]),
-        (project_root.join("MEMORY.md"), "MEMORY.md", &["memory", "memd", "decision"][..]),
-        (project_root.join("README.md"), "README.md", &["memd", "setup", "memory"][..]),
-        (project_root.join("ROADMAP.md"), "ROADMAP.md", &["v5", "v6", "memd"][..]),
-        (project_root.join("docs/core/setup.md"), "docs/core/setup.md", &["memd", "bundle", "codex"][..]),
+        (
+            project_root.join("AGENTS.md"),
+            "AGENTS.md",
+            &["memd", "memory", "bootstrap"][..],
+        ),
+        (
+            project_root.join("CLAUDE.md"),
+            "CLAUDE.md",
+            &["memd", "memory", "hook"][..],
+        ),
+        (
+            project_root.join("MEMORY.md"),
+            "MEMORY.md",
+            &["memory", "memd", "decision"][..],
+        ),
+        (
+            project_root.join("README.md"),
+            "README.md",
+            &["memd", "setup", "memory"][..],
+        ),
+        (
+            project_root.join("ROADMAP.md"),
+            "ROADMAP.md",
+            &["v5", "v6", "memd"][..],
+        ),
+        (
+            project_root.join("docs/core/setup.md"),
+            "docs/core/setup.md",
+            &["memd", "bundle", "codex"][..],
+        ),
         (
             project_root.join("docs/reference/infra-facts.md"),
             "docs/reference/infra-facts.md",
@@ -117,7 +141,10 @@ pub(crate) fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
     let global_bundle = home_dir()
         .map(|home| home.join(".memd").join("config.json").exists())
         .unwrap_or(false);
-    evidence.push(format!("memd bundles: global={} project={}", global_bundle, local_bundle));
+    evidence.push(format!(
+        "memd bundles: global={} project={}",
+        global_bundle, local_bundle
+    ));
 
     let wiring = read_memd_runtime_wiring();
     let codex_wired = wiring
@@ -173,7 +200,11 @@ pub(crate) fn collect_recent_repo_changes(project_root: &Path) -> Vec<String> {
     if status_entries.is_empty() {
         changes.push("repo clean".to_string());
     } else {
-        changes.extend(status_entries.into_iter().map(|entry| format!("status {entry}")));
+        changes.extend(
+            status_entries
+                .into_iter()
+                .map(|entry| format!("status {entry}")),
+        );
     }
 
     let diff_stats = Command::new("git")
@@ -289,24 +320,36 @@ pub(crate) async fn sync_recent_repo_live_truth(
     workspace: Option<&str>,
     visibility: Option<memd_schema::MemoryVisibility>,
 ) -> anyhow::Result<()> {
-    let Some(project_root) = project_root else { return Ok(()); };
-    let Some(project) = project else { return Ok(()); };
+    let Some(project_root) = project_root else {
+        return Ok(());
+    };
+    let Some(project) = project else {
+        return Ok(());
+    };
 
     let changes = collect_recent_repo_changes(project_root);
     let content = {
         let spine = build_event_spine(&[], &changes, false);
-        if spine.is_empty() { "repo_state: clean".to_string() } else { spine.join("\n") }
+        if spine.is_empty() {
+            "repo_state: clean".to_string()
+        } else {
+            spine.join("\n")
+        }
     };
 
     let client = MemdClient::new(base_url)?;
     let live_truth_tags = vec!["live_truth".to_string(), "repo_changes".to_string()];
-    let search = match search_live_truth_record(&client, project, namespace, workspace, visibility, false).await {
-        Ok(response) => response,
-        Err(err) if is_live_truth_kind_rejection(&err) => {
-            search_live_truth_record(&client, project, namespace, workspace, visibility, true).await?
-        }
-        Err(err) => return Err(err),
-    };
+    let search =
+        match search_live_truth_record(&client, project, namespace, workspace, visibility, false)
+            .await
+        {
+            Ok(response) => response,
+            Err(err) if is_live_truth_kind_rejection(&err) => {
+                search_live_truth_record(&client, project, namespace, workspace, visibility, true)
+                    .await?
+            }
+            Err(err) => return Err(err),
+        };
 
     if let Some(existing) = search.items.first() {
         let repair_request = RepairMemoryRequest {
@@ -373,7 +416,11 @@ pub(crate) async fn search_live_truth_record(
     visibility: Option<memd_schema::MemoryVisibility>,
     legacy_compatible: bool,
 ) -> anyhow::Result<memd_schema::SearchMemoryResponse> {
-    let kinds = if legacy_compatible { Vec::new() } else { vec![MemoryKind::LiveTruth] };
+    let kinds = if legacy_compatible {
+        Vec::new()
+    } else {
+        vec![MemoryKind::LiveTruth]
+    };
     client
         .search(&SearchMemoryRequest {
             query: None,
@@ -426,7 +473,10 @@ pub(crate) async fn emit_lane_surface_receipt(
         client,
         kind,
         actor_session,
-        runtime.agent.as_deref().map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
+        runtime
+            .agent
+            .as_deref()
+            .map(|agent| compose_agent_identity(agent, runtime.session.as_deref())),
         surface.conflict_session.clone(),
         None,
         surface.current_branch.clone(),
@@ -460,7 +510,10 @@ pub(crate) async fn emit_lane_fault_receipt(
         project,
         namespace,
         workspace,
-        format!("Queen denied unsafe shared lane target: {}.", render_hive_lane_collision(target)),
+        format!(
+            "Queen denied unsafe shared lane target: {}.",
+            render_hive_lane_collision(target)
+        ),
     )
     .await;
 }

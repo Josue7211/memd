@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_imports, unused_imports)]
+
 mod awareness;
 mod benchmark;
 mod bundle;
@@ -13,6 +15,106 @@ mod runtime;
 mod verification;
 mod workflow;
 
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::{
+        collections::BTreeMap,
+        ffi::{OsStr, OsString},
+        path::{Path, PathBuf},
+        sync::{Mutex, MutexGuard, OnceLock},
+    };
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    pub(crate) fn lock_env_mutation() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    pub(crate) fn lock_cwd_mutation() -> MutexGuard<'static, ()> {
+        CWD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    pub(crate) struct EnvScope {
+        _lock: MutexGuard<'static, ()>,
+        originals: BTreeMap<&'static str, Option<OsString>>,
+    }
+
+    impl EnvScope {
+        pub(crate) fn new() -> Self {
+            Self {
+                _lock: lock_env_mutation(),
+                originals: BTreeMap::new(),
+            }
+        }
+
+        fn remember(&mut self, name: &'static str) {
+            self.originals
+                .entry(name)
+                .or_insert_with(|| std::env::var_os(name));
+        }
+
+        pub(crate) fn set(&mut self, name: &'static str, value: impl AsRef<OsStr>) {
+            self.remember(name);
+            unsafe {
+                std::env::set_var(name, value);
+            }
+        }
+
+        pub(crate) fn remove(&mut self, name: &'static str) {
+            self.remember(name);
+            unsafe {
+                std::env::remove_var(name);
+            }
+        }
+    }
+
+    impl Drop for EnvScope {
+        fn drop(&mut self) {
+            for (name, original) in self.originals.iter().rev() {
+                unsafe {
+                    match original {
+                        Some(value) => std::env::set_var(name, value),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) struct CwdGuard {
+        _lock: MutexGuard<'static, ()>,
+        original: PathBuf,
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original);
+        }
+    }
+
+    pub(crate) fn set_current_dir(path: impl AsRef<Path>) -> CwdGuard {
+        let lock = lock_cwd_mutation();
+        let original = std::env::current_dir().expect("read current dir");
+        std::env::set_current_dir(path).expect("set current dir");
+        CwdGuard {
+            _lock: lock,
+            original,
+        }
+    }
+}
+
+#[cfg(test)]
+mod e2e_tests;
+#[cfg(test)]
+mod main_tests;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -27,27 +129,22 @@ use crate::harness::cache;
 use anyhow::{Context, anyhow};
 pub(crate) use awareness::{derive_awareness_worker_name, project_awareness_entry_to_hive_session};
 pub(crate) use benchmark::*;
+pub(crate) use bundle::agent_profiles::copy_hook_assets;
 pub(crate) use bundle::*;
 use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser};
+pub(crate) use cli::command_catalog::build_command_catalog;
+pub(crate) use cli::skill_catalog::{build_skill_catalog, find_skill_catalog_matches};
 #[allow(unused_imports)]
 pub(crate) use cli::*;
 use cli::{
-    normalize_voice_mode_value, parse_memory_kind_value,
-    parse_memory_scope_value, parse_memory_visibility_value, parse_retrieval_intent,
-    parse_retrieval_route, parse_source_quality_value, parse_uuid_list,
+    normalize_voice_mode_value, parse_memory_kind_value, parse_memory_scope_value,
+    parse_memory_visibility_value, parse_retrieval_intent, parse_retrieval_route,
+    parse_source_quality_value, parse_uuid_list,
 };
 pub(crate) use compiled::*;
 pub(crate) use coordination::*;
-pub(crate) use evaluation::{
-    append_experiment_learning_notes, append_text_to_memory_surface, build_gap_candidates,
-    copy_dir_contents, derive_experiment_learnings, eval_bundle_memory, eval_failure_reason,
-    eval_score_delta, evaluate_gap_changes, persist_loop_record, prioritize_gap_candidates,
-    read_latest_bundle_eval, read_latest_gap_report, read_latest_scenario_report,
-    read_loop_summary, render_bundle_eval_markdown, research_loops_doc_loop_count,
-    restore_bundle_snapshot, simplify_awareness_work_text, write_gap_artifacts,
-    write_public_benchmark_run_artifacts,
-};
+pub(crate) use evaluation::*;
 use hive::*;
 use memd_client::MemdClient;
 use memd_core::{
@@ -114,6 +211,7 @@ use serde_json::Value as JsonValue;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+pub(crate) use test_support::*;
 use tokio::task::JoinSet;
 pub(crate) use verification::*;
 #[allow(unused_imports)]

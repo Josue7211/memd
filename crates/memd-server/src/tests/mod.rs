@@ -700,8 +700,23 @@
                 > context_score(&inferred, None, 0.7, &req, &plan)
         );
         assert!(
-            search_score(&verified, None, 0.7, &Some("workspace".to_string()), &plan)
-                > search_score(&inferred, None, 0.7, &Some("workspace".to_string()), &plan)
+            search_score(
+                &verified,
+                None,
+                0.7,
+                &Some("workspace".to_string()),
+                req.project.as_ref(),
+                None,
+                &plan,
+            ) > search_score(
+                &inferred,
+                None,
+                0.7,
+                &Some("workspace".to_string()),
+                req.project.as_ref(),
+                None,
+                &plan,
+            )
         );
     }
 
@@ -1154,6 +1169,206 @@
         assert_eq!(revived.confidence, 0.99);
         assert!(revived.tags.iter().any(|tag| tag == "product-direction"));
         assert!(!revived.supersedes.contains(&revived.id));
+        std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
+    }
+
+    #[test]
+    fn store_item_records_source_linked_event_for_canonical_memory() {
+        let (dir, state) = temp_state("memd-store-event-canonical");
+
+        let (item, duplicate) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "raw truth: user corrected deployment target".to_string(),
+                    kind: MemoryKind::Decision,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("core".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex@test".to_string()),
+                    source_system: Some("hook-capture".to_string()),
+                    source_path: Some(".memd/agents/CODEX_WAKEUP.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.91),
+                    ttl_seconds: Some(86_400),
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["raw-spine".to_string(), "correction".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store canonical memory");
+
+        assert!(duplicate.is_none());
+
+        let (entity, events) = state.entity_view(item.id, 10).expect("load entity timeline");
+        assert!(entity.is_some());
+        assert!(!events.is_empty(), "expected canonical timeline event");
+
+        let event = &events[0];
+        assert_eq!(event.event_type, "canonical_created");
+        assert_eq!(event.source_agent.as_deref(), Some("codex@test"));
+        assert_eq!(event.source_system.as_deref(), Some("hook-capture"));
+        assert_eq!(
+            event.source_path.as_deref(),
+            Some(".memd/agents/CODEX_WAKEUP.md")
+        );
+        assert_eq!(event.tags, vec!["raw-spine".to_string(), "correction".to_string()]);
+        assert_eq!(event.context.as_ref().and_then(|context| context.repo.as_deref()), Some("hook-capture"));
+        assert_eq!(
+            event.context.as_ref().and_then(|context| context.location.as_deref()),
+            Some(".memd/agents/CODEX_WAKEUP.md")
+        );
+        std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
+    }
+
+    #[test]
+    fn store_item_records_source_linked_event_for_candidate_memory() {
+        let (dir, state) = temp_state("memd-store-event-candidate");
+
+        let (item, duplicate) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "checkpoint: parser lane blocked by stale resume packet".to_string(),
+                    kind: MemoryKind::Status,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("core".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex@test".to_string()),
+                    source_system: Some("checkpoint".to_string()),
+                    source_path: Some("checkpoint".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.78),
+                    ttl_seconds: Some(86_400),
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["checkpoint".to_string(), "raw-spine".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Candidate,
+            )
+            .expect("store candidate memory");
+
+        assert!(duplicate.is_none());
+
+        let (entity, events) = state.entity_view(item.id, 10).expect("load entity timeline");
+        assert!(entity.is_some());
+        assert!(!events.is_empty(), "expected candidate timeline event");
+
+        let event = &events[0];
+        assert_eq!(event.event_type, "candidate_created");
+        assert_eq!(event.source_agent.as_deref(), Some("codex@test"));
+        assert_eq!(event.source_system.as_deref(), Some("checkpoint"));
+        assert_eq!(event.source_path.as_deref(), Some("checkpoint"));
+        assert_eq!(event.tags, vec!["checkpoint".to_string(), "raw-spine".to_string()]);
+        assert_eq!(event.context.as_ref().and_then(|context| context.repo.as_deref()), Some("checkpoint"));
+        assert_eq!(
+            event.context.as_ref().and_then(|context| context.location.as_deref()),
+            Some("checkpoint")
+        );
+        std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
+    }
+
+    #[tokio::test]
+    async fn source_memory_route_returns_provenance_aggregates_for_filtered_source() {
+        let (dir, state) = temp_state("memd-source-memory-route");
+
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "raw truth: deployment target corrected to staging".to_string(),
+                    kind: MemoryKind::Decision,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("core".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex@test".to_string()),
+                    source_system: Some("hook-capture".to_string()),
+                    source_path: Some(".memd/agents/CODEX_WAKEUP.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.91),
+                    ttl_seconds: Some(86_400),
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["raw-spine".to_string(), "correction".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store filtered provenance item");
+
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: "other lane memory should not match filtered source".to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("core".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("other@test".to_string()),
+                    source_system: Some("checkpoint".to_string()),
+                    source_path: Some("checkpoint".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.65),
+                    ttl_seconds: Some(86_400),
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["checkpoint".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Candidate,
+            )
+            .expect("store non-matching provenance item");
+
+        let app = Router::new()
+            .route("/memory/source", get(get_source_memory))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/memory/source?project=memd&namespace=main&workspace=core&source_agent=codex%40test&source_system=hook-capture&limit=5")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("run source memory route");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: SourceMemoryResponse = decode_json(response).await;
+        assert_eq!(body.sources.len(), 1);
+
+        let source = &body.sources[0];
+        assert_eq!(source.source_agent.as_deref(), Some("codex@test"));
+        assert_eq!(source.source_system.as_deref(), Some("hook-capture"));
+        assert_eq!(source.project.as_deref(), Some("memd"));
+        assert_eq!(source.namespace.as_deref(), Some("main"));
+        assert_eq!(source.workspace.as_deref(), Some("core"));
+        assert_eq!(source.visibility, MemoryVisibility::Workspace);
+        assert_eq!(source.item_count, 1);
+        assert_eq!(source.active_count, 1);
+        assert_eq!(source.candidate_count, 0);
+        assert_eq!(source.contested_count, 0);
+        assert!(
+            source.tags.iter().any(|tag| tag == "raw-spine"),
+            "expected raw truth tag in provenance aggregate"
+        );
+        assert!(
+            source.tags.iter().any(|tag| tag == "correction"),
+            "expected correction tag in provenance aggregate"
+        );
+
         std::fs::remove_dir_all(dir).expect("cleanup temp state dir");
     }
 

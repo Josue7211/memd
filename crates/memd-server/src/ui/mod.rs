@@ -708,7 +708,9 @@ pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiP
 
     function freshnessFromItem(item, status) {{
       if (status === 'Current') {{
-        return item.last_verified_at ? 'verified' : 'current';
+        if (item.last_verified_at) return 'verified';
+        if (item.source_quality === 'derived') return 'inferred';
+        return 'claimed';
       }}
       if (status === 'Candidate') return 'candidate';
       if (status === 'Stale') return 'stale';
@@ -1868,8 +1870,10 @@ fn freshness_label(item: &MemoryItem, status: VisibleMemoryStatus) -> String {
         VisibleMemoryStatus::Current => {
             if item.last_verified_at.is_some() {
                 "verified".to_string()
+            } else if item.source_quality == Some(memd_schema::SourceQuality::Derived) {
+                "inferred".to_string()
             } else {
-                "current".to_string()
+                "claimed".to_string()
             }
         }
         VisibleMemoryStatus::Candidate => "candidate".to_string(),
@@ -1896,12 +1900,21 @@ fn repair_state_label(item: &MemoryItem, status: VisibleMemoryStatus) -> String 
 
 fn trust_reason(item: &MemoryItem, status: VisibleMemoryStatus) -> String {
     let origin = item.source_system.as_deref().unwrap_or("memd").to_string();
-    let verified = if item.last_verified_at.is_some() {
-        "verified"
-    } else {
-        "unverified"
+    let epistemic = match status {
+        VisibleMemoryStatus::Stale => "stale",
+        VisibleMemoryStatus::Superseded => "superseded",
+        VisibleMemoryStatus::Conflicted => "contested",
+        VisibleMemoryStatus::Archived => "archived",
+        VisibleMemoryStatus::Candidate => {
+            if item.source_quality == Some(memd_schema::SourceQuality::Derived) {
+                "inferred"
+            } else {
+                "claimed"
+            }
+        }
+        VisibleMemoryStatus::Current => crate::helpers::epistemic_state_label(item),
     };
-    format!("{origin} {status:?} {verified}")
+    format!("{origin} {epistemic}")
 }
 
 fn is_inbox_item(item: &MemoryItem) -> bool {
@@ -2188,6 +2201,128 @@ mod tests {
 
         assert_eq!(promoted.outcome, "promoted");
         assert!(promoted.detail.is_some());
+        let stored = state.store.get(item.id).unwrap().expect("stored promoted item");
+        assert_eq!(stored.stage, MemoryStage::Canonical);
+    }
+
+    #[test]
+    fn visible_memory_provenance_trust_reason_exposes_epistemic_state() {
+        let state = test_state();
+        let verified = test_insert_visible_item(&state, "runtime spine", true).unwrap();
+        let inferred = test_insert_candidate_item(&state, "candidate note").unwrap();
+        let stale = test_insert_stale_item(&state, "stale belief").unwrap();
+
+        assert!(trust_reason(&verified, VisibleMemoryStatus::Current).contains("verified"));
+        assert!(trust_reason(&inferred, VisibleMemoryStatus::Candidate).contains("inferred"));
+        assert!(trust_reason(&stale, VisibleMemoryStatus::Stale).contains("stale"));
+    }
+
+    #[test]
+    fn visible_memory_detail_explain_exposes_epistemic_state() {
+        let state = test_state();
+        let item = state
+            .store_item(memd_schema::StoreMemoryRequest {
+                content: "claimed spine".to_string(),
+                kind: memd_schema::MemoryKind::Decision,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("core".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("obsidian".to_string()),
+                source_path: Some("wiki/claimed-spine.md".to_string()),
+                source_quality: Some(memd_schema::SourceQuality::Canonical),
+                confidence: Some(0.82),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["visible-memory".to_string()],
+                status: Some(MemoryStatus::Active),
+            }, MemoryStage::Canonical)
+            .unwrap()
+            .0;
+
+        let detail = build_visible_memory_artifact_detail(&state, item.id).unwrap();
+        let explain = detail.explain.expect("explain payload");
+        assert!(
+            explain
+                .reasons
+                .iter()
+                .any(|reason| reason == "epistemic_state=claimed")
+        );
+        assert!(
+            explain
+                .reasons
+                .iter()
+                .any(|reason| reason == "claimed_memory")
+        );
+    }
+
+    #[test]
+    fn visible_memory_freshness_labels_distinguish_claimed_inferred_and_verified() {
+        let state = test_state();
+        let verified = test_insert_visible_item(&state, "runtime spine", true).unwrap();
+        let inferred = state
+            .store_item(memd_schema::StoreMemoryRequest {
+                content: "inferred spine".to_string(),
+                kind: memd_schema::MemoryKind::Decision,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("core".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("obsidian".to_string()),
+                source_path: Some("wiki/inferred-spine.md".to_string()),
+                source_quality: Some(memd_schema::SourceQuality::Derived),
+                confidence: Some(0.84),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["visible-memory".to_string()],
+                status: Some(MemoryStatus::Active),
+            }, MemoryStage::Canonical)
+            .unwrap()
+            .0;
+        let claimed = state
+            .store_item(memd_schema::StoreMemoryRequest {
+                content: "claimed spine".to_string(),
+                kind: memd_schema::MemoryKind::Decision,
+                scope: memd_schema::MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("core".to_string()),
+                workspace: Some("team-alpha".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("obsidian".to_string()),
+                source_path: Some("wiki/claimed-spine.md".to_string()),
+                source_quality: Some(memd_schema::SourceQuality::Canonical),
+                confidence: Some(0.82),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["visible-memory".to_string()],
+                status: Some(MemoryStatus::Active),
+            }, MemoryStage::Canonical)
+            .unwrap()
+            .0;
+
+        assert_eq!(
+            freshness_label(&verified, VisibleMemoryStatus::Current),
+            "verified"
+        );
+        assert_eq!(
+            freshness_label(&inferred, VisibleMemoryStatus::Current),
+            "inferred"
+        );
+        assert_eq!(
+            freshness_label(&claimed, VisibleMemoryStatus::Current),
+            "claimed"
+        );
     }
 
     fn test_insert_candidate_item(state: &AppState, content: &str) -> anyhow::Result<MemoryItem> {

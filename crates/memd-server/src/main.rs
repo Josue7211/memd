@@ -14,6 +14,10 @@ mod working;
 mod helpers;
 mod routes;
 
+#[cfg(test)]
+#[path = "tests/mod.rs"]
+mod tests;
+
 pub(crate) use helpers::*;
 pub(crate) use routes::*;
 pub(crate) use store::{DuplicateMatch, RecordEventArgs, SqliteStore};

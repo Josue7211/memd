@@ -9,6 +9,8 @@ use memd_schema::{
     WorkingMemoryResponse, WorkspaceMemoryResponse,
 };
 
+use crate::cli::command_catalog::{CommandCatalog, CommandCatalogEntry};
+use crate::cli::skill_catalog::{SkillCatalog, SkillCatalogEntry};
 use crate::{
     harness::{
         agent_zero::AgentZeroHarnessPack,
@@ -23,8 +25,6 @@ use crate::{
     },
     obsidian::ObsidianVaultScan,
 };
-use crate::cli::command_catalog::{CommandCatalog, CommandCatalogEntry};
-use crate::cli::skill_catalog::{SkillCatalog, SkillCatalogEntry};
 
 mod render_catalog;
 pub(crate) use render_catalog::*;
@@ -413,6 +413,10 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             .get("truth")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
+        let epistemic_state = truth
+            .get("epistemic_state")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
         let freshness = truth
             .get("freshness")
             .and_then(Value::as_str)
@@ -434,8 +438,8 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
             .and_then(Value::as_u64)
             .unwrap_or(0);
         output.push_str(&format!(
-            " truth={} freshness={} retrieval={} conf={:.2} sources={} contested={}",
-            truth_state, freshness, tier, confidence, sources, contested
+            " truth={} epistemic={} freshness={} retrieval={} conf={:.2} sources={} contested={}",
+            truth_state, epistemic_state, freshness, tier, confidence, sources, contested
         ));
         if let Some(action_hint) = truth.get("action_hint").and_then(Value::as_str)
             && action_hint != "none"

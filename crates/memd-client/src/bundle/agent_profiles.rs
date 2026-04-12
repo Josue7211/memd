@@ -74,12 +74,17 @@ pub(crate) fn build_bundle_agent_profiles(
             "powershell" | "pwsh" => format!(". \"{}\"", agent.powershell_entrypoint),
             _ => format!("\"{}\"", agent.shell_entrypoint),
         };
-        if agent.name == "claude-code" {
-            agent.native_hint = Some(
+        agent.native_hint = match agent.name.as_str() {
+            "codex" => Some(
+                "start from .memd/agents/CODEX_WAKEUP.md, then run memd lookup --output .memd --query \"...\" before memory-dependent answers"
+                    .to_string(),
+            ),
+            "claude-code" => Some(
                 "import @.memd/agents/CLAUDE_IMPORTS.md into CLAUDE.md, then verify with /memory"
                     .to_string(),
-            );
-        }
+            ),
+            _ => None,
+        };
     }
 
     let selected = name.map(|value| value.trim().to_ascii_lowercase());
@@ -173,6 +178,10 @@ pub(crate) fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
         "memd-capture.ps1",
         "memd-spill.sh",
         "memd-spill.ps1",
+        "memd-stop-save.sh",
+        "memd-stop-save.ps1",
+        "memd-precompact-save.sh",
+        "memd-precompact-save.ps1",
     ] {
         let src = source_dir.join(file);
         let dst = target.join(file);

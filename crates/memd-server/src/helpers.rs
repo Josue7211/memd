@@ -77,16 +77,7 @@ pub(crate) fn build_context(
         .filter(|entry| plan.allows(entry.item.scope))
         .filter(|entry| entry.item.kind != MemoryKind::LiveTruth)
         .filter(|entry| entry.item.status == MemoryStatus::Active)
-        .filter(
-            |entry| match (&req.project, &entry.item.project, entry.item.scope) {
-                (Some(project), Some(item_project), MemoryScope::Project) => {
-                    item_project == project
-                }
-                (Some(project), Some(item_project), MemoryScope::Synced) => item_project == project,
-                (Some(_), None, MemoryScope::Project | MemoryScope::Synced) => false,
-                _ => true,
-            },
-        )
+        .filter(|entry| matches_requested_project(&req.project, &entry.item))
         .filter(|entry| {
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
@@ -168,11 +159,7 @@ pub(crate) fn filter_items(
         .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
         .filter(|entry| req.statuses.is_empty() || req.statuses.contains(&entry.item.status))
         .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
-        .filter(|entry| {
-            req.project
-                .as_ref()
-                .is_none_or(|project| entry.item.project.as_ref() == Some(project))
-        })
+        .filter(|entry| matches_requested_project(&req.project, &entry.item))
         .filter(|entry| {
             req.namespace
                 .as_ref()
@@ -223,6 +210,8 @@ pub(crate) fn filter_items(
             b.entity.as_ref(),
             b.source_trust_score,
             &query,
+            req.project.as_ref(),
+            req.namespace.as_ref(),
             plan,
         )
         .partial_cmp(&search_score(
@@ -230,6 +219,8 @@ pub(crate) fn filter_items(
             a.entity.as_ref(),
             a.source_trust_score,
             &query,
+            req.project.as_ref(),
+            req.namespace.as_ref(),
             plan,
         ))
         .unwrap_or(std::cmp::Ordering::Equal)
@@ -456,7 +447,7 @@ pub(crate) fn associative_recall_score(
             .as_ref()
             .and_then(|context| context.project.as_ref())
     {
-        0.08
+        0.18
     } else {
         0.0
     };
@@ -930,10 +921,11 @@ pub(crate) fn context_score(
     score += plan.scope_rank_bonus(item.scope);
     score += plan.intent_scope_bonus(item.scope);
     score += entity_attention_bonus(item, entity);
+    score += project_scope_bonus(item, req.project.as_ref(), None);
 
     if let Some(project) = &req.project {
         if item.project.as_ref() == Some(project) {
-            score += 1.5;
+            score += 1.9;
         }
     }
 
@@ -944,6 +936,7 @@ pub(crate) fn context_score(
     }
 
     score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
+    score += durable_truth_rank_adjustment(item);
 
     score += entity_context_bonus(entity, req.project.as_ref(), req.agent.as_ref());
     score += trust_rank_adjustment(source_trust_score);
@@ -966,6 +959,8 @@ pub(crate) fn search_score(
     entity: Option<&MemoryEntityRecord>,
     source_trust_score: f32,
     query: &Option<String>,
+    requested_project: Option<&String>,
+    requested_namespace: Option<&String>,
     plan: &RetrievalPlan,
 ) -> f32 {
     let mut score = item.confidence;
@@ -992,8 +987,10 @@ pub(crate) fn search_score(
     score += plan.scope_rank_bonus(item.scope) * 0.5;
     score += plan.intent_scope_bonus(item.scope) * 0.75;
     score += entity_attention_bonus(item, entity) * 0.75;
+    score += project_scope_bonus(item, requested_project, requested_namespace) * 0.9;
     score += trust_rank_adjustment(source_trust_score) * 0.8;
     score += epistemic_rank_adjustment(item) * 0.85;
+    score += durable_truth_rank_adjustment(item) * 0.9;
 
     if let Some(query) = query {
         let content = item.content.to_ascii_lowercase();
@@ -1014,15 +1011,15 @@ pub(crate) fn search_score(
 
 pub(crate) fn trust_rank_adjustment(source_trust_score: f32) -> f32 {
     if source_trust_score < 0.35 {
-        -1.1
+        -1.2
     } else if source_trust_score < 0.5 {
-        -0.65
+        -0.75
     } else if source_trust_score < 0.6 {
-        -0.3
+        -0.4
     } else if source_trust_score >= 0.9 {
-        0.22
+        0.3
     } else if source_trust_score >= 0.75 {
-        0.12
+        0.18
     } else {
         0.0
     }
@@ -1064,6 +1061,33 @@ pub(crate) fn epistemic_rank_adjustment(item: &MemoryItem) -> f32 {
     score
 }
 
+pub(crate) fn durable_truth_rank_adjustment(item: &MemoryItem) -> f32 {
+    let mut score = 0.0;
+
+    if item.tags.iter().any(|tag| tag == "correction") {
+        score += 1.4;
+    }
+    if item.tags.iter().any(|tag| tag == "project_fact") {
+        score += 1.0;
+    }
+    if item
+        .source_system
+        .as_deref()
+        .is_some_and(|value| value == "correction")
+    {
+        score += 0.8;
+    }
+
+    let content = item.content.to_ascii_lowercase();
+    if content.starts_with("corrected fact:") {
+        score += 1.2;
+    } else if content.starts_with("remembered project fact:") {
+        score += 0.8;
+    }
+
+    score
+}
+
 pub(crate) fn workspace_rank_adjustment(
     requested_workspace: Option<&String>,
     item_workspace: Option<&String>,
@@ -1078,12 +1102,14 @@ pub(crate) fn workspace_rank_adjustment(
 
 pub(crate) fn age_penalty(updated_at: chrono::DateTime<Utc>) -> f32 {
     let age_days = (Utc::now() - updated_at).num_days().max(0) as f32;
-    (age_days / 14.0).min(3.0)
+    (age_days / 21.0).min(2.0)
 }
 
 pub(crate) fn inbox_score(
     item: &MemoryItem,
     entity: Option<&MemoryEntityRecord>,
+    requested_project: Option<&String>,
+    requested_namespace: Option<&String>,
     plan: &RetrievalPlan,
 ) -> f32 {
     let mut score = item.confidence;
@@ -1101,8 +1127,57 @@ pub(crate) fn inbox_score(
         MemoryStatus::Active => 0.0,
     };
     score += entity_attention_bonus(item, entity);
+    score += project_scope_bonus(item, requested_project, requested_namespace);
     score -= age_penalty(item.updated_at) * 0.75;
     score
+}
+
+pub(crate) fn matches_requested_project(
+    requested_project: &Option<String>,
+    item: &MemoryItem,
+) -> bool {
+    let Some(project) = requested_project else {
+        return true;
+    };
+
+    match item.project.as_ref() {
+        Some(item_project) => item_project == project,
+        None => item.scope == MemoryScope::Global,
+    }
+}
+
+pub(crate) fn project_scope_bonus(
+    item: &MemoryItem,
+    requested_project: Option<&String>,
+    requested_namespace: Option<&String>,
+) -> f32 {
+    let Some(project) = requested_project else {
+        return 0.0;
+    };
+
+    let mut bonus = 0.0;
+    match item.project.as_ref() {
+        Some(item_project) if item_project == project => {
+            bonus += 1.25;
+            if item.scope == MemoryScope::Project {
+                bonus += 0.45;
+            }
+        }
+        None if item.scope == MemoryScope::Global => {
+            bonus += 0.15;
+        }
+        _ => {
+            bonus -= 1.0;
+        }
+    }
+
+    if let Some(namespace) = requested_namespace {
+        if item.namespace.as_ref() == Some(namespace) {
+            bonus += 0.2;
+        }
+    }
+
+    bonus
 }
 
 pub(crate) fn entity_attention_bonus(item: &MemoryItem, entity: Option<&MemoryEntityRecord>) -> f32 {
@@ -1125,19 +1200,330 @@ pub(crate) fn entity_attention_bonus(item: &MemoryItem, entity: Option<&MemoryEn
         .map(|context| {
             let mut bonus = 0.0;
             if context.project.as_ref() == item.project.as_ref() {
-                bonus += 0.2;
+                bonus += 0.45;
             }
             if context.namespace.as_ref() == item.namespace.as_ref() {
-                bonus += 0.1;
+                bonus += 0.15;
             }
             if context.agent.as_ref() == item.source_agent.as_ref() {
-                bonus += 0.1;
+                bonus += 0.08;
             }
             bonus
         })
         .unwrap_or(0.0);
 
-    salience * 0.9 + rehearsal * 0.25 + recency * 0.25 + state_alignment
+    salience * 0.75 + rehearsal * 0.08 + recency * 0.1 + state_alignment
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routing::RetrievalPlan;
+
+    fn sample_item(content: &str, tags: Vec<&str>, source_system: Option<&str>) -> MemoryItem {
+        MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: content.to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: true,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex".to_string()),
+            source_system: source_system.map(|value| value.to_string()),
+            source_path: None,
+            source_quality: Some(SourceQuality::Canonical),
+            confidence: 0.95,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            last_verified_at: Some(Utc::now()),
+            supersedes: Vec::new(),
+            updated_at: Utc::now(),
+            tags: tags.into_iter().map(|value| value.to_string()).collect(),
+        }
+    }
+
+    fn sample_entity(
+        project: Option<&str>,
+        namespace: Option<&str>,
+        salience_score: f32,
+        rehearsal_count: u64,
+        last_accessed_at: Option<chrono::DateTime<Utc>>,
+    ) -> MemoryEntityRecord {
+        MemoryEntityRecord {
+            id: uuid::Uuid::new_v4(),
+            entity_type: "repo".to_string(),
+            aliases: vec!["memd".to_string()],
+            current_state: Some("working memory".to_string()),
+            state_version: 1,
+            confidence: 0.9,
+            salience_score,
+            rehearsal_count,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_accessed_at,
+            last_seen_at: Some(Utc::now()),
+            valid_from: Some(Utc::now()),
+            valid_to: None,
+            tags: vec!["project".to_string()],
+            context: Some(MemoryContextFrame {
+                at: Some(Utc::now()),
+                project: project.map(|value| value.to_string()),
+                namespace: namespace.map(|value| value.to_string()),
+                workspace: Some("core".to_string()),
+                repo: Some("memd".to_string()),
+                host: Some("laptop".to_string()),
+                branch: Some("main".to_string()),
+                agent: Some("codex".to_string()),
+                location: Some("/tmp/memd".to_string()),
+            }),
+        }
+    }
+
+    #[test]
+    fn corrected_fact_ranks_above_resume_noise_for_search() {
+        let plan = RetrievalPlan::resolve(
+            Some(RetrievalRoute::LocalFirst),
+            Some(RetrievalIntent::CurrentTask),
+        );
+        let corrected = sample_item(
+            "corrected fact: roadmap status is not proof of working memory recall",
+            vec!["correction"],
+            Some("correction"),
+        );
+        let noisy = MemoryItem {
+            scope: MemoryScope::Synced,
+            kind: MemoryKind::Status,
+            content: "resume state noise: synced session snapshot".to_string(),
+            tags: vec!["resume_state".to_string(), "session_state".to_string()],
+            source_system: Some("memd-resume-state".to_string()),
+            ..sample_item("resume state noise: synced session snapshot", vec![], Some("memd"))
+        };
+
+        assert!(
+            search_score(&corrected, None, 0.95, &None, None, None, &plan)
+                > search_score(&noisy, None, 0.95, &None, None, None, &plan)
+        );
+    }
+
+    #[test]
+    fn requested_project_blocks_foreign_project_items_even_for_global_scope() {
+        let requested = Some("demo-b".to_string());
+        let foreign_global = MemoryItem {
+            scope: MemoryScope::Global,
+            project: Some("demo-a".to_string()),
+            ..sample_item("foreign global", vec![], Some("memd"))
+        };
+        let shared_global = MemoryItem {
+            scope: MemoryScope::Global,
+            project: None,
+            ..sample_item("shared global", vec![], Some("memd"))
+        };
+        let local_project = MemoryItem {
+            scope: MemoryScope::Project,
+            project: Some("demo-b".to_string()),
+            ..sample_item("local project", vec![], Some("memd"))
+        };
+
+        assert!(!matches_requested_project(&requested, &foreign_global));
+        assert!(matches_requested_project(&requested, &shared_global));
+        assert!(matches_requested_project(&requested, &local_project));
+        assert!(matches_requested_project(&None, &foreign_global));
+    }
+
+    #[test]
+    fn project_scope_bonus_prefers_project_over_shared_global_context() {
+        let requested_project = Some("demo-b".to_string());
+        let requested_namespace = Some("main".to_string());
+        let project_item = MemoryItem {
+            scope: MemoryScope::Project,
+            project: Some("demo-b".to_string()),
+            namespace: Some("main".to_string()),
+            ..sample_item("project item", vec![], Some("memd"))
+        };
+        let shared_global = MemoryItem {
+            scope: MemoryScope::Global,
+            project: None,
+            namespace: Some("main".to_string()),
+            ..sample_item("shared global", vec![], Some("memd"))
+        };
+        let unrelated_global = MemoryItem {
+            scope: MemoryScope::Global,
+            project: Some("demo-a".to_string()),
+            namespace: Some("main".to_string()),
+            ..sample_item("unrelated global", vec![], Some("memd"))
+        };
+
+        assert!(
+            project_scope_bonus(&project_item, requested_project.as_ref(), requested_namespace.as_ref())
+                > project_scope_bonus(&shared_global, requested_project.as_ref(), requested_namespace.as_ref())
+        );
+        assert!(
+            project_scope_bonus(&shared_global, requested_project.as_ref(), requested_namespace.as_ref())
+                > project_scope_bonus(&unrelated_global, requested_project.as_ref(), requested_namespace.as_ref())
+        );
+    }
+
+    #[test]
+    fn entity_attention_bonus_prefers_project_aligned_recent_entity_without_popularity_spillover() {
+        let now = Utc::now();
+        let item = sample_item("entity bonus item", vec!["project"], Some("memd"));
+        let aligned = sample_entity(Some("demo"), Some("main"), 0.85, 2, Some(now));
+        let popular_but_unaligned = sample_entity(Some("other"), Some("main"), 1.0, 20, Some(now));
+
+        assert!(entity_attention_bonus(&item, Some(&aligned)) > entity_attention_bonus(&item, None));
+        assert!(
+            entity_attention_bonus(&item, Some(&aligned))
+                > entity_attention_bonus(&item, Some(&popular_but_unaligned))
+        );
+    }
+
+    #[test]
+    fn trust_and_age_weights_keep_durable_project_truth_ahead_of_fresh_noise() {
+        let plan = RetrievalPlan::resolve(
+            Some(RetrievalRoute::ProjectFirst),
+            Some(RetrievalIntent::CurrentTask),
+        );
+        let now = Utc::now();
+        let durable = MemoryItem {
+            scope: MemoryScope::Project,
+            kind: MemoryKind::Fact,
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            confidence: 0.86,
+            source_quality: Some(SourceQuality::Canonical),
+            last_verified_at: Some(now - chrono::Duration::days(8)),
+            updated_at: now - chrono::Duration::days(60),
+            tags: vec!["project_fact".to_string()],
+            content: "remembered project fact: use compact spill at boundaries".to_string(),
+            ..sample_item("durable project truth", vec!["project_fact"], Some("memd"))
+        };
+        let fresh_noise = MemoryItem {
+            scope: MemoryScope::Global,
+            kind: MemoryKind::Status,
+            project: None,
+            namespace: Some("main".to_string()),
+            confidence: 0.94,
+            source_quality: Some(SourceQuality::Synthetic),
+            last_verified_at: None,
+            updated_at: now,
+            tags: vec!["session_state".to_string()],
+            content: "resume state noise: fresh but not durable".to_string(),
+            ..sample_item("fresh noise", vec![], Some("memd"))
+        };
+
+        assert!(
+            search_score(
+                &durable,
+                None,
+                0.92,
+                &Some("spill".to_string()),
+                Some(&"demo".to_string()),
+                Some(&"main".to_string()),
+                &plan,
+            ) > search_score(
+                &fresh_noise,
+                None,
+                0.95,
+                &Some("spill".to_string()),
+                Some(&"demo".to_string()),
+                Some(&"main".to_string()),
+                &plan,
+            )
+        );
+    }
+
+    #[test]
+    fn trust_rank_adjustment_rewards_strong_sources_and_penalizes_weak_ones() {
+        assert!(trust_rank_adjustment(0.95) > trust_rank_adjustment(0.8));
+        assert!(trust_rank_adjustment(0.8) > trust_rank_adjustment(0.55));
+        assert!(trust_rank_adjustment(0.55) > trust_rank_adjustment(0.4));
+        assert!(trust_rank_adjustment(0.4) > trust_rank_adjustment(0.2));
+    }
+
+    #[test]
+    fn age_penalty_grows_with_age_but_is_bounded() {
+        let now = Utc::now();
+        let recent = now - chrono::Duration::days(7);
+        let older = now - chrono::Duration::days(70);
+        assert!(age_penalty(older) > age_penalty(recent));
+        assert!(age_penalty(older) <= 2.0);
+    }
+
+    #[test]
+    fn inbox_score_prefers_project_scoped_items_over_shared_noise() {
+        let plan = RetrievalPlan::resolve(
+            Some(RetrievalRoute::ProjectFirst),
+            Some(RetrievalIntent::CurrentTask),
+        );
+        let project_item = sample_item("project inbox item", vec!["project"], Some("memd"));
+        let shared_noise = MemoryItem {
+            scope: MemoryScope::Global,
+            project: None,
+            kind: MemoryKind::Status,
+            content: "shared inbox noise".to_string(),
+            confidence: 0.95,
+            updated_at: Utc::now(),
+            ..sample_item("shared inbox noise", vec!["session_state"], Some("memd"))
+        };
+        let entity = sample_entity(Some("demo"), Some("main"), 0.8, 3, Some(Utc::now()));
+
+        assert!(
+            inbox_score(
+                &project_item,
+                Some(&entity),
+                Some(&"demo".to_string()),
+                Some(&"main".to_string()),
+                &plan,
+            ) > inbox_score(
+                &shared_noise,
+                Some(&entity),
+                Some(&"demo".to_string()),
+                Some(&"main".to_string()),
+                &plan,
+            )
+        );
+    }
+
+    #[test]
+    fn associative_recall_score_prefers_same_project_links_over_cross_project_noise() {
+        let root = sample_entity(Some("demo"), Some("main"), 0.9, 3, Some(Utc::now()));
+        let same_project = sample_entity(Some("demo"), Some("main"), 0.7, 2, Some(Utc::now()));
+        let other_project = sample_entity(Some("other"), Some("main"), 1.0, 20, Some(Utc::now()));
+        let link = MemoryEntityLinkRecord {
+            id: uuid::Uuid::new_v4(),
+            from_entity_id: root.id,
+            to_entity_id: same_project.id,
+            relation_kind: memd_schema::EntityRelationKind::Related,
+            confidence: 0.85,
+            created_at: Utc::now(),
+            note: Some("related".to_string()),
+            context: None,
+            tags: vec!["project".to_string()],
+        };
+        let other_link = MemoryEntityLinkRecord {
+            id: uuid::Uuid::new_v4(),
+            from_entity_id: root.id,
+            to_entity_id: other_project.id,
+            relation_kind: memd_schema::EntityRelationKind::Related,
+            confidence: 0.85,
+            created_at: Utc::now(),
+            note: Some("related".to_string()),
+            context: None,
+            tags: vec!["project".to_string()],
+        };
+
+        assert!(
+            associative_recall_score(&same_project, &link, 1, &root)
+                > associative_recall_score(&other_project, &other_link, 1, &root)
+        );
+    }
 }
 
 pub(crate) fn entity_context_bonus(
@@ -1178,9 +1564,16 @@ pub(crate) fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
     }
     if item.source_quality == Some(SourceQuality::Derived) {
         reasons.push("derived".to_string());
+        reasons.push("inferred".to_string());
     }
     if item.source_quality == Some(SourceQuality::Synthetic) {
         reasons.push("rejected-source".to_string());
+    }
+    if item.last_verified_at.is_none()
+        && item.status == MemoryStatus::Active
+        && item.stage == MemoryStage::Canonical
+    {
+        reasons.push("claimed".to_string());
     }
     if item.confidence < 0.75 {
         reasons.push("low-confidence".to_string());
@@ -1192,4 +1585,122 @@ pub(crate) fn inbox_reasons(item: &MemoryItem) -> Vec<String> {
         reasons.push("unresolved-contradiction".to_string());
     }
     reasons
+}
+
+pub(crate) fn epistemic_state_label(item: &MemoryItem) -> &'static str {
+    match item.status {
+        MemoryStatus::Contested => "contested",
+        MemoryStatus::Stale => "stale",
+        MemoryStatus::Superseded => "superseded",
+        MemoryStatus::Expired => "expired",
+        MemoryStatus::Active => {
+            if item.last_verified_at.is_some() {
+                "verified"
+            } else if item.source_quality == Some(SourceQuality::Derived) {
+                "inferred"
+            } else {
+                "claimed"
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod epistemic_state_tests {
+    use super::*;
+    use chrono::Utc;
+    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+    use uuid::Uuid;
+
+    fn test_item(
+        status: MemoryStatus,
+        source_quality: Option<SourceQuality>,
+        last_verified_at: Option<chrono::DateTime<Utc>>,
+    ) -> MemoryItem {
+        MemoryItem {
+            id: Uuid::nil(),
+            content: "memory".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".into()),
+            namespace: Some("test".into()),
+            workspace: Some("core".into()),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some("codex".into()),
+            source_system: Some("memd".into()),
+            source_path: None,
+            source_quality,
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at,
+            supersedes: Vec::new(),
+            tags: vec![],
+            status,
+            stage: MemoryStage::Canonical,
+        }
+    }
+
+    #[test]
+    fn epistemic_state_labels_distinguish_claimed_inferred_verified_and_stale() {
+        assert_eq!(
+            epistemic_state_label(&test_item(
+                MemoryStatus::Active,
+                Some(SourceQuality::Canonical),
+                None
+            )),
+            "claimed"
+        );
+        assert_eq!(
+            epistemic_state_label(&test_item(
+                MemoryStatus::Active,
+                Some(SourceQuality::Derived),
+                None
+            )),
+            "inferred"
+        );
+        assert_eq!(
+            epistemic_state_label(&test_item(
+                MemoryStatus::Active,
+                Some(SourceQuality::Canonical),
+                Some(Utc::now())
+            )),
+            "verified"
+        );
+        assert_eq!(
+            epistemic_state_label(&test_item(
+                MemoryStatus::Stale,
+                Some(SourceQuality::Canonical),
+                Some(Utc::now())
+            )),
+            "stale"
+        );
+        assert_eq!(
+            epistemic_state_label(&test_item(
+                MemoryStatus::Contested,
+                Some(SourceQuality::Canonical),
+                Some(Utc::now())
+            )),
+            "contested"
+        );
+    }
+
+    #[test]
+    fn inbox_reasons_surface_claimed_and_inferred_memory() {
+        let claimed = test_item(MemoryStatus::Active, Some(SourceQuality::Canonical), None);
+        let inferred = test_item(MemoryStatus::Active, Some(SourceQuality::Derived), None);
+        let stale = test_item(
+            MemoryStatus::Stale,
+            Some(SourceQuality::Canonical),
+            Some(Utc::now()),
+        );
+
+        assert!(inbox_reasons(&claimed).iter().any(|reason| reason == "claimed"));
+        assert!(inbox_reasons(&inferred).iter().any(|reason| reason == "inferred"));
+        assert!(inbox_reasons(&stale).iter().any(|reason| reason == "stale"));
+    }
 }

@@ -1,6 +1,7 @@
 use super::*;
 
 pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let (startup_route, startup_intent) = bundle_startup_route_intent(output);
     let project_hive_enabled = read_bundle_runtime_config(output)
         .ok()
         .flatten()
@@ -62,7 +63,11 @@ pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>)
         }
     }
     script.push_str(
-        "memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write >/dev/null 2>&1 || true\n",
+        &format!(
+            "memd wake --output \"$MEMD_BUNDLE_ROOT\" --route {} --intent {} --write >/dev/null 2>&1 || true\n",
+            compact_bundle_value(&startup_route),
+            compact_bundle_value(&startup_intent)
+        ),
     );
     script.push_str(
         "nohup memd heartbeat --output \"$MEMD_BUNDLE_ROOT\" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &\n",
@@ -70,13 +75,28 @@ pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>)
     script.push_str(
         "memd hive --output \"$MEMD_BUNDLE_ROOT\" --publish-heartbeat --summary >/dev/null 2>&1 || true\n",
     );
-    script.push_str(
-        "exec memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write \"$@\"\n",
-    );
+    if env_agent == Some("codex") {
+        script.push_str("printf '%s\\n' \"memd voice: ${MEMD_VOICE_MODE:-unknown}\"\n");
+        script.push_str(
+            "printf '%s\\n' \"memd rule: if draft not in ${MEMD_VOICE_MODE:-unknown}, rewrite before send.\"\n",
+        );
+        script.push_str(
+            "if [[ -f \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\" ]]; then\n  cat \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\"\n  printf '\\n'\nfi\n",
+        );
+        script.push_str(
+            "printf '%s\\n' 'memd reminder: run .memd/agents/lookup.sh \"what did we already decide about this?\" before memory-dependent answers.'\n",
+        );
+    }
+    script.push_str(&format!(
+        "exec memd wake --output \"$MEMD_BUNDLE_ROOT\" --route {} --intent {} --write \"$@\"\n",
+        compact_bundle_value(&startup_route),
+        compact_bundle_value(&startup_intent)
+    ));
     script
 }
 
 pub(crate) fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -> String {
+    let (startup_route, startup_intent) = bundle_startup_route_intent(output);
     let project_hive_enabled = read_bundle_runtime_config(output)
         .ok()
         .flatten()
@@ -137,16 +157,36 @@ pub(crate) fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -
             );
         }
     }
-    script.push_str(
-        "try { memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write | Out-Null } catch { }\n",
-    );
+    script.push_str(&format!(
+        "try {{ memd wake --output $env:MEMD_BUNDLE_ROOT --route {} --intent {} --write | Out-Null }} catch {{ }}\n",
+        escape_ps1(&startup_route),
+        escape_ps1(&startup_intent)
+    ));
     script.push_str(
         "Start-Process -WindowStyle Hidden -FilePath memd -ArgumentList @('heartbeat','--output',$env:MEMD_BUNDLE_ROOT,'--watch','--interval-secs','30','--probe-base-url') -RedirectStandardOutput \"$env:TEMP\\memd-heartbeat.log\" -RedirectStandardError \"$env:TEMP\\memd-heartbeat.err\"\n",
     );
     script.push_str(
         "try { memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary | Out-Null } catch { }\n",
     );
-    script.push_str("memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write\n");
+    if env_agent == Some("codex") {
+        script.push_str(
+            "Write-Host (\"memd voice: {0}\" -f $(if ($env:MEMD_VOICE_MODE) { $env:MEMD_VOICE_MODE } else { \"unknown\" }))\n",
+        );
+        script.push_str(
+            "Write-Host (\"memd rule: if draft not in {0}, rewrite before send.\" -f $(if ($env:MEMD_VOICE_MODE) { $env:MEMD_VOICE_MODE } else { \"unknown\" }))\n",
+        );
+        script.push_str(
+            "$codexWake = Join-Path $env:MEMD_BUNDLE_ROOT \"agents/CODEX_WAKEUP.md\"\nif (Test-Path $codexWake) { Get-Content $codexWake }\n",
+        );
+        script.push_str(
+            "Write-Host 'memd reminder: run .memd/agents/lookup.ps1 \"what did we already decide about this?\" before memory-dependent answers.'\n",
+        );
+    }
+    script.push_str(&format!(
+        "memd wake --output $env:MEMD_BUNDLE_ROOT --route {} --intent {} --write\n",
+        escape_ps1(&startup_route),
+        escape_ps1(&startup_intent)
+    ));
     script
 }
 

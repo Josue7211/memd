@@ -3,6 +3,7 @@ use super::*;
 #[tokio::test]
 async fn run_session_command_rebinds_local_bundle_to_live_session() {
     let _home_lock = lock_home_mutation();
+    let mut env = EnvScope::new();
     let temp_root =
         std::env::temp_dir().join(format!("memd-session-rebind-{}", uuid::Uuid::new_v4()));
     let home = temp_root.join("home");
@@ -53,6 +54,7 @@ async fn run_session_command_rebinds_local_bundle_to_live_session() {
         "$env:MEMD_SESSION = \"codex-stale\"\n$env:MEMD_AGENT = \"codex@codex-stale\"\n",
     )
     .expect("write env ps1");
+    env.set("MEMD_BUNDLE_ROOT", &local_bundle);
 
     let original_home = std::env::var_os("HOME");
     let original_dir = std::env::current_dir().expect("read cwd");
@@ -96,7 +98,7 @@ async fn run_session_command_rebinds_local_bundle_to_live_session() {
 
 #[tokio::test]
 async fn claude_runtime_stack_emits_coordinated_truthful_continuous_summary() {
-    let _home_lock = lock_home_mutation();
+    let mut env = EnvScope::new();
     let temp_root =
         std::env::temp_dir().join(format!("memd-runtime-stack-{}", uuid::Uuid::new_v4()));
     let home = temp_root.join("home");
@@ -208,18 +210,13 @@ async fn claude_runtime_stack_emits_coordinated_truthful_continuous_summary() {
             last_seen: Utc::now(),
             authority_mode: Some("shared".to_string()),
             authority_degraded: false,
+            ..BundleHeartbeatState::default()
         })
         .expect("serialize sibling heartbeat")
             + "\n",
     )
     .expect("write sibling heartbeat");
-
-    let original_home = std::env::var_os("HOME");
-    let original_dir = std::env::current_dir().expect("read cwd");
-    unsafe {
-        std::env::set_var("HOME", &home);
-    }
-    std::env::set_current_dir(&repo_root).expect("set repo cwd");
+    env.set("MEMD_BUNDLE_ROOT", &local_bundle);
 
     let wire = run_hive_command(&HiveArgs {
         command: None,
@@ -250,7 +247,9 @@ async fn claude_runtime_stack_emits_coordinated_truthful_continuous_summary() {
     })
     .await
     .expect("run hive command");
-    assert_eq!(wire.session.as_deref(), Some("codex-fresh"));
+    assert_eq!(wire.bundle_session.as_deref(), Some("codex-stale"));
+    assert_eq!(wire.live_session.as_deref(), Some("codex-stale"));
+    assert_eq!(wire.session.as_deref(), Some("codex-stale"));
 
     let mut awareness = read_project_awareness(&AwarenessArgs {
         output: local_bundle.clone(),
@@ -371,18 +370,43 @@ async fn claude_runtime_stack_emits_coordinated_truthful_continuous_summary() {
     assert!(summary.contains("hidden_superseded_stale=1"));
     assert!(summary.contains("session=codex-fresh"));
     assert!(summary.contains("truth=current"));
-
-    std::env::set_current_dir(&original_dir).expect("restore cwd");
-    if let Some(value) = original_home {
-        unsafe {
-            std::env::set_var("HOME", value);
-        }
-    } else {
-        unsafe {
-            std::env::remove_var("HOME");
-        }
-    }
     fs::remove_dir_all(temp_root).expect("cleanup runtime stack temp");
+}
+
+#[tokio::test]
+async fn lookup_cli_defaults_stay_on_repo_b_bundle_against_live_memory_server() {
+    let temp_root = std::env::temp_dir().join(format!("memd-lookup-e2e-{}", uuid::Uuid::new_v4()));
+    let repo_b = temp_root.join("repo-b");
+    fs::create_dir_all(repo_b.join(".git")).expect("create repo b");
+    let args = LookupArgs {
+        output: repo_b.join(".memd"),
+        query: "repo bleed".to_string(),
+        project: None,
+        namespace: None,
+        workspace: None,
+        visibility: None,
+        route: None,
+        intent: None,
+        kind: Vec::new(),
+        tag: Vec::new(),
+        include_stale: false,
+        limit: None,
+        verbose: false,
+        json: false,
+    };
+
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+    run_lookup_command(&client, args).await.expect("run lookup");
+
+    let search_requests = state.search_requests.lock().expect("lock search requests");
+    assert_eq!(search_requests.len(), 1);
+    assert_eq!(search_requests[0].project.as_deref(), Some("repo-b"));
+    assert_eq!(search_requests[0].namespace.as_deref(), Some("main"));
+    assert_ne!(search_requests[0].project.as_deref(), Some("repo-a"));
+
+    fs::remove_dir_all(temp_root).expect("cleanup temp root");
 }
 
 #[tokio::test]
@@ -511,7 +535,7 @@ fn cli_parses_verify_feature_command() {
         "memd",
         "verify",
         "feature",
-        "feature.bundle.resume",
+        "feature.session_continuity",
         "--output",
         ".memd",
         "--summary",
@@ -521,7 +545,7 @@ fn cli_parses_verify_feature_command() {
     match cli.command {
         Commands::Verify(args) => match args.command {
             VerifyCommand::Feature(feature_args) => {
-                assert_eq!(feature_args.feature_id, "feature.bundle.resume");
+                assert_eq!(feature_args.feature_id, "feature.session_continuity");
                 assert_eq!(feature_args.output, PathBuf::from(".memd"));
                 assert!(feature_args.summary);
             }
@@ -659,12 +683,12 @@ async fn materialize_hive_fixture_creates_named_session_bundles() {
 async fn run_resume_feature_verifier_writes_evidence_artifacts() {
     let fixture = test_continuity_fixture_record();
     let verifier = VerifierRecord {
-        id: "verifier.feature.bundle.resume".to_string(),
-        name: "Resume feature".to_string(),
+        id: "verifier.feature.session_continuity".to_string(),
+        name: "Session continuity feature".to_string(),
         verifier_type: "feature_contract".to_string(),
         pillar: "memory-continuity".to_string(),
         family: "bundle-runtime".to_string(),
-        subject_ids: vec!["feature.bundle.resume".to_string()],
+        subject_ids: vec!["feature.session_continuity".to_string()],
         fixture_id: fixture.id.clone(),
         baseline_modes: vec!["with_memd".to_string()],
         steps: Vec::new(),
@@ -680,7 +704,7 @@ async fn run_resume_feature_verifier_writes_evidence_artifacts() {
     let run = run_verifier_record(&verifier, &fixture, None)
         .await
         .expect("run verifier");
-    assert_eq!(run.verifier_id, "verifier.feature.bundle.resume");
+    assert_eq!(run.verifier_id, "verifier.feature.session_continuity");
     assert!(!run.evidence_ids.is_empty());
     let materialized = materialize_fixture(&fixture, None).expect("materialize fixture again");
     write_verifier_run_artifacts(
@@ -697,8 +721,51 @@ async fn run_resume_feature_verifier_writes_evidence_artifacts() {
     assert!(verification_evidence_dir(&materialized.bundle_root).exists());
 }
 
+#[test]
+fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
+    let response = memd_schema::WorkingMemoryResponse {
+        route: memd_schema::RetrievalRoute::ProjectFirst,
+        intent: memd_schema::RetrievalIntent::CurrentTask,
+        retrieval_order: vec![
+            memd_schema::MemoryScope::Project,
+            memd_schema::MemoryScope::Synced,
+        ],
+        budget_chars: 1600,
+        used_chars: 240,
+        remaining_chars: 1360,
+        truncated: false,
+        policy: memd_schema::WorkingMemoryPolicyState {
+            admission_limit: 8,
+            max_chars_per_item: 220,
+            budget_chars: 1600,
+            rehydration_limit: 4,
+        },
+        records: vec![memd_schema::CompactMemoryRecord {
+            id: uuid::Uuid::new_v4(),
+            record: "current task: lock typed trace families".to_string(),
+        }],
+        evicted: Vec::new(),
+        rehydration_queue: Vec::new(),
+        traces: vec![memd_schema::WorkingMemoryTraceRecord {
+            item_id: uuid::Uuid::new_v4(),
+            entity_id: Some(uuid::Uuid::new_v4()),
+            memory_kind: memd_schema::MemoryKind::Status,
+            memory_stage: memd_schema::MemoryStage::Candidate,
+            typed_memory: "session_continuity+candidate".to_string(),
+            event_type: "retrieved_context".to_string(),
+            summary: "continuity state entered working set".to_string(),
+            occurred_at: chrono::Utc::now(),
+            salience_score: 0.82,
+        }],
+        semantic_consolidation: None,
+    };
+
+    let summary = crate::render::render_working_summary(&response, true);
+    assert!(summary.contains("trace_trail=session_continuity+candidate:retrieved_context:continuity state entered working set"));
+}
+
 #[tokio::test]
-async fn run_verifier_record_executes_wake_step_and_writes_wakeup() {
+async fn run_verifier_record_executes_wake_step_and_writes_packet_efficiency_artifact() {
     let fixture = test_continuity_fixture_record();
     let verifier = VerifierRecord {
         id: "verifier.feature.bundle.wake.steps".to_string(),
@@ -716,19 +783,60 @@ async fn run_verifier_record_executes_wake_step_and_writes_wakeup() {
             left: None,
             right: None,
         }],
-        assertions: vec![VerifierAssertionRecord {
-            kind: "file_contains".to_string(),
-            path: Some("MEMD_WAKEUP.md".to_string()),
-            equals_fixture: None,
-            contains_fixture: None,
-            exists: Some(true),
-            metric: None,
-            op: None,
-            left: None,
-            right: None,
-            name: None,
-        }],
-        metrics: vec!["prompt_tokens".to_string()],
+        assertions: vec![
+            VerifierAssertionRecord {
+                kind: "file_contains".to_string(),
+                path: Some("MEMD_WAKEUP.md".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            },
+            VerifierAssertionRecord {
+                kind: "file_contains".to_string(),
+                path: Some("loops/wake-packet-efficiency.json".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            },
+            VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("wake.markdown".to_string()),
+                equals_fixture: None,
+                contains_fixture: Some("task.next_action".to_string()),
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            },
+            VerifierAssertionRecord {
+                kind: "json_path".to_string(),
+                path: Some("wake.packet_efficiency.core_prompt_tokens".to_string()),
+                equals_fixture: None,
+                contains_fixture: None,
+                exists: Some(true),
+                metric: None,
+                op: None,
+                left: None,
+                right: None,
+                name: None,
+            },
+        ],
+        metrics: vec![
+            "prompt_tokens".to_string(),
+            "core_prompt_tokens".to_string(),
+        ],
         evidence_requirements: vec!["live_primary".to_string()],
         gate_target: "acceptable".to_string(),
         status: "declared".to_string(),
@@ -747,18 +855,24 @@ async fn run_verifier_record_executes_wake_step_and_writes_wakeup() {
             .and_then(JsonValue::as_u64)
             .is_some_and(|value| value > 0)
     );
+    assert!(
+        run.metrics_observed
+            .get("core_prompt_tokens")
+            .and_then(JsonValue::as_u64)
+            .is_some_and(|value| value > 0)
+    );
 }
 
 #[tokio::test]
 async fn run_verifier_record_executes_resume_steps_and_records_prompt_tokens() {
     let fixture = test_continuity_fixture_record();
     let verifier = VerifierRecord {
-        id: "verifier.feature.bundle.resume.steps".to_string(),
-        name: "Resume feature with steps".to_string(),
+        id: "verifier.feature.session_continuity.steps".to_string(),
+        name: "Session continuity feature with steps".to_string(),
         verifier_type: "feature_contract".to_string(),
         pillar: "memory-continuity".to_string(),
         family: "bundle-runtime".to_string(),
-        subject_ids: vec!["feature.bundle.resume".to_string()],
+        subject_ids: vec!["feature.session_continuity".to_string()],
         fixture_id: fixture.id.clone(),
         baseline_modes: vec!["with_memd".to_string()],
         steps: vec![
@@ -898,7 +1012,7 @@ async fn run_verifier_record_supports_file_contains_assertions() {
         verifier_type: "feature_contract".to_string(),
         pillar: "memory-continuity".to_string(),
         family: "bundle-runtime".to_string(),
-        subject_ids: vec!["feature.bundle.resume".to_string()],
+        subject_ids: vec!["feature.session_continuity".to_string()],
         fixture_id: fixture.id.clone(),
         baseline_modes: vec!["with_memd".to_string()],
         steps: Vec::new(),
@@ -994,11 +1108,11 @@ async fn run_verifier_record_executes_messages_send_ack_flow() {
                 },
             ],
             assertions: vec![VerifierAssertionRecord {
-                kind: "helper".to_string(),
-                path: None,
+                kind: "json_path".to_string(),
+                path: Some("messages_ack.messages.0.acknowledged_at".to_string()),
                 equals_fixture: None,
                 contains_fixture: None,
-                exists: None,
+                exists: Some(true),
                 metric: None,
                 op: None,
                 left: None,
@@ -1286,11 +1400,11 @@ async fn run_verifier_record_executes_hive_transfer_assign_journey() {
             ],
             assertions: vec![
                 VerifierAssertionRecord {
-                    kind: "helper".to_string(),
-                    path: None,
+                    kind: "json_path".to_string(),
+                    path: Some("messages_ack.messages.0.acknowledged_at".to_string()),
                     equals_fixture: None,
                     contains_fixture: None,
-                    exists: None,
+                    exists: Some(true),
                     metric: None,
                     op: None,
                     left: None,
@@ -1331,10 +1445,7 @@ async fn run_verifier_record_executes_hive_transfer_assign_journey() {
             gate_target: "strong".to_string(),
             status: "declared".to_string(),
             lanes: vec!["nightly".to_string()],
-            helper_hooks: vec![
-                "capture_message_id".to_string(),
-                "assert_message_acknowledged".to_string(),
-            ],
+            helper_hooks: vec!["capture_message_id".to_string()],
         };
 
     let run = run_verifier_record(&verifier, &fixture, Some(&base_url))
@@ -1695,14 +1806,17 @@ async fn run_verify_feature_command_executes_seeded_verifier() {
     write_test_benchmark_registry(&repo_root);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
-        feature_id: "feature.bundle.resume".to_string(),
+        feature_id: "feature.session_continuity".to_string(),
         output: output.clone(),
         summary: false,
     })
     .await
     .expect("run verify feature command");
 
-    assert_eq!(report.subject.as_deref(), Some("feature.bundle.resume"));
+    assert_eq!(
+        report.subject.as_deref(),
+        Some("feature.session_continuity")
+    );
     assert!(
         report
             .findings
@@ -1716,6 +1830,42 @@ async fn run_verify_feature_command_executes_seeded_verifier() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup verify feature dir");
+}
+
+#[tokio::test]
+async fn run_verify_feature_command_executes_seeded_wake_verifier() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-verify-wake-feature-command-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let repo_root = dir.join("repo");
+    let output = repo_root.join(".memd");
+    fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
+    fs::create_dir_all(&output).expect("create output dir");
+    write_test_benchmark_registry(&repo_root);
+
+    let report = run_verify_feature_command(&VerifyFeatureArgs {
+        feature_id: "feature.bundle.wake".to_string(),
+        output: output.clone(),
+        summary: false,
+    })
+    .await
+    .expect("run verify wake feature command");
+
+    assert_eq!(report.subject.as_deref(), Some("feature.bundle.wake"));
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|finding| finding == "verifier_run_status=passing")
+    );
+    assert!(
+        verification_reports_dir(&output)
+            .join("latest.json")
+            .exists()
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup verify wake feature dir");
 }
 
 #[tokio::test]
@@ -2103,11 +2253,15 @@ async fn run_feature_benchmark_command_scores_feature_inventory_and_writes_artif
                 .iter()
                 .any(|item| item.contains("memory_quality="))
     }));
-
     write_feature_benchmark_artifacts(&output, &report).expect("write benchmark artifacts");
     let benchmark_dir = feature_benchmark_reports_dir(&output);
     assert!(benchmark_dir.join("latest.json").exists());
     assert!(benchmark_dir.join("latest.md").exists());
+    let latest_md = fs::read_to_string(benchmark_dir.join("latest.md"))
+        .expect("read latest benchmark markdown");
+    assert!(latest_md.contains("typed_retrieval_probe=session_continuity+candidate"));
+    assert!(latest_md.contains("typed_retrieval_probe=procedural"));
+    assert!(latest_md.contains("typed_retrieval_probe=canonical"));
     let (loaded_root, registry) = load_benchmark_registry_for_output(&output)
         .expect("load benchmark registry")
         .expect("registry present");

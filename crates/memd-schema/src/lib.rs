@@ -733,7 +733,7 @@ pub struct HiveClaimsResponse {
     pub claims: Vec<HiveClaimRecord>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HiveSessionRecord {
     pub session: String,
     pub tab_id: Option<String>,
@@ -1255,6 +1255,9 @@ pub struct SkillPolicyActivationEntriesResponse {
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,
+    pub memory_kind: MemoryKind,
+    pub memory_stage: MemoryStage,
+    pub typed_memory: String,
     pub event_type: String,
     pub summary: String,
     pub occurred_at: DateTime<Utc>,
@@ -3024,6 +3027,9 @@ mod tests {
             traces: vec![WorkingMemoryTraceRecord {
                 item_id: Uuid::new_v4(),
                 entity_id: Some(Uuid::new_v4()),
+                memory_kind: MemoryKind::Decision,
+                memory_stage: MemoryStage::Canonical,
+                typed_memory: "semantic+canonical".to_string(),
                 event_type: "retrieved".to_string(),
                 summary: "working set refreshed".to_string(),
                 occurred_at: Utc::now(),

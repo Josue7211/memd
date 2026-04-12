@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Bash, OverlayFs, ReadWriteFs } from "just-bash";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -207,6 +208,77 @@ function textResult(lines) {
   return {
     content: [{ type: "text", text: Array.isArray(lines) ? lines.join("\n") : String(lines) }],
   };
+}
+
+function normalizeToolRoot(bundleRoot, root = "project") {
+  switch (root) {
+    case "bundle":
+      return bundleRoot;
+    case "integration":
+      return path.resolve(bundleRoot, "..", "integrations", "mcp-hive");
+    case "project":
+    default:
+      return path.resolve(bundleRoot, "..");
+  }
+}
+
+function toVirtualCwd(mountPoint, cwd) {
+  if (!cwd) return mountPoint;
+  const normalized = String(cwd).replace(/\\/g, "/");
+  const rooted = normalized.startsWith("/") ? normalized : `${mountPoint}/${normalized}`;
+  const resolved = path.posix.normalize(rooted);
+  if (resolved !== mountPoint && !resolved.startsWith(`${mountPoint}/`)) {
+    throw new Error(`cwd must stay within ${mountPoint}`);
+  }
+  return resolved;
+}
+
+async function execVirtualBash(bundleRoot, options = {}) {
+  const root = normalizeToolRoot(bundleRoot, options.root);
+  const workspaceFs = options.allow_write
+    ? new ReadWriteFs({ root })
+    : new OverlayFs({ root, readOnly: false });
+  const mountPoint = workspaceFs.getMountPoint();
+  const bash = new Bash({
+    fs: workspaceFs,
+    cwd: toVirtualCwd(mountPoint, options.cwd),
+  });
+  const timeoutMs = Math.max(100, Math.min(Number(options.timeout_ms) || 5000, 30000));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const result = await bash.exec(String(options.script ?? ""), {
+      env:
+        options.env && typeof options.env === "object" && !Array.isArray(options.env)
+          ? Object.fromEntries(
+              Object.entries(options.env).map(([key, value]) => [String(key), String(value)])
+            )
+          : undefined,
+      stdin: options.stdin == null ? undefined : String(options.stdin),
+      signal: controller.signal,
+    });
+
+    return textResult([
+      `root=${root}`,
+      `mode=${options.allow_write ? "read-write" : "overlay"}`,
+      `cwd=${result.env?.PWD ?? toVirtualCwd(mountPoint, options.cwd)}`,
+      `exit_code=${result.exitCode}`,
+      "stdout<<EOF",
+      result.stdout || "",
+      "EOF",
+      "stderr<<EOF",
+      result.stderr || "",
+      "EOF",
+    ]);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`bash_exec timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const bundleRoot = resolveBundleRoot();
@@ -484,6 +556,38 @@ const tools = [
       required: ["task_id", "target_session"],
     },
   },
+  {
+    name: "bash_exec",
+    description:
+      "Run a command in an isolated just-bash shell rooted at the project, bundle, or integration directory. Default is overlay mode, so writes do not touch disk.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: { type: "string" },
+        root: {
+          type: "string",
+          description: "project, bundle, or integration",
+          default: "project",
+        },
+        cwd: {
+          type: "string",
+          description: "Optional working directory inside the selected root.",
+        },
+        stdin: { type: "string" },
+        timeout_ms: { type: "number", default: 5000 },
+        allow_write: {
+          type: "boolean",
+          default: false,
+          description: "When true, writes go to disk inside the selected root.",
+        },
+        env: {
+          type: "object",
+          additionalProperties: { type: "string" },
+        },
+      },
+      required: ["script"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -494,6 +598,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const hiveBySession = new Map(hives.map((hive) => [hive.session, hive]));
 
   switch (request.params.name) {
+    case "bash_exec": {
+      return execVirtualBash(bundleRoot, args);
+    }
+
     case "list_hives": {
       const includeCurrent = Boolean(args.include_current);
       const activeOnly = args.active_only !== false;

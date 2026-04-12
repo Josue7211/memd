@@ -1,9 +1,19 @@
 use super::*;
 
+fn inspect_bundle_identity_defaults() -> (Option<String>, Option<String>) {
+    let Some(project_root) = detect_current_project_root().ok().flatten() else {
+        return (None, None);
+    };
+
+    let bundle_root = project_root.join(".memd");
+    infer_bundle_identity_defaults(&bundle_root)
+}
+
 pub(crate) async fn run_profile_command(
     client: &MemdClient,
     args: ProfileArgs,
 ) -> anyhow::Result<()> {
+    let (default_project, default_namespace) = inspect_bundle_identity_defaults();
     let should_set = args.set
         || args.preferred_route.is_some()
         || args.preferred_intent.is_some()
@@ -18,8 +28,8 @@ pub(crate) async fn run_profile_command(
         let response = client
             .upsert_agent_profile(&AgentProfileUpsertRequest {
                 agent: args.agent.clone(),
-                project: args.project.clone(),
-                namespace: args.namespace.clone(),
+                project: args.project.clone().or(default_project.clone()),
+                namespace: args.namespace.clone().or(default_namespace.clone()),
                 preferred_route: parse_retrieval_route(args.preferred_route.clone())?,
                 preferred_intent: parse_retrieval_intent(args.preferred_intent.clone())?,
                 summary_chars: args.summary_chars,
@@ -39,8 +49,8 @@ pub(crate) async fn run_profile_command(
         let response = client
             .agent_profile(&AgentProfileRequest {
                 agent: args.agent.clone(),
-                project: args.project.clone(),
-                namespace: args.namespace.clone(),
+                project: args.project.clone().or(default_project),
+                namespace: args.namespace.clone().or(default_namespace),
             })
             .await?;
         if args.summary {
@@ -57,10 +67,11 @@ pub(crate) async fn run_source_command(
     client: &MemdClient,
     args: SourceArgs,
 ) -> anyhow::Result<()> {
+    let (default_project, default_namespace) = inspect_bundle_identity_defaults();
     let response = client
         .source_memory(&SourceMemoryRequest {
-            project: args.project.clone(),
-            namespace: args.namespace.clone(),
+            project: args.project.clone().or(default_project),
+            namespace: args.namespace.clone().or(default_namespace),
             workspace: args.workspace.clone(),
             visibility: args
                 .visibility
@@ -84,10 +95,11 @@ pub(crate) async fn run_workspaces_command(
     client: &MemdClient,
     args: SourceArgs,
 ) -> anyhow::Result<()> {
+    let (default_project, default_namespace) = inspect_bundle_identity_defaults();
     let response = client
         .workspace_memory(&memd_schema::WorkspaceMemoryRequest {
-            project: args.project.clone(),
-            namespace: args.namespace.clone(),
+            project: args.project.clone().or(default_project),
+            namespace: args.namespace.clone().or(default_namespace),
             workspace: args.workspace.clone(),
             visibility: args
                 .visibility
@@ -108,9 +120,10 @@ pub(crate) async fn run_workspaces_command(
 }
 
 pub(crate) async fn run_inbox_command(client: &MemdClient, args: InboxArgs) -> anyhow::Result<()> {
+    let (default_project, default_namespace) = inspect_bundle_identity_defaults();
     let req = MemoryInboxRequest {
-        project: args.project.clone(),
-        namespace: args.namespace.clone(),
+        project: args.project.clone().or(default_project),
+        namespace: args.namespace.clone().or(default_namespace),
         workspace: args.workspace.clone(),
         visibility: args
             .visibility
@@ -168,11 +181,12 @@ pub(crate) async fn run_entity_search_command(
     client: &MemdClient,
     args: EntitySearchArgs,
 ) -> anyhow::Result<()> {
+    let (default_project, default_namespace) = inspect_bundle_identity_defaults();
     let response = client
         .entity_search(&EntitySearchRequest {
             query: args.query.clone(),
-            project: args.project.clone(),
-            namespace: args.namespace.clone(),
+            project: args.project.clone().or(default_project),
+            namespace: args.namespace.clone().or(default_namespace),
             at: parse_context_time(args.at.clone())?,
             host: args.host.clone(),
             branch: args.branch.clone(),
@@ -564,4 +578,27 @@ pub(crate) async fn run_compact_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::set_current_dir;
+
+    #[test]
+    fn inspection_bundle_defaults_bind_repo_identity_without_runtime_config() {
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-inspection-defaults-{}", uuid::Uuid::new_v4()));
+        let repo_root = temp_root.join("repo-b");
+
+        fs::create_dir_all(repo_root.join(".git")).expect("create repo git dir");
+        let _cwd = set_current_dir(&repo_root);
+
+        let (project, namespace) = inspect_bundle_identity_defaults();
+        assert_eq!(project.as_deref(), Some("repo-b"));
+        assert_eq!(namespace.as_deref(), Some("main"));
+
+        drop(_cwd);
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
 }

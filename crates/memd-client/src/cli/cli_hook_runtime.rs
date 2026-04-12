@@ -1,4 +1,5 @@
 use super::*;
+use crate::append_raw_spine_record;
 
 pub(crate) async fn run_hook_mode(
     client: &MemdClient,
@@ -20,6 +21,7 @@ pub(crate) async fn run_hook_mode(
             print_json(&client.context_compact(&req).await?)?;
         }
         HookMode::Capture(args) => {
+            let output = args.output.clone();
             let content = if let Some(content) = &args.content {
                 content.clone()
             } else if let Some(path) = &args.input {
@@ -102,7 +104,7 @@ pub(crate) async fn run_hook_mode(
                 .map(|response| json!(response))
                 .unwrap_or_else(|err| json!({ "error": err.to_string() }));
             let snapshot = match checkpoint {
-                Ok(_) => match read_bundle_resume(
+                Ok(_) => match crate::runtime::read_bundle_resume(
                     &ResumeArgs {
                         output: args.output.clone(),
                         project: args.project.clone(),
@@ -146,6 +148,19 @@ pub(crate) async fn run_hook_mode(
                 )
                 .await?;
             }
+            append_raw_spine_record(
+                &output,
+                "hook_capture",
+                "candidate",
+                args.project.as_deref(),
+                args.namespace.as_deref(),
+                args.workspace.as_deref(),
+                Some("hook-capture"),
+                args.source_path.as_deref().or(Some("hook-capture")),
+                args.confidence,
+                &args.tag,
+                &content,
+            )?;
             if args.summary {
                 let (supersede_query, supersede_tried, supersede_hits) =
                     summarize_hook_capture_supersede_diagnostics(&supersede_diagnostics);
@@ -179,6 +194,8 @@ pub(crate) async fn run_hook_mode(
             }
         }
         HookMode::Spill(args) => {
+            let output = resolve_default_bundle_root()?
+                .unwrap_or_else(crate::bundle::default_bundle_root_path);
             let packet = read_request::<CompactionPacket>(&args.input)?;
             let spill = if args.spill_transient {
                 derive_compaction_spill_with_options(
@@ -201,6 +218,20 @@ pub(crate) async fn run_hook_mode(
                     sync_candidate_responses_to_rag(&rag, &responses).await?;
                 }
                 auto_checkpoint_compaction_packet(&packet, base_url).await?;
+                append_raw_spine_record(
+                    &output,
+                    "hook_spill",
+                    "candidate",
+                    packet.session.project.as_deref(),
+                    None,
+                    None,
+                    Some("hook-spill"),
+                    Some("compaction-packet"),
+                    None,
+                    &[String::from("hook-spill")],
+                    &serde_json::to_string(&spill)
+                        .unwrap_or_else(|_| "compaction spill".to_string()),
+                )?;
                 let submitted = responses.len();
                 print_json(&CompactionSpillResult {
                     submitted,

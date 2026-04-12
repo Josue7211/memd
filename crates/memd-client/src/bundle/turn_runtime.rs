@@ -11,7 +11,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
             set_bundle_tab_id(&args.output, &tab_id)?;
         }
     }
-    invalidate_bundle_runtime_caches(&args.output)?;
+    crate::runtime::invalidate_bundle_runtime_caches(&args.output)?;
     let codex_pack = harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "codex");
     let agent_zero_pack =
         harness_pack_enabled_for_bundle(&args.output, args.agent.as_deref(), "agent-zero");
@@ -36,7 +36,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         prompt: false,
         summary: false,
     };
-    let snapshot = match read_bundle_resume(&resume_args, base_url).await {
+    let snapshot = match crate::runtime::read_bundle_resume(&resume_args, base_url).await {
         Ok(snapshot) => snapshot,
         Err(err)
             if codex_pack || agent_zero_pack || hermes_pack || opencode_pack || openclaw_pack =>

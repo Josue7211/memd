@@ -281,6 +281,7 @@ fn explain_reasons(item: &MemoryItem, plan: &super::routing::RetrievalPlan) -> V
     reasons.push(format!("scope={}", format_scope(item.scope)));
     reasons.push(format!("stage={}", format_stage(item.stage)));
     reasons.push(format!("status={}", format_status(item.status)));
+    reasons.push(format!("epistemic_state={}", super::helpers::epistemic_state_label(item)));
     if let Some(project) = &item.project {
         reasons.push(format!("project={project}"));
     }
@@ -307,6 +308,11 @@ fn explain_reasons(item: &MemoryItem, plan: &super::routing::RetrievalPlan) -> V
     }
     if item.stage == MemoryStage::Candidate {
         reasons.push("candidate_memory".to_string());
+    } else if item.last_verified_at.is_none() {
+        reasons.push("claimed_memory".to_string());
+    }
+    if item.source_quality == Some(memd_schema::SourceQuality::Derived) {
+        reasons.push("inferred_memory".to_string());
     }
     reasons
 }

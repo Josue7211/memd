@@ -83,7 +83,10 @@ pub(crate) fn high_scoring_scenario(output: &Path) -> ScenarioReport {
     }
 }
 
-pub(crate) fn test_improvement_report(output: &Path, completed_at: DateTime<Utc>) -> ImprovementReport {
+pub(crate) fn test_improvement_report(
+    output: &Path,
+    completed_at: DateTime<Utc>,
+) -> ImprovementReport {
     ImprovementReport {
         bundle_root: output.display().to_string(),
         project: Some("demo".to_string()),
@@ -223,12 +226,12 @@ pub(crate) fn test_continuity_fixture_record() -> FixtureRecord {
 
 pub(crate) fn test_failing_tier_zero_verifier() -> VerifierRecord {
     VerifierRecord {
-        id: "verifier.feature.bundle.resume.failing".to_string(),
-        name: "Resume feature failing".to_string(),
+        id: "verifier.feature.session_continuity.failing".to_string(),
+        name: "Session continuity feature failing".to_string(),
         verifier_type: "feature_contract".to_string(),
         pillar: "memory-continuity".to_string(),
         family: "bundle-runtime".to_string(),
-        subject_ids: vec!["feature.bundle.resume".to_string()],
+        subject_ids: vec!["feature.session_continuity".to_string()],
         fixture_id: "fixture.continuity_bundle".to_string(),
         baseline_modes: vec!["with_memd".to_string()],
         steps: Vec::new(),
@@ -436,5 +439,6 @@ pub(crate) fn test_hive_heartbeat_state(
         last_seen,
         authority_mode: Some("shared".to_string()),
         authority_degraded: false,
+        ..BundleHeartbeatState::default()
     }
 }

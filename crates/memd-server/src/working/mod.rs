@@ -5,10 +5,11 @@ use uuid::Uuid;
 use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
-    MemoryEntityRecord, MemoryPolicyConsolidation, MemoryPolicyDecay, MemoryPolicyFeedback,
-    MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
-    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, WorkingMemoryEvictionRecord,
-    WorkingMemoryPolicyState, WorkingMemoryRequest, WorkingMemoryResponse,
+    MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation, MemoryPolicyDecay,
+    MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
+    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, MemoryStage,
+    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
+    WorkingMemoryResponse,
     WorkingMemoryTraceRecord,
 };
 
@@ -249,6 +250,9 @@ fn working_traces_for_items(
         traces.push(WorkingMemoryTraceRecord {
             item_id: item.id,
             entity_id: entity.as_ref().map(|entity| entity.id),
+            memory_kind: item.kind,
+            memory_stage: item.stage,
+            typed_memory: typed_memory_label(item.kind, item.stage),
             event_type: event.event_type.clone(),
             summary: event.summary.clone(),
             occurred_at: event.occurred_at,
@@ -256,6 +260,26 @@ fn working_traces_for_items(
         });
     }
     Ok(traces)
+}
+
+fn typed_memory_label(kind: MemoryKind, stage: MemoryStage) -> String {
+    let family = match kind {
+        MemoryKind::Runbook | MemoryKind::Procedural => "procedural",
+        MemoryKind::Status => "session_continuity",
+        MemoryKind::Pattern => "episodic",
+        MemoryKind::Fact
+        | MemoryKind::Decision
+        | MemoryKind::Preference
+        | MemoryKind::SelfModel
+        | MemoryKind::Topology
+        | MemoryKind::LiveTruth
+        | MemoryKind::Constraint => "semantic",
+    };
+    let stage = match stage {
+        MemoryStage::Candidate => "candidate",
+        MemoryStage::Canonical => "canonical",
+    };
+    format!("{family}+{stage}")
 }
 
 fn working_item_priority(
@@ -545,7 +569,7 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             },
             MemoryPolicyRouteDefault {
                 intent: memd_schema::RetrievalIntent::CurrentTask,
-                route: memd_schema::RetrievalRoute::LocalFirst,
+                route: memd_schema::RetrievalRoute::ProjectFirst,
             },
             MemoryPolicyRouteDefault {
                 intent: memd_schema::RetrievalIntent::Decision,

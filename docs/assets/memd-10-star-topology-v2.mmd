@@ -1,0 +1,95 @@
+%%{
+  init: {
+    "theme": "base",
+    "flowchart": {
+      "curve": "linear",
+      "nodeSpacing": 34,
+      "rankSpacing": 58,
+      "padding": 14
+    },
+    "themeVariables": {
+      "background": "#0b1020",
+      "primaryColor": "#111a31",
+      "primaryTextColor": "#e8eefc",
+      "primaryBorderColor": "#78a9ff",
+      "lineColor": "#8fb4ff",
+      "clusterBkg": "transparent",
+      "clusterBorder": "#28406f",
+      "fontFamily": "JetBrains Mono, Fira Code, ui-monospace, monospace",
+      "fontSize": "20px",
+      "edgeLabelBackground": "#0b1020"
+    }
+  }
+}%%
+flowchart LR
+    subgraph Harnesses["Harness packs"]
+      direction TB
+      H1["Codex"]
+      H2["Claude Code"]
+      H3["OpenClaw / Hermes"]
+      H4["Future harnesses"]
+    end
+
+    subgraph Ingest["Read once ingest"]
+      direction TB
+      I1["Turns + docs + artifacts + corrections"]
+      I2["Hooks + checkpoint + spill"]
+      I3["Resume + handoff packets"]
+    end
+
+    subgraph Brain["memd second-brain control plane"]
+      direction LR
+      B1["Working context compiler"]
+      B2["Session continuity"]
+      B3["Typed retrieval + promotion"]
+      B4["Correction + provenance + authority"]
+    end
+
+    subgraph Memory["Typed memory"]
+      direction LR
+      M1["Working context"]
+      M2["Session continuity"]
+      M3["Episodic memory"]
+      M4["Semantic memory"]
+      M5["Procedural memory"]
+      M6["Candidate memory"]
+      M7[("Canonical memory")]
+    end
+
+    subgraph Surfaces["Recall surfaces"]
+      direction TB
+      S0["Latency briefing"]
+      S1["Wake packet"]
+      S2["Memory atlas"]
+      S3["Canonical deep dive"]
+      S4["Raw evidence"]
+      S5["Obsidian workspace"]
+    end
+
+    subgraph Optional["Optional semantic expansion"]
+      direction TB
+      O1["Semantic recall backend"]
+    end
+
+    H1 --> I1
+    H2 --> I1
+    H3 --> I1
+    H4 --> I1
+    I1 --> I2 --> I3 --> B1 --> B2 --> B3 --> B4
+    B1 --> M1
+    B2 --> M2
+    B3 --> M3
+    B3 --> M4
+    B3 --> M5
+    B3 --> M6
+    B4 --> M7
+    B2 --> S0
+    M7 --> S1
+    M7 --> S2
+    M7 --> S3
+    M7 --> S4
+    M7 --> S5
+    B3 -. optional .-> O1
+
+    classDef node fill:#111a31,stroke:#78a9ff,color:#e8eefc,stroke-width:2px;
+    class H1,H2,H3,H4,I1,I2,I3,B1,B2,B3,B4,M1,M2,M3,M4,M5,M6,M7,S0,S1,S2,S3,S4,S5,O1 node;

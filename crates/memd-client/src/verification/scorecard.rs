@@ -220,7 +220,10 @@ pub(crate) fn render_continuity_journey_markdown(report: &ContinuityJourneyRepor
         "- Baseline modes: `{}`\n",
         report.baseline_modes.join("`, `")
     ));
-    markdown.push_str(&format!("- Features: `{}`\n", report.feature_ids.join("`, `")));
+    markdown.push_str(&format!(
+        "- Features: `{}`\n",
+        report.feature_ids.join("`, `")
+    ));
     markdown.push_str(&format!("- Metrics: {:?}\n", report.metrics));
     markdown.push_str(&format!("- Evidence: {:?}\n", report.evidence));
     markdown.push_str(&format!("- Summary: {}\n", report.summary));

@@ -382,7 +382,10 @@ pub(crate) fn build_gap_candidates(
                 "loop_manifest_drift",
                 83,
                 vec![
-                    format!("docs/strategy/research-loops.md lists {} loop entries", doc_count),
+                    format!(
+                        "docs/strategy/research-loops.md lists {} loop entries",
+                        doc_count
+                    ),
                     format!("runtime autoresearch manifest has {} loops", manifest_count),
                 ],
                 "update docs/strategy/research-loops.md to match `memd autoresearch --manifest` and rerun gap scoring",

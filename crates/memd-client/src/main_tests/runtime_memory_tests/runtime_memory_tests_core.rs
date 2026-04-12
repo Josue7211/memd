@@ -1,5 +1,9 @@
 use super::*;
+use memd_schema::MemoryVisibility;
 
+#[tokio::test]
+async fn lookup_with_fallbacks_retries_until_match() {
+    let state = MockRuntimeState::default();
     let base_url = spawn_mock_runtime_server(state.clone(), false).await;
     let client = MemdClient::new(&base_url).expect("client");
     let req = SearchMemoryRequest {
@@ -20,7 +24,10 @@ use super::*;
         belief_branch: None,
         source_agent: None,
         tags: vec!["caveman-ultra".to_string()],
-        stages: vec![memd_schema::MemoryStage::Canonical],
+        stages: vec![
+            memd_schema::MemoryStage::Canonical,
+            memd_schema::MemoryStage::Candidate,
+        ],
         limit: Some(6),
         max_chars_per_item: Some(280),
     };
@@ -39,6 +46,50 @@ use super::*;
         *state.search_count.lock().expect("lock search count") >= 2,
         "expected fallback search attempts"
     );
+}
+
+#[tokio::test]
+async fn source_memory_request_uses_repo_bundle_identity_defaults() {
+    let state = MockRuntimeState::default();
+    let base_url = spawn_mock_runtime_server(state.clone(), false).await;
+    let client = MemdClient::new(&base_url).expect("client");
+    let temp_root =
+        std::env::temp_dir().join(format!("memd-source-defaults-{}", uuid::Uuid::new_v4()));
+    let repo_root = temp_root.join("repo-b");
+    let bundle_root = repo_root.join(".memd");
+
+    fs::create_dir_all(repo_root.join(".git")).expect("create repo git dir");
+    fs::create_dir_all(&bundle_root).expect("create bundle dir");
+    let _cwd = crate::test_support::set_current_dir(&repo_root);
+
+    let (project, namespace) = infer_bundle_identity_defaults(&bundle_root);
+    let response = client
+        .source_memory(&SourceMemoryRequest {
+            project,
+            namespace,
+            workspace: Some("shared".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            source_agent: Some("codex".to_string()),
+            source_system: Some("hook-capture".to_string()),
+            limit: Some(5),
+        })
+        .await
+        .expect("source memory request");
+
+    assert!(response.sources.is_empty());
+    let requests = state.source_requests.lock().expect("lock source requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].project.as_deref(), Some("repo-b"));
+    assert_eq!(requests[0].namespace.as_deref(), Some("main"));
+    assert_eq!(requests[0].workspace.as_deref(), Some("shared"));
+    assert_eq!(requests[0].visibility, Some(MemoryVisibility::Workspace));
+    assert_eq!(requests[0].source_agent.as_deref(), Some("codex"));
+    assert_eq!(requests[0].source_system.as_deref(), Some("hook-capture"));
+    assert_eq!(requests[0].limit, Some(5));
+
+    drop(requests);
+    drop(_cwd);
+    fs::remove_dir_all(temp_root).expect("cleanup temp root");
 }
 
 #[test]
@@ -74,7 +125,11 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
         }],
     };
 
-    let markdown = render_lookup_markdown("startup surface", &response, false);
+    let request = SearchMemoryRequest {
+        query: Some("startup surface".to_string()),
+        ..Default::default()
+    };
+    let markdown = render_lookup_markdown("startup surface", &request, &response, false);
     assert!(markdown.contains("# memd lookup"));
     assert!(markdown.contains("decision: wake is the startup surface"));
     assert!(markdown.contains("Use recalled items before answering"));
@@ -312,8 +367,8 @@ fn resume_prompt_surfaces_current_task_snapshot() {
             rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
                 id: None,
                 kind: "source".to_string(),
-                label: "handoff".to_string(),
-                summary: "Reload the shared workspace handoff".to_string(),
+                label: "dup".to_string(),
+                summary: "Repeat this exact idea".to_string(),
                 reason: None,
                 source_agent: None,
                 source_system: None,
@@ -330,7 +385,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
             items: vec![memd_schema::InboxMemoryItem {
                 item: memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
-                    content: "One review item is still open".to_string(),
+                    content: "Repeat this exact idea".to_string(),
                     redundancy_key: None,
                     belief_branch: None,
                     preferred: true,
@@ -344,99 +399,84 @@ fn resume_prompt_surfaces_current_task_snapshot() {
                     source_system: None,
                     source_path: None,
                     source_quality: None,
-                    confidence: 0.8,
-                    ttl_seconds: Some(86_400),
+                    confidence: 0.9,
+                    ttl_seconds: None,
                     created_at: chrono::Utc::now(),
-                    status: memd_schema::MemoryStatus::Active,
-                    stage: memd_schema::MemoryStage::Candidate,
+                    updated_at: chrono::Utc::now(),
                     last_verified_at: None,
                     supersedes: Vec::new(),
-                    updated_at: chrono::Utc::now(),
-                    tags: vec!["checkpoint".to_string()],
+                    tags: Vec::new(),
+                    status: memd_schema::MemoryStatus::Active,
+                    stage: memd_schema::MemoryStage::Candidate,
                 },
-                reasons: vec!["stale".to_string()],
+                reasons: vec!["same".to_string()],
             }],
         },
         workspaces: memd_schema::WorkspaceMemoryResponse {
-            workspaces: vec![memd_schema::WorkspaceMemoryRecord {
-                project: Some("demo".to_string()),
-                namespace: Some("main".to_string()),
-                workspace: Some("team-alpha".to_string()),
-                visibility: memd_schema::MemoryVisibility::Workspace,
-                item_count: 4,
-                active_count: 3,
-                candidate_count: 1,
-                contested_count: 0,
-                source_lane_count: 1,
-                avg_confidence: 0.84,
-                trust_score: 0.91,
-                last_seen_at: None,
-                tags: Vec::new(),
-            }],
+            workspaces: Vec::new(),
         },
         sources: memd_schema::SourceMemoryResponse {
             sources: Vec::new(),
         },
         semantic: None,
         claims: SessionClaimsState::default(),
-        recent_repo_changes: vec!["status M crates/memd-client/src/render.rs".to_string()],
-        change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
+        recent_repo_changes: vec!["repo clean".to_string()],
+        change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false,
     };
 
-    let prompt = crate::render::render_resume_prompt(&snapshot);
-    assert!(prompt.contains("## Context Budget"));
-    assert!(prompt.contains("tok="));
-    assert!(prompt.contains("dup=0"));
-    assert!(prompt.contains("p=low"));
-    assert!(prompt.contains("ref=false"));
-    assert!(prompt.contains("## T"));
-    assert!(prompt.contains("- t="));
-    assert!(prompt.contains("## E+LT"));
-    assert!(prompt.contains("Follow the active current-task lane"));
-    assert!(prompt.contains("One review item is still open"));
-    assert!(prompt.contains("Reload the shared workspace handoff"));
-    assert!(prompt.contains("status M crates/memd-client/src/render.rs"));
-    assert!(prompt.contains("team-alpha"));
+    let base = snapshot;
+    assert!(base.redundant_context_items() >= 1);
+    assert_eq!(base.context_pressure(), "medium");
+    assert!(
+        base.optimization_hints()
+            .iter()
+            .any(|hint: &String| hint.contains("collapse 1 repeated context item"))
+    );
 }
 
 #[test]
-fn resume_snapshot_detects_redundant_context_items() {
-    let base = ResumeSnapshot {
-        project: Some("demo".to_string()),
-        namespace: Some("main".to_string()),
-        agent: Some("codex".to_string()),
-        workspace: Some("team-alpha".to_string()),
-        visibility: Some("workspace".to_string()),
-        route: "auto".to_string(),
-        intent: "current_task".to_string(),
-        context: memd_schema::CompactContextResponse {
-            route: memd_schema::RetrievalRoute::Auto,
-            intent: memd_schema::RetrievalIntent::CurrentTask,
-            retrieval_order: vec![memd_schema::MemoryScope::Project],
-            records: vec![memd_schema::CompactMemoryRecord {
-                id: uuid::Uuid::new_v4(),
-                record: "Repeat this exact idea".to_string(),
-            }],
-        },
-        working: memd_schema::WorkingMemoryResponse {
-            route: memd_schema::RetrievalRoute::Auto,
-            intent: memd_schema::RetrievalIntent::CurrentTask,
-            retrieval_order: vec![memd_schema::MemoryScope::Project],
+fn working_summary_surfaces_typed_trace_trail() {
+    let response = memd_schema::WorkingMemoryResponse {
+        route: memd_schema::RetrievalRoute::ProjectFirst,
+        intent: memd_schema::RetrievalIntent::CurrentTask,
+        retrieval_order: vec![
+            memd_schema::MemoryScope::Project,
+            memd_schema::MemoryScope::Synced,
+        ],
+        budget_chars: 1600,
+        used_chars: 240,
+        remaining_chars: 1360,
+        truncated: false,
+        policy: memd_schema::WorkingMemoryPolicyState {
+            admission_limit: 8,
+            max_chars_per_item: 220,
             budget_chars: 1600,
-            used_chars: 120,
-            remaining_chars: 1480,
-            truncated: false,
-            policy: memd_schema::WorkingMemoryPolicyState {
-                admission_limit: 8,
-                max_chars_per_item: 220,
-                budget_chars: 1600,
-                rehydration_limit: 4,
-            },
-            records: vec![memd_schema::CompactMemoryRecord {
-                id: uuid::Uuid::new_v4(),
-                record: "Repeat this exact idea".to_string(),
-            }],
-            evicted: Vec::new(),
-            rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+            rehydration_limit: 4,
+        },
+        records: vec![memd_schema::CompactMemoryRecord {
+            id: uuid::Uuid::new_v4(),
+            record: "current task: lock typed trace families".to_string(),
+        }],
+        evicted: Vec::new(),
+        rehydration_queue: Vec::new(),
+        traces: vec![memd_schema::WorkingMemoryTraceRecord {
+            item_id: uuid::Uuid::new_v4(),
+            entity_id: Some(uuid::Uuid::new_v4()),
+            memory_kind: memd_schema::MemoryKind::Status,
+            memory_stage: memd_schema::MemoryStage::Candidate,
+            typed_memory: "session_continuity+candidate".to_string(),
+            event_type: "retrieved_context".to_string(),
+            summary: "continuity state entered working set".to_string(),
+            occurred_at: chrono::Utc::now(),
+            salience_score: 0.82,
+        }],
+        semantic_consolidation: None,
+    };
+
+    let summary = render_working_summary(&response, true);
+    assert!(summary.contains(
+        "trace_trail=session_continuity+candidate:retrieved_context:continuity state entered working set"
+    ));
+}

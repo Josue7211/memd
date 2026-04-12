@@ -21,6 +21,7 @@ This preset comes from the shared harness schema.
 - `wake`
 - `resume`
 - `remember`
+- `spill`
 
 ## Shared Core
 
@@ -35,7 +36,8 @@ Recommended flow:
 1. load the bundle before the task starts
 2. read compact wakeup and memory files before answering
 3. capture durable outcomes after the turn
-4. keep Obsidian and other platform gateways pointed at the same truth
+4. spill at compaction boundaries when the turn gets dense
+5. keep Obsidian and other platform gateways pointed at the same truth
 
 If you are using a bundle, Hermes should read:
 
@@ -58,6 +60,7 @@ That means:
 
 - compact context before the agent speaks
 - durable capture after the turn
+- spill at compaction boundaries
 - visible bundle files on disk
 - local-first fallback when the backend is unavailable
 
@@ -88,6 +91,7 @@ Durable outcomes should still go through the normal `memd` paths:
 
 ```bash
 printf 'decision: keep onboarding compact and visible\n' | memd hook capture --output .memd --stdin --promote-kind decision
+memd hook spill --output .memd --stdin --apply
 ```
 
 If Hermes needs a compaction boundary, use the shared spill flow:

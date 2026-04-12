@@ -1,5 +1,31 @@
 use super::*;
 
+pub(crate) fn apply_lookup_bundle_defaults(
+    mut args: LookupArgs,
+    runtime: Option<&BundleRuntimeConfig>,
+) -> LookupArgs {
+    if let Some(project_root) = infer_bundle_project_root(&args.output) {
+        if args.project.is_none() {
+            args.project = project_root
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+        }
+
+        if args.namespace.is_none()
+            && runtime
+                .and_then(|config| config.namespace.as_deref())
+                .is_none()
+        {
+            args.namespace = Some("main".to_string());
+        }
+    }
+
+    args
+}
+
 pub(crate) async fn run_memory_command(
     _client: &MemdClient,
     base_url: &str,
@@ -231,6 +257,7 @@ pub(crate) async fn run_lookup_command(
     args: LookupArgs,
 ) -> anyhow::Result<()> {
     let runtime = read_bundle_runtime_config(&args.output)?;
+    let args = apply_lookup_bundle_defaults(args, runtime.as_ref());
     let req = build_lookup_request(&args, runtime.as_ref())?;
     let response = lookup_with_fallbacks(client, &req, &args.query).await?;
     if args.json {
@@ -238,10 +265,53 @@ pub(crate) async fn run_lookup_command(
     } else {
         println!(
             "{}",
-            render_lookup_markdown(&args.query, &response, args.verbose)
+            render_lookup_markdown(&args.query, &req, &response, args.verbose)
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookup_bundle_defaults_bind_repo_identity_without_runtime_config() {
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-lookup-defaults-{}", uuid::Uuid::new_v4()));
+        let repo_root = temp_root.join("repo-b");
+        let bundle_root = repo_root.join(".memd");
+
+        fs::create_dir_all(repo_root.join(".git")).expect("create repo git dir");
+
+        let args = apply_lookup_bundle_defaults(
+            LookupArgs {
+                output: bundle_root.clone(),
+                query: "what did we decide?".to_string(),
+                project: None,
+                namespace: None,
+                workspace: None,
+                visibility: None,
+                route: None,
+                intent: None,
+                kind: Vec::new(),
+                tag: Vec::new(),
+                include_stale: false,
+                limit: None,
+                verbose: false,
+                json: false,
+            },
+            None,
+        );
+        let req = build_lookup_request(&args, None).expect("build lookup request");
+
+        assert_eq!(args.project.as_deref(), Some("repo-b"));
+        assert_eq!(args.namespace.as_deref(), Some("main"));
+        assert_eq!(req.project.as_deref(), Some("repo-b"));
+        assert_eq!(req.namespace.as_deref(), Some("main"));
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
 }
 
 pub(crate) async fn run_context_command(

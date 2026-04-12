@@ -55,6 +55,103 @@ Describe what a user should experience if this feature works.
 
 ## v1 Features
 
+### FEATURE-RAW-TRUTH-SPINE: Source-Linked Raw Truth Spine
+
+- version: `vNext`
+- milestones: `phase-a`
+- status: `unverified`
+- verification_depth: `strong`
+
+#### User Contract
+
+The main ingest paths write a source-linked raw spine record first, keep the
+server event timeline source-linked, and surface the raw spine in compiled
+bundle events.
+
+#### Implementation Surfaces
+
+- `crates/memd-client/src/runtime/raw_spine.rs`
+- `crates/memd-client/src/runtime/checkpoint.rs`
+- `crates/memd-client/src/runtime/ingest_runtime.rs`
+- `crates/memd-client/src/cli/cli_hook_runtime.rs`
+- `crates/memd-client/src/compiled/event.rs`
+- `crates/memd-server/src/main.rs`
+- `crates/memd-server/src/tests/mod.rs`
+
+#### Dependencies
+
+- `FEATURE-V1-CORE-STORE`
+
+#### Verification Methods
+
+- unit/integration: `cargo test -q -p memd-server store_item_records_source_linked_event -- --nocapture`
+- workflow: `memd remember`, `memd checkpoint`, `memd ingest`, `memd hook capture`, `memd hook spill --apply`, then `cat .memd/state/raw-spine.jsonl`
+- adversarial: write through multiple ingress paths and confirm source metadata survives into raw spine and compiled event output
+- migration: not required in first audit
+- cross-harness: deferred until Phase A paths are exercised from more than one harness pack
+
+#### Failure Modes
+
+- path writes memory but skips raw spine
+- raw spine record loses `source_system` or `source_path`
+- compiled event output omits the raw spine section
+- server timeline strips source metadata on candidate or canonical writes
+
+#### Notes
+
+- commands in scope: `memd remember`, `memd checkpoint`, `memd ingest`, `memd hook capture`, `memd hook spill --apply`
+- pass means each path writes a source-linked raw spine record, server timeline keeps source metadata, and compiled bundle events surface the raw spine
+- benchmark_feature_id: `feature.raw_truth_spine`
+
+### FEATURE-SESSION-CONTINUITY: Fresh Session Continuity
+
+- version: `vNext`
+- milestones: `phase-b`
+- status: `unverified`
+- verification_depth: `strong`
+
+#### User Contract
+
+A fresh session can answer what we are doing, where we left off, what changed,
+and what next from compact memd continuity surfaces instead of rebuilding from
+transcript.
+
+#### Implementation Surfaces
+
+- `crates/memd-client/src/runtime/resume/mod.rs`
+- `crates/memd-client/src/runtime/resume/wakeup.rs`
+- `crates/memd-client/src/render/render_summary.rs`
+- `crates/memd-client/src/bundle/memory_surface.rs`
+
+#### Dependencies
+
+- `FEATURE-RAW-TRUTH-SPINE`
+- `FEATURE-V1-WORKING-CONTEXT`
+
+#### Verification Methods
+
+- unit/integration: `cargo test -q -p memd-client render_resume_prompt_surfaces_explicit_continuity_answers -- --nocapture`
+- unit/integration: `cargo test -q -p memd-client render_handoff_prompt_surfaces_explicit_continuity_answers -- --nocapture`
+- workflow: run `memd resume --output .memd --prompt` in a fresh session and confirm the prompt contains the four continuity answers
+- adversarial: inject inbox pressure and rehydration backlog and confirm continuity answers stay explicit instead of collapsing into mixed sections
+- migration: not required in first audit
+- cross-harness: rerun the same continuity check through handoff and wake surfaces
+
+#### Failure Modes
+
+- resume requires reading multiple sections to infer continuity
+- handoff and wake pages disagree about current task or next action
+- prompt keeps continuity implicit inside working or inbox noise
+
+#### Notes
+
+- pass means the first continuity block answers: what are we doing, where did we leave off, what changed, what next
+- benchmark_feature_id: `feature.session_continuity`
+- working-memory traces now carry typed-memory families so verification can prove type-aware retrieval instead of only flat working-set recall
+- canonical promotion is stage-aware and visible in server tests: candidate items promote to canonical stage and stay canonical in storage
+- compiled memory quality reports now probe `session_continuity`, and benchmark artifacts surface that typed-retrieval evidence in `latest.md`
+- the benchmark evidence path now carries `typed_retrieval_probe=session_continuity` so typed retrieval shows up in scorecards, not only in raw traces
+
 ### FEATURE-V1-CORE-STORE: Durable Typed Memory Storage
 
 - version: `v1`
@@ -95,6 +192,7 @@ Describe what a user should experience if this feature works.
 
 - `.planning/codebase/MEMORY-AUDIT.md` shows storage exists, but recall is the higher-risk part of the contract
 - current regression coverage includes keeping a recalled project fact visible in bundle memory during resume
+- first Phase C slice now exposes top-level typed-memory families in lookup and bundle surfaces so retrieval no longer reads like one flat bucket
 - benchmark_feature_id: `feature.v1.core.store`
 
 ### FEATURE-V1-CORE-SEARCH: Bounded Memory Search
@@ -143,7 +241,7 @@ Users can search memory through stable routes and receive bounded, inspectable r
 
 - version: `v1`
 - milestones: `v1`
-- status: `unverified`
+- status: `partial`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -163,7 +261,7 @@ Operators can repair memory state by verifying, expiring, superseding, and dedup
 
 #### Verification Methods
 
-- unit/integration: `cargo test -p memd-server --quiet`
+- unit/integration: `cargo test -p memd-server superseded_memory_drops_out_after_manual_correction_loop -- --nocapture`
 - workflow: `memd repair ...`, `memd verify ...`, or `memd expire ...` followed by `memd resume`
 - adversarial: supersede a stale belief, store the correction, and confirm the stale memory drops out under current-task retrieval
 - migration: not required in first audit
@@ -178,6 +276,7 @@ Operators can repair memory state by verifying, expiring, superseding, and dedup
 #### Notes
 
 - current low-level correction lifecycle is promising: a superseded stale memory can drop out after a manual correction loop
+- duplicate revival is also covered via `tests::explicit_store_revives_superseded_canonical_duplicate`
 - the unresolved gap is product UX, not the underlying supersede mechanics alone
 - benchmark_feature_id: `feature.v1.lifecycle.repair`
 
@@ -314,7 +413,7 @@ Operators can ask why a memory exists and why it ranked the way it did, instead 
 
 - version: `v1`
 - milestones: `v1`
-- status: `unverified`
+- status: `verified`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -337,7 +436,7 @@ Operators can drill from a memory summary down to its source artifacts and prove
 
 #### Verification Methods
 
-- unit/integration: `cargo test -p memd-server --quiet`
+- unit/integration: `cargo test -p memd-server provenance -- --nocapture`
 - workflow: inspect source-memory and explain flows for a stored memory with evidence attached
 - adversarial: verify provenance remains drillable after compaction, summarization, or repair of the derived memory
 - migration: not required in first audit
@@ -351,15 +450,21 @@ Operators can drill from a memory summary down to its source artifacts and prove
 
 #### Notes
 
-- `ROADMAP.md` explicitly calls provenance drilldown still incomplete enough to block true `v1` completion
-- this should likely audit as `partial` unless the source-artifact path proves strong in real flows
+- `ROADMAP.md` now treats canonical-truth provenance as implemented in core server/client surfaces, and cross-harness validation now has direct proof
+- route proof now exists via `tests::source_memory_route_returns_provenance_aggregates_for_filtered_source`
+- visible-memory provenance surface is covered via `ui::tests::visible_memory_provenance_trust_reason_exposes_epistemic_state`
+- client inspection summary is covered via `render::render_summary::render_memory_summary::tests::render_source_summary_surfaces_provenance_trail_and_tags`
+- client source command path is covered via `e2e_tests::source_command_uses_live_source_route_and_bundle_defaults`
+- live client request defaults are covered via `main_tests::runtime_memory_tests::runtime_memory_tests_core::source_memory_request_uses_repo_bundle_identity_defaults`
+- resume truth summary uses live source provenance via `runtime::resume::tests::truth_summary_uses_top_source_provenance_for_non_live_truth_lanes`
+- same source-artifact path now has cross-harness proof via `main_tests::bootstrap_harness_tests::provenance_source_path_survives_across_codex_and_openclaw_memory_surfaces`
 - benchmark_feature_id: `feature.v1.provenance`
 
 ### FEATURE-V1-BUNDLE-ATTACH: Bundle Configuration And Client Attach Flow
 
 - version: `v1`
 - milestones: `v1`
-- status: `unverified`
+- status: `verified`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -395,8 +500,62 @@ Project bundles can configure runtime defaults, and attach flows make `memd` usa
 #### Notes
 
 - this contract spans beyond a single CLI snippet; the real audit must cover actual harness attach behavior
-- current tests prove default current-task intent in attach snippets, but not full multi-harness end-to-end parity
+- generated attach startup now has execution proof via `evaluation_runtime_tests::evaluation_runtime_tests_bundle_setup::attach_snippet_executes_wake_with_bundle_route_intent_and_env_defaults`
+- generated Codex and Claude Code launcher profiles now have parity proof via `evaluation_runtime_tests::evaluation_runtime_tests_bundle_setup::codex_and_claude_profiles_execute_same_bundle_defaults`
+- generated OpenClaw launcher profile now has parity proof via `evaluation_runtime_tests::evaluation_runtime_tests_bundle_setup::openclaw_profile_executes_same_bundle_defaults`
+- bundle startup surfaces now prove route, intent, project, and workspace overlays survive actual launcher execution instead of string inspection alone
 - benchmark_feature_id: `feature.v1.bundle.attach`
+
+### FEATURE-V1-WAKE-PACKET: Wake Packet Compiler
+
+- version: `v1`
+- milestones: `v1`
+- status: `auditing`
+- verification_depth: `exhaustive`
+
+#### User Contract
+
+`memd wake` compiles a compact, action-ready packet that keeps current task, durable truth, and next action visible without forcing transcript rereads.
+
+#### Implementation Surfaces
+
+- `crates/memd-client/src/runtime/resume/wakeup.rs`
+- `crates/memd-client/src/render/render_summary.rs`
+- `crates/memd-client/src/workflow/autoresearch/mod.rs`
+- `crates/memd-client/src/verification/verifier_runtime.rs`
+
+#### Dependencies
+
+- `FEATURE-RAW-TRUTH-SPINE`
+- `FEATURE-SESSION-CONTINUITY`
+- `FEATURE-V1-PROVENANCE`
+
+#### Verification Methods
+
+- unit/integration: `cargo test -p memd-client wakeup_markdown_surfaces_durable_truth_without_verbose_mode -- --nocapture`
+- unit/integration: `cargo test -p memd-client run_prompt_efficiency_loop -- --nocapture`
+- unit/integration: `cargo test -p memd-client runtime::resume::wakeup::tests::wakeup_markdown_stays_compact_under_pressure_and_keeps_continuity -- --nocapture`
+- unit/integration: `cargo test -p memd-client main_tests::autoresearch_evolution_tests::run_prompt_surface_loop_records_high_pressure_diagnostics -- --nocapture`
+- unit/integration: `cargo test -p memd-client main_tests::runtime_verification_tests::run_verify_feature_command_executes_seeded_wake_verifier -- --nocapture`
+- workflow: run `memd wake --output .memd --summary` and confirm the packet stays compact while preserving doing, left_off, changed, and next
+- adversarial: add repeated context and confirm the wake packet still prefers compact durable truth over reread-style expansion
+- migration: not required in first audit
+- cross-harness: deferred until the packet is validated through the supported harness surfaces
+
+#### Failure Modes
+
+- wake becomes a transcript dump instead of a packet
+- packet shrinks but loses next action or durable truth
+- token savings exist only on paper and not in the compiled output
+
+#### Notes
+
+- `render_bundle_wakeup_markdown` is the current compiler surface
+- `run_prompt_efficiency_loop` compares `core_prompt_tokens` against `estimated_prompt_tokens`
+- wake packet pressure path now has regression coverage for compact output under high-pressure snapshots
+- wake packet efficiency artifacts now record pressure diagnostics and warning reasons alongside token savings
+- `verifier.feature.bundle.wake` now consumes the live wake-packet efficiency artifact instead of only checking that `MEMD_WAKEUP.md` exists
+- wake correctness already has coverage; this feature focuses on measurable packet compaction
 
 ## v2 Features
 
@@ -404,7 +563,7 @@ Project bundles can configure runtime defaults, and attach flows make `memd` usa
 
 - version: `v2`
 - milestones: `v2`
-- status: `unverified`
+- status: `partial`
 - verification_depth: `exhaustive`
 
 #### User Contract
@@ -430,7 +589,7 @@ Each durable belief preserves source trust, freshness, verification, and contrad
 
 #### Verification Methods
 
-- unit/integration: `cargo test -p memd-server --quiet`
+- unit/integration: `cargo test -p memd-server contested_synthetic_items_collect_policy_reasons -- --nocapture`
 - workflow: store canonical, synthetic, stale, contested, and superseded records with different trust scores; inspect `memd explain`, `memd working`, and `memd policy`
 - adversarial: make a low-trust contested record share the same retrieval neighborhood as a verified record and confirm the verified item still wins
 - migration: not required in first audit
@@ -445,6 +604,9 @@ Each durable belief preserves source trust, freshness, verification, and contrad
 #### Notes
 
 - this is the current audit pressure point, because v1 proved explainability exists but not that trust or contradiction handling actually changes behavior
+- ranking coverage now exists via `working::tests::active_recent_canonical_items_rank_above_stale_contested_items`
+- freshness weighting is covered via `working::tests::recently_verified_items_rank_above_unverified_items`
+- contradiction/trust-floor policy reasons are covered via `working::tests::contested_synthetic_items_collect_policy_reasons`
 
 ### FEATURE-V2-BRANCHABLE-BELIEFS: Branchable Competing Beliefs
 

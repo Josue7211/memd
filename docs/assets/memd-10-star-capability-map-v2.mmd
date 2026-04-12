@@ -1,0 +1,72 @@
+%%{
+  init: {
+    "theme": "base",
+    "flowchart": {
+      "curve": "linear",
+      "nodeSpacing": 28,
+      "rankSpacing": 40,
+      "padding": 12
+    },
+    "themeVariables": {
+      "background": "#0b1020",
+      "primaryColor": "#111a31",
+      "primaryTextColor": "#e8eefc",
+      "primaryBorderColor": "#78a9ff",
+      "lineColor": "#8fb4ff",
+      "clusterBkg": "transparent",
+      "clusterBorder": "#28406f",
+      "fontFamily": "JetBrains Mono, Fira Code, ui-monospace, monospace",
+      "fontSize": "18px",
+      "edgeLabelBackground": "#0b1020"
+    }
+  }
+}%%
+flowchart TB
+    subgraph Core["1. memory kinds"]
+      direction TB
+      A["Working context"]
+      B["Session continuity"]
+      C["Episodic memory"]
+      D["Semantic memory"]
+      E["Procedural memory"]
+      F["Candidate memory"]
+      G["Canonical memory"]
+    end
+
+    subgraph Plane["2. memd control plane"]
+      direction TB
+      H["Correction + provenance"]
+      I["Promotion into canonical memory"]
+      J["Wake packet compiler"]
+      P["Hive coordination + latency briefing"]
+    end
+
+    subgraph Wins["3. product outcomes"]
+      direction TB
+      K["Read once, reuse everywhere"]
+      L["Flawless new-session resume"]
+      M["Cross-harness second brain"]
+      N["Major repeated-context reduction"]
+      O["Sharper context, equal or better quality"]
+    end
+
+    A --> H
+    B --> H
+    C --> I
+    D --> I
+    E --> I
+    F --> I
+    G --> J
+
+    H --> J
+    I --> J
+    J --> P
+
+    J --> K
+    J --> L
+    P --> M
+    P --> N
+    J --> O
+
+    classDef node fill:#111a31,stroke:#78a9ff,color:#e8eefc,stroke-width:2px;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P node;

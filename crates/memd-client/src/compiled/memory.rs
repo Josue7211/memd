@@ -834,6 +834,9 @@ pub(crate) fn build_compiled_memory_quality_report(
         "working",
         "inbox",
         "semantic",
+        "session_continuity",
+        "procedural",
+        "canonical",
     ] {
         if query == "none" || query.is_empty() {
             continue;
@@ -1170,4 +1173,63 @@ pub(crate) fn render_compiled_memory_quality_json(
 
 pub(crate) fn clamp_u8(value: i32) -> u8 {
     value.clamp(0, 100) as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_compiled_memory_quality_report_scores_session_continuity_probe() {
+        let root = std::env::temp_dir().join(format!(
+            "memd-compiled-memory-quality-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let compiled = root.join("compiled").join("memory");
+        fs::create_dir_all(&compiled).expect("create compiled memory dir");
+        fs::write(
+            root.join("config.json"),
+            r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-alpha",
+  "tab_id": "tab-alpha"
+}
+"#,
+        )
+        .expect("write runtime config");
+        fs::write(
+            root.join("MEMD_MEMORY.md"),
+            "# memd memory\n\n## Scope\n\n- source_note: [[Working]]\n",
+        )
+        .expect("write memory surface");
+        fs::write(
+            compiled.join("working.md"),
+            "# Working\n\nsession_continuity stays hot.\n\nprocedural memory stays explicit.\n\ncanonical memory stays explicit.\n",
+        )
+        .expect("write working page");
+
+        let report = build_compiled_memory_quality_report(&root).expect("build quality report");
+        assert!(
+            report
+                .probes
+                .iter()
+                .any(|probe| probe.query == "session_continuity" && probe.best_score > 0)
+        );
+        assert!(
+            report
+                .probes
+                .iter()
+                .any(|probe| probe.query == "procedural" && probe.best_score > 0)
+        );
+        assert!(
+            report
+                .probes
+                .iter()
+                .any(|probe| probe.query == "canonical" && probe.best_score > 0)
+        );
+
+        fs::remove_dir_all(root).expect("cleanup memory quality temp dir");
+    }
 }

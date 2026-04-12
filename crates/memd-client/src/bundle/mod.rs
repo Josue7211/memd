@@ -3,11 +3,11 @@ use self::config_runtime::{
     rewrite_env_assignment,
 };
 use super::*;
-use crate::runtime::*;
 use crate::coordination::build_task_view_counts;
+use crate::runtime::*;
 
 mod admin_runtime;
-mod agent_profiles;
+pub(crate) mod agent_profiles;
 mod bootstrap_runtime;
 mod config_runtime;
 mod init_runtime;
@@ -179,6 +179,19 @@ impl LocalhostFallbackPolicy {
     }
 }
 
+pub(crate) fn bundle_startup_route_intent(output: &Path) -> (String, String) {
+    let runtime = read_bundle_runtime_config(output).ok().flatten();
+    let route = runtime
+        .as_ref()
+        .and_then(|config| config.route.clone())
+        .unwrap_or_else(|| "auto".to_string());
+    let intent = runtime
+        .as_ref()
+        .and_then(|config| config.intent.clone())
+        .unwrap_or_else(|| "general".to_string());
+    (route, intent)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct BundleAuthorityPolicy {
     #[serde(default = "default_true")]
@@ -237,7 +250,7 @@ impl Default for BundleAuthorityState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BundleRuntimeConfig {
     #[serde(default)]
     pub(crate) project: Option<String>,
@@ -328,7 +341,7 @@ pub(crate) fn set_executable_if_shell_script(path: &Path, file_name: &str) -> an
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BundleHeartbeatState {
     #[serde(default)]
     pub(crate) session: Option<String>,

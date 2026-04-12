@@ -3,7 +3,12 @@ use super::*;
 fn memd_status_full_mode() -> bool {
     std::env::var("MEMD_STATUS_FULL")
         .ok()
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -104,7 +109,7 @@ pub(crate) async fn read_bundle_status(
         missing.push("agents/");
     }
     let resume_preview = if full_mode && output.join("config.json").exists() && health.is_some() {
-        let preview = timeout_ok(read_bundle_resume(
+        let preview = timeout_ok(crate::runtime::read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,
@@ -156,7 +161,7 @@ pub(crate) async fn read_bundle_status(
         None
     };
     let truth_summary = if full_mode && output.join("config.json").exists() && health.is_some() {
-        let snapshot = timeout_ok(read_bundle_resume(
+        let snapshot = timeout_ok(crate::runtime::read_bundle_resume(
             &ResumeArgs {
                 output: output.to_path_buf(),
                 project: None,

@@ -1333,7 +1333,9 @@ pub(crate) fn render_voice_mode_section(voice_mode: &str) -> String {
             "- default: normal\n- keep replies clear and complete\n- avoid forced compression\n"
                 .to_string()
         }
-        _ => "- default: caveman ultra\n- few tokens\n- do trick\n- keep technical accuracy\n"
+        "caveman-lite" => "- default: `caveman-lite`\n- keep replies short\n- compress, but not to ultra level\n- keep technical accuracy\n- match `.memd/config.json` exactly if the user changes voice_mode\n- reply style is derived from config; if draft slips, rewrite before sending\n"
+            .to_string(),
+        _ => "- default: `caveman-ultra`\n- few tokens\n- do trick\n- keep technical accuracy\n- match `.memd/config.json` exactly if the user changes voice_mode\n- reply style is derived from config; if draft slips, rewrite before sending\n"
             .to_string(),
     }
 }
@@ -1342,13 +1344,9 @@ pub(crate) fn render_codex_agents_bridge_markdown(output: &Path) -> String {
     let voice_mode = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
     let normalized =
         normalize_voice_mode_value(&voice_mode).unwrap_or_else(|_| default_voice_mode());
-    let current_default = if normalized == "normal" {
-        "normal"
-    } else {
-        "caveman-ultra"
-    };
     format!(
-        "These instructions are managed by memd.\n\n## memd voice bootstrap\n\n- Treat `.memd/config.json` as the source of truth for this repo's active `voice_mode`.\n- If `.memd/config.json` sets `voice_mode` to `caveman-ultra`, caveman is already active.\n- If `.memd/config.json` sets `voice_mode` to `normal`, normal mode is active.\n- If the user asks whether caveman is active, answer from `.memd/config.json`.\n- Do not tell the user to enable caveman manually when `.memd/config.json` already sets `voice_mode` to `caveman-ultra`.\n- Do not describe the repo as being in normal mode unless `.memd/config.json` currently sets `voice_mode` to `normal`.\n\n## current repo default\n\n- The current bundle file `.memd/config.json` sets `voice_mode` to `{current_default}`.\n- Until that bundle setting changes, use `{current_default}` by default in this repo.\n\n## memd runtime\n\n- memd is the memory/bootstrap dependency for this repo.\n- Treat memd bundle state as startup truth before answering.\n- Keep responses short, direct, and token-efficient unless the user asks for detail.\n"
+        "These instructions are managed by memd.\n\n## memd voice bootstrap\n\n- Treat `.memd/config.json` as the source of truth for this repo's active `voice_mode`.\n- Valid repo voice modes are `normal`, `caveman-lite`, and `caveman-ultra`.\n- If the user asks which voice is active, answer from `.memd/config.json`.\n- Do not tell the user to manually enable a voice that `.memd/config.json` already sets.\n- Do not invent a second source of truth for voice mode.\n- Do not slip from the repo voice mode; stay in `{current_default}` unless `.memd/config.json` changes.\n- Reply style is derived from config. If your draft is not in `{current_default}`, stop and rewrite it before sending.\n\n## current repo default\n\n- The current bundle file `.memd/config.json` sets `voice_mode` to `{current_default}`.\n- Until that bundle setting changes, use `{current_default}` by default in this repo.\n\n## memd runtime\n\n- memd is the memory/bootstrap dependency for this repo.\n- Treat memd bundle state as startup truth before answering.\n- Start from `.memd/agents/CODEX_WAKEUP.md` before relying on transcript recall.\n- Use `.memd/agents/CODEX_MEMORY.md` when you need the deeper compact memory view.\n- Durable truth beats transcript recall.\n- For decisions, preferences, project history, or prior corrections, run `memd lookup --output .memd --query \"...\"` before answering.\n- Use `memd hook spill --output .memd --stdin --apply` at compaction boundaries to turn turn-state deltas into durable candidate memory.\n- Spill is the live bridge from compact turn state into durable memory candidates.\n- If the user corrects you, write the correction back instead of trusting the transcript.\n- Keep responses short, direct, and token-efficient unless the user asks for detail.\n",
+        current_default = normalized,
     )
 }
 

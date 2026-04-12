@@ -287,8 +287,20 @@ pub(crate) async fn get_inbox(
         .collect::<Vec<_>>();
 
     inbox.sort_by(|a, b| {
-        inbox_score(&b.item, b.entity.as_ref(), &plan)
-            .partial_cmp(&inbox_score(&a.item, a.entity.as_ref(), &plan))
+        inbox_score(
+            &b.item,
+            b.entity.as_ref(),
+            req.project.as_ref(),
+            req.namespace.as_ref(),
+            &plan,
+        )
+        .partial_cmp(&inbox_score(
+            &a.item,
+            a.entity.as_ref(),
+            req.project.as_ref(),
+            req.namespace.as_ref(),
+            &plan,
+        ))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });

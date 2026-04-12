@@ -22,6 +22,10 @@ pub(crate) async fn lookup_with_fallbacks(
         }
     }
 
+    if !should_use_broad_lookup_fallback(req) {
+        return Ok(response);
+    }
+
     let broad_fallback = client
         .search(&SearchMemoryRequest {
             query: None,
@@ -59,17 +63,10 @@ pub(crate) fn build_lookup_request(
         .map(parse_memory_visibility_value)
         .transpose()?;
     let route = parse_retrieval_route(args.route.clone().or(Some("project_first".to_string())))?;
-    let intent = parse_retrieval_intent(args.intent.clone().or(Some("general".to_string())))?;
+    let intent = parse_retrieval_intent(args.intent.clone().or(Some("general".to_string())))?
+        .unwrap_or(RetrievalIntent::General);
     let kinds = if args.kind.is_empty() {
-        vec![
-            MemoryKind::Decision,
-            MemoryKind::Preference,
-            MemoryKind::Fact,
-            MemoryKind::Constraint,
-            MemoryKind::Runbook,
-            MemoryKind::Procedural,
-            MemoryKind::Status,
-        ]
+        default_kinds_for_intent(intent)
     } else {
         args.kind
             .iter()
@@ -85,7 +82,7 @@ pub(crate) fn build_lookup_request(
     Ok(SearchMemoryRequest {
         query: Some(args.query.clone()),
         route,
-        intent,
+        intent: Some(intent),
         scopes: vec![
             MemoryScope::Project,
             MemoryScope::Synced,
@@ -100,20 +97,37 @@ pub(crate) fn build_lookup_request(
         belief_branch: None,
         source_agent: None,
         tags: args.tag.clone(),
-        stages: vec![MemoryStage::Canonical],
+        stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
         limit: args.limit.or(Some(6)),
         max_chars_per_item: Some(280),
     })
 }
 
+pub(crate) fn should_use_broad_lookup_fallback(req: &SearchMemoryRequest) -> bool {
+    !req.tags.is_empty()
+}
+
 pub(crate) fn render_lookup_markdown(
     query: &str,
+    request: &SearchMemoryRequest,
     response: &memd_schema::SearchMemoryResponse,
     verbose: bool,
 ) -> String {
     let mut markdown = String::new();
     markdown.push_str("# memd lookup\n\n");
     markdown.push_str(&format!("- query: {}\n", query));
+    markdown.push_str(&format!(
+        "- plan: intent={} route={} scopes={} types={}\n",
+        enum_label_intent(request.intent.unwrap_or(response.intent)),
+        enum_label_route(request.route.unwrap_or(response.route)),
+        request
+            .scopes
+            .iter()
+            .map(|scope| enum_label_scope(*scope))
+            .collect::<Vec<_>>()
+            .join(" -> "),
+        typed_targets_for_request(request).join(", ")
+    ));
     markdown.push_str(&format!("- matches: {}\n\n", response.items.len()));
 
     if response.items.is_empty() {
@@ -125,10 +139,11 @@ pub(crate) fn render_lookup_markdown(
     let limit = if verbose { 6 } else { 3 };
     for item in response.items.iter().take(limit) {
         markdown.push_str(&format!(
-            "- [{}] {} ({}, {}, {:.2})\n",
+            "- [{}] {} ({}, type={}, {}, {:.2})\n",
             short_uuid(item.id),
             item.content.replace('\n', " "),
             enum_label_kind(item.kind),
+            typed_memory_label(item.kind, item.stage),
             enum_label_status(item.status),
             item.confidence
         ));
@@ -155,6 +170,119 @@ pub(crate) fn enum_label_kind(kind: MemoryKind) -> &'static str {
     }
 }
 
+pub(crate) fn enum_label_scope(scope: MemoryScope) -> &'static str {
+    match scope {
+        MemoryScope::Local => "local",
+        MemoryScope::Synced => "synced",
+        MemoryScope::Project => "project",
+        MemoryScope::Global => "global",
+    }
+}
+
+pub(crate) fn enum_label_route(route: RetrievalRoute) -> &'static str {
+    match route {
+        RetrievalRoute::Auto => "auto",
+        RetrievalRoute::LocalOnly => "local_only",
+        RetrievalRoute::SyncedOnly => "synced_only",
+        RetrievalRoute::ProjectOnly => "project_only",
+        RetrievalRoute::GlobalOnly => "global_only",
+        RetrievalRoute::LocalFirst => "local_first",
+        RetrievalRoute::SyncedFirst => "synced_first",
+        RetrievalRoute::ProjectFirst => "project_first",
+        RetrievalRoute::GlobalFirst => "global_first",
+        RetrievalRoute::All => "all",
+    }
+}
+
+pub(crate) fn enum_label_intent(intent: RetrievalIntent) -> &'static str {
+    match intent {
+        RetrievalIntent::General => "general",
+        RetrievalIntent::CurrentTask => "current_task",
+        RetrievalIntent::Decision => "decision",
+        RetrievalIntent::Runbook => "runbook",
+        RetrievalIntent::Procedural => "procedural",
+        RetrievalIntent::SelfModel => "self_model",
+        RetrievalIntent::Topology => "topology",
+        RetrievalIntent::Preference => "preference",
+        RetrievalIntent::Fact => "fact",
+        RetrievalIntent::Pattern => "pattern",
+    }
+}
+
+pub(crate) fn default_kinds_for_intent(intent: RetrievalIntent) -> Vec<MemoryKind> {
+    match intent {
+        RetrievalIntent::CurrentTask => vec![
+            MemoryKind::Status,
+            MemoryKind::Decision,
+            MemoryKind::Constraint,
+            MemoryKind::Pattern,
+            MemoryKind::LiveTruth,
+        ],
+        RetrievalIntent::Decision => vec![MemoryKind::Decision, MemoryKind::Constraint],
+        RetrievalIntent::Runbook => vec![MemoryKind::Runbook, MemoryKind::Procedural],
+        RetrievalIntent::Procedural => vec![MemoryKind::Procedural, MemoryKind::Runbook],
+        RetrievalIntent::SelfModel => vec![MemoryKind::SelfModel, MemoryKind::Preference],
+        RetrievalIntent::Topology => vec![MemoryKind::Topology, MemoryKind::Decision],
+        RetrievalIntent::Preference => vec![MemoryKind::Preference, MemoryKind::Decision],
+        RetrievalIntent::Fact => vec![
+            MemoryKind::Fact,
+            MemoryKind::LiveTruth,
+            MemoryKind::Constraint,
+        ],
+        RetrievalIntent::Pattern => vec![MemoryKind::Pattern, MemoryKind::Fact],
+        RetrievalIntent::General => vec![
+            MemoryKind::Decision,
+            MemoryKind::Preference,
+            MemoryKind::Fact,
+            MemoryKind::Constraint,
+            MemoryKind::Runbook,
+            MemoryKind::Procedural,
+            MemoryKind::Status,
+            MemoryKind::Pattern,
+        ],
+    }
+}
+
+pub(crate) fn typed_memory_axes(kind: MemoryKind, stage: MemoryStage) -> Vec<&'static str> {
+    let mut axes = Vec::new();
+    match kind {
+        MemoryKind::Runbook | MemoryKind::Procedural => axes.push("procedural"),
+        MemoryKind::Status => axes.push("session_continuity"),
+        MemoryKind::Pattern => axes.push("episodic"),
+        MemoryKind::Fact
+        | MemoryKind::Decision
+        | MemoryKind::Preference
+        | MemoryKind::SelfModel
+        | MemoryKind::Topology
+        | MemoryKind::LiveTruth
+        | MemoryKind::Constraint => axes.push("semantic"),
+    }
+    match stage {
+        MemoryStage::Candidate => axes.push("candidate"),
+        MemoryStage::Canonical => axes.push("canonical"),
+    }
+    axes
+}
+
+pub(crate) fn typed_memory_label(kind: MemoryKind, stage: MemoryStage) -> String {
+    typed_memory_axes(kind, stage).join("+")
+}
+
+pub(crate) fn typed_targets_for_request(req: &SearchMemoryRequest) -> Vec<String> {
+    let mut targets = req
+        .kinds
+        .iter()
+        .flat_map(|kind| {
+            req.stages
+                .iter()
+                .map(|stage| typed_memory_label(*kind, *stage))
+        })
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets.dedup();
+    targets
+}
+
 pub(crate) fn enum_label_status(status: MemoryStatus) -> &'static str {
     match status {
         MemoryStatus::Active => "active",
@@ -173,15 +301,23 @@ pub(crate) fn resolve_default_bundle_root() -> anyhow::Result<Option<PathBuf>> {
         }
     }
 
-    let global_root = default_global_bundle_root();
-    if global_root.join("config.json").exists() {
-        return Ok(Some(global_root));
-    }
-
     let cwd = std::env::current_dir().context("read current directory")?;
     let bundle_root = cwd.join(".memd");
     if bundle_root.join("config.json").exists() {
         return Ok(Some(bundle_root));
+    }
+
+    if let Some(project_root) = find_project_root(&cwd) {
+        let project_bundle = project_root.join(".memd");
+        if project_bundle.join("config.json").exists() {
+            return Ok(Some(project_bundle));
+        }
+        return Ok(None);
+    }
+
+    let global_root = default_global_bundle_root();
+    if global_root.join("config.json").exists() {
+        return Ok(Some(global_root));
     }
 
     Ok(None)
@@ -311,4 +447,217 @@ pub(crate) fn compact_resume_rag_text(input: &str, max_chars: usize) -> String {
     }
     output.push('…');
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_env_mutation() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env mutation lock poisoned")
+    }
+
+    fn lock_cwd_mutation() -> std::sync::MutexGuard<'static, ()> {
+        CWD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("cwd mutation lock poisoned")
+    }
+
+    #[test]
+    fn resolve_default_bundle_root_prefers_repo_bundle_over_global_bundle() {
+        let _env_lock = lock_env_mutation();
+        let _cwd_lock = lock_cwd_mutation();
+        let root =
+            std::env::temp_dir().join(format!("memd-default-bundle-root-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let repo = root.join("repo");
+        let repo_bundle = repo.join(".memd");
+        let global_bundle = home.join(".memd");
+        let original_home = std::env::var_os("HOME");
+        let original_bundle_root = std::env::var_os("MEMD_BUNDLE_ROOT");
+        let original_cwd = std::env::current_dir().expect("read current dir");
+
+        fs::create_dir_all(&repo_bundle).expect("create repo bundle");
+        fs::create_dir_all(&global_bundle).expect("create global bundle");
+        fs::write(repo_bundle.join("config.json"), "{}\n").expect("write repo config");
+        fs::write(global_bundle.join("config.json"), "{}\n").expect("write global config");
+
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::remove_var("MEMD_BUNDLE_ROOT");
+        }
+        std::env::set_current_dir(&repo).expect("set current dir to repo");
+
+        let resolved = resolve_default_bundle_root()
+            .expect("resolve bundle root")
+            .expect("bundle root should exist");
+        assert_eq!(resolved, repo_bundle);
+
+        std::env::set_current_dir(&original_cwd).expect("restore current dir");
+        unsafe {
+            match original_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match original_bundle_root {
+                Some(value) => std::env::set_var("MEMD_BUNDLE_ROOT", value),
+                None => std::env::remove_var("MEMD_BUNDLE_ROOT"),
+            }
+        }
+        fs::remove_dir_all(root).expect("cleanup temp bundle roots");
+    }
+
+    #[test]
+    fn typed_memory_label_maps_kind_and_stage_into_top_level_model() {
+        assert_eq!(
+            typed_memory_label(MemoryKind::Decision, MemoryStage::Canonical),
+            "semantic+canonical"
+        );
+        assert_eq!(
+            typed_memory_label(MemoryKind::Procedural, MemoryStage::Candidate),
+            "procedural+candidate"
+        );
+        assert_eq!(
+            typed_memory_label(MemoryKind::Status, MemoryStage::Candidate),
+            "session_continuity+candidate"
+        );
+        assert_eq!(
+            typed_memory_label(MemoryKind::Pattern, MemoryStage::Canonical),
+            "episodic+canonical"
+        );
+    }
+
+    #[test]
+    fn default_kinds_for_current_task_include_continuity_and_episode_signal() {
+        let kinds = default_kinds_for_intent(RetrievalIntent::CurrentTask);
+        assert!(kinds.contains(&MemoryKind::Status));
+        assert!(kinds.contains(&MemoryKind::Pattern));
+        assert!(kinds.contains(&MemoryKind::Decision));
+    }
+
+    #[test]
+    fn default_kinds_for_procedural_focus_on_runbooks_and_procedures() {
+        let kinds = default_kinds_for_intent(RetrievalIntent::Procedural);
+        assert_eq!(kinds, vec![MemoryKind::Procedural, MemoryKind::Runbook]);
+    }
+
+    #[test]
+    fn default_kinds_for_fact_keep_truth_signal_over_workflow_noise() {
+        let kinds = default_kinds_for_intent(RetrievalIntent::Fact);
+        assert!(kinds.contains(&MemoryKind::Fact));
+        assert!(kinds.contains(&MemoryKind::LiveTruth));
+        assert!(!kinds.contains(&MemoryKind::Runbook));
+    }
+
+    #[test]
+    fn resolve_default_bundle_root_does_not_fall_back_to_global_inside_repo_without_local_bundle() {
+        let _env_lock = lock_env_mutation();
+        let _cwd_lock = lock_cwd_mutation();
+        let root =
+            std::env::temp_dir().join(format!("memd-no-global-fallback-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let repo = root.join("repo");
+        let nested = repo.join("src").join("feature");
+        let global_bundle = home.join(".memd");
+        let original_home = std::env::var_os("HOME");
+        let original_bundle_root = std::env::var_os("MEMD_BUNDLE_ROOT");
+        let original_cwd = std::env::current_dir().expect("read current dir");
+
+        fs::create_dir_all(&nested).expect("create nested repo dir");
+        fs::create_dir_all(repo.join(".git")).expect("create repo git dir");
+        fs::create_dir_all(&global_bundle).expect("create global bundle");
+        fs::write(global_bundle.join("config.json"), "{}\n").expect("write global config");
+
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::remove_var("MEMD_BUNDLE_ROOT");
+        }
+        std::env::set_current_dir(&nested).expect("set current dir to nested repo");
+
+        let resolved = resolve_default_bundle_root().expect("resolve bundle root");
+        assert_eq!(resolved, None);
+
+        std::env::set_current_dir(&original_cwd).expect("restore current dir");
+        unsafe {
+            match original_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match original_bundle_root {
+                Some(value) => std::env::set_var("MEMD_BUNDLE_ROOT", value),
+                None => std::env::remove_var("MEMD_BUNDLE_ROOT"),
+            }
+        }
+        fs::remove_dir_all(root).expect("cleanup temp bundle roots");
+    }
+
+    #[test]
+    fn lookup_defaults_include_candidate_memory() {
+        let req = build_lookup_request(
+            &LookupArgs {
+                output: PathBuf::from(".memd"),
+                query: "what did we already decide about this?".to_string(),
+                project: None,
+                namespace: None,
+                workspace: None,
+                visibility: None,
+                route: None,
+                intent: None,
+                kind: Vec::new(),
+                tag: Vec::new(),
+                include_stale: false,
+                limit: None,
+                verbose: false,
+                json: false,
+            },
+            None,
+        )
+        .expect("build lookup request");
+
+        assert!(req.kinds.contains(&MemoryKind::Status));
+        assert!(req.kinds.contains(&MemoryKind::Decision));
+        assert!(req.kinds.contains(&MemoryKind::Fact));
+        assert!(req.kinds.contains(&MemoryKind::Pattern));
+        assert_eq!(
+            req.stages,
+            vec![MemoryStage::Canonical, MemoryStage::Candidate]
+        );
+    }
+
+    #[test]
+    fn broad_lookup_fallback_requires_tags() {
+        let tagged_req = SearchMemoryRequest {
+            query: Some("memory".to_string()),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            scopes: vec![MemoryScope::Project],
+            kinds: vec![MemoryKind::Fact],
+            statuses: vec![MemoryStatus::Active],
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            tags: vec!["checkpoint".to_string()],
+            stages: vec![MemoryStage::Canonical],
+            limit: Some(6),
+            max_chars_per_item: Some(280),
+        };
+        let untagged_req = SearchMemoryRequest {
+            tags: Vec::new(),
+            ..tagged_req.clone()
+        };
+
+        assert!(should_use_broad_lookup_fallback(&tagged_req));
+        assert!(!should_use_broad_lookup_fallback(&untagged_req));
+    }
 }

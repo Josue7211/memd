@@ -1,5 +1,5 @@
-use crate::bundle::BundleConfigFile;
 use super::*;
+use crate::bundle::BundleConfigFile;
 
 pub(crate) fn read_bundle_voice_mode(output: &Path) -> Option<String> {
     read_bundle_config_file(output)

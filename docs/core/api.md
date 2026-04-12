@@ -284,17 +284,17 @@ context before the task and spill at compaction boundaries.
 
 Hermes is the adoption-focused harness pack and comes from the shared preset
 schema. It follows the same visible-bundle rule, but its primary flow is
-onboarding-friendly wake and capture with cloud-first reach and self-host
-later.
+onboarding-friendly wake, capture, and spill with cloud-first reach and
+self-host later.
 
 Agent Zero is the zero-friction harness pack and comes from the shared preset
 schema. It follows the same visible-bundle rule, but its primary flow is fast
-resume, durable remember, and clean handoff for fresh sessions.
+resume, durable remember, clean handoff, and spill for fresh sessions.
 
 OpenCode is the shared-lane harness pack and comes from the shared preset
 schema. It follows the same visible-bundle rule, but its primary flow is
-resume, remember, and handoff for clients that prefer explicit continuity
-commands.
+resume, remember, handoff, and spill for clients that prefer explicit
+continuity commands.
 
 - cross-workspace shared memory can still appear when it remains relevant
 - project-scoped items outrank unrelated global memory

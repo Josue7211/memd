@@ -6,9 +6,8 @@ use memd_schema::ExplainMemoryRequest;
 use serde_json::json;
 
 use crate::obsidian;
-use crate::{HandoffArgs, ObsidianArgs, print_json};
 use crate::runtime::resolve_default_bundle_root;
-use crate::read_bundle_handoff;
+use crate::{HandoffArgs, ObsidianArgs, print_json};
 
 fn build_handoff_args(args: &ObsidianArgs) -> anyhow::Result<HandoffArgs> {
     Ok(HandoffArgs {
@@ -94,7 +93,7 @@ pub(crate) async fn run_obsidian_handoff(
     base_url: &str,
 ) -> anyhow::Result<()> {
     let handoff_args = build_handoff_args(args)?;
-    let snapshot = read_bundle_handoff(&handoff_args, base_url).await?;
+    let snapshot = crate::runtime::read_bundle_handoff(&handoff_args, base_url).await?;
 
     let output_path = args
         .output

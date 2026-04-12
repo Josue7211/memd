@@ -2,10 +2,10 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutoresearchSweepSignatureEntry {
-    slug: String,
-    status: String,
-    percent_bp: i64,
-    tokens_bp: i64,
+    pub(crate) slug: String,
+    pub(crate) status: String,
+    pub(crate) percent_bp: i64,
+    pub(crate) tokens_bp: i64,
 }
 
 pub(crate) fn build_autoresearch_sweep_signature(
@@ -326,7 +326,20 @@ pub(crate) async fn run_prompt_efficiency_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot =
+        crate::runtime::read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let record =
+        build_prompt_efficiency_record(&snapshot, descriptor, previous_runs, previous_entry);
+    write_wake_packet_efficiency_artifacts(output, &snapshot, &record)?;
+    Ok(record)
+}
+
+pub(crate) fn build_prompt_efficiency_record(
+    snapshot: &ResumeSnapshot,
+    descriptor: &AutoresearchLoop,
+    previous_runs: usize,
+    previous_entry: Option<&LoopSummaryEntry>,
+) -> LoopRecord {
     let estimated_tokens = snapshot.estimated_prompt_tokens() as f64;
     let core_tokens = snapshot.core_prompt_tokens() as f64;
     let percent = improvement_less_is_better(core_tokens, estimated_tokens);
@@ -343,6 +356,19 @@ pub(crate) async fn run_prompt_efficiency_loop(
     ];
     let confidence_met =
         loop_meets_absolute_floor(descriptor, percent, token_savings, evidence.len());
+    let mut warning_reasons = Vec::new();
+    if snapshot.context_pressure() == "high" {
+        warning_reasons.push("context_pressure=high".to_string());
+    }
+    if snapshot.refresh_recommended {
+        warning_reasons.push("refresh_recommended".to_string());
+    }
+    if snapshot.redundant_context_items() > 0 {
+        warning_reasons.push(format!(
+            "redundant_items={}",
+            snapshot.redundant_context_items()
+        ));
+    }
     let secondary_signal_ok = snapshot.context_pressure() != "high"
         || snapshot.redundant_context_items() == 0
         || token_savings >= descriptor.base_tokens * 2.0;
@@ -356,7 +382,7 @@ pub(crate) async fn run_prompt_efficiency_loop(
     } else {
         "warning"
     };
-    Ok(build_autoresearch_record_with_status(
+    build_autoresearch_record_with_status(
         descriptor,
         previous_runs + 1,
         percent,
@@ -369,11 +395,51 @@ pub(crate) async fn run_prompt_efficiency_loop(
             "core_prompt_tokens": core_tokens,
             "context_pressure": snapshot.context_pressure(),
             "refresh_recommended": snapshot.refresh_recommended,
+            "warning_reasons": warning_reasons,
             "confidence": loop_confidence_metadata(descriptor, percent, token_savings, confidence_met, 3),
             "trend": loop_trend_metadata(descriptor, previous_entry, percent, token_savings),
         }),
         status,
-    ))
+    )
+}
+
+pub(crate) fn write_wake_packet_efficiency_artifacts(
+    output: &Path,
+    snapshot: &ResumeSnapshot,
+    record: &LoopRecord,
+) -> anyhow::Result<()> {
+    let dir = loops_directory(output);
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+
+    let path = dir.join("wake-packet-efficiency.json");
+    let payload = serde_json::json!({
+        "slug": record.slug,
+        "name": record.name,
+        "summary": record.summary,
+        "status": record.status,
+        "iteration": record.iteration,
+        "estimated_prompt_tokens": snapshot.estimated_prompt_tokens(),
+        "core_prompt_tokens": snapshot.core_prompt_tokens(),
+        "token_savings": record.token_savings,
+        "percent_improvement": record.percent_improvement,
+        "context_pressure": snapshot.context_pressure(),
+        "refresh_recommended": snapshot.refresh_recommended,
+        "warning_reasons": record
+            .metadata
+            .get("warning_reasons")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+        "focus": snapshot
+            .working
+            .records
+            .first()
+            .map(|record| compact_inline(record.record.trim(), 180))
+            .unwrap_or_else(|| "none".to_string()),
+        "wake_summary": render_bundle_wakeup_summary(snapshot),
+    });
+    let json = serde_json::to_string_pretty(&payload)? + "\n";
+    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
 }
 
 pub(crate) async fn run_hive_health_loop(
@@ -495,7 +561,7 @@ pub(crate) async fn run_memory_hygiene_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(
+    let snapshot = crate::runtime::read_bundle_resume(
         &autoresearch_resume_args_with_limits(output, 4, 2, true),
         base_url,
     )
@@ -590,7 +656,8 @@ pub(crate) async fn run_autonomy_quality_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot =
+        crate::runtime::read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
     let mut warning_pressure = 0u64;
     if snapshot.change_summary.is_empty() && snapshot.recent_repo_changes.is_empty() {
         warning_pressure += 1;
@@ -663,7 +730,7 @@ pub(crate) async fn run_live_truth_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(
+    let snapshot = crate::runtime::read_bundle_resume(
         &autoresearch_resume_args_with_limits(output, 4, 2, true),
         base_url,
     )
@@ -748,7 +815,7 @@ pub(crate) async fn run_event_spine_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(
+    let snapshot = crate::runtime::read_bundle_resume(
         &autoresearch_resume_args_with_limits(output, 4, 2, true),
         base_url,
     )
@@ -844,7 +911,8 @@ pub(crate) async fn run_repair_rate_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot = read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
+    let snapshot =
+        crate::runtime::read_bundle_resume(&autoresearch_resume_args(output), base_url).await?;
     let total = snapshot.change_summary.len() as f64;
     let corrections = snapshot
         .change_summary
@@ -908,8 +976,11 @@ pub(crate) async fn run_long_context_loop(
     previous_runs: usize,
     previous_entry: Option<&LoopSummaryEntry>,
 ) -> anyhow::Result<LoopRecord> {
-    let snapshot =
-        read_bundle_resume(&autoresearch_long_context_resume_args(output), base_url).await?;
+    let snapshot = crate::runtime::read_bundle_resume(
+        &autoresearch_long_context_resume_args(output),
+        base_url,
+    )
+    .await?;
     let tokens = snapshot.core_prompt_tokens() as f64;
     let baseline = 1_200.0;
     let percent = improvement_less_is_better(tokens, baseline);
@@ -1594,7 +1665,7 @@ pub(crate) fn build_autoresearch_record_with_status(
     }
 }
 
-const AUTORESEARCH_MIN_EVIDENCE_SIGNALS: usize = 3;
+pub(crate) const AUTORESEARCH_MIN_EVIDENCE_SIGNALS: usize = 3;
 
 pub(crate) fn loop_meets_absolute_floor(
     descriptor: &AutoresearchLoop,

@@ -4,9 +4,13 @@ use crate::harness::cache;
 mod wakeup;
 
 #[allow(unused_imports)]
-pub(crate) use wakeup::*;
-#[allow(unused_imports)]
 pub(crate) use crate::workflow::*;
+#[allow(unused_imports)]
+pub(crate) use wakeup::*;
+
+fn infer_resume_bundle_identity_defaults(output: &Path) -> (Option<String>, Option<String>) {
+    infer_bundle_identity_defaults(output)
+}
 
 pub(crate) async fn resolve_target_session_bundle(
     output: &Path,
@@ -37,6 +41,7 @@ pub(crate) async fn read_bundle_resume(
 ) -> anyhow::Result<ResumeSnapshot> {
     let runtime = read_bundle_runtime_config(&args.output)?;
     let project_root = infer_bundle_project_root(&args.output);
+    let (default_project, default_namespace) = infer_resume_bundle_identity_defaults(&args.output);
     let base_agent = args
         .agent
         .clone()
@@ -45,11 +50,13 @@ pub(crate) async fn read_bundle_resume(
     let project = args
         .project
         .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()));
+        .or_else(|| runtime.as_ref().and_then(|config| config.project.clone()))
+        .or(default_project);
     let namespace = args
         .namespace
         .clone()
-        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()));
+        .or_else(|| runtime.as_ref().and_then(|config| config.namespace.clone()))
+        .or(default_namespace);
     let agent = base_agent
         .as_deref()
         .map(|value| compose_agent_identity(value, session.as_deref()));
@@ -304,6 +311,24 @@ pub(crate) fn render_bundle_memory_markdown(
         }
     ));
 
+    markdown.push_str("\n## Durable Truth\n\n");
+    if snapshot.context.records.is_empty() {
+        markdown.push_str("- none\n");
+    } else {
+        for record in snapshot.context.records.iter().take(3) {
+            markdown.push_str(&format!(
+                "- {}\n",
+                compact_inline(record.record.trim(), 160)
+            ));
+        }
+        if snapshot.context.records.len() > 3 {
+            markdown.push_str(&format!(
+                "- (+{} more)\n",
+                snapshot.context.records.len() - 3
+            ));
+        }
+    }
+
     let current_task = render_current_task_bundle_snapshot(snapshot);
     if !current_task.is_empty() {
         markdown.push_str("\n## Read First\n\n");
@@ -364,9 +389,10 @@ pub(crate) fn render_bundle_memory_markdown(
     }
     if let Some(item) = snapshot.inbox.items.first() {
         markdown.push_str(&format!(
-            "- inbox id={} kind={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
+            "- inbox id={} kind={} type={} status={} stage={} cf={:.2} scope={} source={} note=\"{}\"\n",
             short_uuid(item.item.id),
             enum_label_kind(item.item.kind),
+            typed_memory_label(item.item.kind, item.item.stage),
             enum_label_status(item.item.status),
             format!("{:?}", item.item.stage).to_ascii_lowercase(),
             item.item.confidence,
@@ -719,8 +745,14 @@ pub(crate) async fn read_bundle_handoff(
     );
     let resume_args = ResumeArgs {
         output: target_bundle.clone(),
-        project: args.project.clone(),
-        namespace: args.namespace.clone(),
+        project: args
+            .project
+            .clone()
+            .or_else(|| infer_resume_bundle_identity_defaults(&target_bundle).0),
+        namespace: args
+            .namespace
+            .clone()
+            .or_else(|| infer_resume_bundle_identity_defaults(&target_bundle).1),
         agent: args.agent.clone(),
         workspace: args.workspace.clone(),
         visibility: args.visibility.clone(),
@@ -861,6 +893,317 @@ impl BundleResumeState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_cwd_mutation() -> std::sync::MutexGuard<'static, ()> {
+        CWD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("cwd mutation lock poisoned")
+    }
+
+    #[test]
+    fn resume_defaults_bind_repo_identity_without_runtime_config() {
+        let _cwd_lock = lock_cwd_mutation();
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-resume-defaults-{}", uuid::Uuid::new_v4()));
+        let repo_root = temp_root.join("repo-b");
+        let bundle_root = repo_root.join(".memd");
+        let original_cwd = std::env::current_dir().expect("read cwd");
+
+        fs::create_dir_all(repo_root.join(".git")).expect("create repo git dir");
+        std::env::set_current_dir(&repo_root).expect("set repo cwd");
+
+        let args = ResumeArgs {
+            output: bundle_root.clone(),
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: None,
+            rehydration_limit: None,
+            semantic: false,
+            prompt: false,
+            summary: false,
+        };
+        let (project, namespace) = infer_resume_bundle_identity_defaults(&bundle_root);
+        assert_eq!(project.as_deref(), Some("repo-b"));
+        assert_eq!(namespace.as_deref(), Some("main"));
+
+        std::env::set_current_dir(&original_cwd).expect("restore cwd");
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+        let _ = args;
+    }
+
+    #[test]
+    fn truth_summary_prefers_compact_working_state() {
+        let snapshot = ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project, MemoryScope::Synced],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "compact context: keep startup surfaces tight".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "working record: compact truth should steer the prompt".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec![
+                "repo change: compact truth should steer the prompt".to_string(),
+            ],
+            change_summary: vec![
+                "change summary: compact truth should steer the prompt".to_string(),
+            ],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+
+        let summary = build_truth_summary(&snapshot);
+        assert_eq!(summary.compact_records, 2);
+        assert!(
+            summary
+                .records
+                .iter()
+                .any(|record| record.lane == "live_truth"
+                    && record.preview.contains("compact truth"))
+        );
+        assert!(
+            summary
+                .records
+                .iter()
+                .any(|record| record.lane == "working_set"
+                    && record.preview.contains("compact truth"))
+        );
+    }
+
+    #[test]
+    fn truth_summary_uses_top_source_provenance_for_non_live_truth_lanes() {
+        let snapshot = ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project, MemoryScope::Synced],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "context truth: source provenance should survive".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "working truth: source provenance should survive".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: vec![memd_schema::SourceMemoryRecord {
+                    source_agent: Some("codex@test".to_string()),
+                    source_system: Some("hook-capture".to_string()),
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 2,
+                    active_count: 2,
+                    candidate_count: 0,
+                    derived_count: 0,
+                    synthetic_count: 0,
+                    contested_count: 0,
+                    avg_confidence: 0.93,
+                    trust_score: 0.97,
+                    last_seen_at: Some(Utc::now()),
+                    tags: vec!["raw-spine".to_string(), "correction".to_string()],
+                }],
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+
+        let summary = build_truth_summary(&snapshot);
+        let working = summary
+            .records
+            .iter()
+            .find(|record| record.lane == "working_set")
+            .expect("working record");
+        assert_eq!(working.provenance, "codex@test / hook-capture");
+    }
+
+    #[test]
+    fn continuity_answers_surface_core_resume_questions() {
+        let snapshot = ResumeSnapshot {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "context truth".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: vec![MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 120,
+                remaining_chars: 1480,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "working truth".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: Some(uuid::Uuid::new_v4()),
+                    kind: "handoff".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "resume next step".to_string(),
+                    recorded_at: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("memd".to_string()),
+                    source_path: Some("handoff.md".to_string()),
+                    reason: Some("resume".to_string()),
+                    source_quality: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: RetrievalRoute::ProjectFirst,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: memd_schema::SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec!["status M src/lib.rs".to_string()],
+            change_summary: vec!["changed focus".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+
+        assert_eq!(
+            snapshot.continuity_doing().as_deref(),
+            Some("working truth")
+        );
+        assert_eq!(
+            snapshot.continuity_left_off().as_deref(),
+            Some("resume next step")
+        );
+        assert_eq!(
+            snapshot.continuity_changed().as_deref(),
+            Some("changed focus")
+        );
+        assert_eq!(
+            snapshot.continuity_next().as_deref(),
+            Some("resume next step")
+        );
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ResumeSnapshot {
     pub(crate) project: Option<String>,
@@ -897,6 +1240,7 @@ pub(crate) enum RetrievalTier {
 pub(crate) struct TruthRecordSummary {
     pub(crate) lane: String,
     pub(crate) truth: String,
+    pub(crate) epistemic_state: String,
     pub(crate) freshness: String,
     pub(crate) retrieval_tier: RetrievalTier,
     pub(crate) confidence: f32,
@@ -908,6 +1252,7 @@ pub(crate) struct TruthRecordSummary {
 pub(crate) struct TruthSummary {
     pub(crate) retrieval_tier: RetrievalTier,
     pub(crate) truth: String,
+    pub(crate) epistemic_state: String,
     pub(crate) freshness: String,
     pub(crate) confidence: f32,
     pub(crate) action_hint: String,
@@ -917,7 +1262,57 @@ pub(crate) struct TruthSummary {
     pub(crate) records: Vec<TruthRecordSummary>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ContinuityCapsule {
+    pub(crate) current_task: Option<String>,
+    pub(crate) resume_point: Option<String>,
+    pub(crate) changed: Option<String>,
+    pub(crate) next_action: Option<String>,
+    pub(crate) blocker: Option<String>,
+}
+
 impl ResumeSnapshot {
+    pub(crate) fn continuity_doing(&self) -> Option<String> {
+        self.compact_working_records()
+            .first()
+            .cloned()
+            .or_else(|| self.compact_context_records().first().cloned())
+    }
+
+    pub(crate) fn continuity_left_off(&self) -> Option<String> {
+        self.compact_inbox_items()
+            .first()
+            .cloned()
+            .or_else(|| self.compact_rehydration_summaries().first().cloned())
+            .or_else(|| {
+                self.workspaces.workspaces.first().map(|lane| {
+                    format!(
+                        "{} / {} / {}",
+                        lane.project.as_deref().unwrap_or("none"),
+                        lane.namespace.as_deref().unwrap_or("none"),
+                        lane.workspace.as_deref().unwrap_or("none")
+                    )
+                })
+            })
+            .or_else(|| self.compact_working_records().first().cloned())
+    }
+
+    pub(crate) fn continuity_changed(&self) -> Option<String> {
+        self.change_summary
+            .first()
+            .cloned()
+            .or_else(|| self.event_spine().first().cloned())
+            .or_else(|| self.recent_repo_changes.first().cloned())
+    }
+
+    pub(crate) fn continuity_next(&self) -> Option<String> {
+        self.compact_rehydration_summaries()
+            .first()
+            .cloned()
+            .or_else(|| self.compact_inbox_items().first().cloned())
+            .or_else(|| self.compact_working_records().first().cloned())
+    }
+
     pub(crate) fn memory_pressure_drivers(&self) -> Vec<&'static str> {
         let mut drivers = Vec::new();
         let tokens = self.estimated_prompt_tokens();
@@ -1085,6 +1480,41 @@ impl ResumeSnapshot {
             &self.recent_repo_changes,
             self.refresh_recommended,
         )
+    }
+
+    pub(crate) fn continuity_capsule(&self) -> ContinuityCapsule {
+        let current_task = self
+            .continuity_doing()
+            .map(|value| compact_inline(value.trim(), 180));
+        let resume_point = self
+            .continuity_left_off()
+            .map(|value| compact_inline(value.trim(), 180))
+            .or_else(|| {
+                Some(format!(
+                    "{} / {} / {}",
+                    self.project.as_deref().unwrap_or("none"),
+                    self.namespace.as_deref().unwrap_or("none"),
+                    self.workspace.as_deref().unwrap_or("none")
+                ))
+            });
+        let changed = self
+            .continuity_changed()
+            .map(|value| compact_inline(value.trim(), 180));
+        let next_action = self
+            .continuity_next()
+            .map(|value| compact_inline(value.trim(), 180));
+        let blocker = self.compact_inbox_items().first().cloned().or_else(|| {
+            self.refresh_recommended
+                .then(|| "refresh recommended due to context pressure".to_string())
+        });
+
+        ContinuityCapsule {
+            current_task,
+            resume_point,
+            changed,
+            next_action,
+            blocker,
+        }
     }
 
     pub(crate) fn workflow_capsule(&self) -> Vec<String> {
@@ -1378,6 +1808,22 @@ pub(crate) fn truth_status_label(snapshot: &ResumeSnapshot) -> String {
     }
 }
 
+pub(crate) fn truth_epistemic_state_label(snapshot: &ResumeSnapshot) -> String {
+    if !snapshot.event_spine().is_empty() {
+        "verified".to_string()
+    } else if !snapshot.compact_working_records().is_empty() {
+        "claimed".to_string()
+    } else if !snapshot.compact_rehydration_summaries().is_empty()
+        || !snapshot.compact_context_records().is_empty()
+        || !snapshot.compact_semantic_items().is_empty()
+        || !snapshot.compact_inbox_items().is_empty()
+    {
+        "inferred".to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
 pub(crate) fn choose_retrieval_tier(snapshot: &ResumeSnapshot) -> RetrievalTier {
     if !snapshot.event_spine().is_empty() {
         RetrievalTier::Hot
@@ -1423,6 +1869,7 @@ pub(crate) fn top_source_confidence(snapshot: &ResumeSnapshot) -> f32 {
 pub(crate) fn build_truth_record_summary(
     lane: &str,
     truth: &str,
+    epistemic_state: &str,
     freshness: &str,
     retrieval_tier: RetrievalTier,
     confidence: f32,
@@ -1432,6 +1879,7 @@ pub(crate) fn build_truth_record_summary(
     TruthRecordSummary {
         lane: lane.to_string(),
         truth: truth.to_string(),
+        epistemic_state: epistemic_state.to_string(),
         freshness: freshness.to_string(),
         retrieval_tier,
         confidence,
@@ -1443,6 +1891,7 @@ pub(crate) fn build_truth_record_summary(
 pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
     let freshness = truth_freshness_label(snapshot);
     let truth = truth_status_label(snapshot);
+    let epistemic_state = truth_epistemic_state_label(snapshot);
     let retrieval_tier = choose_retrieval_tier(snapshot);
     let provenance = top_source_provenance(snapshot);
     let confidence = top_source_confidence(snapshot);
@@ -1452,6 +1901,7 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
         records.push(build_truth_record_summary(
             "live_truth",
             "current",
+            "verified",
             &freshness,
             RetrievalTier::Hot,
             confidence.max(0.95),
@@ -1467,6 +1917,11 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
             } else {
                 "working"
             },
+            if snapshot.redundant_context_items() > 0 {
+                "inferred"
+            } else {
+                "claimed"
+            },
             &freshness,
             RetrievalTier::Working,
             confidence,
@@ -1478,6 +1933,7 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
         records.push(build_truth_record_summary(
             "rehydration",
             "pending",
+            "inferred",
             &freshness,
             RetrievalTier::Rehydration,
             (confidence - 0.08).max(0.5),
@@ -1489,6 +1945,7 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
         records.push(build_truth_record_summary(
             "evidence",
             "evidence",
+            "verified",
             &freshness,
             RetrievalTier::Evidence,
             confidence,
@@ -1500,6 +1957,7 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
         records.push(build_truth_record_summary(
             "inbox",
             "candidate",
+            "inferred",
             &freshness,
             RetrievalTier::Working,
             (confidence - 0.12).max(0.45),
@@ -1513,6 +1971,7 @@ pub(crate) fn build_truth_summary(snapshot: &ResumeSnapshot) -> TruthSummary {
     TruthSummary {
         retrieval_tier,
         truth,
+        epistemic_state,
         freshness,
         confidence,
         action_hint: snapshot.memory_action_hint().to_string(),

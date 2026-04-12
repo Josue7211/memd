@@ -55,7 +55,7 @@ pub(crate) async fn run_scenario_command(
         )
     })?;
 
-    let resume = read_bundle_resume(
+    let resume = crate::runtime::read_bundle_resume(
         &ResumeArgs {
             output: args.output.clone(),
             project: runtime_project.clone(),
@@ -660,7 +660,7 @@ pub(crate) async fn run_composite_command(
     let runtime_workspace = runtime.as_ref().and_then(|value| value.workspace.clone());
     let runtime_visibility = runtime.as_ref().and_then(|value| value.visibility.clone());
 
-    let resume = read_bundle_resume(
+    let resume = crate::runtime::read_bundle_resume(
         &ResumeArgs {
             output: args.output.clone(),
             project: runtime_project.clone(),

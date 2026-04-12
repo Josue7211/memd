@@ -1,0 +1,35 @@
+%%{
+  init: {
+    "theme": "base",
+    "flowchart": {
+      "curve": "linear",
+      "nodeSpacing": 34,
+      "rankSpacing": 50,
+      "padding": 14
+    },
+    "themeVariables": {
+      "background": "#0b1020",
+      "primaryColor": "#111a31",
+      "primaryTextColor": "#e8eefc",
+      "primaryBorderColor": "#78a9ff",
+      "lineColor": "#8fb4ff",
+      "fontFamily": "JetBrains Mono, Fira Code, ui-monospace, monospace",
+      "fontSize": "20px",
+      "edgeLabelBackground": "#0b1020"
+    }
+  }
+}%%
+flowchart LR
+    A["Recent memory + gap signals"] --> B["Dream"]
+    A --> C["Nightly gate"]
+    B --> C
+    C --> D["Autodream consolidate"]
+    D --> E["Autoresearch test bounded improvements"]
+    E --> F["Autoevolve accept or reject changes"]
+    F --> G["Promote validated semantic + procedural gains"]
+    G --> H["Refresh canonical memory + wake packets"]
+    H --> I["Next session wakes smarter"]
+    C --> J["Always-on agents / Hermes-style loops"]
+
+    classDef node fill:#111a31,stroke:#78a9ff,color:#e8eefc,stroke-width:2px;
+    class A,B,C,D,E,F,G,H,I,J node;

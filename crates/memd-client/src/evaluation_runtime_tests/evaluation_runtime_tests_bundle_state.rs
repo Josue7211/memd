@@ -148,9 +148,14 @@
         assert!(markdown.contains("- context none"));
         assert!(markdown.contains("- working id="));
         assert!(markdown.contains("- inbox id="));
+        assert!(markdown.contains("type=session_continuity+candidate"));
         assert!(markdown.contains("- recovery id="));
         assert!(markdown.contains("- workspace project="));
         assert!(markdown.contains("## E+LT"));
+        assert!(markdown.contains("- doing=Finish the resume snapshot renderer"));
+        assert!(markdown.contains("- left_off=demo / main / team-alpha"));
+        assert!(markdown.contains("- changed=focus -> Finish the resume snapshot renderer"));
+        assert!(markdown.contains("- next=Check the latest handoff note"));
         assert!(markdown.contains("Finish the resume snapshot renderer"));
         assert!(markdown.contains("Repair one stale workspace lane"));
         assert!(markdown.contains("Check the latest handoff note"));
@@ -160,7 +165,7 @@
     }
 
     #[test]
-    fn agent_and_attach_scripts_default_to_current_task_intent() {
+    fn agent_and_attach_scripts_use_bundle_route_and_intent_defaults() {
         let dir = std::env::temp_dir().join(format!("memd-hive-launcher-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
@@ -171,8 +176,8 @@
   "agent": "codex",
   "session": "codex-a",
   "base_url": "http://127.0.0.1:8787",
-  "route": "auto",
-  "intent": "current_task"
+  "route": "local_first",
+  "intent": "general"
 }
 "#,
         )
@@ -200,17 +205,17 @@
         let capture_live = render_capture_shell_profile(&dir, "capture-live");
         let sync_semantic = render_rag_sync_shell_profile(&dir);
 
-        assert!(shell.contains("--intent current_task"));
-        assert!(ps1.contains("--intent current_task"));
+        assert!(shell.contains("--route local_first --intent general"));
+        assert!(ps1.contains("--route local_first --intent general"));
         assert!(shell.contains("MEMD_TAB_ID"));
         assert!(ps1.contains("MEMD_TAB_ID"));
         assert!(shell.contains("MEMD_WORKER_NAME"));
         assert!(ps1.contains("MEMD_WORKER_NAME"));
         assert!(shell.contains("nohup \"$MEMD_BUNDLE_ROOT/agents/watch.sh\""));
         assert!(ps1.contains("Start-Process -WindowStyle Hidden"));
-        assert!(attach.contains("--intent current_task"));
-        assert!(shell.contains("memd wake --output \"$MEMD_BUNDLE_ROOT\" --intent current_task --write >/dev/null 2>&1 || true"));
-        assert!(ps1.contains("try { memd wake --output $env:MEMD_BUNDLE_ROOT --intent current_task --write | Out-Null } catch { }"));
+        assert!(attach.contains("--route local_first --intent general"));
+        assert!(shell.contains("memd wake --output \"$MEMD_BUNDLE_ROOT\" --route local_first --intent general --write >/dev/null 2>&1 || true"));
+        assert!(ps1.contains("try { memd wake --output $env:MEMD_BUNDLE_ROOT --route local_first --intent general --write | Out-Null } catch { }"));
         assert!(shell.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
         assert!(ps1.contains("$env:MEMD_BASE_URL = \"http://100.104.154.24:8787\""));
         assert!(attach.contains("export MEMD_BASE_URL=\"http://100.104.154.24:8787\""));
@@ -224,6 +229,14 @@
         assert!(
             ps1.contains("memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary")
         );
+        assert!(shell.contains("cat \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\""));
+        assert!(ps1.contains("Get-Content $codexWake"));
+        assert!(shell.contains("memd voice: ${MEMD_VOICE_MODE:-unknown}"));
+        assert!(shell.contains("if draft not in ${MEMD_VOICE_MODE:-unknown}, rewrite before send"));
+        assert!(ps1.contains("memd voice: {0}"));
+        assert!(ps1.contains("if draft not in {0}, rewrite before send"));
+        assert!(shell.contains(".memd/agents/lookup.sh"));
+        assert!(ps1.contains(".memd/agents/lookup.ps1"));
         assert!(shell.contains("exec memd wake"));
         assert!(ps1.contains("memd wake"));
         assert!(attach.contains("memd wake"));
@@ -596,7 +609,13 @@
         assert_eq!(req.route, Some(memd_schema::RetrievalRoute::ProjectFirst));
         assert_eq!(req.intent, Some(memd_schema::RetrievalIntent::General));
         assert_eq!(req.statuses, vec![memd_schema::MemoryStatus::Active]);
-        assert_eq!(req.stages, vec![memd_schema::MemoryStage::Canonical]);
+        assert_eq!(
+            req.stages,
+            vec![
+                memd_schema::MemoryStage::Canonical,
+                memd_schema::MemoryStage::Candidate
+            ]
+        );
         assert!(req.kinds.contains(&memd_schema::MemoryKind::Decision));
         assert!(req.kinds.contains(&memd_schema::MemoryKind::Preference));
     }
@@ -678,9 +697,33 @@
             }],
         };
 
-        let markdown = render_lookup_markdown("startup surface", &response, false);
+        let request = SearchMemoryRequest {
+            query: Some("startup surface".to_string()),
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::Decision),
+            scopes: vec![MemoryScope::Project, MemoryScope::Synced, MemoryScope::Global],
+            kinds: vec![MemoryKind::Decision, MemoryKind::Constraint],
+            statuses: vec![MemoryStatus::Active],
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            visibility: Some(MemoryVisibility::Workspace),
+            belief_branch: None,
+            source_agent: None,
+            tags: Vec::new(),
+            stages: vec![MemoryStage::Canonical],
+            limit: Some(6),
+            max_chars_per_item: Some(280),
+        };
+
+        let markdown = render_lookup_markdown("startup surface", &request, &response, false);
         assert!(markdown.contains("# memd lookup"));
+        assert!(markdown.contains("intent=decision"));
+        assert!(markdown.contains("route=project_first"));
+        assert!(markdown.contains("scopes=project -> synced -> global"));
+        assert!(markdown.contains("types=semantic+canonical"));
         assert!(markdown.contains("decision: wake is the startup surface"));
+        assert!(markdown.contains("type=semantic+canonical"));
         assert!(markdown.contains("Use recalled items before answering"));
     }
 
@@ -977,6 +1020,12 @@
         assert!(prompt.contains("p=low"));
         assert!(prompt.contains("ref=false"));
         assert!(prompt.contains("## T"));
+        assert!(prompt.contains("## C"));
+        assert!(prompt.contains("- doing="));
+        assert!(prompt.contains("- left_off="));
+        assert!(prompt.contains("- changed="));
+        assert!(prompt.contains("- next="));
+        assert!(prompt.contains("- blocker="));
         assert!(prompt.contains("- t="));
         assert!(prompt.contains("## E+LT"));
         assert!(prompt.contains("Follow the active current-task lane"));
@@ -984,6 +1033,273 @@
         assert!(prompt.contains("Reload the shared workspace handoff"));
         assert!(prompt.contains("status M crates/memd-client/src/render.rs"));
         assert!(prompt.contains("team-alpha"));
+    }
+
+    #[test]
+    fn handoff_prompt_surfaces_explicit_continuity_answers() {
+        let resume = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "resume point: parser lane in team-alpha".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 60,
+                remaining_chars: 1540,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "current task: lock session continuity".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "Write explicit next action for fresh session".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "blocker: handoff packet still vague".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: vec!["checkpoint".to_string()],
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec!["status M crates/memd-client/src/render/render_summary.rs".to_string()],
+            change_summary: vec!["focus -> current task: lock session continuity".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+        let handoff = HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume,
+            sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            target_session: Some("fresh-codex".to_string()),
+            target_bundle: Some(".memd".to_string()),
+        };
+
+        let prompt = crate::render::render_handoff_prompt(&handoff);
+        assert!(prompt.contains("## C"));
+        assert!(prompt.contains("- doing="));
+        assert!(prompt.contains("- left_off="));
+        assert!(prompt.contains("- changed="));
+        assert!(prompt.contains("- next="));
+        assert!(prompt.contains("- blocker="));
+    }
+
+    #[test]
+    fn fresh_session_surfaces_share_one_continuity_story() {
+        let snapshot = ResumeSnapshot {
+            project: Some("demo".to_string()),
+            namespace: Some("main".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: Some("team-alpha".to_string()),
+            visibility: Some("workspace".to_string()),
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: memd_schema::CompactContextResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "parser lane is the active project truth".to_string(),
+                }],
+            },
+            working: memd_schema::WorkingMemoryResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                retrieval_order: vec![memd_schema::MemoryScope::Project],
+                budget_chars: 1600,
+                used_chars: 60,
+                remaining_chars: 1540,
+                truncated: false,
+                policy: memd_schema::WorkingMemoryPolicyState {
+                    admission_limit: 8,
+                    max_chars_per_item: 220,
+                    budget_chars: 1600,
+                    rehydration_limit: 4,
+                },
+                records: vec![memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "current task: lock session continuity".to_string(),
+                }],
+                evicted: Vec::new(),
+                rehydration_queue: vec![memd_schema::MemoryRehydrationRecord {
+                    id: None,
+                    kind: "source".to_string(),
+                    label: "handoff".to_string(),
+                    summary: "Write explicit next action for fresh session".to_string(),
+                    reason: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    recorded_at: None,
+                }],
+                traces: Vec::new(),
+                semantic_consolidation: None,
+            },
+            inbox: memd_schema::MemoryInboxResponse {
+                route: memd_schema::RetrievalRoute::Auto,
+                intent: memd_schema::RetrievalIntent::CurrentTask,
+                items: vec![memd_schema::InboxMemoryItem {
+                    item: memd_schema::MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: "blocker: handoff packet still vague".to_string(),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: true,
+                        kind: memd_schema::MemoryKind::Status,
+                        scope: memd_schema::MemoryScope::Project,
+                        project: Some("demo".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("team-alpha".to_string()),
+                        visibility: memd_schema::MemoryVisibility::Workspace,
+                        source_agent: None,
+                        source_system: None,
+                        source_path: None,
+                        source_quality: None,
+                        confidence: 0.8,
+                        ttl_seconds: Some(86_400),
+                        created_at: chrono::Utc::now(),
+                        status: memd_schema::MemoryStatus::Active,
+                        stage: memd_schema::MemoryStage::Candidate,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        updated_at: chrono::Utc::now(),
+                        tags: vec!["checkpoint".to_string()],
+                    },
+                    reasons: vec!["stale".to_string()],
+                }],
+            },
+            workspaces: memd_schema::WorkspaceMemoryResponse {
+                workspaces: vec![memd_schema::WorkspaceMemoryRecord {
+                    project: Some("demo".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: memd_schema::MemoryVisibility::Workspace,
+                    item_count: 4,
+                    active_count: 3,
+                    candidate_count: 1,
+                    contested_count: 0,
+                    source_lane_count: 1,
+                    avg_confidence: 0.84,
+                    trust_score: 0.91,
+                    last_seen_at: None,
+                    tags: Vec::new(),
+                }],
+            },
+            sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: vec![
+                "status M crates/memd-client/src/render/render_summary.rs".to_string(),
+            ],
+            change_summary: vec!["focus -> current task: lock session continuity".to_string()],
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+        };
+        let handoff = HandoffSnapshot {
+            generated_at: chrono::Utc::now(),
+            resume: snapshot.clone(),
+            sources: memd_schema::SourceMemoryResponse { sources: Vec::new() },
+            target_session: Some("fresh-codex".to_string()),
+            target_bundle: Some(".memd".to_string()),
+        };
+
+        let memory = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);
+        let wake = crate::runtime::resume::wakeup::render_bundle_wakeup_markdown(
+            Path::new(".memd"),
+            &snapshot,
+            false,
+        );
+        let resume = crate::render::render_resume_prompt(&snapshot);
+        let handoff_prompt = crate::render::render_handoff_prompt(&handoff);
+
+        for surface in [&memory, &wake, &resume, &handoff_prompt] {
+            assert!(surface.contains("current task: lock session continuity"));
+            assert!(surface.contains("Write explicit next action for fresh session"));
+            assert!(surface.contains("blocker: handoff packet still vague"));
+            assert!(surface.contains("- left_off=demo / main / team-alpha"));
+            assert!(surface.contains("- changed=focus -> current task: lock session continuity"));
+        }
     }
 
     #[test]
