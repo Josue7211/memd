@@ -1,13 +1,13 @@
 # memd morning summary
 
-- Current benchmark score: `95/100`
+- Current benchmark score: `96/100`
 
 ## Continuity Failures
-- feature.bundle.wake [bundle-runtime] coverage=auditing drift=continuity-drift|surface-drift
-- feature.bundle.resume [bundle-runtime] coverage=auditing drift=continuity-drift|memory-drift
+- feature.session_continuity [bundle-runtime] coverage=auditing drift=continuity-drift|memory-drift
 - feature.bundle.handoff [bundle-runtime] coverage=auditing drift=continuity-drift|surface-drift
 - feature.bundle.attach [bundle-runtime] coverage=auditing drift=continuity-drift|harness-drift
 - feature.capture.checkpoint [capture-compaction] coverage=auditing drift=continuity-drift|capture-drift
+- feature.capture.hook-capture [capture-compaction] coverage=auditing drift=continuity-drift|event-drift
 
 ## Verification Regressions
 - nightly verify lane nightly is green at 16/16
@@ -27,11 +27,11 @@
 - memory-drift
 
 ## Token Regressions
-- no-memd prompt tokens=3904 with-memd prompt tokens=2476 delta=1428
+- no-memd prompt tokens=3918 with-memd prompt tokens=2484 delta=1434
 - no-memd rereads=4 with-memd rereads=1 delta=3
 
 ## With memd vs No memd
-- with memd beats no memd by 1428 tokens, 3 rereads, and 18 reconstruction steps
+- with memd beats no memd by 1434 tokens, 3 rereads, and 19 reconstruction steps
 
 ## Next Actions
 - benchmark the remaining continuity-critical features

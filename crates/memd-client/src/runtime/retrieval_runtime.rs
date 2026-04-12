@@ -815,7 +815,7 @@ mod tests {
                 },
                 memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
-                    content: "ralph roadmap progress state: current phase Phase E. next step cross-harness wake-packet proof.".to_string(),
+                    content: "ralph roadmap progress state: Phase E verified. next step Phase F memory atlas.".to_string(),
                     redundancy_key: None,
                     belief_branch: None,
                     preferred: false,

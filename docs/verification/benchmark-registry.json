@@ -66,8 +66,8 @@
       "quality_dimensions": ["continuity", "correctness", "token_efficiency"],
       "drift_risks": ["continuity-drift", "surface-drift"],
       "failure_modes": ["wake file not refreshed"],
-      "coverage_status": "auditing",
-      "last_verified_at": null
+      "coverage_status": "verified",
+      "last_verified_at": "2026-04-12T14:04:28Z"
     },
     {
       "id": "feature.session_continuity",
@@ -421,7 +421,7 @@
       "baseline_mode": "baseline.with-memd",
       "workflow_probe": "run wake and inspect the refreshed startup surface",
       "adversarial_probe": "change runtime context and confirm wake still surfaces usable state",
-      "cross_harness_probe": null,
+      "cross_harness_probe": "run wake startup through Codex, Claude Code, and OpenClaw launcher surfaces and compare bundle target plus agent identity parity, with route/intent execution covered by attach startup proof",
       "metrics": ["pass_rate", "latency_ms", "tokens"],
       "guardrails": ["wake must not return stale bundle data"],
       "stop_condition": "three consecutive passes",

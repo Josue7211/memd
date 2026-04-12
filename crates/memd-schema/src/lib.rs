@@ -1255,13 +1255,28 @@ pub struct SkillPolicyActivationEntriesResponse {
 pub struct WorkingMemoryTraceRecord {
     pub item_id: Uuid,
     pub entity_id: Option<Uuid>,
+    #[serde(default = "default_working_memory_trace_kind")]
     pub memory_kind: MemoryKind,
+    #[serde(default = "default_working_memory_trace_stage")]
     pub memory_stage: MemoryStage,
+    #[serde(default = "default_working_memory_trace_typed_memory")]
     pub typed_memory: String,
     pub event_type: String,
     pub summary: String,
     pub occurred_at: DateTime<Utc>,
     pub salience_score: f32,
+}
+
+fn default_working_memory_trace_kind() -> MemoryKind {
+    MemoryKind::Status
+}
+
+fn default_working_memory_trace_stage() -> MemoryStage {
+    MemoryStage::Canonical
+}
+
+fn default_working_memory_trace_typed_memory() -> String {
+    "session_continuity+canonical".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -3491,5 +3506,23 @@ mod tests {
         assert_eq!(decoded.gate_decision.gate, "acceptable");
         assert!(decoded.evidence.has_continuity_evidence);
         assert_eq!(decoded.feature_ids.len(), 2);
+    }
+
+    #[test]
+    fn working_memory_trace_record_accepts_legacy_entries_without_new_fields() {
+        let raw = r#"{
+          "item_id": "31433b72-abfd-486c-b19b-8a66dd20654d",
+          "entity_id": "e70b4828-e1d6-480c-9145-bfd384c27383",
+          "event_type": "retrieved_working",
+          "summary": "retrieved_working route=local_first intent=current_task",
+          "occurred_at": "2026-04-12T14:04:19Z",
+          "salience_score": 1.0
+        }"#;
+
+        let decoded: WorkingMemoryTraceRecord = serde_json::from_str(raw).unwrap();
+
+        assert_eq!(decoded.memory_kind, MemoryKind::Status);
+        assert_eq!(decoded.memory_stage, MemoryStage::Canonical);
+        assert_eq!(decoded.typed_memory, "session_continuity+canonical");
     }
 }

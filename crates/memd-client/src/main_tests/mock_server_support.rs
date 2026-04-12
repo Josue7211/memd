@@ -1002,7 +1002,7 @@ pub(crate) async fn mock_search_memory(
             },
             memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
-                content: "ralph roadmap progress state: current phase Phase E. next step cross-harness wake-packet proof. previous phase Phase D complete. FEATURE-V1-WAKE-PACKET still auditing.".to_string(),
+                content: "ralph roadmap progress state: Phase E verified. wake packet compiler proof now covers compactness, live artifact generation, workflow wake summary, and cross-harness launcher parity. next step Phase F memory atlas.".to_string(),
                 redundancy_key: Some("Status|Project|memd|main||audit|complete|cros|current|d|e|feature|harnes|next|packet|phase|previou|progres|proof|ralph|roadmap|state|step|still|v1|wake".to_string()),
                 belief_branch: None,
                 preferred: false,

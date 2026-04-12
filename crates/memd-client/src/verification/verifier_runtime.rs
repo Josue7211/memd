@@ -197,6 +197,94 @@ pub(crate) async fn execute_cli_verifier_step(
                 }),
             );
         }
+        "search" => {
+            let runtime = read_bundle_runtime_config(&materialized.bundle_root)?;
+            let mut query = None;
+            let mut route = Some(RetrievalRoute::ProjectFirst);
+            let mut intent = Some(RetrievalIntent::General);
+            let mut workspace = runtime.as_ref().and_then(|config| config.workspace.clone());
+            let mut visibility = runtime
+                .as_ref()
+                .and_then(|config| config.visibility.as_deref())
+                .map(parse_memory_visibility_value)
+                .transpose()?;
+            let mut belief_branch = None;
+
+            let mut index = 2usize;
+            while index < tokens.len() {
+                match tokens[index].as_str() {
+                    "--output" => {
+                        index += 1;
+                    }
+                    "--query" => {
+                        index += 1;
+                        query = tokens.get(index).cloned();
+                    }
+                    "--route" => {
+                        index += 1;
+                        route = parse_retrieval_route(tokens.get(index).cloned())?;
+                    }
+                    "--intent" => {
+                        index += 1;
+                        intent = parse_retrieval_intent(tokens.get(index).cloned())?;
+                    }
+                    "--workspace" => {
+                        index += 1;
+                        workspace = tokens.get(index).cloned();
+                    }
+                    "--visibility" => {
+                        index += 1;
+                        visibility = tokens
+                            .get(index)
+                            .map(|value| parse_memory_visibility_value(value))
+                            .transpose()?;
+                    }
+                    "--belief-branch" => {
+                        index += 1;
+                        belief_branch = tokens.get(index).cloned();
+                    }
+                    other if other.starts_with("--") => {
+                        anyhow::bail!("unsupported verifier search flag {other}");
+                    }
+                    _ => {}
+                }
+                index += 1;
+            }
+
+            let resolved_intent = intent.unwrap_or(RetrievalIntent::General);
+            let req = SearchMemoryRequest {
+                query,
+                route: Some(route.unwrap_or(RetrievalRoute::ProjectFirst)),
+                intent: Some(resolved_intent),
+                scopes: vec![
+                    MemoryScope::Project,
+                    MemoryScope::Synced,
+                    MemoryScope::Global,
+                ],
+                kinds: default_kinds_for_intent(resolved_intent),
+                statuses: vec![MemoryStatus::Active],
+                project: runtime.as_ref().and_then(|config| config.project.clone()),
+                namespace: runtime.as_ref().and_then(|config| config.namespace.clone()),
+                workspace,
+                visibility,
+                belief_branch,
+                source_agent: None,
+                tags: Vec::new(),
+                stages: vec![MemoryStage::Canonical, MemoryStage::Candidate],
+                limit: Some(6),
+                max_chars_per_item: Some(280),
+            };
+            let client = MemdClient::new(bundle_base_url)?;
+            let response = client
+                .search(&req)
+                .await
+                .context("execute verifier search step")?;
+            state.outputs.insert(
+                "items".to_string(),
+                serde_json::to_value(&response.items)?,
+            );
+            state.outputs.insert("search".to_string(), serde_json::to_value(&response)?);
+        }
         "messages" => {
             let mut args = MessagesArgs {
                 output: materialized.bundle_root.clone(),
@@ -936,6 +1024,36 @@ pub(crate) fn evaluate_verifier_assertions(
                         .context(format!("missing verifier baseline {right}"))?;
                     verifier_metric_compare(metric, op, left_metrics, right_metrics)
                 }
+                "helper" => match assertion
+                    .name
+                    .as_deref()
+                    .context("helper assertion missing helper name")?
+                {
+                    "assert_handoff_resume_alignment" => {
+                        let handoff = resolve_assertion_value(state, "handoff.current_task")
+                            .context("handoff alignment assertion missing handoff.current_task")?;
+                        let resume = resolve_assertion_value(state, "resume.current_task")
+                            .context("handoff alignment assertion missing resume.current_task")?;
+                        let handoff_id = handoff
+                            .get("id")
+                            .and_then(JsonValue::as_str)
+                            .context("handoff alignment assertion missing handoff id")?;
+                        let resume_id = resume
+                            .get("id")
+                            .and_then(JsonValue::as_str)
+                            .context("handoff alignment assertion missing resume id")?;
+                        let handoff_next = handoff
+                            .get("next_action")
+                            .and_then(JsonValue::as_str)
+                            .context("handoff alignment assertion missing handoff next action")?;
+                        let resume_next = resume
+                            .get("next_action")
+                            .and_then(JsonValue::as_str)
+                            .context("handoff alignment assertion missing resume next action")?;
+                        handoff_id == resume_id && handoff_next == resume_next
+                    }
+                    other => anyhow::bail!("unsupported verifier helper assertion {other}"),
+                },
                 other => anyhow::bail!("unsupported verifier assertion kind {other}"),
             };
         if !passed {

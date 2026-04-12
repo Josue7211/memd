@@ -13,7 +13,7 @@ pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>)
         .map(|runtime| authority_warning_lines(Some(&runtime)))
         .unwrap_or_default();
     let mut script = format!(
-        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\n\nexport MEMD_BUNDLE_ROOT=\"{}\"\nset -a\nsource \"$MEMD_BUNDLE_ROOT/backend.env\" 2>/dev/null || true\nsource \"$MEMD_BUNDLE_ROOT/env\"\nset +a\n",
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     let bundle_config = read_bundle_config_file(output)

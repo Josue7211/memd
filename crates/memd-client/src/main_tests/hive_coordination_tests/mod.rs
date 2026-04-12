@@ -697,6 +697,111 @@ fn render_agent_profiles_surface_authority_warning_when_localhost_fallback_is_ac
 }
 
 #[test]
+fn wake_packet_cross_harness_profiles_keep_same_bundle_defaults() {
+    let root = std::env::temp_dir().join(format!("memd-wake-cross-harness-{}", uuid::Uuid::new_v4()));
+    let bundle = root.join(".memd");
+    let bin_dir = root.join("bin");
+    fs::create_dir_all(&bundle).expect("create bundle");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    fs::write(
+        bundle.join("config.json"),
+        r#"{
+  "project": "demo",
+  "namespace": "main",
+  "agent": "codex",
+  "session": "session-alpha",
+  "base_url": "http://127.0.0.1:8787",
+  "route": "project_first",
+  "intent": "current_task",
+  "workspace": "shared",
+  "visibility": "workspace"
+}
+"#,
+    )
+    .expect("write config");
+    fs::write(
+        bundle.join("env"),
+        "MEMD_PROJECT=demo\nMEMD_NAMESPACE=main\nMEMD_WORKSPACE=shared\nMEMD_VISIBILITY=workspace\nMEMD_VOICE_MODE=normal\n",
+    )
+    .expect("write env");
+    fs::write(bundle.join("backend.env"), "").expect("write backend env");
+    fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
+    fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
+    fs::write(
+        bundle.join("agents").join("CODEX_WAKEUP.md"),
+        "# codex wakeup\n",
+    )
+    .expect("write codex wakeup");
+    fs::write(
+        bundle.join("agents").join("watch.sh"),
+        "#!/usr/bin/env bash\nexit 0\n",
+    )
+    .expect("write watch helper");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(bundle.join("agents").join("watch.sh"))
+            .expect("stat watch helper")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(bundle.join("agents").join("watch.sh"), perms)
+            .expect("chmod watch helper");
+    }
+    fs::write(
+        bin_dir.join("memd"),
+        "#!/usr/bin/env bash\nprintf '%s|agent=%s|project=%s|workspace=%s\\n' \"$*\" \"${MEMD_AGENT:-}\" \"${MEMD_PROJECT:-}\" \"${MEMD_WORKSPACE:-}\" >> \"$MEMD_LOG_PATH\"\n",
+    )
+    .expect("write fake memd");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(bin_dir.join("memd"))
+            .expect("stat fake memd")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(bin_dir.join("memd"), perms).expect("chmod fake memd");
+    }
+
+    let path = std::env::var("PATH").unwrap_or_default();
+    for (agent, log_name) in [
+        ("codex", "codex.log"),
+        ("claude-code", "claude.log"),
+        ("openclaw", "openclaw.log"),
+    ] {
+        let profile = render_agent_shell_profile(&bundle, Some(agent));
+        let log_path = root.join(log_name);
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg(profile)
+            .env("PATH", format!("{}:{}", bin_dir.display(), path))
+            .env("MEMD_LOG_PATH", &log_path)
+            .output()
+            .expect("run harness profile");
+        assert!(
+            output.status.success(),
+            "{agent} profile failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let log_text = fs::read_to_string(&log_path).expect("read harness log");
+        let wake_line = log_text
+            .lines()
+            .find(|line| line.contains("wake --output"))
+            .expect("wake line");
+        assert!(
+            wake_line.contains(&bundle.display().to_string()),
+            "wake_line={wake_line}"
+        );
+        assert!(
+            wake_line.contains(&format!("agent={agent}")),
+            "wake_line={wake_line}"
+        );
+    }
+
+    fs::remove_dir_all(root).expect("cleanup temp project");
+}
+
+#[test]
 fn hive_project_state_round_trips_through_bundle_runtime_config() {
     let runtime = BundleRuntimeConfig {
         project: Some("demo".to_string()),

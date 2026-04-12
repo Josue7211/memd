@@ -1,15 +1,17 @@
 # memd verifiers
 
 - Lane: `nightly`
-- Total: `16`
+- Total: `18`
 
 - `verifier.feature.bundle.wake` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
-- `verifier.feature.bundle.resume` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
+- `verifier.feature.session_continuity` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
 - `verifier.feature.bundle.handoff` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
 - `verifier.feature.bundle.attach` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
 - `verifier.feature.capture.checkpoint` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
 - `verifier.feature.memory.working-context` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
 - `verifier.feature.memory.working-memory` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
+- `verifier.feature.memory.procedural-retrieval` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`fast,nightly`
+- `verifier.feature.memory.canonical-retrieval` [feature_contract] fixture=`fixture.continuity_bundle` lanes=`nightly,exhaustive`
 - `verifier.journey.resume-handoff-attach` [journey] fixture=`fixture.continuity_bundle` lanes=`fast,nightly,exhaustive`
 - `verifier.compare.resume-no-memd-vs-with-memd` [comparative] fixture=`fixture.continuity_bundle` lanes=`nightly,comparative,exhaustive`
 - `verifier.journey.hive-transfer-assign` [journey] fixture=`fixture.hive-two-session-bundle` lanes=`nightly,exhaustive`

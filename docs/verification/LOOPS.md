@@ -1,11 +1,12 @@
 # memd benchmark loops
 
-- Loops: `18`
+- Loops: `21`
 - Journeys: `2`
 
 | Loop | Type | Family | Baseline | Features | Journeys | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | `loop.feature.wake.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
+| `loop.feature.wake.packet-efficiency` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.resume.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.handoff.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.attach.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
@@ -13,6 +14,8 @@
 | `loop.feature.hook-capture.correctness` | `feature-contract` | `capture-compaction` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.working-context.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.working-memory.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
+| `loop.feature.procedural-retrieval.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
+| `loop.feature.canonical-retrieval.correctness` | `feature-contract` | `bundle-runtime` | `baseline.with-memd` | `1` | `1` | `active` |
 | `loop.feature.hive-messages.correctness` | `feature-contract` | `coordination-hive` | `baseline.with-memd` | `1` | `2` | `active` |
 | `loop.feature.hive-claims.correctness` | `feature-contract` | `coordination-hive` | `baseline.with-memd` | `1` | `2` | `active` |
 | `loop.feature.hive-tasks.correctness` | `feature-contract` | `coordination-hive` | `baseline.with-memd` | `1` | `2` | `active` |
@@ -26,14 +29,15 @@
 
 ## Coverage Gaps
 - `benchmark:unbenchmarked_continuity_feature` [high] bench continuity-critical features before promoting the benchmark registry
-  - evidence: feature.bundle.wake [bundle-runtime] coverage=auditing loops=1
-  - evidence: feature.bundle.resume [bundle-runtime] coverage=auditing loops=1
+  - evidence: feature.session_continuity [bundle-runtime] coverage=auditing loops=1
   - evidence: feature.bundle.handoff [bundle-runtime] coverage=auditing loops=1
   - evidence: feature.bundle.attach [bundle-runtime] coverage=auditing loops=1
   - evidence: feature.capture.checkpoint [capture-compaction] coverage=auditing loops=1
+  - evidence: feature.capture.hook-capture [capture-compaction] coverage=auditing loops=1
 
 ## Loop Coverage Notes
 - `loop.feature.wake.correctness` probes `run wake and inspect the refreshed startup surface` and `change runtime context and confirm wake still surfaces usable state`
+- `loop.feature.wake.packet-efficiency` probes `render the wake packet and compare core_prompt_tokens to estimated_prompt_tokens` and `add repeated context and confirm the packet still prefers compact durable truth`
 - `loop.feature.resume.correctness` probes `run resume and confirm current-task state remains visible` and `add synced noise and confirm durable state survives`
 - `loop.feature.handoff.correctness` probes `render a handoff packet and inspect the compact takeover state` and `remove recent context and confirm the packet still has enough evidence`
 - `loop.feature.attach.correctness` probes `generate attach output and verify the bundle config is usable` and `change route or workspace and confirm attach output still reflects the bundle`
@@ -41,6 +45,8 @@
 - `loop.feature.hook-capture.correctness` probes `capture a live turn and inspect the compiled event lane` and `introduce repeated events and confirm the lane stays compact`
 - `loop.feature.working-context.correctness` probes `run resume and confirm compact context remains useful` and `add multiple resume-state records and confirm durable facts stay visible`
 - `loop.feature.working-memory.correctness` probes `inspect the working memory buffer after resume` and `exceed budget and confirm important records stay visible`
+- `loop.feature.procedural-retrieval.correctness` probes `run procedural retrieval and confirm workflow memory remains explicit` and `inject current-task noise and confirm procedural queries remain retrievable`
+- `loop.feature.canonical-retrieval.correctness` probes `run canonical retrieval and confirm durable facts are still surfaced` and `change runtime source artifacts and confirm canonical recall still resolves`
 - `loop.feature.hive-messages.correctness` probes `send a hive message, read it from the target inbox, and acknowledge it` and `resolve a target session from a shared hive fixture and confirm ack state remains visible`
 - `loop.feature.hive-claims.correctness` probes `acquire a scope claim and transfer it to the target hive session` and `move claim ownership across a shared hive fixture and confirm the holder changes`
 - `loop.feature.hive-tasks.correctness` probes `upsert a shared task and assign it to a target hive session` and `handoff task ownership across the fixture and confirm the task holder changes`

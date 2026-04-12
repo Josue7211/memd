@@ -211,6 +211,7 @@ use serde_json::Value as JsonValue;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+#[cfg(test)]
 pub(crate) use test_support::*;
 use tokio::task::JoinSet;
 pub(crate) use verification::*;

@@ -292,7 +292,7 @@ Rollback:
 
 Plan:
 
-- `pending`
+- `verified`
 
 ### Phase F: Memory Atlas
 

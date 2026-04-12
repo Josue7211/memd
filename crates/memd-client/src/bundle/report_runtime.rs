@@ -824,7 +824,9 @@ pub(crate) fn render_attach_snippet(shell: &str, bundle_path: &Path) -> anyhow::
     match shell.as_str() {
         "bash" | "zsh" | "sh" => Ok(format!(
             r#"export MEMD_BUNDLE_ROOT="{bundle_path}"
+set -a
 source "$MEMD_BUNDLE_ROOT/env"
+set +a
 {base_url_block}nohup memd heartbeat --output "$MEMD_BUNDLE_ROOT" --watch --interval-secs 30 --probe-base-url >/tmp/memd-heartbeat.log 2>&1 &
 memd wake --output "$MEMD_BUNDLE_ROOT" --route {startup_route} --intent {startup_intent} --write
 # pre-answer durable recall:
