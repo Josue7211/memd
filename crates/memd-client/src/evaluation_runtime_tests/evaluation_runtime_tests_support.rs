@@ -224,7 +224,7 @@
         write_bundle_memory_placeholder(&dir, &config, None, None).expect("write placeholder");
         write_native_agent_bridge_files(&dir).expect("write native bridge");
 
-        let markdown = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
+        let markdown = fs::read_to_string(dir.join("mem.md")).expect("read placeholder");
         assert!(markdown.contains("memd resume --output"));
         assert!(markdown.contains("--semantic"));
         assert!(markdown.contains("fast local hot path"));
@@ -236,15 +236,15 @@
             .expect("read claude imports");
         let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
             .expect("read codex agents example");
-        assert!(claude_imports.contains("@../MEMD_WAKEUP.md"));
-        assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
-        assert!(claude_imports.contains("@CLAUDE_CODE_WAKEUP.md"));
-        assert!(claude_imports.contains("@CLAUDE_CODE_MEMORY.md"));
+        assert!(claude_imports.contains("@../wake.md"));
+        assert!(!claude_imports.contains("@../mem.md"));
+        assert!(!claude_imports.contains("@../events.md"));
+        assert!(!claude_imports.contains("CLAUDE_CODE_"));
         assert!(claude_imports.contains("/memory"));
         assert!(claude_imports.contains("use installed `$gsd-*` skills as the GSD interface"));
         assert!(claude_imports.contains("standalone `gsd-*` shell binaries"));
         assert!(claude_imports.contains("`$gsd-autonomous` is installed as a skill"));
-        assert!(codex_agents.contains(".memd/agents/CODEX_WAKEUP.md"));
+        assert!(codex_agents.contains(".memd/wake.md"));
         assert!(codex_agents.contains("Durable truth beats transcript recall."));
         assert!(codex_agents.contains("memd lookup --output .memd --query"));
         assert!(codex_agents.contains("stay in `caveman-ultra`"));
@@ -302,8 +302,8 @@
         )
         .expect("write wake fallback");
 
-        let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
-        let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
+        let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
+        let wakeup = fs::read_to_string(dir.join("wake.md")).expect("read wakeup");
         assert!(memory.contains("## Bundle Defaults"));
         assert!(memory.contains("project: demo"));
         assert!(memory.contains("namespace: main"));
@@ -313,8 +313,18 @@
         assert!(memory.contains("## Voice"));
         assert!(memory.contains("caveman ultra"));
         assert!(wakeup.contains("fallback"));
-        assert!(dir.join("agents").join("CODEX_MEMORY.md").exists());
-        assert!(dir.join("agents").join("CLAUDE_CODE_MEMORY.md").exists());
+        if let Ok(entries) = fs::read_dir(dir.join("agents")) {
+            let agent_names: Vec<String> = entries
+                .map(|entry| {
+                    entry
+                        .expect("agent entry")
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            assert!(!agent_names.iter().any(|name| name.contains("MEMORY")));
+        }
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }
@@ -351,7 +361,7 @@
         )
         .expect("write placeholder memory");
 
-        let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
+        let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
         assert!(memory.contains("project: demo"));
         assert!(memory.contains("namespace: main"));
         assert!(memory.contains("session: session-demo"));
@@ -401,8 +411,8 @@
         write_memory_markdown_files(&dir, "# memd memory\n\nbody\n").expect("write memory");
         write_wakeup_markdown_files(&dir, "# memd wake-up\n\nbody\n").expect("write wakeup");
 
-        let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
-        let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
+        let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
+        let wakeup = fs::read_to_string(dir.join("wake.md")).expect("read wakeup");
         assert!(memory.contains("## Session Start Warning"));
         assert!(memory.contains("shared authority unavailable"));
         assert!(wakeup.contains("## Session Start Warning"));
@@ -465,13 +475,13 @@
             manifest
                 .files
                 .iter()
-                .any(|path| path.ends_with("CODEX_WAKEUP.md"))
+                .any(|path| path.ends_with("wake.md"))
         );
         assert!(
             manifest
                 .files
                 .iter()
-                .any(|path| path.ends_with("CODEX_MEMORY.md"))
+                .any(|path| path.ends_with("mem.md"))
         );
         assert!(
             manifest.commands.iter().any(|cmd| {
@@ -492,8 +502,8 @@
         );
 
         let markdown = render_codex_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("CODEX_WAKEUP.md"));
-        assert!(markdown.contains("CODEX_MEMORY.md"));
+        assert!(markdown.contains("wake.md"));
+        assert!(markdown.contains("mem.md"));
         assert!(markdown.contains("turn-scoped cache"));
         assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
     }
@@ -515,19 +525,19 @@
             manifest
                 .files
                 .iter()
-                .any(|path| path.ends_with("CLAUDE_CODE_WAKEUP.md"))
-        );
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("CLAUDE_CODE_MEMORY.md"))
+                .any(|path| path.ends_with("wake.md"))
         );
         assert!(
             manifest
                 .files
                 .iter()
                 .any(|path| path.ends_with("CLAUDE_IMPORTS.md"))
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|path| path.ends_with("CLAUDE.md.example"))
         );
         assert!(
             manifest
@@ -543,8 +553,9 @@
         );
 
         let markdown = render_claude_code_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("CLAUDE_CODE_WAKEUP.md"));
+        assert!(markdown.contains("wake.md"));
         assert!(markdown.contains("CLAUDE_IMPORTS.md"));
+        assert!(markdown.contains("wake-only boot path"));
         assert!(markdown.contains("native Claude import bridge"));
         assert!(markdown.contains("memd lookup --output .memd --query"));
     }
@@ -600,13 +611,13 @@
             manifest
                 .files
                 .iter()
-                .any(|path| path.ends_with("OPENCLAW_WAKEUP.md"))
+                .any(|path| path.ends_with("wake.md"))
         );
         assert!(
             manifest
                 .files
                 .iter()
-                .any(|path| path.ends_with("OPENCLAW_MEMORY.md"))
+                .any(|path| path.ends_with("mem.md"))
         );
         assert!(manifest.commands.iter().any(|cmd| {
             cmd.contains("memd context --project <project> --agent openclaw --compact")
@@ -625,8 +636,8 @@
         );
 
         let markdown = render_openclaw_harness_pack_markdown(&manifest);
-        assert!(markdown.contains("OPENCLAW_WAKEUP.md"));
-        assert!(markdown.contains("OPENCLAW_MEMORY.md"));
+        assert!(markdown.contains("wake.md"));
+        assert!(markdown.contains("mem.md"));
         assert!(markdown.contains("turn-scoped cache"));
         assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     }
@@ -672,22 +683,32 @@
         .await
         .expect("refresh codex pack files");
 
-        assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-        assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
+        assert!(written.iter().any(|path| path.ends_with("wake.md")));
+        assert!(written.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             written
                 .iter()
-                .any(|path| path_text_ends_with(path, "agents/CODEX_WAKEUP.md"))
+                .any(|path| path_text_ends_with(path, "wake.md"))
         );
         assert!(
             written
                 .iter()
-                .any(|path| path_text_ends_with(path, "agents/CODEX_MEMORY.md"))
+                .any(|path| path_text_ends_with(path, "mem.md"))
         );
-        assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-        assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-        assert!(bundle_root.join("agents").join("CODEX_WAKEUP.md").exists());
-        assert!(bundle_root.join("agents").join("CODEX_MEMORY.md").exists());
+        assert!(bundle_root.join("wake.md").exists());
+        assert!(bundle_root.join("mem.md").exists());
+        let agent_names: Vec<String> = fs::read_dir(bundle_root.join("agents"))
+            .expect("read agents dir")
+            .map(|entry| {
+                entry
+                    .expect("agent entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert!(!agent_names.iter().any(|name| name.contains("WAKEUP")));
+        assert!(!agent_names.iter().any(|name| name.contains("MEMORY")));
 
         fs::remove_dir_all(bundle_root).expect("cleanup codex refresh temp dir");
     }
@@ -712,17 +733,17 @@
         .await
         .expect("refresh openclaw pack files");
 
-        assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-        assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
+        assert!(written.iter().any(|path| path.ends_with("wake.md")));
+        assert!(written.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/OPENCLAW_WAKEUP.md"))
+                .any(|path| path.ends_with("wake.md"))
         );
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/OPENCLAW_MEMORY.md"))
+                .any(|path| path.ends_with("mem.md"))
         );
         assert!(
             bundle_root
@@ -730,20 +751,20 @@
                 .join("openclaw-turn-cache.json")
                 .exists()
         );
-        assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-        assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-        assert!(
-            bundle_root
-                .join("agents")
-                .join("OPENCLAW_WAKEUP.md")
-                .exists()
-        );
-        assert!(
-            bundle_root
-                .join("agents")
-                .join("OPENCLAW_MEMORY.md")
-                .exists()
-        );
+        assert!(bundle_root.join("wake.md").exists());
+        assert!(bundle_root.join("mem.md").exists());
+        let agent_names: Vec<String> = fs::read_dir(bundle_root.join("agents"))
+            .expect("read agents dir")
+            .map(|entry| {
+                entry
+                    .expect("agent entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert!(!agent_names.iter().any(|name| name.contains("WAKEUP")));
+        assert!(!agent_names.iter().any(|name| name.contains("MEMORY")));
 
         fs::remove_dir_all(bundle_root).expect("cleanup openclaw refresh temp dir");
     }
@@ -768,22 +789,21 @@
         .await
         .expect("refresh hermes pack files");
 
-        assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-        assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
+        assert!(written.iter().any(|path| path.ends_with("wake.md")));
+        assert!(written.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/HERMES_WAKEUP.md"))
+                .any(|path| path.ends_with("wake.md"))
         );
         assert!(
             written
                 .iter()
-                .any(|path| path.ends_with("agents/HERMES_MEMORY.md"))
+                .any(|path| path.ends_with("mem.md"))
         );
-        assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-        assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-        assert!(bundle_root.join("agents").join("HERMES_WAKEUP.md").exists());
-        assert!(bundle_root.join("agents").join("HERMES_MEMORY.md").exists());
+        assert!(bundle_root.join("wake.md").exists());
+        assert!(bundle_root.join("mem.md").exists());
+        assert!(!bundle_root.join("agents").exists());
 
         fs::remove_dir_all(bundle_root).expect("cleanup hermes refresh temp dir");
     }
@@ -815,13 +835,13 @@
         let bundle_root =
             std::env::temp_dir().join(format!("memd-codex-local-truth-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&bundle_root).expect("create bundle root");
-        fs::write(bundle_root.join("MEMD_WAKEUP.md"), "# local wakeup\n").expect("seed wakeup");
-        fs::write(bundle_root.join("MEMD_MEMORY.md"), "# local memory\n").expect("seed memory");
+        fs::write(bundle_root.join("wake.md"), "# local wakeup\n").expect("seed wakeup");
+        fs::write(bundle_root.join("mem.md"), "# local memory\n").expect("seed memory");
 
-        let wakeup = read_codex_pack_local_markdown(&bundle_root, "MEMD_WAKEUP.md")
+        let wakeup = read_codex_pack_local_markdown(&bundle_root, "wake.md")
             .expect("read wakeup fallback")
             .expect("local wakeup fallback");
-        let memory = read_codex_pack_local_markdown(&bundle_root, "MEMD_MEMORY.md")
+        let memory = read_codex_pack_local_markdown(&bundle_root, "mem.md")
             .expect("read memory fallback")
             .expect("local memory fallback");
 
@@ -850,8 +870,8 @@
         assert!(setup.contains("Codex is the first harness pack"));
         assert!(setup.contains("reads compiled memory before the turn"));
         assert!(setup.contains("turn-scoped cache"));
-        assert!(setup.contains(".memd/MEMD_WAKEUP.md"));
-        assert!(setup.contains(".memd/agents/CODEX_MEMORY.md"));
+        assert!(setup.contains(".memd/wake.md"));
+        assert!(setup.contains(".memd/mem.md"));
         assert!(setup.contains("Hermes is the adoption-focused harness pack"));
         assert!(setup.contains("Agent Zero is the zero-friction harness pack"));
         assert!(setup.contains("OpenCode is the shared-lane harness pack"));
@@ -862,7 +882,7 @@
         assert!(api.contains("bundle-local harness pack flow"));
         assert!(api.contains("memd checkpoint"));
         assert!(api.contains("turn-scoped cache"));
-        assert!(api.contains(".memd/MEMD_MEMORY.md"));
+        assert!(api.contains(".memd/mem.md"));
         assert!(api.contains("Hermes is the adoption-focused harness pack"));
         assert!(api.contains("Agent Zero is the zero-friction harness pack"));
         assert!(api.contains("OpenCode is the shared-lane harness pack"));
@@ -884,12 +904,12 @@
 
         assert!(agent_zero.contains("zero-friction lane"));
         assert!(agent_zero.contains("memd hook spill --output .memd --stdin --apply"));
-        assert!(agent_zero.contains(".memd/agents/AGENT_ZERO_MEMORY.md"));
+        assert!(agent_zero.contains(".memd/mem.md"));
         assert!(agent_zero.contains("memd handoff --output .memd --prompt"));
 
         assert!(opencode.contains("shared continuity plane"));
         assert!(opencode.contains("memd hook spill --output .memd --stdin --apply"));
-        assert!(opencode.contains(".memd/agents/OPENCODE_MEMORY.md"));
+        assert!(opencode.contains(".memd/mem.md"));
         assert!(opencode.contains("memd handoff --output .memd --prompt"));
 
         assert!(hooks.contains("pre-turn read step"));
@@ -956,8 +976,16 @@
         assert!(bootstrap.markdown.contains("DESIGN.md"));
         assert!(bootstrap.markdown.contains(".planning/STATE.md"));
         assert!(bootstrap.markdown.contains("README.md"));
-        assert!(bootstrap.markdown.contains("project instructions"));
-        assert!(bootstrap.markdown.contains("clean typography"));
+        assert!(
+            bootstrap
+                .markdown
+                .contains("Bootstrap summaries trimmed to save context"),
+            "bootstrap should note that summaries are trimmed"
+        );
+        assert!(
+            !bootstrap.markdown.contains("project instructions"),
+            "bootstrap should not dump file content into markdown"
+        );
         assert_eq!(bootstrap.registry.project, "demo");
         assert!(
             bootstrap

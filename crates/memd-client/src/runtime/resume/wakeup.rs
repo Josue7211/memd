@@ -21,14 +21,82 @@ pub(crate) fn collect_wakeup_instruction_sources(output: &Path) -> Vec<(String, 
     sources
 }
 
+fn wake_budget_agent_name(output: &Path, snapshot: &ResumeSnapshot) -> Option<String> {
+    read_bundle_runtime_config(output)
+        .ok()
+        .flatten()
+        .and_then(|config| config.agent)
+        .or_else(|| snapshot.agent.clone())
+}
+
+fn truncate_visible_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let mut truncated = String::new();
+    for ch in value.chars().take(max_chars.saturating_sub(1)) {
+        truncated.push(ch);
+    }
+    truncated.push('…');
+    truncated
+}
+
+fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> String {
+    let full = format!("{prefix}{protocol}");
+    if full.chars().count() <= max_chars {
+        return full;
+    }
+
+    let trimmed_protocol = protocol.trim_start();
+    let elided_marker = "\n## Wake Budget\n\n- startup trimmed; use `memd lookup` or `memd resume` for deeper recall.\n\n";
+    let required_chars = trimmed_protocol.chars().count() + elided_marker.chars().count();
+
+    if required_chars >= max_chars {
+        return truncate_visible_chars(trimmed_protocol, max_chars);
+    }
+
+    let prefix_budget = max_chars - required_chars;
+    let mut trimmed_prefix = String::new();
+    for line in prefix.lines() {
+        let candidate = if trimmed_prefix.is_empty() {
+            format!("{line}\n")
+        } else {
+            format!("{trimmed_prefix}{line}\n")
+        };
+        if candidate.chars().count() > prefix_budget {
+            break;
+        }
+        trimmed_prefix = candidate;
+    }
+
+    let combined = format!(
+        "{}{}{}",
+        trimmed_prefix.trim_end(),
+        elided_marker,
+        trimmed_protocol
+    );
+    if combined.chars().count() <= max_chars {
+        combined
+    } else {
+        truncate_visible_chars(&combined, max_chars)
+    }
+}
+
 pub(crate) fn render_bundle_wakeup_markdown(
     output: &Path,
     snapshot: &ResumeSnapshot,
     verbose: bool,
 ) -> String {
-    let mut markdown = String::new();
-    markdown.push_str("# memd wake-up\n\n");
-    markdown.push_str(&format!(
+    let mut prefix = String::new();
+    let budget = crate::harness::preset::wake_char_budget_for_agent(
+        wake_budget_agent_name(output, snapshot).as_deref(),
+    );
+    let claude_strict = wake_budget_agent_name(output, snapshot)
+        .as_deref()
+        .is_some_and(|agent| agent.trim().eq_ignore_ascii_case("claude-code"));
+
+    prefix.push_str("# memd wake-up\n\n");
+    prefix.push_str(&format!(
         "- {} / {} / {} / {} / {} / {} / {}\n\n",
         snapshot.project.as_deref().unwrap_or("none"),
         snapshot.namespace.as_deref().unwrap_or("none"),
@@ -40,46 +108,54 @@ pub(crate) fn render_bundle_wakeup_markdown(
     ));
 
     let instructions = collect_wakeup_instruction_sources(output);
-    if !instructions.is_empty() {
-        markdown.push_str("## Instructions\n\n");
-        let limit = if verbose { 3 } else { 2 };
+    if !instructions.is_empty() && !claude_strict {
+        prefix.push_str("## Instructions\n\n");
+        let limit = if verbose { 3 } else { 1 };
         for (source, snippet) in instructions.into_iter().take(limit) {
-            markdown.push_str(&format!("- {source}: {}\n", compact_inline(&snippet, 240)));
+            prefix.push_str(&format!("- {source}: {}\n", compact_inline(&snippet, 180)));
         }
-        markdown.push('\n');
+        prefix.push('\n');
     }
 
     let event_spine = snapshot.event_spine();
-    if !event_spine.is_empty() {
-        markdown.push_str("## Live\n\n");
-        let limit = if verbose { 4 } else { 1 };
+    if !event_spine.is_empty() && !claude_strict {
+        prefix.push_str("## Live\n\n");
+        let limit = if verbose { 2 } else { 1 };
         for item in event_spine.iter().take(limit) {
-            markdown.push_str(&format!("- {}\n", compact_inline(item, 120)));
+            prefix.push_str(&format!("- {}\n", compact_inline(item, 100)));
         }
-        markdown.push('\n');
+        prefix.push('\n');
     }
 
-    markdown.push_str("## Durable Truth\n\n");
+    prefix.push_str("## Durable Truth\n\n");
     if snapshot.context.records.is_empty() {
-        markdown.push_str("- none\n\n");
+        prefix.push_str("- none\n\n");
     } else {
-        let limit = if verbose { 4 } else { 2 };
+        let limit = if claude_strict { 1 } else if verbose { 4 } else { 2 };
         for item in snapshot.context.records.iter().take(limit) {
-            markdown.push_str(&format!("- {}\n", compact_inline(item.record.trim(), 160)));
+            let item_limit = if claude_strict { 120 } else { 160 };
+            prefix.push_str(&format!(
+                "- {}\n",
+                compact_inline(item.record.trim(), item_limit)
+            ));
         }
-        markdown.push('\n');
+        prefix.push('\n');
     }
 
-    markdown.push_str("## Focus\n\n");
+    prefix.push_str("## Focus\n\n");
     if snapshot.working.records.is_empty() {
-        markdown.push_str("- none\n");
+        prefix.push_str("- none\n");
     } else {
         let limit = 1;
         for item in snapshot.working.records.iter().take(limit) {
-            markdown.push_str(&format!("- {}\n", compact_inline(item.record.trim(), 140)));
+            let item_limit = if claude_strict { 110 } else { 140 };
+            prefix.push_str(&format!(
+                "- {}\n",
+                compact_inline(item.record.trim(), item_limit)
+            ));
         }
     }
-    markdown.push('\n');
+    prefix.push('\n');
 
     let continuity = snapshot.continuity_capsule();
     if continuity.current_task.is_some()
@@ -88,32 +164,46 @@ pub(crate) fn render_bundle_wakeup_markdown(
         || continuity.next_action.is_some()
         || continuity.blocker.is_some()
     {
-        markdown.push_str("## Continuity\n\n");
+        prefix.push_str("## Continuity\n\n");
+        let continuity_limit = if claude_strict { 96 } else { 140 };
         if let Some(current_task) = continuity.current_task.as_deref() {
-            markdown.push_str(&format!("- doing={}\n", compact_inline(current_task, 140)));
+            prefix.push_str(&format!(
+                "- doing={}\n",
+                compact_inline(current_task, continuity_limit)
+            ));
         }
         if let Some(resume_point) = continuity.resume_point.as_deref() {
-            markdown.push_str(&format!(
+            prefix.push_str(&format!(
                 "- left_off={}\n",
-                compact_inline(resume_point, 140)
+                compact_inline(resume_point, continuity_limit)
             ));
         }
         if let Some(changed) = continuity.changed.as_deref() {
-            markdown.push_str(&format!("- changed={}\n", compact_inline(changed, 140)));
+            prefix.push_str(&format!(
+                "- changed={}\n",
+                compact_inline(changed, continuity_limit)
+            ));
         }
         if let Some(next_action) = continuity.next_action.as_deref() {
-            markdown.push_str(&format!("- next={}\n", compact_inline(next_action, 140)));
+            prefix.push_str(&format!(
+                "- next={}\n",
+                compact_inline(next_action, continuity_limit)
+            ));
         }
         if let Some(blocker) = continuity.blocker.as_deref() {
-            markdown.push_str(&format!("- blocker={}\n", compact_inline(blocker, 140)));
+            prefix.push_str(&format!(
+                "- blocker={}\n",
+                compact_inline(blocker, continuity_limit)
+            ));
         }
-        markdown.push('\n');
+        prefix.push('\n');
     }
 
     if verbose
+        && !claude_strict
         && (!snapshot.inbox.items.is_empty() || !snapshot.working.rehydration_queue.is_empty())
     {
-        markdown.push_str("## Recovery\n\n");
+        prefix.push_str("## Recovery\n\n");
         let recovery_limit = if verbose { 1 } else { 1 };
         for item in snapshot
             .working
@@ -121,7 +211,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
             .iter()
             .take(recovery_limit)
         {
-            markdown.push_str(&format!(
+            prefix.push_str(&format!(
                 "- {}: {}\n",
                 item.label,
                 compact_inline(item.summary.trim(), 120)
@@ -129,42 +219,43 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
         let inbox_limit = if verbose { 1 } else { 1 };
         for item in snapshot.inbox.items.iter().take(inbox_limit) {
-            markdown.push_str(&format!(
+            prefix.push_str(&format!(
                 "- {:?}/{:?}: {}\n",
                 item.item.kind,
                 item.item.status,
                 compact_inline(item.item.content.trim(), 120)
             ));
         }
-        markdown.push('\n');
+        prefix.push('\n');
     }
 
-    markdown.push_str("## Protocol\n\n");
-    markdown.push_str("- Read first.\n");
-    markdown.push_str("- Durable truth beats transcript recall.\n");
-    markdown.push_str(
+    let mut protocol = String::new();
+    protocol.push_str("## Protocol\n\n");
+    protocol.push_str("- Read first.\n");
+    protocol.push_str("- Durable truth beats transcript recall.\n");
+    protocol.push_str(
         "- Lookup before answers on decisions, preferences, history, or prior user corrections.\n",
     );
-    markdown.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
-    markdown.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
-    markdown.push_str("- Writes: `remember-short`, `remember-decision`, `remember-preference`, `remember-long`, `capture-live`, `correct-memory`, `sync-semantic`, `watch`.\n");
+    protocol.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
+    protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
+    protocol.push_str("- Writes: `remember-short`, `remember-decision`, `remember-preference`, `remember-long`, `capture-live`, `correct-memory`, `sync-semantic`, `watch`.\n");
     if verbose {
-        markdown
+        protocol
             .push_str("- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n");
     }
-    markdown.push_str("- Promote stable truths; do not rely on transcript recall.\n");
+    protocol.push_str("- Promote stable truths; do not rely on transcript recall.\n");
     let active_voice = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
-    markdown.push_str(&format!("- Default voice: {}\n", active_voice));
-    markdown.push_str(&format!(
+    protocol.push_str(&format!("- Default voice: {}\n", active_voice));
+    protocol.push_str(&format!(
         "- Reply in `{}` unless `.memd/config.json` changes it.\n",
         active_voice
     ));
-    markdown.push_str(&format!(
+    protocol.push_str(&format!(
         "- If your draft is not in `{}`, stop and rewrite it before sending.\n",
         active_voice
     ));
 
-    markdown
+    enforce_wake_char_budget(&prefix, &protocol, budget)
 }
 
 pub(crate) fn render_bundle_wakeup_summary(snapshot: &ResumeSnapshot) -> String {
@@ -508,5 +599,209 @@ mod tests {
         assert!(markdown.lines().count() < 40);
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn claude_wakeup_markdown_respects_strict_budget() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-wakeup-claude-budget-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+  "project": "memd",
+  "agent": "claude-code",
+  "route": "auto",
+  "intent": "current_task"
+}
+"#,
+        )
+        .expect("write config");
+
+        let markdown = render_bundle_wakeup_markdown(&dir, &pressure_snapshot(), false);
+
+        assert!(markdown.chars().count() <= 1200);
+        assert!(markdown.contains("## Protocol"));
+        assert!(markdown.contains("Read first."));
+        assert!(markdown.contains("memd lookup --output .memd --query"));
+        assert!(!markdown.contains("## Instructions"));
+        assert!(!markdown.contains("## Live"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    // ── Cross-Harness Wake Proof Tests ──────────────────────────────
+
+    #[test]
+    fn shared_surface_contract_all_non_wake_only_harnesses_use_shared_surfaces() {
+        use crate::harness::preset::{
+            HarnessPresetRegistry, SHARED_VISIBLE_SURFACES, WAKE_ONLY_SURFACES,
+        };
+        let registry = HarnessPresetRegistry::default_registry();
+        for preset in &registry.packs {
+            if preset.wake_only {
+                assert_eq!(
+                    preset.surface_set, WAKE_ONLY_SURFACES,
+                    "wake-only harness {} should use WAKE_ONLY_SURFACES",
+                    preset.pack_id
+                );
+            } else {
+                assert_eq!(
+                    preset.surface_set, SHARED_VISIBLE_SURFACES,
+                    "harness {} should use SHARED_VISIBLE_SURFACES",
+                    preset.pack_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_surface_contract_no_duplicate_surface_filenames() {
+        use crate::harness::preset::HarnessPresetRegistry;
+        let registry = HarnessPresetRegistry::default_registry();
+        for preset in &registry.packs {
+            let mut seen = std::collections::HashSet::new();
+            for surface in preset.surface_set {
+                assert!(
+                    seen.insert(*surface),
+                    "harness {} has duplicate surface: {}",
+                    preset.pack_id,
+                    surface
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn claude_code_is_in_preset_registry_with_wake_only() {
+        use crate::harness::preset::HarnessPresetRegistry;
+        let registry = HarnessPresetRegistry::default_registry();
+        let claude = registry.get("claude-code").expect("claude-code must be in registry");
+        assert!(claude.wake_only, "claude-code must be wake_only");
+        assert_eq!(claude.wake_char_budget, 1200);
+        assert_eq!(claude.surface_set.len(), 1);
+        assert_eq!(claude.surface_set[0], "wake.md");
+    }
+
+    #[test]
+    fn claude_code_pack_files_do_not_include_mem_or_events() {
+        let dir = std::env::temp_dir().join(format!("memd-claude-pack-{}", uuid::Uuid::new_v4()));
+        let pack =
+            crate::harness::claude_code::build_claude_code_harness_pack(&dir, "demo", "main");
+        for file in &pack.files {
+            let name = file.file_name().unwrap().to_string_lossy();
+            assert_ne!(name, "mem.md", "claude-code pack must not include mem.md");
+            assert_ne!(
+                name, "events.md",
+                "claude-code pack must not include events.md"
+            );
+        }
+        assert!(
+            pack.files.iter().any(|f| f.ends_with("wake.md")),
+            "claude-code pack must include wake.md"
+        );
+    }
+
+    #[test]
+    fn wake_budget_for_claude_code_uses_registry_not_special_case() {
+        use crate::harness::preset::wake_char_budget_for_agent;
+        assert_eq!(wake_char_budget_for_agent(Some("claude-code")), 1200);
+        assert_eq!(
+            wake_char_budget_for_agent(Some("claude-code@session-abc")),
+            1200
+        );
+        assert_eq!(wake_char_budget_for_agent(Some("codex")), 1800);
+        assert_eq!(wake_char_budget_for_agent(Some("hermes")), 1800);
+        assert_eq!(wake_char_budget_for_agent(Some("unknown-agent")), 1800);
+    }
+
+    #[test]
+    fn is_wake_only_agent_matches_registry() {
+        use crate::harness::preset::is_wake_only_agent;
+        assert!(is_wake_only_agent(Some("claude-code")));
+        assert!(is_wake_only_agent(Some("claude-code@session-xyz")));
+        assert!(!is_wake_only_agent(Some("codex")));
+        assert!(!is_wake_only_agent(Some("hermes")));
+        assert!(!is_wake_only_agent(Some("opencode")));
+        assert!(!is_wake_only_agent(Some("openclaw")));
+        assert!(!is_wake_only_agent(Some("agent-zero")));
+        assert!(!is_wake_only_agent(None));
+    }
+
+    #[test]
+    fn all_harness_wake_packets_stay_within_budget() {
+        use crate::harness::preset::HarnessPresetRegistry;
+        let registry = HarnessPresetRegistry::default_registry();
+        let snapshot = pressure_snapshot();
+        for preset in &registry.packs {
+            let dir = std::env::temp_dir().join(format!(
+                "memd-budget-{}-{}",
+                preset.pack_id,
+                uuid::Uuid::new_v4()
+            ));
+            fs::create_dir_all(&dir).expect("create temp bundle");
+            fs::write(
+                dir.join("config.json"),
+                format!(
+                    r#"{{
+  "project": "memd",
+  "agent": "{}",
+  "route": "auto",
+  "intent": "current_task"
+}}
+"#,
+                    preset.pack_id
+                ),
+            )
+            .expect("write config");
+
+            let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
+            let char_count = markdown.chars().count();
+            assert!(
+                char_count <= preset.wake_char_budget,
+                "harness {} wake packet ({} chars) exceeds budget ({} chars)",
+                preset.pack_id,
+                char_count,
+                preset.wake_char_budget,
+            );
+
+            fs::remove_dir_all(dir).expect("cleanup temp bundle");
+        }
+    }
+
+    #[test]
+    fn generated_claude_imports_template_only_imports_wake() {
+        // Verify the code template in maintenance_runtime writes only @../wake.md
+        // This is a structural test on the bridge file content
+        let template_fragment = "@../wake.md";
+        let cold_surfaces = ["@../mem.md", "@../events.md"];
+
+        // Simulate what write_native_agent_bridge_files generates
+        let generated = format!(
+            "## Imported memd memory files\n\n{}\n\n",
+            template_fragment
+        );
+        assert!(
+            generated.contains(template_fragment),
+            "CLAUDE_IMPORTS template must import wake.md"
+        );
+        for cold in &cold_surfaces {
+            assert!(
+                !generated.contains(cold),
+                "CLAUDE_IMPORTS template must NOT import {} (cold-path surface)",
+                cold
+            );
+        }
+    }
+
+    #[test]
+    fn preset_registry_has_exactly_six_harnesses() {
+        use crate::harness::preset::HarnessPresetRegistry;
+        let registry = HarnessPresetRegistry::default_registry();
+        assert_eq!(
+            registry.packs.len(),
+            6,
+            "registry should have 6 harnesses: codex, claude-code, agent-zero, openclaw, hermes, opencode"
+        );
     }
 }

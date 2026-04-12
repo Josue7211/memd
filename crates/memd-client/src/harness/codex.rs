@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::harness::preset::SHARED_VISIBLE_SURFACES;
 use crate::harness::shared::HarnessPackData;
 
 pub(crate) type CodexHarnessPack = HarnessPackData;
@@ -16,12 +17,10 @@ pub(crate) fn build_codex_harness_pack(
         project: project.to_string(),
         namespace: namespace.to_string(),
         bundle_root: bundle_root.to_path_buf(),
-        files: vec![
-            bundle_root.join("MEMD_WAKEUP.md"),
-            bundle_root.join("MEMD_MEMORY.md"),
-            bundle_root.join("agents").join("CODEX_WAKEUP.md"),
-            bundle_root.join("agents").join("CODEX_MEMORY.md"),
-        ],
+        files: SHARED_VISIBLE_SURFACES
+            .iter()
+            .map(|surface| bundle_root.join(surface))
+            .collect(),
         commands: vec![
             "memd wake --output .memd --write".to_string(),
             "memd resume --output .memd".to_string(),

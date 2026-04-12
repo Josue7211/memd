@@ -258,7 +258,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     write_bundle_memory_placeholder(&dir, &config, None, None).expect("write placeholder");
     write_native_agent_bridge_files(&dir).expect("write native bridge");
 
-    let markdown = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
+    let markdown = fs::read_to_string(dir.join("mem.md")).expect("read placeholder");
     assert!(markdown.contains("memd resume --output"));
     assert!(markdown.contains("--semantic"));
     assert!(markdown.contains("fast local hot path"));
@@ -270,16 +270,16 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
         .expect("read claude imports");
     let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
         .expect("read codex agents example");
-    assert!(claude_imports.contains("@../MEMD_WAKEUP.md"));
-    assert!(claude_imports.contains("@../MEMD_MEMORY.md"));
-    assert!(claude_imports.contains("@CLAUDE_CODE_WAKEUP.md"));
-    assert!(claude_imports.contains("@CLAUDE_CODE_MEMORY.md"));
+    assert!(claude_imports.contains("@../wake.md"));
+    assert!(!claude_imports.contains("@../mem.md"));
+    assert!(!claude_imports.contains("@../events.md"));
+    assert!(!claude_imports.contains("CLAUDE_CODE_"));
     assert!(claude_imports.contains("/memory"));
     assert!(claude_imports.contains("use installed `$gsd-*` skills as the GSD interface"));
     assert!(claude_imports.contains("standalone `gsd-*` shell binaries"));
     assert!(claude_imports.contains("`$gsd-autonomous` is installed as a skill"));
-    assert!(codex_agents.contains(".memd/agents/CODEX_WAKEUP.md"));
-    assert!(codex_agents.contains(".memd/agents/CODEX_MEMORY.md"));
+    assert!(codex_agents.contains(".memd/wake.md"));
+    assert!(codex_agents.contains("memd resume --output .memd"));
     assert!(codex_agents.contains("Durable truth beats transcript recall."));
     assert!(codex_agents.contains("memd lookup --output .memd --query"));
     assert!(codex_agents.contains("stay in `caveman-ultra`"));
@@ -375,7 +375,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
     .expect("write config");
     write_native_agent_bridge_files(&dir).expect("write native bridge");
 
-    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
+    let memory = fs::read_to_string(dir.join("mem.md")).expect("read placeholder");
     let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
         .expect("read claude imports");
     let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
@@ -478,7 +478,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     .expect("write config");
     write_native_agent_bridge_files(&dir).expect("write native bridge");
 
-    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read placeholder");
+    let memory = fs::read_to_string(dir.join("mem.md")).expect("read placeholder");
     let claude_imports = fs::read_to_string(dir.join("agents").join("CLAUDE_IMPORTS.md"))
         .expect("read claude imports");
     let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
@@ -497,6 +497,44 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     assert!(codex_agents.contains("sets `voice_mode` to `caveman-lite`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
+}
+
+#[test]
+fn native_bridge_setup_installs_claude_import_into_project_root() {
+    let project_root =
+        std::env::temp_dir().join(format!("memd-claude-install-{}", uuid::Uuid::new_v4()));
+    let bundle_root = project_root.join(".memd");
+    fs::create_dir_all(&bundle_root).expect("create bundle root");
+
+    write_native_agent_bridge_files(&bundle_root).expect("write native bridge");
+
+    let claude = fs::read_to_string(project_root.join("CLAUDE.md")).expect("read CLAUDE.md");
+    assert!(claude.contains("@.memd/agents/CLAUDE_IMPORTS.md"));
+    assert!(claude.contains("# Claude Instructions"));
+
+    fs::remove_dir_all(project_root).expect("cleanup temp project");
+}
+
+#[test]
+fn native_bridge_setup_preserves_existing_claude_doc_when_installing_import() {
+    let project_root =
+        std::env::temp_dir().join(format!("memd-claude-preserve-{}", uuid::Uuid::new_v4()));
+    let bundle_root = project_root.join(".memd");
+    fs::create_dir_all(&bundle_root).expect("create bundle root");
+    fs::write(
+        project_root.join("CLAUDE.md"),
+        "# Claude Instructions\n\n## Voice\n\n- keep answers short\n",
+    )
+    .expect("write existing CLAUDE");
+
+    write_native_agent_bridge_files(&bundle_root).expect("write native bridge");
+
+    let claude = fs::read_to_string(project_root.join("CLAUDE.md")).expect("read CLAUDE.md");
+    assert!(claude.contains("@.memd/agents/CLAUDE_IMPORTS.md"));
+    assert!(claude.contains("## Voice"));
+    assert!(claude.contains("keep answers short"));
+
+    fs::remove_dir_all(project_root).expect("cleanup temp project");
 }
 
 #[test]
@@ -548,8 +586,8 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
     )
     .expect("write wake fallback");
 
-    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
-    let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
+    let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
+    let wakeup = fs::read_to_string(dir.join("wake.md")).expect("read wakeup");
     assert!(memory.contains("## Bundle Defaults"));
     assert!(memory.contains("project: demo"));
     assert!(memory.contains("namespace: main"));
@@ -559,8 +597,18 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
     assert!(memory.contains("## Voice"));
     assert!(memory.contains("caveman-ultra"));
     assert!(wakeup.contains("fallback"));
-    assert!(dir.join("agents").join("CODEX_MEMORY.md").exists());
-    assert!(dir.join("agents").join("CLAUDE_CODE_MEMORY.md").exists());
+    if let Ok(entries) = fs::read_dir(dir.join("agents")) {
+        let agent_names: Vec<String> = entries
+            .map(|entry| {
+                entry
+                    .expect("agent entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert!(!agent_names.iter().any(|name| name.contains("MEMORY")));
+    }
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -596,7 +644,7 @@ fn checkpoint_fallback_writes_placeholder_memory_without_agent() {
     )
     .expect("write placeholder memory");
 
-    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
+    let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
     assert!(memory.contains("project: demo"));
     assert!(memory.contains("namespace: main"));
     assert!(memory.contains("session: session-demo"));
@@ -646,8 +694,8 @@ fn fallback_memory_and_wakeup_surfaces_include_authority_warning() {
     write_memory_markdown_files(&dir, "# memd memory\n\nbody\n").expect("write memory");
     write_wakeup_markdown_files(&dir, "# memd wake-up\n\nbody\n").expect("write wakeup");
 
-    let memory = fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read memory");
-    let wakeup = fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read wakeup");
+    let memory = fs::read_to_string(dir.join("mem.md")).expect("read memory");
+    let wakeup = fs::read_to_string(dir.join("wake.md")).expect("read wakeup");
     assert!(memory.contains("## Session Start Warning"));
     assert!(memory.contains("shared authority unavailable"));
     assert!(wakeup.contains("## Session Start Warning"));
@@ -705,18 +753,8 @@ fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
     let manifest = crate::harness::codex::build_codex_harness_pack(&bundle_root, "demo", "main");
 
     assert_eq!(manifest.agent, "codex");
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("CODEX_WAKEUP.md"))
-    );
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("CODEX_MEMORY.md"))
-    );
+    assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
+    assert!(manifest.files.iter().any(|path| path.ends_with("mem.md")));
     assert!(
         manifest
             .commands
@@ -749,8 +787,8 @@ fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
     );
 
     let markdown = render_codex_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("CODEX_WAKEUP.md"));
-    assert!(markdown.contains("CODEX_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("turn-scoped cache"));
     assert!(markdown.contains("memd lookup --output .memd --query"));
     assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
@@ -770,19 +808,19 @@ fn claude_code_pack_manifest_exposes_native_bridge_and_files() {
         manifest
             .files
             .iter()
-            .any(|path| path.ends_with("CLAUDE_CODE_WAKEUP.md"))
-    );
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("CLAUDE_CODE_MEMORY.md"))
+            .any(|path| path.ends_with("wake.md"))
     );
     assert!(
         manifest
             .files
             .iter()
             .any(|path| path.ends_with("CLAUDE_IMPORTS.md"))
+    );
+    assert!(
+        manifest
+            .files
+            .iter()
+            .any(|path| path.ends_with("CLAUDE.md.example"))
     );
     assert!(
         manifest
@@ -798,8 +836,9 @@ fn claude_code_pack_manifest_exposes_native_bridge_and_files() {
     );
 
     let markdown = render_claude_code_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("CLAUDE_CODE_WAKEUP.md"));
+    assert!(markdown.contains("wake.md"));
     assert!(markdown.contains("CLAUDE_IMPORTS.md"));
+    assert!(markdown.contains("wake-only boot path"));
     assert!(markdown.contains("native Claude import bridge"));
     assert!(markdown.contains("memd lookup --output .memd --query"));
 }
@@ -851,18 +890,8 @@ fn openclaw_pack_manifest_exposes_context_spill_cache_and_files() {
         crate::harness::openclaw::build_openclaw_harness_pack(&bundle_root, "demo", "main");
 
     assert_eq!(manifest.agent, "openclaw");
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("OPENCLAW_WAKEUP.md"))
-    );
-    assert!(
-        manifest
-            .files
-            .iter()
-            .any(|path| path.ends_with("OPENCLAW_MEMORY.md"))
-    );
+    assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
+    assert!(manifest.files.iter().any(|path| path.ends_with("mem.md")));
     assert!(manifest.commands.iter().any(|cmd| {
         cmd.contains("memd context --project <project> --agent openclaw --compact")
     }));
@@ -880,8 +909,8 @@ fn openclaw_pack_manifest_exposes_context_spill_cache_and_files() {
     );
 
     let markdown = render_openclaw_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("OPENCLAW_WAKEUP.md"));
-    assert!(markdown.contains("OPENCLAW_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("turn-scoped cache"));
     assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
 }
@@ -908,6 +937,61 @@ fn harness_registry_exposes_shared_preset_ids_and_defaults() {
         codex.default_verbs,
         vec!["wake", "lookup", "checkpoint", "spill"]
     );
+    assert_eq!(codex.wake_char_budget, 1800);
+    let claude_budget = crate::harness::preset::wake_char_budget_for_agent(Some("claude-code"));
+    assert_eq!(claude_budget, 1200);
+}
+
+#[test]
+fn non_claude_harness_manifests_only_expose_shared_visible_surfaces() {
+    let bundle_root =
+        std::env::temp_dir().join(format!("memd-shared-surfaces-{}", uuid::Uuid::new_v4()));
+
+    let manifests = vec![
+        crate::harness::codex::build_codex_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::agent_zero::build_agent_zero_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::openclaw::build_openclaw_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::hermes::build_hermes_harness_pack(&bundle_root, "demo", "main"),
+        crate::harness::opencode::build_opencode_harness_pack(&bundle_root, "demo", "main"),
+    ];
+
+    for manifest in manifests {
+        let file_names: Vec<String> = manifest
+            .files
+            .iter()
+            .map(|path| {
+                path.file_name()
+                    .expect("manifest file name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(file_names, vec!["wake.md", "mem.md", "events.md"]);
+        assert!(!file_names.iter().any(|name| name.contains("WAKEUP")));
+        assert!(!file_names.iter().any(|name| name.contains("MEMORY")));
+        assert!(!file_names.iter().any(|name| name.contains("EVENTS")));
+    }
+}
+
+#[test]
+fn claude_manifest_stays_wake_only_and_bridge_only() {
+    let bundle_root =
+        std::env::temp_dir().join(format!("memd-claude-surfaces-{}", uuid::Uuid::new_v4()));
+    let manifest =
+        crate::harness::claude_code::build_claude_code_harness_pack(&bundle_root, "demo", "main");
+
+    let file_names: Vec<String> = manifest
+        .files
+        .iter()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect();
+
+    assert_eq!(file_names.len(), 3);
+    assert!(file_names.iter().any(|path| path.ends_with("wake.md")));
+    assert!(file_names.iter().any(|path| path.ends_with("agents/CLAUDE_IMPORTS.md")));
+    assert!(file_names.iter().any(|path| path.ends_with("agents/CLAUDE.md.example")));
+    assert!(!file_names.iter().any(|path| path.ends_with("mem.md")));
+    assert!(!file_names.iter().any(|path| path.ends_with("events.md")));
 }
 
 #[tokio::test]
@@ -929,22 +1013,10 @@ async fn codex_pack_refreshes_wakeup_and_memory_files_after_capture() {
     .await
     .expect("refresh codex pack files");
 
-    assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-    assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
-    assert!(
-        written
-            .iter()
-            .any(|path| path_text_ends_with(path, "agents/CODEX_WAKEUP.md"))
-    );
-    assert!(
-        written
-            .iter()
-            .any(|path| path_text_ends_with(path, "agents/CODEX_MEMORY.md"))
-    );
-    assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-    assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-    assert!(bundle_root.join("agents").join("CODEX_WAKEUP.md").exists());
-    assert!(bundle_root.join("agents").join("CODEX_MEMORY.md").exists());
+    assert!(written.iter().any(|path| path.ends_with("wake.md")));
+    assert!(written.iter().any(|path| path.ends_with("mem.md")));
+    assert!(bundle_root.join("wake.md").exists());
+    assert!(bundle_root.join("mem.md").exists());
 
     fs::remove_dir_all(bundle_root).expect("cleanup codex refresh temp dir");
 }
@@ -969,38 +1041,16 @@ async fn openclaw_pack_refreshes_wakeup_and_memory_files_after_capture() {
     .await
     .expect("refresh openclaw pack files");
 
-    assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-    assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
-    assert!(
-        written
-            .iter()
-            .any(|path| path.ends_with("agents/OPENCLAW_WAKEUP.md"))
-    );
-    assert!(
-        written
-            .iter()
-            .any(|path| path.ends_with("agents/OPENCLAW_MEMORY.md"))
-    );
+    assert!(written.iter().any(|path| path.ends_with("wake.md")));
+    assert!(written.iter().any(|path| path.ends_with("mem.md")));
     assert!(
         bundle_root
             .join("state")
             .join("openclaw-turn-cache.json")
             .exists()
     );
-    assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-    assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-    assert!(
-        bundle_root
-            .join("agents")
-            .join("OPENCLAW_WAKEUP.md")
-            .exists()
-    );
-    assert!(
-        bundle_root
-            .join("agents")
-            .join("OPENCLAW_MEMORY.md")
-            .exists()
-    );
+    assert!(bundle_root.join("wake.md").exists());
+    assert!(bundle_root.join("mem.md").exists());
 
     fs::remove_dir_all(bundle_root).expect("cleanup openclaw refresh temp dir");
 }
@@ -1024,22 +1074,10 @@ async fn hermes_pack_refreshes_wakeup_and_memory_files_after_capture() {
     .await
     .expect("refresh hermes pack files");
 
-    assert!(written.iter().any(|path| path.ends_with("MEMD_WAKEUP.md")));
-    assert!(written.iter().any(|path| path.ends_with("MEMD_MEMORY.md")));
-    assert!(
-        written
-            .iter()
-            .any(|path| path.ends_with("agents/HERMES_WAKEUP.md"))
-    );
-    assert!(
-        written
-            .iter()
-            .any(|path| path.ends_with("agents/HERMES_MEMORY.md"))
-    );
-    assert!(bundle_root.join("MEMD_WAKEUP.md").exists());
-    assert!(bundle_root.join("MEMD_MEMORY.md").exists());
-    assert!(bundle_root.join("agents").join("HERMES_WAKEUP.md").exists());
-    assert!(bundle_root.join("agents").join("HERMES_MEMORY.md").exists());
+    assert!(written.iter().any(|path| path.ends_with("wake.md")));
+    assert!(written.iter().any(|path| path.ends_with("mem.md")));
+    assert!(bundle_root.join("wake.md").exists());
+    assert!(bundle_root.join("mem.md").exists());
 
     fs::remove_dir_all(bundle_root).expect("cleanup hermes refresh temp dir");
 }
@@ -1069,16 +1107,12 @@ async fn provenance_source_path_survives_across_codex_and_openclaw_memory_surfac
     .await
     .expect("refresh harness pack files");
 
-    let codex_memory = fs::read_to_string(bundle_root.join("agents").join("CODEX_MEMORY.md"))
-        .expect("read codex memory");
-    let openclaw_memory = fs::read_to_string(bundle_root.join("agents").join("OPENCLAW_MEMORY.md"))
-        .expect("read openclaw memory");
+    let shared_memory =
+        fs::read_to_string(bundle_root.join("mem.md")).expect("read shared memory");
 
     let expected_source = "codex@test / hook-capture / notes/provenance.md";
-    assert!(codex_memory.contains(expected_source));
-    assert!(openclaw_memory.contains(expected_source));
-    assert!(codex_memory.contains("notes/provenance.md"));
-    assert!(openclaw_memory.contains("notes/provenance.md"));
+    assert!(shared_memory.contains(expected_source));
+    assert!(shared_memory.contains("notes/provenance.md"));
 
     fs::remove_dir_all(bundle_root).expect("cleanup provenance parity temp dir");
 }
@@ -1110,13 +1144,13 @@ fn codex_pack_backend_failure_falls_back_to_local_bundle_truth() {
     let bundle_root =
         std::env::temp_dir().join(format!("memd-codex-local-truth-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&bundle_root).expect("create bundle root");
-    fs::write(bundle_root.join("MEMD_WAKEUP.md"), "# local wakeup\n").expect("seed wakeup");
-    fs::write(bundle_root.join("MEMD_MEMORY.md"), "# local memory\n").expect("seed memory");
+    fs::write(bundle_root.join("wake.md"), "# local wakeup\n").expect("seed wakeup");
+    fs::write(bundle_root.join("mem.md"), "# local memory\n").expect("seed memory");
 
-    let wakeup = read_codex_pack_local_markdown(&bundle_root, "MEMD_WAKEUP.md")
+    let wakeup = read_codex_pack_local_markdown(&bundle_root, "wake.md")
         .expect("read wakeup fallback")
         .expect("local wakeup fallback");
-    let memory = read_codex_pack_local_markdown(&bundle_root, "MEMD_MEMORY.md")
+    let memory = read_codex_pack_local_markdown(&bundle_root, "mem.md")
         .expect("read memory fallback")
         .expect("local memory fallback");
 
@@ -1145,8 +1179,8 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
     assert!(setup.contains("Codex is the first harness pack"));
     assert!(setup.contains("reads compiled memory before the turn"));
     assert!(setup.contains("turn-scoped cache"));
-    assert!(setup.contains(".memd/MEMD_WAKEUP.md"));
-    assert!(setup.contains(".memd/agents/CODEX_MEMORY.md"));
+    assert!(setup.contains(".memd/wake.md"));
+    assert!(setup.contains(".memd/mem.md"));
     assert!(setup.contains("Hermes is the adoption-focused harness pack"));
     assert!(setup.contains("Agent Zero is the zero-friction harness pack"));
     assert!(setup.contains("OpenCode is the shared-lane harness pack"));
@@ -1157,7 +1191,7 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
     assert!(api.contains("bundle-local harness pack flow"));
     assert!(api.contains("memd checkpoint"));
     assert!(api.contains("turn-scoped cache"));
-    assert!(api.contains(".memd/MEMD_MEMORY.md"));
+    assert!(api.contains(".memd/mem.md"));
     assert!(api.contains("Hermes is the adoption-focused harness pack"));
     assert!(api.contains("Agent Zero is the zero-friction harness pack"));
     assert!(api.contains("OpenCode is the shared-lane harness pack"));
@@ -1179,12 +1213,12 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
 
     assert!(agent_zero.contains("zero-friction lane"));
     assert!(agent_zero.contains("memd hook spill --output .memd --stdin --apply"));
-    assert!(agent_zero.contains(".memd/agents/AGENT_ZERO_MEMORY.md"));
+    assert!(agent_zero.contains(".memd/mem.md"));
     assert!(agent_zero.contains("memd handoff --output .memd --prompt"));
 
     assert!(opencode.contains("shared continuity plane"));
     assert!(opencode.contains("memd hook spill --output .memd --stdin --apply"));
-    assert!(opencode.contains(".memd/agents/OPENCODE_MEMORY.md"));
+    assert!(opencode.contains(".memd/mem.md"));
     assert!(opencode.contains("memd handoff --output .memd --prompt"));
 
     assert!(hooks.contains("pre-turn read step"));
@@ -1251,8 +1285,16 @@ fn init_bootstrap_summarizes_existing_project_files() {
     assert!(bootstrap.markdown.contains("DESIGN.md"));
     assert!(bootstrap.markdown.contains(".planning/STATE.md"));
     assert!(bootstrap.markdown.contains("README.md"));
-    assert!(bootstrap.markdown.contains("project instructions"));
-    assert!(bootstrap.markdown.contains("clean typography"));
+    assert!(
+        bootstrap
+            .markdown
+            .contains("Bootstrap summaries trimmed to save context"),
+        "bootstrap should note that summaries are trimmed"
+    );
+    assert!(
+        !bootstrap.markdown.contains("project instructions"),
+        "bootstrap should not dump file content into markdown"
+    );
     assert_eq!(bootstrap.registry.project, "demo");
     assert!(
         bootstrap
@@ -1952,6 +1994,97 @@ fn capability_bridges_install_superpowers_into_opencode_plugin_roots() {
 }
 
 #[test]
+fn capability_bridges_install_codex_skills_into_opencode_command_roots() {
+    let _home_lock = lock_home_mutation();
+    let home = std::env::temp_dir().join(format!(
+        "memd-cap-bridge-opencode-skills-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let codex_skill = home.join(".codex").join("skills").join("caveman");
+    let bridged_skill = home
+        .join(".agents")
+        .join("skills")
+        .join("superpowers")
+        .join("brainstorming");
+    let target_modern = home.join(".config").join("opencode").join("command");
+    let target_legacy = home.join(".opencode").join("command");
+
+    fs::create_dir_all(&codex_skill).expect("create codex skill");
+    fs::create_dir_all(&bridged_skill).expect("create bridged skill");
+    fs::write(
+        codex_skill.join("SKILL.md"),
+        "---\ndescription: Ultra-compressed communication mode\n---\n# caveman\n",
+    )
+    .expect("write codex skill");
+    fs::write(
+        bridged_skill.join("SKILL.md"),
+        "---\ndescription: Explore user intent before implementation\n---\n# brainstorming\n",
+    )
+    .expect("write bridged skill");
+
+    let original_home = std::env::var_os("HOME");
+    unsafe {
+        std::env::set_var("HOME", &home);
+    }
+
+    let bridges = apply_capability_bridges();
+    assert!(bridges.actions.iter().any(|action| {
+        action.harness == "opencode"
+            && action.capability == "codex:caveman"
+            && matches!(action.status.as_str(), "bridged" | "already-bridged")
+    }));
+    assert!(bridges.actions.iter().any(|action| {
+        action.harness == "opencode"
+            && action.capability == "codex-bridge:superpowers--brainstorming"
+            && matches!(action.status.as_str(), "bridged" | "already-bridged")
+    }));
+
+    let caveman_modern =
+        fs::read_to_string(target_modern.join("caveman.md")).expect("read modern caveman bridge");
+    assert!(caveman_modern.contains("memd-opencode-skill-bridge"));
+    assert!(caveman_modern.contains("Keep normal spelling"));
+    assert!(caveman_modern.contains("@"));
+
+    let brainstorming_legacy =
+        fs::read_to_string(target_legacy.join("superpowers--brainstorming.md"))
+            .expect("read legacy brainstorming bridge");
+    assert!(brainstorming_legacy.contains("Explore user intent before implementation"));
+
+    if let Some(value) = original_home {
+        unsafe {
+            std::env::set_var("HOME", value);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("HOME");
+        }
+    }
+    fs::remove_dir_all(home).expect("cleanup fake home");
+}
+
+#[test]
+fn caveman_voice_bridge_keeps_normal_spelling_in_generated_guidance() {
+    let root = std::env::temp_dir().join(format!("memd-voice-bridge-{}", uuid::Uuid::new_v4()));
+    let bundle = root.join(".memd");
+    fs::create_dir_all(&bundle).expect("create bundle");
+    fs::write(
+        bundle.join("config.json"),
+        "{\n  \"voice_mode\": \"caveman-ultra\"\n}\n",
+    )
+    .expect("write config");
+
+    let bridge = render_codex_agents_bridge_markdown(&bundle);
+    assert!(bridge.contains("compressed wording, not broken spelling"));
+    assert!(bridge.contains("Keep normal spelling"));
+
+    let voice = render_voice_mode_section("caveman-ultra");
+    assert!(voice.contains("keep normal spelling"));
+    assert!(voice.contains("exact technical terms"));
+
+    fs::remove_dir_all(root).expect("cleanup temp root");
+}
+
+#[test]
 fn render_capability_registry_summary_includes_claude_family_bridgeable_records() {
     let registry = CapabilityRegistry {
         generated_at: Utc::now(),
@@ -2188,6 +2321,72 @@ fn init_output_prefers_project_root_when_seeded_from_repo() {
     assert_eq!(resolved, project_root.join(".memd"));
 
     fs::remove_dir_all(project_root).expect("cleanup temp project");
+}
+
+#[test]
+fn init_cli_defaults_agent_to_auto() {
+    let cli = Cli::try_parse_from(["memd", "init"]).expect("parse init without agent");
+    let Commands::Init(args) = cli.command else {
+        panic!("expected init command");
+    };
+    assert_eq!(args.agent, "auto");
+}
+
+#[test]
+fn normalize_init_args_detects_claude_when_agent_is_auto() {
+    let _home_lock = lock_home_mutation();
+    let home = std::env::temp_dir().join(format!("memd-init-auto-agent-{}", uuid::Uuid::new_v4()));
+    let project_root =
+        std::env::temp_dir().join(format!("memd-init-auto-project-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(home.join(".claude")).expect("create claude home");
+    fs::create_dir_all(&project_root).expect("create project root");
+
+    let original_home = std::env::var_os("HOME");
+    unsafe {
+        std::env::set_var("HOME", &home);
+    }
+
+    let args = InitArgs {
+        project: None,
+        namespace: None,
+        global: false,
+        project_root: Some(project_root.clone()),
+        seed_existing: true,
+        agent: "auto".to_string(),
+        session: None,
+        tab_id: None,
+        hive_system: None,
+        hive_role: None,
+        capability: Vec::new(),
+        hive_group: Vec::new(),
+        hive_group_goal: None,
+        authority: None,
+        output: default_init_output_path(),
+        base_url: "http://127.0.0.1:8787".to_string(),
+        rag_url: None,
+        route: "auto".to_string(),
+        intent: "current_task".to_string(),
+        voice_mode: None,
+        workspace: None,
+        visibility: None,
+        allow_localhost_read_only_fallback: false,
+        force: false,
+    };
+
+    let normalized = normalize_init_args(args).expect("normalize init args");
+    assert_eq!(normalized.agent, "claude-code");
+
+    if let Some(value) = original_home {
+        unsafe {
+            std::env::set_var("HOME", value);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("HOME");
+        }
+    }
+    fs::remove_dir_all(home).expect("cleanup fake home");
+    fs::remove_dir_all(project_root).expect("cleanup fake project");
 }
 
 #[test]

@@ -72,9 +72,46 @@ pub(crate) fn apply_capability_bridges() -> CapabilityBridgeRegistry {
     };
 
     let claude_settings = home.join(".claude").join("settings.json");
+    let claude_skill_root = home.join(".claude").join("skills");
+    let claude_modern_commands = home.join(".claude").join("commands");
+    let claude_legacy_commands = home.join(".claude").join("command");
     let codex_skill_root = home.join(".agents").join("skills");
+    let codex_builtin_skill_root = home.join(".codex").join("skills");
+    let opencode_modern_commands = home.join(".config").join("opencode").join("command");
+    let opencode_legacy_commands = home.join(".opencode").join("command");
     let opencode_modern_plugins = home.join(".config").join("opencode").join("plugins");
     let opencode_legacy_plugins = home.join(".opencode").join("plugins");
+    for target_root in [&opencode_modern_commands, &opencode_legacy_commands] {
+        actions.extend(ensure_opencode_command_skill_bridges(
+            &codex_builtin_skill_root,
+            target_root,
+            "codex",
+        ));
+        actions.extend(ensure_opencode_command_skill_bridges(
+            &codex_skill_root,
+            target_root,
+            "codex-bridge",
+        ));
+    }
+    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+        let source_skill = codex_builtin_skill_root.join(skill_name);
+        if source_skill.is_dir() {
+            let target = claude_skill_root.join(skill_name);
+            actions.push(ensure_directory_skill_bridge(
+                "claude",
+                skill_name,
+                &source_skill,
+                &target,
+            ));
+        }
+    }
+    for target_root in [&claude_modern_commands, &claude_legacy_commands] {
+        actions.extend(ensure_claude_command_bridges(
+            &codex_builtin_skill_root,
+            target_root,
+            "codex",
+        ));
+    }
     let plugin_records = collect_enabled_plugin_cache_records(&claude_settings, &home);
     for record in plugin_records {
         let source_skills = record.cache_root.join("skills");
@@ -118,9 +155,46 @@ pub(crate) fn detect_capability_bridges() -> CapabilityBridgeRegistry {
     };
 
     let claude_settings = home.join(".claude").join("settings.json");
+    let claude_skill_root = home.join(".claude").join("skills");
+    let claude_modern_commands = home.join(".claude").join("commands");
+    let claude_legacy_commands = home.join(".claude").join("command");
     let codex_skill_root = home.join(".agents").join("skills");
+    let codex_builtin_skill_root = home.join(".codex").join("skills");
+    let opencode_modern_commands = home.join(".config").join("opencode").join("command");
+    let opencode_legacy_commands = home.join(".opencode").join("command");
     let opencode_modern_plugins = home.join(".config").join("opencode").join("plugins");
     let opencode_legacy_plugins = home.join(".opencode").join("plugins");
+    for target_root in [&opencode_modern_commands, &opencode_legacy_commands] {
+        actions.extend(inspect_opencode_command_skill_bridges(
+            &codex_builtin_skill_root,
+            target_root,
+            "codex",
+        ));
+        actions.extend(inspect_opencode_command_skill_bridges(
+            &codex_skill_root,
+            target_root,
+            "codex-bridge",
+        ));
+    }
+    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+        let source_skill = codex_builtin_skill_root.join(skill_name);
+        if source_skill.is_dir() {
+            let target = claude_skill_root.join(skill_name);
+            actions.push(inspect_directory_skill_bridge(
+                "claude",
+                skill_name,
+                &source_skill,
+                &target,
+            ));
+        }
+    }
+    for target_root in [&claude_modern_commands, &claude_legacy_commands] {
+        actions.extend(inspect_claude_command_bridges(
+            &codex_builtin_skill_root,
+            target_root,
+            "codex",
+        ));
+    }
     let plugin_records = collect_enabled_plugin_cache_records(&claude_settings, &home);
     for record in plugin_records {
         let source_skills = record.cache_root.join("skills");
@@ -362,6 +436,578 @@ pub(crate) fn inspect_directory_skill_bridge(
     }
 }
 
+const MEMD_OPENCODE_SKILL_BRIDGE_MARKER: &str = "<!-- memd-opencode-skill-bridge -->";
+const MEMD_CLAUDE_COMMAND_BRIDGE_MARKER: &str = "<!-- memd-claude-command-bridge -->";
+
+pub(crate) fn ensure_opencode_command_skill_bridges(
+    source_root: &Path,
+    target_root: &Path,
+    capability_prefix: &str,
+) -> Vec<CapabilityBridgeAction> {
+    let mut actions = Vec::new();
+    for skill_dir in collect_skill_dirs_recursive(source_root) {
+        let skill_file = skill_dir.join("SKILL.md");
+        let capability = format!(
+            "{}:{}",
+            capability_prefix,
+            opencode_command_name_for_skill(source_root, &skill_dir)
+        );
+        actions.push(ensure_opencode_command_skill_bridge(
+            &capability,
+            &skill_file,
+            target_root,
+            source_root,
+        ));
+    }
+    actions
+}
+
+pub(crate) fn inspect_opencode_command_skill_bridges(
+    source_root: &Path,
+    target_root: &Path,
+    capability_prefix: &str,
+) -> Vec<CapabilityBridgeAction> {
+    let mut actions = Vec::new();
+    for skill_dir in collect_skill_dirs_recursive(source_root) {
+        let skill_file = skill_dir.join("SKILL.md");
+        let capability = format!(
+            "{}:{}",
+            capability_prefix,
+            opencode_command_name_for_skill(source_root, &skill_dir)
+        );
+        actions.push(inspect_opencode_command_skill_bridge(
+            &capability,
+            &skill_file,
+            target_root,
+            source_root,
+        ));
+    }
+    actions
+}
+
+pub(crate) fn ensure_opencode_command_skill_bridge(
+    capability: &str,
+    source_skill: &Path,
+    target_root: &Path,
+    source_root: &Path,
+) -> CapabilityBridgeAction {
+    let source_path = source_skill.display().to_string();
+    let command_name = opencode_command_name_for_skill_root(source_root, source_skill.parent());
+    let target = target_root.join(format!("{command_name}.md"));
+    let target_path = target.display().to_string();
+    let desired = render_opencode_command_skill_bridge(source_skill, &command_name);
+
+    if let Err(err) = fs::create_dir_all(target_root) {
+        return CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec![format!("failed to create target directory: {err}")],
+        };
+    }
+
+    if let Ok(existing) = fs::read_to_string(&target) {
+        if existing == desired {
+            return CapabilityBridgeAction {
+                harness: "opencode".to_string(),
+                capability: capability.to_string(),
+                status: "already-bridged".to_string(),
+                source_path,
+                target_path,
+                notes: vec!["OpenCode command bridge already current".to_string()],
+            };
+        }
+        if !existing.contains(MEMD_OPENCODE_SKILL_BRIDGE_MARKER) {
+            return CapabilityBridgeAction {
+                harness: "opencode".to_string(),
+                capability: capability.to_string(),
+                status: "blocked".to_string(),
+                source_path,
+                target_path,
+                notes: vec!["target already exists and is not memd-managed".to_string()],
+            };
+        }
+    } else if target.exists() {
+        return CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["target exists but is not readable as text".to_string()],
+        };
+    }
+
+    match fs::write(&target, desired) {
+        Ok(()) => CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: "bridged".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["generated native OpenCode command bridge".to_string()],
+        },
+        Err(err) => CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec![format!("failed to write command bridge: {err}")],
+        },
+    }
+}
+
+pub(crate) fn inspect_opencode_command_skill_bridge(
+    capability: &str,
+    source_skill: &Path,
+    target_root: &Path,
+    source_root: &Path,
+) -> CapabilityBridgeAction {
+    let source_path = source_skill.display().to_string();
+    let command_name = opencode_command_name_for_skill_root(source_root, source_skill.parent());
+    let target = target_root.join(format!("{command_name}.md"));
+    let target_path = target.display().to_string();
+    let desired = render_opencode_command_skill_bridge(source_skill, &command_name);
+
+    if !target_root.exists() {
+        return CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["target command directory is missing".to_string()],
+        };
+    }
+
+    if let Ok(existing) = fs::read_to_string(&target) {
+        let status = if existing == desired {
+            "already-bridged"
+        } else if existing.contains(MEMD_OPENCODE_SKILL_BRIDGE_MARKER) {
+            "available"
+        } else {
+            "blocked"
+        };
+        let notes = match status {
+            "already-bridged" => vec!["OpenCode command bridge already current".to_string()],
+            "available" => vec!["memd-managed command bridge can be refreshed".to_string()],
+            _ => vec!["target already exists and is not memd-managed".to_string()],
+        };
+        return CapabilityBridgeAction {
+            harness: "opencode".to_string(),
+            capability: capability.to_string(),
+            status: status.to_string(),
+            source_path,
+            target_path,
+            notes,
+        };
+    }
+
+    CapabilityBridgeAction {
+        harness: "opencode".to_string(),
+        capability: capability.to_string(),
+        status: "available".to_string(),
+        source_path,
+        target_path,
+        notes: vec!["command bridge can be created by explicit init".to_string()],
+    }
+}
+
+pub(crate) fn ensure_claude_command_bridges(
+    source_root: &Path,
+    target_root: &Path,
+    capability_prefix: &str,
+) -> Vec<CapabilityBridgeAction> {
+    let mut actions = Vec::new();
+    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+        let source_skill = source_root.join(skill_name).join("SKILL.md");
+        if !source_skill.is_file() {
+            continue;
+        }
+        let capability = format!("{capability_prefix}:{skill_name}");
+        actions.push(ensure_claude_command_bridge(
+            &capability,
+            &source_skill,
+            target_root,
+            skill_name,
+        ));
+    }
+    actions
+}
+
+pub(crate) fn inspect_claude_command_bridges(
+    source_root: &Path,
+    target_root: &Path,
+    capability_prefix: &str,
+) -> Vec<CapabilityBridgeAction> {
+    let mut actions = Vec::new();
+    for skill_name in ["memd", "memd-init", "memd-reload", "memd-status"] {
+        let source_skill = source_root.join(skill_name).join("SKILL.md");
+        if !source_skill.is_file() {
+            continue;
+        }
+        let capability = format!("{capability_prefix}:{skill_name}");
+        actions.push(inspect_claude_command_bridge(
+            &capability,
+            &source_skill,
+            target_root,
+            skill_name,
+        ));
+    }
+    actions
+}
+
+pub(crate) fn ensure_claude_command_bridge(
+    capability: &str,
+    source_skill: &Path,
+    target_root: &Path,
+    command_name: &str,
+) -> CapabilityBridgeAction {
+    let source_path = source_skill.display().to_string();
+    let target = if command_name == "memd" {
+        target_root.join("memd.md")
+    } else {
+        target_root
+            .join("memd")
+            .join(format!("{}.md", command_name.trim_start_matches("memd-")))
+    };
+    let target_path = target.display().to_string();
+    let desired = render_claude_command_skill_bridge(source_skill, command_name);
+
+    if let Some(parent) = target.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            return CapabilityBridgeAction {
+                harness: "claude".to_string(),
+                capability: capability.to_string(),
+                status: "blocked".to_string(),
+                source_path,
+                target_path,
+                notes: vec![format!("failed to create target directory: {err}")],
+            };
+        }
+    }
+
+    if let Ok(existing) = fs::read_to_string(&target) {
+        if existing == desired {
+            return CapabilityBridgeAction {
+                harness: "claude".to_string(),
+                capability: capability.to_string(),
+                status: "already-bridged".to_string(),
+                source_path,
+                target_path,
+                notes: vec!["Claude command bridge already current".to_string()],
+            };
+        }
+        if !existing.contains(MEMD_CLAUDE_COMMAND_BRIDGE_MARKER) {
+            return CapabilityBridgeAction {
+                harness: "claude".to_string(),
+                capability: capability.to_string(),
+                status: "blocked".to_string(),
+                source_path,
+                target_path,
+                notes: vec!["target already exists and is not memd-managed".to_string()],
+            };
+        }
+    } else if target.exists() {
+        return CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["target exists but is not readable as text".to_string()],
+        };
+    }
+
+    match fs::write(&target, desired) {
+        Ok(()) => CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: "bridged".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["generated native Claude command bridge".to_string()],
+        },
+        Err(err) => CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec![format!("failed to write command bridge: {err}")],
+        },
+    }
+}
+
+pub(crate) fn inspect_claude_command_bridge(
+    capability: &str,
+    source_skill: &Path,
+    target_root: &Path,
+    command_name: &str,
+) -> CapabilityBridgeAction {
+    let source_path = source_skill.display().to_string();
+    let target = if command_name == "memd" {
+        target_root.join("memd.md")
+    } else {
+        target_root
+            .join("memd")
+            .join(format!("{}.md", command_name.trim_start_matches("memd-")))
+    };
+    let target_path = target.display().to_string();
+    let desired = render_claude_command_skill_bridge(source_skill, command_name);
+
+    if !target_root.exists() {
+        return CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: "blocked".to_string(),
+            source_path,
+            target_path,
+            notes: vec!["target command directory is missing".to_string()],
+        };
+    }
+
+    if let Ok(existing) = fs::read_to_string(&target) {
+        let status = if existing == desired {
+            "already-bridged"
+        } else if existing.contains(MEMD_CLAUDE_COMMAND_BRIDGE_MARKER) {
+            "available"
+        } else {
+            "blocked"
+        };
+        let notes = match status {
+            "already-bridged" => vec!["Claude command bridge already current".to_string()],
+            "available" => vec!["memd-managed command bridge can be refreshed".to_string()],
+            _ => vec!["target already exists and is not memd-managed".to_string()],
+        };
+        return CapabilityBridgeAction {
+            harness: "claude".to_string(),
+            capability: capability.to_string(),
+            status: status.to_string(),
+            source_path,
+            target_path,
+            notes,
+        };
+    }
+
+    CapabilityBridgeAction {
+        harness: "claude".to_string(),
+        capability: capability.to_string(),
+        status: "available".to_string(),
+        source_path,
+        target_path,
+        notes: vec!["command bridge can be created by explicit init".to_string()],
+    }
+}
+
+pub(crate) fn collect_skill_dirs_recursive(root: &Path) -> Vec<PathBuf> {
+    let mut skill_dirs = Vec::new();
+    if !root.is_dir() {
+        return skill_dirs;
+    }
+
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if path.join("SKILL.md").is_file() {
+                skill_dirs.push(path);
+                continue;
+            }
+            stack.push(path);
+        }
+    }
+    skill_dirs.sort();
+    skill_dirs
+}
+
+pub(crate) fn opencode_command_name_for_skill(root: &Path, skill_dir: &Path) -> String {
+    opencode_command_name_for_skill_root(root, Some(skill_dir))
+}
+
+pub(crate) fn opencode_command_name_for_skill_root(
+    root: &Path,
+    skill_dir: Option<&Path>,
+) -> String {
+    let Some(skill_dir) = skill_dir else {
+        return "skill".to_string();
+    };
+    let relative = skill_dir.strip_prefix(root).unwrap_or(skill_dir);
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        let part = component.as_os_str().to_string_lossy();
+        let cleaned = sanitize_opencode_command_component(&part);
+        if !cleaned.is_empty() {
+            parts.push(cleaned);
+        }
+    }
+    if parts.is_empty() {
+        "skill".to_string()
+    } else {
+        parts.join("--")
+    }
+}
+
+pub(crate) fn sanitize_opencode_command_component(raw: &str) -> String {
+    let mut cleaned = String::new();
+    let mut prev_dash = false;
+    for ch in raw.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            prev_dash = false;
+            Some(ch.to_ascii_lowercase())
+        } else if ch == '-' || ch == '_' || ch == ' ' || ch == '.' || ch == '/' {
+            if prev_dash {
+                None
+            } else {
+                prev_dash = true;
+                Some('-')
+            }
+        } else {
+            None
+        };
+        if let Some(ch) = mapped {
+            cleaned.push(ch);
+        }
+    }
+    cleaned.trim_matches('-').to_string()
+}
+
+pub(crate) fn render_opencode_command_skill_bridge(
+    source_skill: &Path,
+    command_name: &str,
+) -> String {
+    let description = extract_skill_description(source_skill)
+        .unwrap_or_else(|| format!("Run Codex skill `{command_name}` through native OpenCode"));
+    let skill_dir = source_skill.parent().unwrap_or(source_skill);
+    format!(
+        "---\n\
+description: {description}\n\
+argument-hint: \"[context]\"\n\
+tools:\n\
+  bash: true\n\
+  read: true\n\
+  write: true\n\
+  glob: true\n\
+  grep: true\n\
+  edit: true\n\
+  task: true\n\
+  question: true\n\
+---\n\
+{marker}\n\
+<objective>\n\
+Execute Codex skill through native OpenCode command bridge.\n\
+\n\
+Source of truth: `{source}`\n\
+Command id: `{command_name}`\n\
+</objective>\n\
+\n\
+<execution_context>\n\
+@{source}\n\
+</execution_context>\n\
+\n\
+<context>\n\
+Arguments: $ARGUMENTS\n\
+\n\
+Resolve any relative references from skill file against `{skill_dir}`.\n\
+If local `.memd` exists, prefer project bundle over global bundle for memory, runtime, and voice state.\n\
+</context>\n\
+\n\
+<process>\n\
+1. Read execution context skill file.\n\
+2. Apply its workflow to current request plus `$ARGUMENTS`.\n\
+3. Keep normal spelling and exact technical terms even in caveman voice modes.\n\
+4. Return concise result.\n\
+</process>\n",
+        description = escape_yaml_inline(&description),
+        marker = MEMD_OPENCODE_SKILL_BRIDGE_MARKER,
+        source = source_skill.display(),
+        command_name = command_name,
+        skill_dir = skill_dir.display(),
+    )
+}
+
+pub(crate) fn render_claude_command_skill_bridge(source_skill: &Path, command_name: &str) -> String {
+    let description = extract_skill_description(source_skill).unwrap_or_else(|| {
+        format!("Run memd skill `{command_name}` through native Claude Code slash command")
+    });
+    let (name, objective, process) = match command_name {
+        "memd" => (
+            "memd".to_string(),
+            "Use memd as the current project's memory control plane.".to_string(),
+            "1. Run `memd status --output .memd --summary`.\n2. If `.memd` is missing and the user did not ask for status-only behavior, run `memd init --output .memd`.\n3. If the user asked to load or refresh memory, run `memd reload --output .memd --summary`.\n4. If the user asked about prior decisions, preferences, or history, run `memd lookup --output .memd --query \"$ARGUMENTS\"`.\n5. Return the resulting readiness state.".to_string(),
+        ),
+        "memd-init" => (
+            "memd:init".to_string(),
+            "Initialize memd for the current project and wire the Claude Code bridge.".to_string(),
+            "1. Run `memd init --output .memd`.\n2. Run `memd agent --output .memd --name claude-code --apply --summary`.\n3. Run `memd status --output .memd --summary`.\n4. Return the final readiness state.".to_string(),
+        ),
+        "memd-reload" => (
+            "memd:reload".to_string(),
+            "Refresh the current project's memd wake surface.".to_string(),
+            "1. Run `memd reload --output .memd --summary`.\n2. Run `memd status --output .memd --summary`.\n3. Return the updated readiness state.".to_string(),
+        ),
+        "memd-status" => (
+            "memd:status".to_string(),
+            "Check whether memd is installed and ready for the current Claude Code project.".to_string(),
+            "Run `memd status --output .memd --summary` and return the result.".to_string(),
+        ),
+        _ => (
+            format!("memd:{command_name}"),
+            "Run memd for the current project.".to_string(),
+            "Run the appropriate `memd` command for the request and report the result.".to_string(),
+        ),
+    };
+    format!(
+        "---\nname: {name}\ndescription: {description}\nallowed-tools:\n  - Bash\n  - Read\n  - Glob\n  - Grep\n---\n{marker}\n<objective>\n{objective}\n</objective>\n\n<execution_context>\n@{source}\n</execution_context>\n\n<process>\n{process}\n</process>\n",
+        name = name,
+        description = description,
+        marker = MEMD_CLAUDE_COMMAND_BRIDGE_MARKER,
+        objective = objective,
+        source = source_skill.display(),
+        process = process,
+    )
+}
+
+pub(crate) fn extract_skill_description(source_skill: &Path) -> Option<String> {
+    let raw = fs::read_to_string(source_skill).ok()?;
+    let mut in_frontmatter = false;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            if in_frontmatter {
+                break;
+            }
+            in_frontmatter = true;
+            continue;
+        }
+        if !in_frontmatter {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("description:") {
+            let desc = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !desc.is_empty() && desc != ">" && desc != "|" {
+                return Some(desc.to_string());
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn escape_yaml_inline(value: &str) -> String {
+    let compact = value.replace('\n', " ").trim().to_string();
+    let escaped = compact.replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 #[cfg(unix)]
 pub(crate) fn create_symlink(source: &Path, target: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(source, target)
@@ -485,6 +1131,15 @@ pub(crate) fn collect_user_harness_bootstrap_sources(project_root: Option<&Path>
             &[
                 "hooks/gsd-session-context.js",
                 "hooks/memd-session-context.js",
+                "skills/memd/SKILL.md",
+                "skills/memd-init/SKILL.md",
+                "skills/memd-reload/SKILL.md",
+                "skills/memd-status/SKILL.md",
+                "commands/memd.md",
+                "commands/memd/init.md",
+                "commands/memd/reload.md",
+                "commands/memd/status.md",
+                "command/memd.md",
             ],
         ));
     }
@@ -937,9 +1592,24 @@ pub(crate) fn resolve_hive_profile(args: &InitArgs, project: Option<&str>) -> Hi
     }
 }
 
+pub(crate) fn init_agent_is_auto(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto")
+}
+
+pub(crate) fn normalize_init_args(mut args: InitArgs) -> anyhow::Result<InitArgs> {
+    if init_agent_is_auto(&args.agent) {
+        let project_root = detect_init_project_root(&args)?;
+        let output = resolve_init_output_path(&args, project_root.as_deref());
+        args.agent = detect_setup_agent(project_root.as_deref(), &output);
+    }
+    Ok(args)
+}
+
 pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
-    let project_root = detect_init_project_root(args)?;
-    let output = resolve_init_output_path(args, project_root.as_deref());
+    let args = normalize_init_args(args.clone())?;
+    let project_root = detect_init_project_root(&args)?;
+    let output = resolve_init_output_path(&args, project_root.as_deref());
     if output.exists() && !args.force {
         anyhow::bail!(
             "{} already exists; pass --force to overwrite",
@@ -958,11 +1628,11 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(default_bundle_session);
     let tab_id = args.tab_id.clone().or_else(default_bundle_tab_id);
-    let project = init_project_name(args, project_root.as_deref());
-    let namespace = init_namespace_name(args, &output);
-    let hive_profile = resolve_hive_profile(args, Some(project.as_str()));
+    let project = init_project_name(&args, project_root.as_deref());
+    let namespace = init_namespace_name(&args, &output);
+    let hive_profile = resolve_hive_profile(&args, Some(project.as_str()));
     let project_bootstrap = if args.seed_existing {
-        build_project_bootstrap_memory(project_root.as_deref(), &project, args).unwrap_or_default()
+        build_project_bootstrap_memory(project_root.as_deref(), &project, &args).unwrap_or_default()
     } else {
         None
     };
@@ -1248,7 +1918,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     fs::write(
         output.join("README.md"),
         format!(
-            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Set up the bundle:\n   - `memd setup --output {bundle}`\n2. Check readiness and repair drift when needed:\n   - `memd doctor --output {bundle}`\n   - `memd doctor --output {bundle} --repair`\n3. Inspect the active config:\n   - `memd config --output {bundle}`\n4. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --route {route} --intent {intent} --write`\n5. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n6. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --route {route} --intent {intent}`\n7. Before memory-dependent answers, run bundle-aware recall:\n   - `memd lookup --output {bundle} --query \"...\"`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd setup --output {bundle}`\n- `memd doctor --output {bundle}`\n- `memd config --output {bundle}`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `MEMD_WAKEUP.md` is the startup live-memory surface; `MEMD_MEMORY.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Codex, start from `.memd/agents/CODEX_WAKEUP.md`, then use `memd lookup --output {bundle} --query \"...\"` before memory-dependent answers.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
+            "# memd bundle\n\nThis directory contains the memd configuration for `{project}`.\n\n## Quick Start\n\n1. Set up the bundle:\n   - `memd setup --output {bundle}`\n2. Check readiness and repair drift when needed:\n   - `memd doctor --output {bundle}`\n   - `memd doctor --output {bundle} --repair`\n3. Inspect the active config:\n   - `memd config --output {bundle}`\n4. Refresh the live wake-up surface:\n   - `memd wake --output {bundle} --route {route} --intent {intent} --write`\n5. Launch an agent profile:\n   - `.memd/agents/codex.sh`\n   - `.memd/agents/claude-code.sh`\n   - `.memd/agents/agent-zero.sh`\n   - `.memd/agents/hermes.sh`\n   - `.memd/agents/openclaw.sh`\n   - `.memd/agents/opencode.sh`\n6. Inspect the compact working-memory view when needed:\n   - `memd resume --output {bundle} --route {route} --intent {intent}`\n7. Before memory-dependent answers, run bundle-aware recall:\n   - `memd lookup --output {bundle} --query \"...\"`\n\n## Commands\n\n- `memd commands --output {bundle}`\n- `memd commands --output {bundle} --summary`\n- `memd commands --output {bundle} --json`\n- `memd setup --output {bundle}`\n- `memd doctor --output {bundle}`\n- `memd config --output {bundle}`\n\nThe same catalog is written to `COMMANDS.md` in the bundle root.\n\n## Notes\n\n- Prefer the built `memd` binary during normal multi-session use; `cargo run` adds avoidable compile/cache contention.\n- `env` and `env.ps1` export the same bundle defaults if you want to wire another harness manually.\n- Automatic short-term capture is enabled by default and writes bundle state under `state/last-resume.json`.\n- `wake.md` is the startup live-memory surface; `mem.md` is the deeper compact memory view.\n- Add `--semantic` only when you want deeper LightRAG fallback.\n- For Codex, start from `.memd/wake.md`, then use `memd lookup --output {bundle} --query \"...\"` before memory-dependent answers.\n- For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from your project `CLAUDE.md`, then use `/memory` to verify the memd files are loaded.\n",
             project = project,
             bundle = output.display(),
             route = config.route,
@@ -1764,9 +2434,10 @@ pub(crate) async fn refresh_project_bootstrap_memory(
     let mut markdown = String::new();
     markdown.push_str("\n## Project source refresh\n\n");
     markdown.push_str("The following project sources changed since the last import:\n\n");
-    for (path, snippet) in &changed {
-        markdown.push_str(&format!("### {}\n\n{}\n\n", path, snippet));
+    for (path, _snippet) in &changed {
+        markdown.push_str(&format!("- {}\n", path));
     }
+    markdown.push('\n');
 
     Ok(Some((markdown, registry)))
 }
@@ -1961,11 +2632,13 @@ pub(crate) fn build_project_bootstrap_memory(
             display_bootstrap_source_path(source, project_root)
         ));
     }
-    markdown.push_str("\n## Imported summaries\n\n");
+    markdown.push_str(
+        "\nBootstrap summaries trimmed to save context. Read any source file on demand.\nSee `state/source-registry.json` for content hashes.\n\n",
+    );
 
     for source in sources.drain(..) {
         let display = display_bootstrap_source_path(&source, project_root);
-        if let Some((snippet, meta)) = read_bootstrap_source(&source, 24) {
+        if let Some((_snippet, meta)) = read_bootstrap_source(&source, 24) {
             registry_sources.push(BootstrapSourceRecord {
                 path: display.clone(),
                 kind: source_kind_from_path(&source),
@@ -1976,7 +2649,6 @@ pub(crate) fn build_project_bootstrap_memory(
                 imported_at: Utc::now(),
                 modified_at: file_modified_at(&source),
             });
-            markdown.push_str(&format!("### {}\n\n{}\n\n", display, snippet));
         }
     }
 
@@ -2241,6 +2913,16 @@ pub(crate) fn collect_claude_family_capabilities(
         &harness_root.harness,
         &harness_root.root,
         "command",
+        "command",
+        &portability_class,
+        Some("command"),
+        &["md", "json", "yml", "yaml", "sh", "js"],
+    );
+    collect_directory_entry_capabilities(
+        &mut records,
+        &harness_root.harness,
+        &harness_root.root,
+        "commands",
         "command",
         &portability_class,
         Some("command"),

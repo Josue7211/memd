@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::harness::preset::WAKE_ONLY_SURFACES;
 use crate::harness::shared::HarnessPackData;
 
 pub(crate) type ClaudeCodeHarnessPack = HarnessPackData;
@@ -9,6 +10,12 @@ pub(crate) fn build_claude_code_harness_pack(
     project: &str,
     namespace: &str,
 ) -> ClaudeCodeHarnessPack {
+    let mut files: Vec<_> = WAKE_ONLY_SURFACES
+        .iter()
+        .map(|surface| bundle_root.join(surface))
+        .collect();
+    files.push(bundle_root.join("agents").join("CLAUDE_IMPORTS.md"));
+    files.push(bundle_root.join("agents").join("CLAUDE.md.example"));
     HarnessPackData {
         name: "Claude Code",
         role: "native import bridge pack",
@@ -16,15 +23,7 @@ pub(crate) fn build_claude_code_harness_pack(
         project: project.to_string(),
         namespace: namespace.to_string(),
         bundle_root: bundle_root.to_path_buf(),
-        files: vec![
-            bundle_root.join("MEMD_WAKEUP.md"),
-            bundle_root.join("MEMD_MEMORY.md"),
-            bundle_root.join("agents").join("CLAUDE_CODE_WAKEUP.md"),
-            bundle_root.join("agents").join("CLAUDE_CODE_MEMORY.md"),
-            bundle_root.join("agents").join("CLAUDE_CODE_EVENTS.md"),
-            bundle_root.join("agents").join("CLAUDE_IMPORTS.md"),
-            bundle_root.join("agents").join("CLAUDE.md.example"),
-        ],
+        files,
         commands: vec![
             "memd wake --output .memd --write".to_string(),
             "memd resume --output .memd".to_string(),
@@ -34,7 +33,7 @@ pub(crate) fn build_claude_code_harness_pack(
         behaviors: vec![
             "native Claude import bridge".to_string(),
             "pre-answer lookup before memory-dependent responses".to_string(),
-            "shared bundle truth with visible wake and memory files".to_string(),
+            "wake-only boot path with explicit deeper recall".to_string(),
         ],
     }
 }
