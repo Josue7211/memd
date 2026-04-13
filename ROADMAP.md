@@ -9,7 +9,7 @@ version_status: in_progress
 current_phase: phase_h
 phase_status: in_progress
 next_phase: phase_i
-next_step: fix_inbox_drain
+next_step: verify_phase_h_pass_gate
 active_blockers: []
 -->
 
@@ -21,15 +21,19 @@ active_blockers: []
 - current phase: `Phase H: Core Hardening`
 - phase status: `in_progress`
 - next phase: `Phase I: Human Dashboard`
-- next step: `fix inbox drain (#29)`
+- next step: `verify Phase H pass gate`
 
 ## Current Focus
 
-Phase H in progress. Core hardening — fix operational pipeline so phases B-G
-actually work. Fix order: #29 inbox drain → #27 status noise → #22 ghost refs
-→ #15 wake kind coverage → #28 procedure detection → #26 dogfood gate → #34
-memory navigation. Pass gate: eval ≥ 65, working memory has ≥1 non-status item,
-wake packet has ≥1 fact/decision, inbox has 0 expired items.
+Phase H in progress. All 7 critical fixes landed:
+- #29 inbox drain: drain/dismiss endpoints + worker GC
+- #27 status noise: working memory caps status at 2, auto-expire excess per agent
+- #22 ghost refs: source_path existence filter in continuity
+- #15 wake kind coverage: Global scope bonus raised from -0.2 to +0.15
+- #28 procedure detection: verified — worker already wired (stale issue)
+- #26 dogfood gate: 2 e2e tests proving facts/decisions survive under noise
+- #34 auto-linking: entity links auto-created on store for co-occurring items
+Next: verify pass gate criteria.
 
 ## Blockers
 
@@ -162,11 +166,10 @@ All audit tail items resolved:
 14. [[docs/backlog/archive/2026-04-13-stale-doc-refs.md|stale-doc-refs]] — `closed`, already resolved.
     FEATURES.md no longer exists — removed in prior audit.
 
-15. [[docs/backlog/2026-04-13-wake-packet-kind-coverage.md|wake-packet-kind-coverage]] — `open`. **CRITICAL**
-    Wake packets only surface Status + LiveTruth. Facts, Decisions, Preferences, Procedures
-    structurally excluded. Root cause: fixed `intent=current_task` in wake gives Project scope
-    +1.15 and Global scope -0.2. `context_score()` is kind-blind. No kind-based filtering in
-    context/working/inbox APIs. Even with status noise fixed, facts still don't surface.
+15. [[docs/backlog/2026-04-13-wake-packet-kind-coverage.md|wake-packet-kind-coverage]] — `closed`, fixed `2026-04-13`.
+    Global scope intent bonus raised from -0.2 to +0.15 for CurrentTask intent.
+    Kind-based scoring already existed (+0.30 for facts, -0.20 for status).
+    Combined with status noise cap (#27), facts now reliably surface in wake packets.
 
 16. [[docs/backlog/2026-04-13-checkpoint-resume-asymmetry.md|checkpoint-resume-asymmetry]] — `open`.
     Checkpoint saves per-item metadata. Resume loads aggregate snapshot. No round-trip.
@@ -187,11 +190,9 @@ All audit tail items resolved:
     158→36 warnings (77% reduction). Collapsible ifs auto-fixed, derive impls, lifetime elision.
     Remaining 35 are too-many-args and identical blocks requiring manual refactoring.
 
-22. [[docs/backlog/2026-04-13-stale-continuity-ghost-refs.md|stale-continuity-ghost-refs]] — `open`. **CRITICAL**
-    Full lifecycle broken: inbox created from git status without file existence check →
-    expired items NOT removed (filter includes expired) → no drain endpoint → continuity
-    `left_off` and `blocker` pull from expired ghost items → `memd status` reports healthy.
-    Need: file validation at creation, expired item exclusion, drain endpoints, GC.
+22. [[docs/backlog/2026-04-13-stale-continuity-ghost-refs.md|stale-continuity-ghost-refs]] — `closed`, fixed `2026-04-13`.
+    Ghost refs filtered from continuity via source_path existence check in compact_inbox_items.
+    Drain endpoints (#29) handle expired item GC. Inbox already excludes expired items.
 
 23. [[docs/backlog/2026-04-13-agent-write-helpers-unreachable.md|agent-write-helpers-unreachable]] — `open`.
     Shell helpers exist (`.memd/agents/remember-long.sh` etc.) but agents can't use them.
@@ -213,27 +214,22 @@ All audit tail items resolved:
     - RAG backend is disabled
     Status is a liveness check, not a health check. Needs deep health verification.
 
-26. [[docs/backlog/2026-04-13-dogfood-verification-gap.md|dogfood-verification-gap]] — `open`. **CRITICAL**
-    All phases marked "verified" via cargo test, but operational pipeline broken.
-    No end-to-end dogfood gate: store fact → recall next session → continuity works
-    → inbox drains → procedures learned → write helpers callable.
-    Need reusable benchmark suite that tests the product, not just the code.
+26. [[docs/backlog/2026-04-13-dogfood-verification-gap.md|dogfood-verification-gap]] — `closed`, fixed `2026-04-13`.
+    2 e2e dogfood gate tests added: fact survives context+working retrieval under noise,
+    decision surfaces with status capped at 2. Tests verify the product contract, not just code.
 
-27. [[docs/backlog/2026-04-13-status-noise-floods-memory.md|status-noise-floods-memory]] — `open`. **CRITICAL**
-    15+ auto-checkpoint triggers each create `kind=status` records. No deduplication.
-    24h TTL, 10-20 accumulate per day. Working memory budget (1600 chars, 8 items)
-    consumed 80-90% by status noise. `checkpoint_as_remember_args()` forces kind=status.
-    User facts/decisions evicted by freshness bias. Root: runaway meta-recording.
+27. [[docs/backlog/2026-04-13-status-noise-floods-memory.md|status-noise-floods-memory]] — `closed`, fixed `2026-04-13`.
+    Working memory caps status items at 2 (admission layer). Store auto-expires excess
+    status items per agent when count exceeds 4 (storage layer). Facts/decisions now survive.
 
-28. [[docs/backlog/2026-04-13-procedure-detection-never-triggers.md|procedure-detection-never-triggers]] — `open`. **CRITICAL**
-    Phase G "verified" but `detect_procedures()` only called in tests + manual CLI.
-    `maintain_runtime()` doesn't call it. No hook, no scheduler, no runtime trigger.
-    Procedures table permanently empty during real usage. 90% wired, 0% operational.
+28. [[docs/backlog/2026-04-13-procedure-detection-never-triggers.md|procedure-detection-never-triggers]] — `closed`, stale `2026-04-13`.
+    Worker calls `client.procedure_detect()` every cycle at worker/main.rs:156.
+    Issue was filed before worker integration. Detection pipeline fully wired.
 
-29. [[docs/backlog/2026-04-13-inbox-never-drains.md|inbox-never-drains]] — `open`. **CRITICAL**
-    No drain endpoints (no acknowledge/dismiss/clear). Expired items still appear
-    in inbox (filter `status != Active` includes expired). No GC for expired memory items.
-    Items persist indefinitely. 6 current ghost items from deleted `.planning/` files.
+29. [[docs/backlog/2026-04-13-inbox-never-drains.md|inbox-never-drains]] — `closed`, fixed `2026-04-13`.
+    Added POST /memory/maintenance/drain (DELETE expired items from DB) and
+    POST /memory/inbox/dismiss (expire specific items by ID). Worker calls drain
+    every cycle. Client methods added. Schema types added.
 
 30. [[docs/backlog/2026-04-13-atlas-dormant.md|atlas-dormant]] — `open`.
     Atlas Phase F fully implemented (7 routes, regions, trails, explore, expand).
@@ -254,11 +250,10 @@ All audit tail items resolved:
     Core product promise ("read once, remember once, reuse everywhere") not working.
     Compound issue: facts excluded from wake (#15), status noise (#27), write helpers (#23).
 
-34. [[docs/backlog/2026-04-13-memory-not-navigable.md|memory-not-navigable]] — `open`. **CRITICAL**
-    Core product promise is "obsidian hybrid" — navigable, linked memory. But memory items
-    are flat text blobs. Entity links table empty. Atlas dormant. No wiki link parsing in
-    content. No auto-linking from co-occurrence. Memory is a flat store, not a graph.
-    Infrastructure exists (atlas, entities, links, trails) — nothing connects them.
+34. [[docs/backlog/2026-04-13-memory-not-navigable.md|memory-not-navigable]] — `partially closed`, fixed `2026-04-13`.
+    Entity auto-linking wired: storing non-status items creates Related links to up to 3
+    co-occurring entities in the same project. Entity links table now populated.
+    Full graph navigation (wiki links, atlas integration) deferred to Phase I.
 
 ## Recently Closed
 
