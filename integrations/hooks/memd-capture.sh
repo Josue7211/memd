@@ -54,10 +54,7 @@ if memd "${args[@]}" "$@"; then
 fi
 
 bundle_root="${MEMD_BUNDLE_ROOT:-.memd}"
-if [ -f "$bundle_root/MEMD_MEMORY.md" ]; then
-  cat "$bundle_root/MEMD_MEMORY.md"
+if [ -f "$bundle_root/mem.md" ]; then
+  cat "$bundle_root/mem.md"
   exit 0
-fi
-if [ -f "$bundle_root/agents/CODEX_MEMORY.md" ]; then
-  cat "$bundle_root/agents/CODEX_MEMORY.md"
 fi

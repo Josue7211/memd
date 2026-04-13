@@ -11,10 +11,9 @@ This preset comes from the shared harness schema.
 
 ## Surface Set
 
-- `MEMD_WAKEUP.md`
-- `MEMD_MEMORY.md`
-- `agents/HERMES_WAKEUP.md`
-- `agents/HERMES_MEMORY.md`
+- `wake.md`
+- `mem.md`
+- `events.md`
 
 ## Default Verbs
 
@@ -41,10 +40,9 @@ Recommended flow:
 
 If you are using a bundle, Hermes should read:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/HERMES_WAKEUP.md`
-- `.memd/agents/HERMES_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/events.md`
 
 Use the Hermes-specific entrypoint:
 

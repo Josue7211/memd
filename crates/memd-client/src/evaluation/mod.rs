@@ -226,17 +226,7 @@ pub(crate) fn append_experiment_learning_notes(
         markdown
     };
 
-    append_text_to_memory_surface(&output.join("MEMD_MEMORY.md"), &note)?;
-    for file_name in [
-        "CODEX_MEMORY.md",
-        "CLAUDE_CODE_MEMORY.md",
-        "AGENT_ZERO_MEMORY.md",
-        "OPENCLAW_MEMORY.md",
-        "OPENCODE_MEMORY.md",
-        "HERMES_MEMORY.md",
-    ] {
-        append_text_to_memory_surface(&output.join("agents").join(file_name), &note)?;
-    }
+    append_text_to_memory_surface(&output.join("mem.md"), &note)?;
     Ok(())
 }
 

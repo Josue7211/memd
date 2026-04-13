@@ -7,7 +7,9 @@ pub(crate) async fn healthz(State(state): State<AppState>) -> Json<HealthRespons
     })
 }
 
-pub(crate) async fn dashboard(State(state): State<AppState>) -> Result<Html<String>, (StatusCode, String)> {
+pub(crate) async fn dashboard(
+    State(state): State<AppState>,
+) -> Result<Html<String>, (StatusCode, String)> {
     let snapshot = ui::build_visible_memory_snapshot(&state).map_err(internal_error)?;
     Ok(Html(ui::dashboard_html(&snapshot, ui::UiPage::Home)))
 }
@@ -301,8 +303,8 @@ pub(crate) async fn get_inbox(
             req.namespace.as_ref(),
             &plan,
         ))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
     inbox.truncate(limit);
     let inbox = inbox
@@ -1014,7 +1016,9 @@ pub(crate) async fn post_hive_queen_handoff(
     }))
 }
 
-pub(crate) fn require_hive_queen_target(req: &HiveQueenActionRequest) -> Result<String, (StatusCode, String)> {
+pub(crate) fn require_hive_queen_target(
+    req: &HiveQueenActionRequest,
+) -> Result<String, (StatusCode, String)> {
     if req.queen_session.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1453,7 +1457,10 @@ impl AppState {
         })
     }
 
-    pub(crate) fn maintain_runtime(&self, req: &MaintainReportRequest) -> anyhow::Result<MaintainReport> {
+    pub(crate) fn maintain_runtime(
+        &self,
+        req: &MaintainReportRequest,
+    ) -> anyhow::Result<MaintainReport> {
         self.store.maintain_runtime(req)
     }
 

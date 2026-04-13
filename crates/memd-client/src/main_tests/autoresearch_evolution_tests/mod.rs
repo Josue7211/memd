@@ -1368,13 +1368,7 @@ async fn run_experiment_command_restores_bundle_when_rejected() {
 "#,
     )
     .expect("write config");
-    fs::write(dir.join("MEMD_MEMORY.md"), "# sentinel memory\n").expect("write memory seed");
-    fs::create_dir_all(dir.join("agents")).expect("create agents dir");
-    fs::write(
-        dir.join("agents").join("CODEX_MEMORY.md"),
-        "# agent sentinel\n",
-    )
-    .expect("write agent memory seed");
+    fs::write(dir.join("mem.md"), "# sentinel memory\n").expect("write memory seed");
 
     let base_url = spawn_mock_memory_server().await;
     let report = run_experiment_command(
@@ -1397,7 +1391,7 @@ async fn run_experiment_command_restores_bundle_when_rejected() {
     assert!(!report.accepted);
     assert!(report.restored);
     assert!(
-        fs::read_to_string(dir.join("MEMD_MEMORY.md"))
+        fs::read_to_string(dir.join("mem.md"))
             .expect("read restored memory")
             .contains("sentinel memory")
     );
@@ -1422,13 +1416,7 @@ async fn run_experiment_command_consolidates_accepted_learnings() {
 "#,
     )
     .expect("write config");
-    fs::write(dir.join("MEMD_MEMORY.md"), "# baseline memory\n").expect("write memory seed");
-    fs::create_dir_all(dir.join("agents")).expect("create agents dir");
-    fs::write(
-        dir.join("agents").join("CLAUDE_CODE_MEMORY.md"),
-        "# agent baseline\n",
-    )
-    .expect("write agent memory seed");
+    fs::write(dir.join("mem.md"), "# baseline memory\n").expect("write memory seed");
 
     let eval = high_scoring_eval(&dir);
     write_bundle_eval_artifacts(&dir, &eval).expect("write eval artifacts");
@@ -1457,7 +1445,7 @@ async fn run_experiment_command_consolidates_accepted_learnings() {
     assert!(!report.restored);
     assert!(!report.learnings.is_empty());
     assert!(
-        fs::read_to_string(dir.join("MEMD_MEMORY.md"))
+        fs::read_to_string(dir.join("mem.md"))
             .expect("read consolidated memory")
             .contains("Accepted Experiment")
     );
@@ -1490,13 +1478,7 @@ async fn run_experiment_command_forces_one_iteration_when_apply_true_and_max_ite
 "#,
     )
     .expect("write config");
-    fs::write(dir.join("MEMD_MEMORY.md"), "# baseline memory\n").expect("write memory seed");
-    fs::create_dir_all(dir.join("agents")).expect("create agents dir");
-    fs::write(
-        dir.join("agents").join("CLAUDE_CODE_MEMORY.md"),
-        "# agent baseline\n",
-    )
-    .expect("write agent memory seed");
+    fs::write(dir.join("mem.md"), "# baseline memory\n").expect("write memory seed");
 
     let base_url = spawn_mock_memory_server().await;
     let report = run_experiment_command(

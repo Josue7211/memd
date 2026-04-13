@@ -41,26 +41,10 @@ memd refresh --output .memd
 
 That also refreshes:
 
-- `.memd/MEMD_MEMORY.md`
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_EVENTS.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
-- `.memd/agents/CODEX_EVENTS.md`
-- `.memd/agents/CLAUDE_CODE_WAKEUP.md`
-- `.memd/agents/CLAUDE_CODE_MEMORY.md`
-- `.memd/agents/CLAUDE_CODE_EVENTS.md`
+- `.memd/mem.md`
+- `.memd/wake.md`
+- `.memd/events.md`
 - `.memd/agents/CLAUDE_IMPORTS.md`
-- `.memd/agents/AGENT_ZERO_WAKEUP.md`
-- `.memd/agents/AGENT_ZERO_MEMORY.md`
-- `.memd/agents/OPENCLAW_WAKEUP.md`
-- `.memd/agents/OPENCLAW_MEMORY.md`
-- `.memd/agents/OPENCLAW_EVENTS.md`
-- `.memd/agents/OPENCODE_WAKEUP.md`
-- `.memd/agents/OPENCODE_MEMORY.md`
-- `.memd/agents/OPENCODE_EVENTS.md`
-- `.memd/agents/HERMES_WAKEUP.md`
-- `.memd/agents/HERMES_MEMORY.md`
 
 For Codex, that wake path is the pre-turn read step in the harness pack flow.
 It pulls compiled memory first, then refreshes the visible wakeup files after a
@@ -89,7 +73,8 @@ Agent-specific bundle entrypoints are generated under `.memd/agents/`:
 - `hermes.sh`
 
 For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from project
-`CLAUDE.md` and verify it with `/memory`.
+`CLAUDE.md` and verify it with `/memory`. That bridge loads only
+`.memd/wake.md` by default; deeper recall stays explicit.
 
 The same bundle also writes `.memd/COMMANDS.md`, and you can inspect the
 catalog at any time with:
@@ -140,8 +125,8 @@ intent to `current_task`. It now routes through `memd wake --write` so the same
 startup call both renders the live wake-up view and refreshes the generated
 memory files in the bundle.
 
-For Codex bundles, the wake path also refreshes `.memd/MEMD_WAKEUP.md`,
-`.memd/MEMD_MEMORY.md`, and the Codex agent copies after a successful backend
+For Codex bundles, the wake path also refreshes `.memd/wake.md`,
+`.memd/mem.md`, and the Codex agent copies after a successful backend
 read. If the backend read is unavailable, the existing local bundle markdown is
 used instead of dropping the turn.
 

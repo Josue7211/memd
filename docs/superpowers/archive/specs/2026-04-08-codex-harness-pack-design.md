@@ -98,7 +98,7 @@ Purpose:
 - prefer compiled memory and visible truth objects
 
 Behavior:
-- read `MEMD_MEMORY.md` and the compiled memory pages first
+- read `mem.md` and the compiled memory pages first
 - reuse cached turn memory if the same turn key is already loaded
 - fall back to semantic retrieval only when configured
 
@@ -131,10 +131,10 @@ Purpose:
 - keep the agent’s working truth visible
 
 Files:
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
 
 Behavior:
 - wakeup files stay compact

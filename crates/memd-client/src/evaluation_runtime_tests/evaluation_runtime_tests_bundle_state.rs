@@ -229,7 +229,7 @@
         assert!(
             ps1.contains("memd hive --output $env:MEMD_BUNDLE_ROOT --publish-heartbeat --summary")
         );
-        assert!(shell.contains("cat \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\""));
+        assert!(shell.contains("cat \"$MEMD_BUNDLE_ROOT/wake.md\""));
         assert!(ps1.contains("Get-Content $codexWake"));
         assert!(shell.contains("memd voice: ${MEMD_VOICE_MODE:-unknown}"));
         assert!(shell.contains("if draft not in ${MEMD_VOICE_MODE:-unknown}, rewrite before send"));

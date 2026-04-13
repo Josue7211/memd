@@ -278,8 +278,8 @@ Codex uses the same bundle-local harness pack flow behind these APIs:
 - `memd wake` reads compiled memory before the turn
 - `memd checkpoint` and `memd hook capture` refresh the live lane after the turn
 - repeated reads in the same turn reuse the turn-scoped cache
-- if backend recall or capture fails, the CLI keeps using `.memd/MEMD_WAKEUP.md`
-  and `.memd/MEMD_MEMORY.md` plus the Codex agent copies already on disk
+- if backend recall or capture fails, the CLI keeps using `.memd/wake.md`
+  and `.memd/mem.md` plus the Codex agent copies already on disk
 
 OpenClaw is the second harness pack and comes from the shared preset schema.
 It follows the same visible-bundle rule, but its primary flow is compact

@@ -41,7 +41,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         Err(err)
             if codex_pack || agent_zero_pack || hermes_pack || opencode_pack || openclaw_pack =>
         {
-            if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "MEMD_WAKEUP.md")?
+            if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "wake.md")?
             {
                 if args.write {
                     write_bundle_turn_fallback_artifacts(

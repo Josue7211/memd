@@ -31,11 +31,11 @@ fn codex_pack_manifest_exposes_recall_capture_cache_and_files() {
     assert!(manifest
         .files
         .iter()
-        .any(|path| path.ends_with("CODEX_WAKEUP.md")));
+        .any(|path| path.ends_with("wake.md")));
     assert!(manifest
         .files
         .iter()
-        .any(|path| path.ends_with("CODEX_MEMORY.md")));
+        .any(|path| path.ends_with("mem.md")));
     assert!(manifest
         .commands
         .iter()
@@ -88,10 +88,10 @@ pub fn build_codex_harness_pack(
         namespace: namespace.to_string(),
         bundle_root: bundle_root.to_path_buf(),
         files: vec![
-            bundle_root.join("MEMD_WAKEUP.md"),
-            bundle_root.join("MEMD_MEMORY.md"),
-            bundle_root.join("agents").join("CODEX_WAKEUP.md"),
-            bundle_root.join("agents").join("CODEX_MEMORY.md"),
+            bundle_root.join("wake.md"),
+            bundle_root.join("mem.md"),
+            bundle_root.join("wake.md"),
+            bundle_root.join("mem.md"),
         ],
         commands: vec![
             "memd wake --output .memd --intent current_task --write".to_string(),
@@ -149,10 +149,10 @@ async fn codex_pack_refreshes_wakeup_and_memory_files_after_capture() {
 
     assert!(written
         .iter()
-        .any(|path| path.ends_with("agents/CODEX_WAKEUP.md")));
+        .any(|path| path.ends_with("wake.md")));
     assert!(written
         .iter()
-        .any(|path| path.ends_with("agents/CODEX_MEMORY.md")));
+        .any(|path| path.ends_with("mem.md")));
 }
 
 #[test]
@@ -186,10 +186,10 @@ pub async fn refresh_codex_pack_files(
     let mut written = Vec::new();
 
     write_bundle_memory_files(bundle_root, snapshot, None, false).await?;
-    written.push(bundle_root.join("MEMD_WAKEUP.md"));
-    written.push(bundle_root.join("MEMD_MEMORY.md"));
-    written.push(bundle_root.join("agents").join("CODEX_WAKEUP.md"));
-    written.push(bundle_root.join("agents").join("CODEX_MEMORY.md"));
+    written.push(bundle_root.join("wake.md"));
+    written.push(bundle_root.join("mem.md"));
+    written.push(bundle_root.join("wake.md"));
+    written.push(bundle_root.join("mem.md"));
 
     let _ = manifest;
     Ok(written)
@@ -356,8 +356,8 @@ fn codex_pack_docs_point_at_compiled_memory_and_hooks() {
         "main",
     ));
 
-    assert!(markdown.contains("CODEX_WAKEUP.md"));
-    assert!(markdown.contains("CODEX_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("recall before turn"));
     assert!(markdown.contains("capture after turn"));
     assert!(markdown.contains("turn-scoped cache"));
@@ -411,7 +411,7 @@ pub fn render_codex_harness_pack_markdown(pack: &CodexHarnessPack) -> String {
 
 Then update the Codex and hooks docs so they:
 
-- point at `.memd/MEMD_WAKEUP.md` and `.memd/MEMD_MEMORY.md`
+- point at `.memd/wake.md` and `.memd/mem.md`
 - explain the Codex pack order
 - explain that recall runs before the turn and capture runs after the turn
 - explain that turn-scoped cache reuse keeps repeated calls cheap
@@ -445,10 +445,10 @@ After the three tasks land, verify:
 
 Expected bundle output:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
 - refreshed compiled memory pages under `.memd/compiled/memory/`
 - refreshed live event pages under `.memd/compiled/events/`
 

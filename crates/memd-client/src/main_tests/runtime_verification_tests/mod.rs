@@ -786,7 +786,7 @@ async fn run_verifier_record_executes_wake_step_and_writes_packet_efficiency_art
         assertions: vec![
             VerifierAssertionRecord {
                 kind: "file_contains".to_string(),
-                path: Some("MEMD_WAKEUP.md".to_string()),
+                path: Some("wake.md".to_string()),
                 equals_fixture: None,
                 contains_fixture: None,
                 exists: Some(true),

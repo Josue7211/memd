@@ -931,7 +931,7 @@ Add in `crates/memd-client/src/main.rs`:
     fn render_morning_operator_summary_surfaces_top_regressions() {
         let summary = render_morning_operator_summary(&MorningOperatorSummary {
             top_continuity_failures: vec!["resume continuity drift".to_string()],
-            top_drift_risks: vec!["surface drift in MEMD_MEMORY.md".to_string()],
+            top_drift_risks: vec!["surface drift in mem.md".to_string()],
             top_token_regressions: vec!["handoff packet +420 tokens".to_string()],
             top_no_memd_losses: vec!["resume still loses to no-memd baseline".to_string()],
             proposed_next_actions: vec!["fix resume journey before expanding registry".to_string()],

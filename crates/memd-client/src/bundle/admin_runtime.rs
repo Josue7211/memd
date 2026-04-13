@@ -1,7 +1,8 @@
 use super::*;
 
 pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result<()> {
-    let decision = resolve_bootstrap_authority(setup_args_to_init_args(args)).await?;
+    let init_args = normalize_init_args(setup_args_to_init_args(args))?;
+    let decision = resolve_bootstrap_authority(init_args).await?;
     let init_args = decision.init_args;
     write_init_bundle(&init_args)?;
     if decision.fallback_activated {
@@ -125,6 +126,7 @@ pub(crate) async fn run_bundle_config_command(
 }
 
 pub(crate) async fn run_bundle_init_command(args: InitArgs) -> anyhow::Result<()> {
+    let args = normalize_init_args(args)?;
     let decision = resolve_bootstrap_authority(args).await?;
     write_init_bundle(&decision.init_args)?;
     if decision.fallback_activated {

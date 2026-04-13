@@ -1,6 +1,8 @@
+mod helpers;
 mod inspection;
 mod keys;
 mod repair;
+mod routes;
 mod routing;
 mod store;
 mod store_entities;
@@ -11,8 +13,6 @@ mod store_runtime_maintenance;
 mod store_skill_policy;
 mod ui;
 mod working;
-mod helpers;
-mod routes;
 
 #[cfg(test)]
 #[path = "tests/mod.rs"]

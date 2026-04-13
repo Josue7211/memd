@@ -266,21 +266,9 @@ pub(crate) fn write_bundle_event_markdown_files(
     records: &[BundleEventRecord],
 ) -> anyhow::Result<()> {
     let markdown = render_bundle_event_log_markdown(output, records);
-    let root_events = output.join("MEMD_EVENTS.md");
+    let root_events = output.join("events.md");
     fs::write(&root_events, &markdown)
         .with_context(|| format!("write {}", root_events.display()))?;
-
-    let agents_dir = output.join("agents");
-    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
-    for file_name in [
-        "CODEX_EVENTS.md",
-        "CLAUDE_CODE_EVENTS.md",
-        "OPENCLAW_EVENTS.md",
-        "OPENCODE_EVENTS.md",
-    ] {
-        let path = agents_dir.join(file_name);
-        fs::write(&path, &markdown).with_context(|| format!("write {}", path.display()))?;
-    }
 
     Ok(())
 }
@@ -337,7 +325,7 @@ pub(crate) fn search_compiled_event_pages(
 
     let query_lower = query.to_lowercase();
     let mut hits = Vec::new();
-    for entry in walkdir::WalkDir::new(&root)
+    for entry in memdrive::WalkDir::new(&root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
@@ -655,7 +643,7 @@ mod tests {
                 "hook_capture",
                 "candidate",
                 Some("hook-capture"),
-                Some(".memd/agents/CODEX_WAKEUP.md"),
+                Some(".memd/wake.md"),
                 Some("memd"),
                 Some("main"),
                 Some("core"),
@@ -673,7 +661,7 @@ mod tests {
             std::fs::read_to_string(dir.join("compiled/events/latest.md")).expect("read latest");
         assert!(latest.contains("## Raw Spine"));
         assert!(latest.contains("hook_capture"));
-        assert!(latest.contains(".memd/agents/CODEX_WAKEUP.md"));
+        assert!(latest.contains(".memd/wake.md"));
 
         std::fs::remove_dir_all(&dir).expect("cleanup bundle dir");
     }
@@ -879,7 +867,7 @@ pub(crate) fn resolve_compiled_event_page(
 
     let exact_markdown_name = format!("{normalized}.md");
     let mut partial_match: Option<PathBuf> = None;
-    for entry in walkdir::WalkDir::new(&root)
+    for entry in memdrive::WalkDir::new(&root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())

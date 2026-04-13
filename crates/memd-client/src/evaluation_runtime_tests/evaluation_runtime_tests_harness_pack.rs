@@ -35,18 +35,8 @@
             crate::harness::hermes::build_hermes_harness_pack(&bundle_root, "demo", "main");
 
         assert_eq!(manifest.agent, "hermes");
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("HERMES_WAKEUP.md"))
-        );
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("HERMES_MEMORY.md"))
-        );
+        assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
+        assert!(manifest.files.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             manifest.commands.iter().any(|cmd| {
                 cmd.contains("memd wake --output .memd --write")
@@ -72,8 +62,8 @@
     );
 
         let markdown = render_hermes_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("HERMES_WAKEUP.md"));
-    assert!(markdown.contains("HERMES_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("onboarding-friendly wake"));
     assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
     assert!(markdown.contains("memd hook capture --output .memd --stdin --summary"));
@@ -89,18 +79,8 @@
             crate::harness::agent_zero::build_agent_zero_harness_pack(&bundle_root, "demo", "main");
 
         assert_eq!(manifest.agent, "agent-zero");
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("AGENT_ZERO_WAKEUP.md"))
-        );
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("AGENT_ZERO_MEMORY.md"))
-        );
+        assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
+        assert!(manifest.files.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             manifest
                 .commands
@@ -127,8 +107,8 @@
     );
 
         let markdown = render_agent_zero_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("AGENT_ZERO_WAKEUP.md"));
-    assert!(markdown.contains("AGENT_ZERO_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("zero-friction resume"));
     assert!(markdown.contains("memd remember --output .memd --kind decision"));
     assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
@@ -138,17 +118,11 @@
     async fn agent_zero_pack_refreshes_visible_bundle_files_from_turn_state() {
         let bundle_root =
             std::env::temp_dir().join(format!("memd-agent-zero-refresh-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(bundle_root.join("agents")).expect("create agent-zero bundle dir");
         fs::write(
-            bundle_root.join("MEMD_MEMORY.md"),
+            bundle_root.join("mem.md"),
             "# Memory\n\nstale bundle\n",
         )
         .expect("seed memory file");
-        fs::write(
-            bundle_root.join("agents").join("AGENT_ZERO_MEMORY.md"),
-            "# Agent Zero Memory\n\nstale agent bundle\n",
-        )
-        .expect("seed agent-zero agent memory file");
 
         let snapshot = codex_test_snapshot("demo", "main", "agent-zero");
         let manifest =
@@ -165,9 +139,8 @@
         .await
         .expect("refresh agent zero pack files");
 
-        assert!(written.contains(&bundle_root.join("MEMD_MEMORY.md")));
-        assert!(written.contains(&bundle_root.join("agents").join("AGENT_ZERO_MEMORY.md")));
-        let refreshed = fs::read_to_string(bundle_root.join("MEMD_MEMORY.md"))
+        assert!(written.contains(&bundle_root.join("mem.md")));
+        let refreshed = fs::read_to_string(bundle_root.join("mem.md"))
             .expect("read refreshed memory file");
         assert!(refreshed.contains("# memd memory"));
         assert!(refreshed.contains("keep the live wake surface current"));
@@ -181,18 +154,8 @@
             crate::harness::opencode::build_opencode_harness_pack(&bundle_root, "demo", "main");
 
         assert_eq!(manifest.agent, "opencode");
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("OPENCODE_WAKEUP.md"))
-        );
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|path| path.ends_with("OPENCODE_MEMORY.md"))
-        );
+        assert!(manifest.files.iter().any(|path| path.ends_with("wake.md")));
+        assert!(manifest.files.iter().any(|path| path.ends_with("mem.md")));
         assert!(
             manifest
                 .commands
@@ -219,8 +182,8 @@
     );
 
         let markdown = render_opencode_harness_pack_markdown(&manifest);
-    assert!(markdown.contains("OPENCODE_WAKEUP.md"));
-    assert!(markdown.contains("OPENCODE_MEMORY.md"));
+    assert!(markdown.contains("wake.md"));
+    assert!(markdown.contains("mem.md"));
     assert!(markdown.contains("emit a shared handoff"));
     assert!(markdown.contains("memd remember --output .memd --kind decision"));
     assert!(markdown.contains("memd hook spill --output .memd --stdin --apply"));
@@ -230,17 +193,11 @@
     async fn opencode_pack_refreshes_visible_bundle_files_from_turn_state() {
         let bundle_root =
             std::env::temp_dir().join(format!("memd-opencode-refresh-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(bundle_root.join("agents")).expect("create opencode bundle dir");
         fs::write(
-            bundle_root.join("MEMD_MEMORY.md"),
+            bundle_root.join("mem.md"),
             "# Memory\n\nstale bundle\n",
         )
         .expect("seed memory file");
-        fs::write(
-            bundle_root.join("agents").join("OPENCODE_MEMORY.md"),
-            "# OpenCode Memory\n\nstale agent bundle\n",
-        )
-        .expect("seed opencode agent memory file");
 
         let snapshot = codex_test_snapshot("demo", "main", "opencode");
         let manifest =
@@ -257,9 +214,8 @@
         .await
         .expect("refresh opencode pack files");
 
-        assert!(written.contains(&bundle_root.join("MEMD_MEMORY.md")));
-        assert!(written.contains(&bundle_root.join("agents").join("OPENCODE_MEMORY.md")));
-        let refreshed = fs::read_to_string(bundle_root.join("MEMD_MEMORY.md"))
+        assert!(written.contains(&bundle_root.join("mem.md")));
+        let refreshed = fs::read_to_string(bundle_root.join("mem.md"))
             .expect("read refreshed memory file");
         assert!(refreshed.contains("# memd memory"));
         assert!(refreshed.contains("keep the live wake surface current"));

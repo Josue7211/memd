@@ -507,7 +507,7 @@
             .expect("write bundle memory files");
 
         let memory =
-            fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read generated bundle memory");
+            fs::read_to_string(dir.join("mem.md")).expect("read generated bundle memory");
         assert!(memory.contains("## Hive"));
         assert!(memory.contains("queen=queen-1"));
         assert!(memory.contains("active_bees=Avicenna(queen-1)/queen-routing"));
@@ -866,14 +866,14 @@
         );
 
         let markdown =
-            fs::read_to_string(dir.join("MEMD_MEMORY.md")).expect("read generated bundle memory");
+            fs::read_to_string(dir.join("mem.md")).expect("read generated bundle memory");
         assert!(markdown.contains("## Scope"));
         assert!(markdown.contains("# memd memory [tab=tab-alpha]"));
         assert!(markdown.contains("session: `codex-a`"));
         assert!(markdown.contains("effective agent: `codex@codex-a`"));
         assert!(markdown.contains("memd must preserve important user corrections"));
         assert!(markdown.contains("resume state noise"));
-        assert!(markdown.contains("MEMD_EVENTS.md"));
+        assert!(markdown.contains("events.md"));
         let context_page = fs::read_to_string(dir.join("compiled/memory/context.md"))
             .expect("read compiled context page");
         assert!(context_page.contains("# memd memory object: Context [tab=tab-alpha]"));
@@ -907,7 +907,7 @@
             .expect("read compiled workspace page");
         assert!(workspace_page.contains("# memd memory object: Workspace"));
         let event_log =
-            fs::read_to_string(dir.join("MEMD_EVENTS.md")).expect("read generated event log");
+            fs::read_to_string(dir.join("events.md")).expect("read generated event log");
         assert!(event_log.contains("# memd event log"));
         assert!(event_log.contains("event compiler"));
         assert!(event_log.contains("live_snapshot") || event_log.contains("resume_snapshot"));
@@ -916,7 +916,7 @@
         assert!(event_index.contains("# memd event index"));
         assert!(path_text_contains(&event_index, "compiled/events/items/"));
         let wakeup =
-            fs::read_to_string(dir.join("MEMD_WAKEUP.md")).expect("read generated wakeup memory");
+            fs::read_to_string(dir.join("wake.md")).expect("read generated wakeup memory");
         assert!(wakeup.contains("# memd wake-up"));
         assert!(wakeup.contains("Read first."));
         assert!(wakeup.contains("memd must preserve important user corrections"));
@@ -951,8 +951,9 @@
         assert!(claude_imports.contains(".memd/agents/remember-long.sh"));
         assert!(claude_imports.contains(".memd/agents/correct-memory.sh"));
         assert!(claude_imports.contains(".memd/agents/sync-semantic.sh"));
-        assert!(claude_imports.contains("@../MEMD_EVENTS.md"));
-        assert!(claude_imports.contains("@CLAUDE_CODE_EVENTS.md"));
+        assert!(!claude_imports.contains("@../events.md"));
+        assert!(!claude_imports.contains("CLAUDE_CODE_"));
+        assert!(claude_imports.contains("startup light"));
 
         fs::remove_dir_all(dir).expect("cleanup resume dir");
     }
@@ -1020,7 +1021,7 @@
         assert!(events[0].summary.contains("project=demo"));
         assert!(events[0].summary.contains("tokens="));
         let root_events =
-            fs::read_to_string(dir.join("MEMD_EVENTS.md")).expect("read generated event log");
+            fs::read_to_string(dir.join("events.md")).expect("read generated event log");
         assert!(root_events.contains("# memd event log"));
         assert!(root_events.contains("event compiler"));
         assert!(root_events.contains("compiled/events/"));
@@ -1398,7 +1399,7 @@
         )
         .expect("write runtime config");
         fs::write(
-            root.join("MEMD_MEMORY.md"),
+            root.join("mem.md"),
             "# memd memory\n\n## Scope\n\n- source_note: [[Working]]\n",
         )
         .expect("write memory surface");

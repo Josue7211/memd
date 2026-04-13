@@ -227,7 +227,7 @@ pub(crate) struct WorkingArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ProfileArgs {
-    #[arg(long)]
+    #[arg(long, default_value = "auto")]
     pub(crate) agent: String,
 
     #[arg(long)]
@@ -1305,7 +1305,7 @@ pub(crate) struct InitArgs {
     #[arg(long, default_value_t = true)]
     pub(crate) seed_existing: bool,
 
-    #[arg(long)]
+    #[arg(long, default_value = "auto")]
     pub(crate) agent: String,
 
     #[arg(long)]

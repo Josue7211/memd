@@ -5,7 +5,7 @@ use memd_schema::{
     RepairMemoryResponse, VerifyMemoryRequest,
 };
 
-use crate::{AppState, canonical_key, internal_error, redundancy_key, RecordEventArgs};
+use crate::{AppState, RecordEventArgs, canonical_key, internal_error, redundancy_key};
 
 pub(crate) fn expire_item(
     state: &AppState,

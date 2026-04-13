@@ -9,8 +9,7 @@ use memd_schema::{
     MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
     MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, MemoryStage,
     WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
-    WorkingMemoryResponse,
-    WorkingMemoryTraceRecord,
+    WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 
 pub(crate) fn working_memory(

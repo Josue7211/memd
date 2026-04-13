@@ -260,7 +260,10 @@ pub(crate) fn event_type_for_stage(stage: MemoryStage) -> &'static str {
     }
 }
 
-pub(crate) fn entity_context_frame(entity: &MemoryEntityRecord, item: &MemoryItem) -> MemoryContextFrame {
+pub(crate) fn entity_context_frame(
+    entity: &MemoryEntityRecord,
+    item: &MemoryItem,
+) -> MemoryContextFrame {
     entity.context.clone().unwrap_or(MemoryContextFrame {
         at: Some(item.updated_at),
         project: item.project.clone(),
@@ -1180,7 +1183,10 @@ pub(crate) fn project_scope_bonus(
     bonus
 }
 
-pub(crate) fn entity_attention_bonus(item: &MemoryItem, entity: Option<&MemoryEntityRecord>) -> f32 {
+pub(crate) fn entity_attention_bonus(
+    item: &MemoryItem,
+    entity: Option<&MemoryEntityRecord>,
+) -> f32 {
     let Some(entity) = entity else {
         return 0.0;
     };
@@ -1303,7 +1309,11 @@ mod tests {
             content: "resume state noise: synced session snapshot".to_string(),
             tags: vec!["resume_state".to_string(), "session_state".to_string()],
             source_system: Some("memd-resume-state".to_string()),
-            ..sample_item("resume state noise: synced session snapshot", vec![], Some("memd"))
+            ..sample_item(
+                "resume state noise: synced session snapshot",
+                vec![],
+                Some("memd"),
+            )
         };
 
         assert!(
@@ -1361,12 +1371,26 @@ mod tests {
         };
 
         assert!(
-            project_scope_bonus(&project_item, requested_project.as_ref(), requested_namespace.as_ref())
-                > project_scope_bonus(&shared_global, requested_project.as_ref(), requested_namespace.as_ref())
+            project_scope_bonus(
+                &project_item,
+                requested_project.as_ref(),
+                requested_namespace.as_ref()
+            ) > project_scope_bonus(
+                &shared_global,
+                requested_project.as_ref(),
+                requested_namespace.as_ref()
+            )
         );
         assert!(
-            project_scope_bonus(&shared_global, requested_project.as_ref(), requested_namespace.as_ref())
-                > project_scope_bonus(&unrelated_global, requested_project.as_ref(), requested_namespace.as_ref())
+            project_scope_bonus(
+                &shared_global,
+                requested_project.as_ref(),
+                requested_namespace.as_ref()
+            ) > project_scope_bonus(
+                &unrelated_global,
+                requested_project.as_ref(),
+                requested_namespace.as_ref()
+            )
         );
     }
 
@@ -1377,7 +1401,9 @@ mod tests {
         let aligned = sample_entity(Some("demo"), Some("main"), 0.85, 2, Some(now));
         let popular_but_unaligned = sample_entity(Some("other"), Some("main"), 1.0, 20, Some(now));
 
-        assert!(entity_attention_bonus(&item, Some(&aligned)) > entity_attention_bonus(&item, None));
+        assert!(
+            entity_attention_bonus(&item, Some(&aligned)) > entity_attention_bonus(&item, None)
+        );
         assert!(
             entity_attention_bonus(&item, Some(&aligned))
                 > entity_attention_bonus(&item, Some(&popular_but_unaligned))
@@ -1699,8 +1725,16 @@ mod epistemic_state_tests {
             Some(Utc::now()),
         );
 
-        assert!(inbox_reasons(&claimed).iter().any(|reason| reason == "claimed"));
-        assert!(inbox_reasons(&inferred).iter().any(|reason| reason == "inferred"));
+        assert!(
+            inbox_reasons(&claimed)
+                .iter()
+                .any(|reason| reason == "claimed")
+        );
+        assert!(
+            inbox_reasons(&inferred)
+                .iter()
+                .any(|reason| reason == "inferred")
+        );
         assert!(inbox_reasons(&stale).iter().any(|reason| reason == "stale"));
     }
 }

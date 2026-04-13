@@ -81,7 +81,7 @@ pub(crate) fn render_agent_shell_profile(output: &Path, env_agent: Option<&str>)
             "printf '%s\\n' \"memd rule: if draft not in ${MEMD_VOICE_MODE:-unknown}, rewrite before send.\"\n",
         );
         script.push_str(
-            "if [[ -f \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\" ]]; then\n  cat \"$MEMD_BUNDLE_ROOT/agents/CODEX_WAKEUP.md\"\n  printf '\\n'\nfi\n",
+            "if [[ -f \"$MEMD_BUNDLE_ROOT/wake.md\" ]]; then\n  cat \"$MEMD_BUNDLE_ROOT/wake.md\"\n  printf '\\n'\nfi\n",
         );
         script.push_str(
             "printf '%s\\n' 'memd reminder: run .memd/agents/lookup.sh \"what did we already decide about this?\" before memory-dependent answers.'\n",
@@ -176,7 +176,7 @@ pub(crate) fn render_agent_ps1_profile(output: &Path, env_agent: Option<&str>) -
             "Write-Host (\"memd rule: if draft not in {0}, rewrite before send.\" -f $(if ($env:MEMD_VOICE_MODE) { $env:MEMD_VOICE_MODE } else { \"unknown\" }))\n",
         );
         script.push_str(
-            "$codexWake = Join-Path $env:MEMD_BUNDLE_ROOT \"agents/CODEX_WAKEUP.md\"\nif (Test-Path $codexWake) { Get-Content $codexWake }\n",
+            "$codexWake = Join-Path $env:MEMD_BUNDLE_ROOT \"wake.md\"\nif (Test-Path $codexWake) { Get-Content $codexWake }\n",
         );
         script.push_str(
             "Write-Host 'memd reminder: run .memd/agents/lookup.ps1 \"what did we already decide about this?\" before memory-dependent answers.'\n",

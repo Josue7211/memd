@@ -45,9 +45,9 @@ fn sample_memory_item() -> MemoryItem {
 
 #[path = "core.rs"]
 mod core;
-#[path = "hive_sessions.rs"]
-mod hive_sessions;
 #[path = "hive_board.rs"]
 mod hive_board;
+#[path = "hive_sessions.rs"]
+mod hive_sessions;
 #[path = "maintenance.rs"]
 mod maintenance;

@@ -42,10 +42,10 @@ events the incremental source that keeps the visible memory fresh.
 - emit bundle events from `hook capture`
 - emit bundle events from `checkpoint`
 - append those events to the bundle log
-- recompile `MEMD_EVENTS.md`
+- recompile `events.md`
 - recompile `compiled/events/latest.md`
 - recompile per-kind and per-item event pages
-- keep `MEMD_MEMORY.md` and compiled memory pages as the visible memory layer
+- keep `mem.md` and compiled memory pages as the visible memory layer
 - expose the event lane through `memd events`
 - keep the implementation bundle-local and deterministic
 
@@ -114,17 +114,14 @@ scan of the whole workspace. That preserves the read-once rule.
 
 The compiler should read the JSONL event log and render:
 
-- `.memd/MEMD_EVENTS.md`
+- `.memd/events.md`
 - `.memd/compiled/events/latest.md`
 - `.memd/compiled/events/<kind>.md`
 - `.memd/compiled/events/items/<kind>/<id>.md`
 
 The compiler should also generate the same content for the agent bridge files:
 
-- `.memd/agents/CODEX_EVENTS.md`
-- `.memd/agents/CLAUDE_CODE_EVENTS.md`
-- `.memd/agents/OPENCLAW_EVENTS.md`
-- `.memd/agents/OPENCODE_EVENTS.md`
+- `.memd/events.md`
 
 The compiled pages are the view layer. The JSONL log is the append-only input.
 
@@ -216,4 +213,3 @@ After this slice ships, the next steps are:
 - use repeated event patterns to propose skills
 - sandbox-test proposed skills before activation
 - keep LightRAG as the recall engine behind the visible object layer
-

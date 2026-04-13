@@ -218,7 +218,7 @@ fn discover_custom_skill_entries(
     let mut cache_hits = 0usize;
     let mut cache_scanned = 0usize;
     let mut cache_to_write = Vec::new();
-    for entry in walkdir::WalkDir::new(root)
+    for entry in memdrive::WalkDir::new(root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())

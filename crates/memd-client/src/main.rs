@@ -342,7 +342,7 @@ fn count_obsidian_mirrors(vault: &Path, kind: &str) -> anyhow::Result<usize> {
         return Ok(0);
     }
     let mut count = 0usize;
-    for entry in walkdir::WalkDir::new(root)
+    for entry in memdrive::WalkDir::new(root)
         .into_iter()
         .filter_map(|entry| entry.ok())
     {

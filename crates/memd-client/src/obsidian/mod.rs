@@ -15,7 +15,7 @@ use memd_schema::{
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded::byte_serialize;
 use uuid::Uuid;
-use walkdir::WalkDir;
+use memdrive::WalkDir;
 
 pub(crate) mod commands;
 mod compiled;

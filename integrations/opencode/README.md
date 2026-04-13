@@ -11,10 +11,9 @@ This preset comes from the shared harness schema.
 
 ## Surface Set
 
-- `MEMD_WAKEUP.md`
-- `MEMD_MEMORY.md`
-- `agents/OPENCODE_WAKEUP.md`
-- `agents/OPENCODE_MEMORY.md`
+- `wake.md`
+- `mem.md`
+- `events.md`
 
 ## Default Verbs
 
@@ -44,10 +43,9 @@ Use the OpenCode-specific entrypoint:
 
 If you are using a bundle, read:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/OPENCODE_WAKEUP.md`
-- `.memd/agents/OPENCODE_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/events.md`
 
 ## Shared Memory Loop
 

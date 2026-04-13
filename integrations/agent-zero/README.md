@@ -11,10 +11,9 @@ This preset comes from the shared harness schema.
 
 ## Surface Set
 
-- `MEMD_WAKEUP.md`
-- `MEMD_MEMORY.md`
-- `agents/AGENT_ZERO_WAKEUP.md`
-- `agents/AGENT_ZERO_MEMORY.md`
+- `wake.md`
+- `mem.md`
+- `events.md`
 
 ## Default Verbs
 
@@ -43,10 +42,9 @@ Use the Agent Zero-specific entrypoint:
 
 If you are using a bundle, read:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/AGENT_ZERO_WAKEUP.md`
-- `.memd/agents/AGENT_ZERO_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/events.md`
 
 ## Shared Memory Loop
 

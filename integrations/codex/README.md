@@ -9,10 +9,9 @@ This is the Codex harness pack rendered from the shared preset schema.
 
 ## Surface Set
 
-- `MEMD_WAKEUP.md`
-- `MEMD_MEMORY.md`
-- `agents/CODEX_WAKEUP.md`
-- `agents/CODEX_MEMORY.md`
+- `wake.md`
+- `mem.md`
+- `events.md`
 
 ## Default Verbs
 
@@ -26,13 +25,11 @@ memd owns the same memory control plane, compiled pages, and turn-scoped cache.
 
 Codex should use the same `memd` surface as every other agent.
 
-Because Codex does not have a built-in durable `memory.md` surface here,
-`memd` now maintains bundle-local markdown memory files for it:
+Codex reads the shared bundle-local markdown memory files:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/events.md`
 
 Those files are refreshed by:
 
@@ -42,7 +39,7 @@ Those files are refreshed by:
 - `memd checkpoint --output .memd --content "..."`
 - `memd hook capture --output .memd --stdin --summary`
 
-After Codex recall or capture, `memd` refreshes the same local wake/memory files again so the bundle stays in sync without introducing a second source of truth. The turn cache is keyed from project, namespace, agent, mode, and normalized query so repeated reads inside the same turn stay cheap. The generated launcher also stamps a tab ID automatically from the terminal session when one is not already set, so two Codex tabs stay separate without a manual export.
+After Codex recall or capture, `memd` refreshes the same shared local files again so the bundle stays in sync without introducing a second source of truth. The turn cache is keyed from project, namespace, agent, mode, and normalized query so repeated reads inside the same turn stay cheap. The generated launcher also stamps a tab ID automatically from the terminal session when one is not already set, so two Codex tabs stay separate without a manual export.
 
 Recommended flow:
 
@@ -70,25 +67,13 @@ memd context --project <project> --agent codex --compact
 ## Read The Bundle Memory File
 
 ```bash
-cat .memd/MEMD_WAKEUP.md
-```
-
-Or use the Codex-specific wake-up copy:
-
-```bash
-cat .memd/agents/CODEX_WAKEUP.md
+cat .memd/wake.md
 ```
 
 Then inspect the deeper compact memory view:
 
 ```bash
-cat .memd/MEMD_MEMORY.md
-```
-
-Or use the Codex-specific copy:
-
-```bash
-cat .memd/agents/CODEX_MEMORY.md
+cat .memd/mem.md
 ```
 
 Use the Codex-specific resume entrypoint:

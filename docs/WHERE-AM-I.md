@@ -22,6 +22,7 @@ Use this after session clear or when an agent feels lost.
 - harness behavior: [[docs/core/setup.md|Setup]]
 - detailed roadmap theory: [[2026-04-11-memd-ralph-roadmap]]
 - canonical theory: [[2026-04-11-memd-canonical-theory-synthesis]]
+- phase e follow-up plan: [[docs/superpowers/plans/2026-04-12-phase-e-cross-harness-wake-proof.md|Detailed plan]]
 
 ## Rule
 

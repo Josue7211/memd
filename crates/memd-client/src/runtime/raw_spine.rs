@@ -168,7 +168,7 @@ mod tests {
             "hook_capture",
             "candidate",
             Some("hook-capture"),
-            Some(".memd/agents/CODEX_WAKEUP.md"),
+            Some(".memd/wake.md"),
             Some("memd"),
             Some("main"),
             Some("core"),
@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(record.source_system.as_deref(), Some("hook-capture"));
         assert_eq!(
             record.source_path.as_deref(),
-            Some(".memd/agents/CODEX_WAKEUP.md")
+            Some(".memd/wake.md")
         );
         assert!(record.tags.iter().any(|tag| tag == "raw-spine"));
     }

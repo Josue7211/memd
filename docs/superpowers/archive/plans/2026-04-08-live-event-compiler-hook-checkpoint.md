@@ -4,7 +4,7 @@
 
 **Goal:** Make `hook capture` and `checkpoint` emit live bundle events that are compiled into visible event pages immediately, without changing the existing memory-object model.
 
-**Architecture:** Keep the current memory pages as the visible object layer and treat the bundle event log as the incremental input. The live path stays bundle-local and deterministic: `hook capture` and `checkpoint` write one compact event record, the compiler refreshes `MEMD_EVENTS.md` plus compiled event pages, and memory pages continue to point at the event lane.
+**Architecture:** Keep the current memory pages as the visible object layer and treat the bundle event log as the incremental input. The live path stays bundle-local and deterministic: `hook capture` and `checkpoint` write one compact event record, the compiler refreshes `events.md` plus compiled event pages, and memory pages continue to point at the event lane.
 
 **Tech Stack:** Rust, `anyhow`, `serde_json`, existing `memd-client` bundle helpers, existing `memd` test harness, tempfile-based command tests.
 
@@ -42,7 +42,7 @@ async fn checkpoint_and_hook_capture_refresh_live_event_pages() {
             || events[0].summary.contains("live_snapshot")
     );
 
-    let root_events = fs::read_to_string(dir.join("MEMD_EVENTS.md"))
+    let root_events = fs::read_to_string(dir.join("events.md"))
         .expect("read event log markdown");
     assert!(root_events.contains("# memd event log"));
     assert!(root_events.contains("compiled/events/latest.md"));
@@ -97,7 +97,7 @@ cargo test -p memd-client checkpoint_and_hook_capture_refresh_live_event_pages -
 Expected:
 
 - PASS
-- `MEMD_EVENTS.md` and `compiled/events/latest.md` are regenerated from the live log
+- `events.md` and `compiled/events/latest.md` are regenerated from the live log
 
 - [ ] **Step 5: Commit**
 

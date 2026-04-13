@@ -514,9 +514,9 @@ async fn hook_spill_apply_writes_candidates_and_compaction_checkpoint() {
     );
     drop(stored);
 
-    let memory = fs::read_to_string(bundle_root.join("MEMD_MEMORY.md"))
+    let memory = fs::read_to_string(bundle_root.join("mem.md"))
         .expect("read generated bundle memory");
-    let wakeup = fs::read_to_string(bundle_root.join("MEMD_WAKEUP.md"))
+    let wakeup = fs::read_to_string(bundle_root.join("wake.md"))
         .expect("read generated bundle wakeup");
     assert!(memory.contains("compact context: keep startup surfaces tight"));
     assert!(memory.contains("working record: keep startup surfaces tight"));

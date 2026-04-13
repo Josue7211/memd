@@ -2201,7 +2201,11 @@ mod tests {
 
         assert_eq!(promoted.outcome, "promoted");
         assert!(promoted.detail.is_some());
-        let stored = state.store.get(item.id).unwrap().expect("stored promoted item");
+        let stored = state
+            .store
+            .get(item.id)
+            .unwrap()
+            .expect("stored promoted item");
         assert_eq!(stored.stage, MemoryStage::Canonical);
     }
 
@@ -2221,26 +2225,29 @@ mod tests {
     fn visible_memory_detail_explain_exposes_epistemic_state() {
         let state = test_state();
         let item = state
-            .store_item(memd_schema::StoreMemoryRequest {
-                content: "claimed spine".to_string(),
-                kind: memd_schema::MemoryKind::Decision,
-                scope: memd_schema::MemoryScope::Project,
-                project: Some("memd".to_string()),
-                namespace: Some("core".to_string()),
-                workspace: Some("team-alpha".to_string()),
-                visibility: Some(MemoryVisibility::Workspace),
-                belief_branch: None,
-                source_agent: Some("codex".to_string()),
-                source_system: Some("obsidian".to_string()),
-                source_path: Some("wiki/claimed-spine.md".to_string()),
-                source_quality: Some(memd_schema::SourceQuality::Canonical),
-                confidence: Some(0.82),
-                ttl_seconds: None,
-                last_verified_at: None,
-                supersedes: Vec::new(),
-                tags: vec!["visible-memory".to_string()],
-                status: Some(MemoryStatus::Active),
-            }, MemoryStage::Canonical)
+            .store_item(
+                memd_schema::StoreMemoryRequest {
+                    content: "claimed spine".to_string(),
+                    kind: memd_schema::MemoryKind::Decision,
+                    scope: memd_schema::MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("core".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("obsidian".to_string()),
+                    source_path: Some("wiki/claimed-spine.md".to_string()),
+                    source_quality: Some(memd_schema::SourceQuality::Canonical),
+                    confidence: Some(0.82),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["visible-memory".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
             .unwrap()
             .0;
 
@@ -2265,49 +2272,55 @@ mod tests {
         let state = test_state();
         let verified = test_insert_visible_item(&state, "runtime spine", true).unwrap();
         let inferred = state
-            .store_item(memd_schema::StoreMemoryRequest {
-                content: "inferred spine".to_string(),
-                kind: memd_schema::MemoryKind::Decision,
-                scope: memd_schema::MemoryScope::Project,
-                project: Some("memd".to_string()),
-                namespace: Some("core".to_string()),
-                workspace: Some("team-alpha".to_string()),
-                visibility: Some(MemoryVisibility::Workspace),
-                belief_branch: None,
-                source_agent: Some("codex".to_string()),
-                source_system: Some("obsidian".to_string()),
-                source_path: Some("wiki/inferred-spine.md".to_string()),
-                source_quality: Some(memd_schema::SourceQuality::Derived),
-                confidence: Some(0.84),
-                ttl_seconds: None,
-                last_verified_at: None,
-                supersedes: Vec::new(),
-                tags: vec!["visible-memory".to_string()],
-                status: Some(MemoryStatus::Active),
-            }, MemoryStage::Canonical)
+            .store_item(
+                memd_schema::StoreMemoryRequest {
+                    content: "inferred spine".to_string(),
+                    kind: memd_schema::MemoryKind::Decision,
+                    scope: memd_schema::MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("core".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("obsidian".to_string()),
+                    source_path: Some("wiki/inferred-spine.md".to_string()),
+                    source_quality: Some(memd_schema::SourceQuality::Derived),
+                    confidence: Some(0.84),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["visible-memory".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
             .unwrap()
             .0;
         let claimed = state
-            .store_item(memd_schema::StoreMemoryRequest {
-                content: "claimed spine".to_string(),
-                kind: memd_schema::MemoryKind::Decision,
-                scope: memd_schema::MemoryScope::Project,
-                project: Some("memd".to_string()),
-                namespace: Some("core".to_string()),
-                workspace: Some("team-alpha".to_string()),
-                visibility: Some(MemoryVisibility::Workspace),
-                belief_branch: None,
-                source_agent: Some("codex".to_string()),
-                source_system: Some("obsidian".to_string()),
-                source_path: Some("wiki/claimed-spine.md".to_string()),
-                source_quality: Some(memd_schema::SourceQuality::Canonical),
-                confidence: Some(0.82),
-                ttl_seconds: None,
-                last_verified_at: None,
-                supersedes: Vec::new(),
-                tags: vec!["visible-memory".to_string()],
-                status: Some(MemoryStatus::Active),
-            }, MemoryStage::Canonical)
+            .store_item(
+                memd_schema::StoreMemoryRequest {
+                    content: "claimed spine".to_string(),
+                    kind: memd_schema::MemoryKind::Decision,
+                    scope: memd_schema::MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("core".to_string()),
+                    workspace: Some("team-alpha".to_string()),
+                    visibility: Some(MemoryVisibility::Workspace),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("obsidian".to_string()),
+                    source_path: Some("wiki/claimed-spine.md".to_string()),
+                    source_quality: Some(memd_schema::SourceQuality::Canonical),
+                    confidence: Some(0.82),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["visible-memory".to_string()],
+                    status: Some(MemoryStatus::Active),
+                },
+                MemoryStage::Canonical,
+            )
             .unwrap()
             .0;
 

@@ -50,10 +50,6 @@ fn path_text_contains(value: impl AsRef<Path>, needle: &str) -> bool {
     normalize_path_text(value).contains(needle)
 }
 
-fn path_text_ends_with(value: impl AsRef<Path>, needle: &str) -> bool {
-    normalize_path_text(value).ends_with(needle)
-}
-
 fn public_benchmark_fixture_path(dataset: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/{dataset}-mini.json"))
 }

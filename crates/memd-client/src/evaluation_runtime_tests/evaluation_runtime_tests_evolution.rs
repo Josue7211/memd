@@ -16,10 +16,10 @@
 "#,
         )
         .expect("write config");
-        fs::write(dir.join("MEMD_MEMORY.md"), "# sentinel memory\n").expect("write memory seed");
+        fs::write(dir.join("mem.md"), "# sentinel memory\n").expect("write memory seed");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         fs::write(
-            dir.join("agents").join("CODEX_MEMORY.md"),
+            dir.join("mem.md"),
             "# agent sentinel\n",
         )
         .expect("write agent memory seed");
@@ -45,7 +45,7 @@
         assert!(!report.accepted);
         assert!(report.restored);
         assert!(
-            fs::read_to_string(dir.join("MEMD_MEMORY.md"))
+            fs::read_to_string(dir.join("mem.md"))
                 .expect("read restored memory")
                 .contains("sentinel memory")
         );
@@ -71,10 +71,10 @@
 "#,
         )
         .expect("write config");
-        fs::write(dir.join("MEMD_MEMORY.md"), "# baseline memory\n").expect("write memory seed");
+        fs::write(dir.join("mem.md"), "# baseline memory\n").expect("write memory seed");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         fs::write(
-            dir.join("agents").join("CLAUDE_CODE_MEMORY.md"),
+            dir.join("mem.md"),
             "# agent baseline\n",
         )
         .expect("write agent memory seed");
@@ -106,7 +106,7 @@
         assert!(!report.restored);
         assert!(!report.learnings.is_empty());
         assert!(
-            fs::read_to_string(dir.join("MEMD_MEMORY.md"))
+            fs::read_to_string(dir.join("mem.md"))
                 .expect("read consolidated memory")
                 .contains("Accepted Experiment")
         );
@@ -139,10 +139,10 @@
 "#,
         )
         .expect("write config");
-        fs::write(dir.join("MEMD_MEMORY.md"), "# baseline memory\n").expect("write memory seed");
+        fs::write(dir.join("mem.md"), "# baseline memory\n").expect("write memory seed");
         fs::create_dir_all(dir.join("agents")).expect("create agents dir");
         fs::write(
-            dir.join("agents").join("CLAUDE_CODE_MEMORY.md"),
+            dir.join("mem.md"),
             "# agent baseline\n",
         )
         .expect("write agent memory seed");

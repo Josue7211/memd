@@ -556,7 +556,7 @@ Project bundles can configure runtime defaults, and attach flows make `memd` usa
 - `run_prompt_efficiency_loop` compares `core_prompt_tokens` against `estimated_prompt_tokens`
 - wake packet pressure path now has regression coverage for compact output under high-pressure snapshots
 - wake packet efficiency artifacts now record pressure diagnostics and warning reasons alongside token savings
-- `verifier.feature.bundle.wake` now consumes the live wake-packet efficiency artifact instead of only checking that `MEMD_WAKEUP.md` exists
+- `verifier.feature.bundle.wake` now consumes the live wake-packet efficiency artifact instead of only checking that `wake.md` exists
 - wake correctness already has coverage; this feature focuses on measurable packet compaction
 - supported harness startup parity now has explicit wake proof via `main_tests::hive_coordination_tests::wake_packet_cross_harness_profiles_keep_same_bundle_defaults`, while route/intent execution remains covered by `attach_snippet_executes_wake_with_bundle_route_intent_and_env_defaults`
 

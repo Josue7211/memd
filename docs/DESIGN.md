@@ -36,6 +36,20 @@ The user should feel:
 
 ## Primary Product Surfaces
 
+Visible default product shape:
+
+- `wake.md`
+- `mem.md`
+- `events.md`
+
+Design rules:
+
+- these are shared across harnesses
+- harness-specific adapters should stay thin
+- no duplicated per-harness wake, memory, or events payloads
+- Claude Code should boot from `wake.md` only
+- `mem.md` and `events.md` should feel available, not preloaded
+
 ### 1. Wake Packet
 
 Smallest useful context.
@@ -46,6 +60,9 @@ Must answer:
 - where did we stop
 - what changed
 - what next
+
+For Claude Code, this surface must stay brutally small.
+It is the hot path.
 
 ### 2. Memory Atlas
 
@@ -90,6 +107,13 @@ Not the control plane.
 Default shallow.
 Deeper only on demand.
 
+Practical loading model:
+
+- `wake.md` is hot
+- `mem.md` is explicit project/topic recall
+- `events.md` is audit and recovery
+- deeper trust and evidence should be easy to reach, but almost never forced into startup
+
 ### Typed Memory
 
 The system should visibly distinguish:
@@ -118,6 +142,17 @@ The interface should reward reuse, not reread.
 ### Sharper Context, Better Output
 
 Compression is only good if quality stays equal or improves.
+
+### Wake Smarter
+
+The product should improve future wake packets, not just store more text.
+
+That means:
+
+- detect gaps from recent work
+- run dream/nightly or bounded maintenance passes
+- accept only validated improvements
+- refresh canonical memory and the next wake packet
 
 ## Visual Direction
 

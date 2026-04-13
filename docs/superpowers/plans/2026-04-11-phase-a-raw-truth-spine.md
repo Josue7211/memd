@@ -65,7 +65,7 @@ async fn store_item_records_source_linked_event_for_canonical_memory() {
                 belief_branch: None,
                 source_agent: Some("codex@test".to_string()),
                 source_system: Some("hook-capture".to_string()),
-                source_path: Some(".memd/agents/CODEX_WAKEUP.md".to_string()),
+                source_path: Some(".memd/wake.md".to_string()),
                 source_quality: Some(SourceQuality::Canonical),
                 confidence: Some(0.91),
                 ttl_seconds: Some(86_400),
@@ -94,7 +94,7 @@ async fn store_item_records_source_linked_event_for_canonical_memory() {
     assert_eq!(event.source_system.as_deref(), Some("hook-capture"));
     assert_eq!(
         event.source_path.as_deref(),
-        Some(".memd/agents/CODEX_WAKEUP.md")
+        Some(".memd/wake.md")
     );
     assert!(event.tags.iter().any(|tag| tag == "raw-spine"));
 }
@@ -290,7 +290,7 @@ fn derive_raw_spine_record_keeps_source_linkage() {
         "hook_capture",
         "candidate",
         Some("hook-capture"),
-        Some(".memd/agents/CODEX_WAKEUP.md"),
+        Some(".memd/wake.md"),
         Some("memd"),
         Some("main"),
         Some("core"),
@@ -304,7 +304,7 @@ fn derive_raw_spine_record_keeps_source_linkage() {
     assert_eq!(record.source_system.as_deref(), Some("hook-capture"));
     assert_eq!(
         record.source_path.as_deref(),
-        Some(".memd/agents/CODEX_WAKEUP.md")
+        Some(".memd/wake.md")
     );
     assert!(record.tags.iter().any(|tag| tag == "raw-spine"));
 }
@@ -674,7 +674,7 @@ fn write_bundle_event_files_includes_raw_spine_section() {
             "hook_capture",
             "candidate",
             Some("hook-capture"),
-            Some(".memd/agents/CODEX_WAKEUP.md"),
+            Some(".memd/wake.md"),
             Some("memd"),
             Some("main"),
             Some("core"),
@@ -691,7 +691,7 @@ fn write_bundle_event_files_includes_raw_spine_section() {
     let latest = std::fs::read_to_string(dir.join("compiled/events/latest.md")).expect("read latest");
     assert!(latest.contains("## Raw Spine"));
     assert!(latest.contains("hook_capture"));
-    assert!(latest.contains(".memd/agents/CODEX_WAKEUP.md"));
+    assert!(latest.contains(".memd/wake.md"));
 }
 ```
 

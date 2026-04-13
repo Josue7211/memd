@@ -527,9 +527,9 @@ pub(crate) async fn run_feature_benchmark_command(
         .filter(|entry| entry.path().extension().and_then(|value| value.to_str()) == Some("sh"))
         .count();
     let has_commands_file = args.output.join("COMMANDS.md").exists();
-    let has_memory_file = args.output.join("MEMD_MEMORY.md").exists();
-    let has_wakeup_file = args.output.join("MEMD_WAKEUP.md").exists();
-    let has_events_file = args.output.join("MEMD_EVENTS.md").exists();
+    let has_memory_file = args.output.join("mem.md").exists();
+    let has_wakeup_file = args.output.join("wake.md").exists();
+    let has_events_file = args.output.join("events.md").exists();
     let has_compiled_events = compiled_event_dir(&args.output).join("latest.md").exists();
 
     let quality_score = memory_quality

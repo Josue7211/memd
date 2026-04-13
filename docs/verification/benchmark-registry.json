@@ -868,7 +868,7 @@
       "assertions": [
         {
           "kind": "file_contains",
-          "path": "MEMD_WAKEUP.md",
+          "path": "wake.md",
           "exists": true
         },
         {

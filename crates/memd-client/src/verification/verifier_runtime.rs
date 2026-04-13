@@ -138,7 +138,7 @@ pub(crate) async fn execute_cli_verifier_step(
                 "wake".to_string(),
                 json!({
                     "bundle": materialized.bundle_root.display().to_string(),
-                    "wakeup_path": materialized.bundle_root.join("MEMD_WAKEUP.md").display().to_string(),
+                    "wakeup_path": materialized.bundle_root.join("wake.md").display().to_string(),
                     "markdown": wakeup,
                     "packet_efficiency_path": packet_efficiency_path.display().to_string(),
                     "packet_efficiency": packet_efficiency,
@@ -279,11 +279,12 @@ pub(crate) async fn execute_cli_verifier_step(
                 .search(&req)
                 .await
                 .context("execute verifier search step")?;
-            state.outputs.insert(
-                "items".to_string(),
-                serde_json::to_value(&response.items)?,
-            );
-            state.outputs.insert("search".to_string(), serde_json::to_value(&response)?);
+            state
+                .outputs
+                .insert("items".to_string(), serde_json::to_value(&response.items)?);
+            state
+                .outputs
+                .insert("search".to_string(), serde_json::to_value(&response)?);
         }
         "messages" => {
             let mut args = MessagesArgs {
@@ -1045,7 +1046,9 @@ pub(crate) fn evaluate_verifier_assertions(
                         let handoff_next = handoff
                             .get("next_action")
                             .and_then(JsonValue::as_str)
-                            .context("handoff alignment assertion missing handoff next action")?;
+                            .context(
+                            "handoff alignment assertion missing handoff next action",
+                        )?;
                         let resume_next = resume
                             .get("next_action")
                             .and_then(JsonValue::as_str)

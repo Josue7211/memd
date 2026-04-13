@@ -695,7 +695,7 @@ pub(crate) fn render_bundle_memory_markdown(
     }
 
     markdown.push_str("\n## Event Compiler\n\n");
-    markdown.push_str("- live event log: [MEMD_EVENTS.md](MEMD_EVENTS.md)\n");
+    markdown.push_str("- live event log: [events.md](events.md)\n");
     markdown.push_str(
         "- compiled event pages: [compiled/events/latest.md](compiled/events/latest.md)\n",
     );

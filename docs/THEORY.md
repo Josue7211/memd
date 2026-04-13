@@ -48,6 +48,34 @@ Important separations:
 - atlas is not canonical truth
 - wake packet is not the whole memory system
 
+## Surface Lock
+
+The locked shared visible surfaces are:
+
+- `wake.md`
+- `mem.md`
+- `events.md`
+
+Rules:
+
+- these are shared system surfaces, not per-harness duplicated payloads
+- harnesses are adapters over one brain, not separate memory bundles
+- Claude Code should load only `wake.md` by default
+- `mem.md` and `events.md` are cold-path surfaces and should load only on demand
+- atlas/navigation may point into these surfaces, but is not a fourth truth plane
+
+## Evolution Lock
+
+The 10-star system is not only the three visible files.
+
+Underneath them, `memd` should run a Hermes-style improvement loop:
+
+- collect recent memory and gap signals
+- run dream/nightly maintenance or bounded autoresearch passes
+- validate or reject candidate improvements
+- promote validated gains into canonical, semantic, or procedural memory
+- refresh the next `wake.md` so the next session wakes smarter without loading more by default
+
 ## Root Theory Docs
 
 - [memd-theory-lock-v1.md](./docs/superpowers/specs/2026-04-11-memd-theory-lock-v1.md)

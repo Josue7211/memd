@@ -471,7 +471,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                         || openclaw_pack =>
                 {
                     if let Some(markdown) =
-                        read_codex_pack_local_markdown(&args.output, "MEMD_MEMORY.md")?
+                        read_codex_pack_local_markdown(&args.output, "mem.md")?
                     {
                         write_bundle_turn_fallback_artifacts(
                             &args.output,

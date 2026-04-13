@@ -90,7 +90,7 @@ The generated bundle now also writes viewable memory pages under
 `.memd/compiled/memory/`, with per-item drilldown under
 `.memd/compiled/memory/items/`.
 
-It also writes a live event lane under `.memd/MEMD_EVENTS.md` and the compiled
+It also writes a live event lane under `.memd/events.md` and the compiled
 event index under `.memd/compiled/events/latest.md`. That is the read-once
 event compiler path: the agent records events, memd compiles them into compact
 event pages, and the visible memory surfaces refresh from those compiled views.
@@ -190,10 +190,10 @@ printf 'changed auth flow: keep optimistic UI disabled for now\n' | ./integratio
 
 The Codex bundle refreshes:
 
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/MEMD_MEMORY.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
+- `.memd/wake.md`
+- `.memd/mem.md`
 
 Repeated reads in the same turn reuse the turn-scoped cache. If backend recall
 or capture fails, memd keeps the local bundle markdown on disk and continues

@@ -11,10 +11,9 @@ This preset comes from the shared harness schema.
 
 ## Surface Set
 
-- `MEMD_WAKEUP.md`
-- `MEMD_MEMORY.md`
-- `agents/OPENCLAW_WAKEUP.md`
-- `agents/OPENCLAW_MEMORY.md`
+- `wake.md`
+- `mem.md`
+- `events.md`
 
 ## Default Verbs
 
@@ -38,10 +37,9 @@ Recommended flow:
 
 If you are using a bundle, read:
 
-- `.memd/MEMD_MEMORY.md`
-- `.memd/MEMD_WAKEUP.md`
-- `.memd/agents/OPENCLAW_WAKEUP.md`
-- `.memd/agents/OPENCLAW_MEMORY.md`
+- `.memd/mem.md`
+- `.memd/wake.md`
+- `.memd/events.md`
 
 And use the OpenClaw-specific entrypoint:
 

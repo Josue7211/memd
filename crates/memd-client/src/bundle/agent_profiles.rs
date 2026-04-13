@@ -36,12 +36,12 @@ pub(crate) fn build_bundle_agent_profiles(
         .or_else(detect_shell)
         .unwrap_or_else(|| "bash".to_string());
     let mut agents = vec![
-        ("codex", "codex", "CODEX_MEMORY.md"),
-        ("claude-code", "claude-code", "CLAUDE_CODE_MEMORY.md"),
-        ("agent-zero", "agent-zero", "AGENT_ZERO_MEMORY.md"),
-        ("hermes", "hermes", "HERMES_MEMORY.md"),
-        ("opencode", "opencode", "OPENCODE_MEMORY.md"),
-        ("openclaw", "openclaw", "OPENCLAW_MEMORY.md"),
+        ("codex", "codex", "mem.md"),
+        ("claude-code", "claude-code", "agents/CLAUDE_IMPORTS.md"),
+        ("agent-zero", "agent-zero", "mem.md"),
+        ("hermes", "hermes", "mem.md"),
+        ("opencode", "opencode", "mem.md"),
+        ("openclaw", "openclaw", "mem.md"),
     ]
     .into_iter()
     .map(|(name, env_agent, memory_file)| BundleAgentProfile {
@@ -49,11 +49,7 @@ pub(crate) fn build_bundle_agent_profiles(
         env_agent: env_agent.to_string(),
         session: current_session.clone(),
         effective_agent: compose_agent_identity(env_agent, current_session.as_deref()),
-        memory_file: output
-            .join("agents")
-            .join(memory_file)
-            .display()
-            .to_string(),
+        memory_file: output.join(memory_file).display().to_string(),
         shell_entrypoint: output
             .join("agents")
             .join(format!("{name}.sh"))
@@ -76,7 +72,7 @@ pub(crate) fn build_bundle_agent_profiles(
         };
         agent.native_hint = match agent.name.as_str() {
             "codex" => Some(
-                "start from .memd/agents/CODEX_WAKEUP.md, then run memd lookup --output .memd --query \"...\" before memory-dependent answers"
+                "start from .memd/wake.md, then run memd lookup --output .memd --query \"...\" before memory-dependent answers"
                     .to_string(),
             ),
             "claude-code" => Some(

@@ -27,7 +27,7 @@
         assert_eq!(response.agents[0].effective_agent, "codex@codex-a");
         assert!(path_text_ends_with(
             &response.agents[0].memory_file,
-            "agents/CODEX_MEMORY.md"
+            "mem.md"
         ));
         assert!(response.agents[0].launch_hint.contains("codex.sh"));
         assert!(
@@ -35,12 +35,12 @@
                 .native_hint
                 .as_deref()
                 .unwrap_or_default()
-                .contains("CODEX_WAKEUP.md")
+                .contains("wake.md")
         );
         assert!(
             response.agents.iter().any(|agent| path_text_ends_with(
                 &agent.memory_file,
-                "agents/AGENT_ZERO_MEMORY.md"
+                "mem.md"
             ))
         );
         assert!(
@@ -78,6 +78,10 @@
         assert_eq!(response.selected.as_deref(), Some("claude-code"));
         assert_eq!(response.agents[0].name, "claude-code");
         assert!(response.agents[0].launch_hint.contains("claude-code.ps1"));
+        assert!(path_text_ends_with(
+            &response.agents[0].memory_file,
+            "agents/CLAUDE_IMPORTS.md"
+        ));
         assert!(
             response.agents[0]
                 .native_hint
@@ -350,11 +354,7 @@
         fs::write(bundle.join("backend.env"), "").expect("write backend env");
         fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
         fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
-        fs::write(
-            bundle.join("agents").join("CODEX_WAKEUP.md"),
-            "# codex wakeup\n",
-        )
-        .expect("write codex wakeup");
+        fs::write(bundle.join("wake.md"), "# codex wakeup\n").expect("write codex wakeup");
         fs::write(
             bundle.join("agents").join("watch.sh"),
             "#!/usr/bin/env bash\nexit 0\n",

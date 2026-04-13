@@ -59,7 +59,7 @@ pub(crate) fn resolve_compiled_memory_bundle_root(
         if explicit.join("compiled").join("memory").exists() {
             return Ok(explicit.to_path_buf());
         }
-        if explicit.join("MEMD_MEMORY.md").exists() {
+        if explicit.join("mem.md").exists() {
             return Ok(explicit.to_path_buf());
         }
         if explicit.ends_with("compiled/memory") {
@@ -74,11 +74,11 @@ pub(crate) fn resolve_compiled_memory_bundle_root(
     let mut dir = std::env::current_dir().context("read current directory")?;
     loop {
         if dir.join(".memd").join("compiled").join("memory").exists()
-            || dir.join(".memd").join("MEMD_MEMORY.md").exists()
+            || dir.join(".memd").join("mem.md").exists()
         {
             return Ok(dir.join(".memd"));
         }
-        if dir.join("compiled").join("memory").exists() || dir.join("MEMD_MEMORY.md").exists() {
+        if dir.join("compiled").join("memory").exists() || dir.join("mem.md").exists() {
             return Ok(dir);
         }
         if !dir.pop() {
@@ -117,7 +117,7 @@ pub(crate) fn search_compiled_memory_pages(
     let query_lower = query.to_lowercase();
     let query_terms = tokenize_compiled_memory_query(query);
     let mut hits = Vec::new();
-    for entry in walkdir::WalkDir::new(&root)
+    for entry in memdrive::WalkDir::new(&root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
@@ -664,7 +664,7 @@ pub(crate) fn resolve_compiled_memory_page(
 
     let exact_markdown_name = format!("{normalized}.md");
     let mut partial_match: Option<PathBuf> = None;
-    for entry in walkdir::WalkDir::new(&root)
+    for entry in memdrive::WalkDir::new(&root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
@@ -814,7 +814,7 @@ pub(crate) fn build_compiled_memory_quality_report(
 ) -> anyhow::Result<CompiledMemoryQualityReport> {
     let started = Instant::now();
     let index = render_compiled_memory_index(bundle_root)?;
-    let memory_file = bundle_root.join("MEMD_MEMORY.md");
+    let memory_file = bundle_root.join("mem.md");
     let event_log = read_bundle_event_log(bundle_root).unwrap_or_default();
     let memory_file_bytes = fs::metadata(&memory_file)
         .map(|meta| meta.len())
@@ -1200,7 +1200,7 @@ mod tests {
         )
         .expect("write runtime config");
         fs::write(
-            root.join("MEMD_MEMORY.md"),
+            root.join("mem.md"),
             "# memd memory\n\n## Scope\n\n- source_note: [[Working]]\n",
         )
         .expect("write memory surface");
