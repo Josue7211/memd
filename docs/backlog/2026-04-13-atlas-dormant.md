@@ -1,6 +1,8 @@
 # Atlas System Dormant — Never Called from Runtime
 
-- status: `open`
+- status: `deferred-phase-h`
+- deferred: `2026-04-13`
+- reason: Atlas integration is product architecture, not a hardening fix. Requires wiring into wake/working pipeline, entity link auto-population, and cross-session navigation — all Phase H scope.
 - found: `2026-04-13`
 - scope: memd-server, memd-client
 - severity: high

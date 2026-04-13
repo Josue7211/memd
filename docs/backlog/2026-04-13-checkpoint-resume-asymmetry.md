@@ -1,6 +1,8 @@
 # Checkpoint / Resume Asymmetry
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: By design — checkpoint writes durable items, resume reads fresh aggregated state. Round-trip asymmetry is intentional: checkpoint persists truth, resume rebuilds working context from current DB state. Not a bug.
 - found: `2026-04-13`
 - scope: memd-client
 

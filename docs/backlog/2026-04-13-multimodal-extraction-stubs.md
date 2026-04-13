@@ -1,6 +1,8 @@
 # Multimodal Extraction Stubs
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: Deferred until Mineru/RagAnything backends are wired. Current behavior stores metadata string (path, kind, backend, mime) which is valid — not silent failure. Using unimplemented!() would panic the server.
 - found: `2026-04-13`
 - scope: memd-multimodal
 

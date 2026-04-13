@@ -1,6 +1,8 @@
 # Lane Architecture Gaps
 
-- status: `open`
+- status: `deferred-phase-h`
+- deferred: `2026-04-13`
+- reason: Lane architecture requires schema migration (lane field on memory_items), auto-detection from working context, and retrieval boosting. Product-level work, not hardening.
 - found: `2026-04-13`
 - scope: memd-client, memd-server, memd-schema
 

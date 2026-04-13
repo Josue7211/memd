@@ -1,6 +1,8 @@
 # Memory Is Not Navigable — Core Product Promise Broken
 
-- status: `open`
+- status: `deferred-phase-h`
+- deferred: `2026-04-13`
+- reason: Multi-phase product work — auto-linking from content, atlas from entity clusters, wiki link resolution. Depends on atlas-dormant and lane-architecture-gaps. Core Phase H deliverable.
 - found: `2026-04-13`
 - scope: memd-server, memd-client, product
 - severity: critical
