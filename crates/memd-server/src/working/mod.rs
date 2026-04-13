@@ -328,6 +328,16 @@ fn working_item_priority(
         .unwrap_or(45.0);
     let rehearsal_count = entity.map(|entity| entity.rehearsal_count).unwrap_or(0);
 
+    let kind_score = match item.kind {
+        memd_schema::MemoryKind::Status => -0.15,
+        memd_schema::MemoryKind::Fact
+        | memd_schema::MemoryKind::Decision
+        | memd_schema::MemoryKind::Procedural => 0.10,
+        memd_schema::MemoryKind::Preference
+        | memd_schema::MemoryKind::Constraint
+        | memd_schema::MemoryKind::Runbook => 0.06,
+        _ => 0.0,
+    };
     let status_score = match item.status {
         memd_schema::MemoryStatus::Active => 0.22,
         memd_schema::MemoryStatus::Stale => -0.10,
@@ -360,6 +370,7 @@ fn working_item_priority(
         0.0
     };
     let ttl_score = match item.ttl_seconds {
+        Some(ttl) if ttl <= 3_600 => -0.08,
         Some(ttl) if ttl <= 86_400 => -0.04,
         Some(ttl) if ttl >= 7 * 86_400 => 0.02,
         Some(_) => 0.0,
@@ -404,6 +415,7 @@ fn working_item_priority(
     };
 
     let mut reasons = vec![
+        format!("kind={:?}", item.kind),
         format!("status={}", format_status(item.status)),
         format!("source={}", format_source_quality(item.source_quality)),
         format!("source_trust={source_trust_score:.2}"),
@@ -432,6 +444,7 @@ fn working_item_priority(
     }
     (
         (confidence * 0.48
+            + kind_score
             + status_score
             + source_score
             + stage_score
