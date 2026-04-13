@@ -115,8 +115,8 @@ fn build_telemetry_benchmark_coverage_surfaces_registry_gaps() {
         .expect("build telemetry coverage")
         .expect("telemetry coverage");
     assert_eq!(coverage.continuity_critical_total, 13);
-    assert_eq!(coverage.continuity_critical_benchmarked, 0);
-    assert_eq!(coverage.missing_loop_count, 13);
+    assert_eq!(coverage.continuity_critical_benchmarked, 1);
+    assert_eq!(coverage.missing_loop_count, 12);
     assert!(
         coverage
             .gap_candidates
@@ -139,7 +139,7 @@ fn render_morning_operator_summary_surfaces_top_regressions() {
         top_verification_pressure: vec![
             "verifier.feature.hive.messages-send-ack status=passing gate=acceptable target=acceptable continuity_critical=true".to_string(),
         ],
-        top_drift_risks: vec!["surface drift in MEMD_MEMORY.md".to_string()],
+        top_drift_risks: vec!["surface drift in mem.md".to_string()],
         top_token_regressions: vec!["handoff packet +420 tokens".to_string()],
         top_no_memd_losses: vec!["resume still loses to no-memd baseline".to_string()],
         proposed_next_actions: vec!["fix resume journey before expanding registry".to_string()],

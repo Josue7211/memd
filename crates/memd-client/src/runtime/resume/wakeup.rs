@@ -229,31 +229,36 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push('\n');
     }
 
-    let mut protocol = String::new();
-    protocol.push_str("## Protocol\n\n");
-    protocol.push_str("- Read first.\n");
-    protocol.push_str("- Durable truth beats transcript recall.\n");
-    protocol.push_str(
-        "- Lookup before answers on decisions, preferences, history, or prior user corrections.\n",
-    );
-    protocol.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
-    protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
-    protocol.push_str("- Writes: `remember-short`, `remember-decision`, `remember-preference`, `remember-long`, `capture-live`, `correct-memory`, `sync-semantic`, `watch`.\n");
-    if verbose {
-        protocol
-            .push_str("- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n");
-    }
-    protocol.push_str("- Promote stable truths; do not rely on transcript recall.\n");
     let active_voice = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
-    protocol.push_str(&format!("- Default voice: {}\n", active_voice));
-    protocol.push_str(&format!(
-        "- Reply in `{}` unless `.memd/config.json` changes it.\n",
-        active_voice
-    ));
-    protocol.push_str(&format!(
-        "- If your draft is not in `{}`, stop and rewrite it before sending.\n",
-        active_voice
-    ));
+    let mut protocol = String::new();
+    if claude_strict {
+        // Claude Code: minimal protocol — behavioral rules live in AGENTS.md and the memd skill.
+        protocol.push_str(&format!("## Voice\n\n- {}\n", active_voice));
+    } else {
+        protocol.push_str("## Protocol\n\n");
+        protocol.push_str("- Read first.\n");
+        protocol.push_str("- Durable truth beats transcript recall.\n");
+        protocol.push_str(
+            "- Lookup before answers on decisions, preferences, history, or prior user corrections.\n",
+        );
+        protocol.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
+        protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
+        protocol.push_str("- Writes: `remember-short`, `remember-decision`, `remember-preference`, `remember-long`, `capture-live`, `correct-memory`, `sync-semantic`, `watch`.\n");
+        if verbose {
+            protocol
+                .push_str("- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n");
+        }
+        protocol.push_str("- Promote stable truths; do not rely on transcript recall.\n");
+        protocol.push_str(&format!("- Default voice: {}\n", active_voice));
+        protocol.push_str(&format!(
+            "- Reply in `{}` unless `.memd/config.json` changes it.\n",
+            active_voice
+        ));
+        protocol.push_str(&format!(
+            "- If your draft is not in `{}`, stop and rewrite it before sending.\n",
+            active_voice
+        ));
+    };
 
     enforce_wake_char_budget(&prefix, &protocol, budget)
 }
@@ -621,9 +626,8 @@ mod tests {
         let markdown = render_bundle_wakeup_markdown(&dir, &pressure_snapshot(), false);
 
         assert!(markdown.chars().count() <= 1200);
-        assert!(markdown.contains("## Protocol"));
-        assert!(markdown.contains("Read first."));
-        assert!(markdown.contains("memd lookup --output .memd --query"));
+        assert!(markdown.contains("## Voice"));
+        assert!(!markdown.contains("## Protocol"));
         assert!(!markdown.contains("## Instructions"));
         assert!(!markdown.contains("## Live"));
 

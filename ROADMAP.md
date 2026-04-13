@@ -7,11 +7,10 @@ truth_date: 2026-04-12
 version: v1
 version_status: in_progress
 current_phase: phase_e
-phase_status: verified_with_audit_tail
+phase_status: verified
 next_phase: phase_f
-next_step: cross_harness_wake_packet_proof
-active_blockers:
-  - feature_v1_wake_packet_audit
+next_step: start_phase_f
+active_blockers: []
 -->
 
 ## Status Snapshot
@@ -20,30 +19,41 @@ active_blockers:
 - current version: `v1`
 - version status: `in_progress`
 - current phase: `Phase E: Wake Packet Compiler`
-- phase status: `verified_with_audit_tail`
+- phase status: `verified`
 - next phase: `Phase F: Memory Atlas`
-- next step: `cross-harness wake-packet proof`
-- active blocker: `FEATURE-V1-WAKE-PACKET` audit tail still open
+- next step: `start Phase F`
 
 ## Current Focus
 
-Finish the wake-packet audit tail, then start the memory-atlas slice without
-letting roadmap truth drift from live continuity truth.
+Phase E is verified. All blockers closed. Boot context slimmed from 12.5KB to
+2.7KB (competitive with mempalace). Shell env quoting fixed. CODEX_MEMORY
+zombies killed. Ready for Phase F (Memory Atlas).
 
 ## Blockers
 
-- `FEATURE-V1-WAKE-PACKET` audit tail is still open
-- `.memd/env` generation is not shell-safe
-- Claude Code bootstrap wording still overclaims parity
+None.
 
 ## Status Rules
 
+- `pending`: not started
 - `pending`: not started
 - `in_progress`: active build work
 - `blocked`: cannot move without external fix or decision
 - `verified`: engineering verification passed
 - `verified_with_audit_tail`: engineering verification passed, follow-up audit still open
 - `complete`: human-tested and accepted at the product level
+
+## Phase-Flip Rule
+
+One rule for state transitions:
+- `pending` → `in_progress`: when first task starts
+- `in_progress` → `verified`: when engineering verification passes AND all audit items closed
+- `in_progress` → `verified_with_audit_tail`: when verification passes but audit items remain
+- `verified_with_audit_tail` → `verified`: when all audit items close
+- `verified` → `complete`: when human accepts at product level
+
+When flipping, update ALL three sources: ROADMAP.md frontmatter, phase doc frontmatter,
+and phase doc body status. The live memd state follows from the next `memd wake`.
 
 ## Product Contract
 
@@ -65,7 +75,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | B | Session Continuity | `verified` | fresh-session resume without transcript rebuild | [[phase-b-session-continuity]] |
 | C | Typed Memory | `verified` | explicit memory kinds instead of one flat store | [[phase-c-typed-memory]] |
 | D | Canonical Truth | `verified` | corrections, trust, freshness, conflict handling | [[phase-d-canonical-truth]] |
-| E | Wake Packet Compiler | `verified_with_audit_tail` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
+| E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
 | F | Memory Atlas | `pending` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `pending` | learn reusable operating procedures | [[2026-04-11-memd-ralph-roadmap]] |
 | H | Hive Coordination | `pending` | shared second brain across harnesses | [[2026-04-11-memd-ralph-roadmap]] |
@@ -73,22 +83,28 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 
 ## Next Up
 
-1. Close `FEATURE-V1-WAKE-PACKET`.
-2. Start `Phase F`.
-3. Fix shell-unsafe `.memd/env` generation.
-4. Fix Claude Code bootstrap wording.
-5. Define one rule for phase-state flips.
+1. Start `Phase F` (Memory Atlas).
+
+## Phase E Follow-Up (Closed)
+
+All audit tail items resolved:
+- Boot context slimmed 78% (12.5KB → 2.2KB)
+- Shell env quoting fixed
+- CODEX_MEMORY zombies killed
+- Cross-harness wake proof closed
+- Phase-flip rule defined
+- [[docs/superpowers/plans/2026-04-12-phase-e-cross-harness-wake-proof.md|Detailed Phase E cross-harness wake proof plan]]
 
 ## Immediate Backlog
 
-1. [[2026-04-12-claude-code-bootstrap-bridge-gap]] — `open`, found `2026-04-12`.
-   Roadmap/docs still overstate Claude Code as if it had native memd bootstrap parity.
+1. [[2026-04-12-claude-code-bootstrap-bridge-gap]] — `closed`, fixed `2026-04-12`.
+   Boot context slimmed 78%. CODEX_MEMORY zombies killed. SessionStart hook gutted.
 
-2. [[2026-04-12-shell-unsafe-memd-env-generation]] — `open`, found `2026-04-12`.
-   Generated `.memd/env` is not shell-safe, so helper scripts can die before invoking memd.
+2. [[2026-04-12-shell-unsafe-memd-env-generation]] — `closed`, fixed `2026-04-12`.
+   All env values now shell-single-quoted via `rewrite_shell_env` helper.
 
-3. [[2026-04-12-roadmap-state-audit-tail-drift]] — `open`, found `2026-04-12`.
-   Roadmap phase state and live continuity state can disagree during verification/audit tails.
+3. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
+   Fixed by closing Phase E audit tail and aligning all state sources. Phase-flip rule added.
 
 ## Recently Closed
 

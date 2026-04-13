@@ -42,7 +42,7 @@ async fn hive_join_forces_shared_base_url_for_stale_bundle() {
     let config = fs::read_to_string(dir.join("config.json")).expect("read config");
     let env = fs::read_to_string(dir.join("env")).expect("read env");
     assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-    assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+    assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -115,7 +115,7 @@ async fn hive_join_all_active_rewrites_live_bundles_in_project() {
         let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
         let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
         assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-        assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
     }
 
     fs::remove_dir_all(root).expect("cleanup project root");
@@ -298,7 +298,7 @@ async fn hive_join_all_local_rewrites_all_local_bundles_in_project() {
         let config = fs::read_to_string(bundle_root.join("config.json")).expect("read config");
         let env = fs::read_to_string(bundle_root.join("env")).expect("read env");
         assert!(config.contains(r#""base_url": "http://100.104.154.24:8787""#));
-        assert!(env.contains("MEMD_BASE_URL=http://100.104.154.24:8787"));
+        assert!(env.contains("MEMD_BASE_URL='http://100.104.154.24:8787'"));
     }
 
     fs::remove_dir_all(root).expect("cleanup project root");
@@ -337,8 +337,8 @@ fn set_bundle_route_and_intent_update_config_and_env_files() {
     let env_ps1 = fs::read_to_string(dir.join("env.ps1")).expect("read env.ps1");
     assert!(config.contains(r#""route": "lexical""#));
     assert!(config.contains(r#""intent": "current_task""#));
-    assert!(env.contains("MEMD_ROUTE=lexical"));
-    assert!(env.contains("MEMD_INTENT=current_task"));
+    assert!(env.contains("MEMD_ROUTE='lexical'"));
+    assert!(env.contains("MEMD_INTENT='current_task'"));
     assert!(env_ps1.contains("$env:MEMD_ROUTE = \"lexical\""));
     assert!(env_ps1.contains("$env:MEMD_INTENT = \"current_task\""));
 
@@ -578,8 +578,8 @@ fn set_bundle_scope_metadata_updates_config_and_env_files() {
     assert!(config.contains(r#""namespace": "main""#));
     assert!(config.contains(r#""workspace": "openclaw-stack""#));
     assert!(config.contains(r#""visibility": "workspace""#));
-    assert!(env.contains("MEMD_PROJECT=clawcontrol-rollout"));
-    assert!(env.contains("MEMD_NAMESPACE=main"));
+    assert!(env.contains("MEMD_PROJECT='clawcontrol-rollout'"));
+    assert!(env.contains("MEMD_NAMESPACE='main'"));
     assert!(env.contains("MEMD_WORKSPACE=openclaw-stack"));
     assert!(env.contains("MEMD_VISIBILITY=workspace"));
     assert!(env_ps1.contains("$env:MEMD_PROJECT = \"clawcontrol-rollout\""));
@@ -633,10 +633,10 @@ fn write_init_bundle_persists_authority_policy_state_and_env_files() {
     assert!(config.contains(r#""authority_state""#));
     assert!(config.contains(r#""mode": "shared""#));
     assert!(config.contains(&format!(r#""shared_base_url": "{}""#, SHARED_MEMD_BASE_URL)));
-    assert!(env.contains("MEMD_AUTHORITY_MODE=shared"));
-    assert!(env.contains("MEMD_LOCALHOST_FALLBACK_POLICY=deny"));
-    assert!(env.contains(&format!("MEMD_SHARED_BASE_URL={SHARED_MEMD_BASE_URL}")));
-    assert!(env.contains("MEMD_AUTHORITY_DEGRADED=false"));
+    assert!(env.contains("MEMD_AUTHORITY_MODE='shared'"));
+    assert!(env.contains("MEMD_LOCALHOST_FALLBACK_POLICY='deny'"));
+    assert!(env.contains(&format!("MEMD_SHARED_BASE_URL='{SHARED_MEMD_BASE_URL}'")));
+    assert!(env.contains("MEMD_AUTHORITY_DEGRADED='false'"));
     assert!(env_ps1.contains("$env:MEMD_AUTHORITY_MODE = \"shared\""));
     assert!(env_ps1.contains("$env:MEMD_LOCALHOST_FALLBACK_POLICY = \"deny\""));
     assert!(env_ps1.contains(&format!(
@@ -698,7 +698,8 @@ fn render_agent_profiles_surface_authority_warning_when_localhost_fallback_is_ac
 
 #[test]
 fn wake_packet_cross_harness_profiles_keep_same_bundle_defaults() {
-    let root = std::env::temp_dir().join(format!("memd-wake-cross-harness-{}", uuid::Uuid::new_v4()));
+    let root =
+        std::env::temp_dir().join(format!("memd-wake-cross-harness-{}", uuid::Uuid::new_v4()));
     let bundle = root.join(".memd");
     let bin_dir = root.join("bin");
     fs::create_dir_all(&bundle).expect("create bundle");
@@ -728,7 +729,7 @@ fn wake_packet_cross_harness_profiles_keep_same_bundle_defaults() {
     fs::write(bundle.join("env.ps1"), "").expect("write env.ps1");
     fs::create_dir_all(bundle.join("agents")).expect("create agents dir");
     fs::write(
-        bundle.join("agents").join("CODEX_WAKEUP.md"),
+        bundle.join("wake.md"),
         "# codex wakeup\n",
     )
     .expect("write codex wakeup");

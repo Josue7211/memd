@@ -1708,56 +1708,49 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
 
     write_bundle_backend_env(&output, &config)?;
 
-    fs::write(
-        output.join("env"),
-        format!(
-            "MEMD_BASE_URL={}\nMEMD_PROJECT={}\n{}MEMD_AGENT={}\nMEMD_WORKER_NAME={}\nMEMD_SESSION={}\n{}MEMD_ROUTE={}\nMEMD_INTENT={}\nMEMD_HEARTBEAT_MODEL={}\nMEMD_VOICE_MODE={}\nMEMD_AUTO_SHORT_TERM_CAPTURE={}\n{}{}{}",
-            args.base_url,
-            project,
-            namespace
-                .as_ref()
-                .map(|value| format!("MEMD_NAMESPACE={value}\n"))
-                .unwrap_or_default(),
-            compose_agent_identity(&args.agent, Some(&session)),
-            shell_single_quote(&worker_name),
-            session,
-            tab_id
-                .as_ref()
-                .map(|value| format!("MEMD_TAB_ID={value}\n"))
-                .unwrap_or_default(),
-            args.route,
-            args.intent,
-            config.heartbeat_model,
-            config.voice_mode,
-            if config.auto_short_term_capture { "true" } else { "false" },
-            args.workspace
-                .as_ref()
-                .map(|value| format!("MEMD_WORKSPACE={value}\n"))
-                .unwrap_or_default(),
-            args.visibility
-                .as_ref()
-                .map(|value| format!("MEMD_VISIBILITY={value}\n"))
-                .unwrap_or_default(),
-            rag_url
-                .as_ref()
-                .map(|value| format!("MEMD_RAG_URL={value}\n"))
-                .unwrap_or_default(),
-        ),
-    )
-    .with_context(|| format!("write {}", output.join("env").display()))?;
+    let q = shell_single_quote;
+    let mut env_lines = vec![
+        format!("MEMD_BASE_URL={}\n", q(&args.base_url)),
+        format!("MEMD_PROJECT={}\n", q(&project)),
+    ];
+    if let Some(ns) = namespace.as_ref() {
+        env_lines.push(format!("MEMD_NAMESPACE={}\n", q(ns)));
+    }
+    env_lines.push(format!("MEMD_AGENT={}\n", q(&compose_agent_identity(&args.agent, Some(&session)))));
+    env_lines.push(format!("MEMD_WORKER_NAME={}\n", q(&worker_name)));
+    env_lines.push(format!("MEMD_SESSION={}\n", q(&session)));
+    if let Some(tid) = tab_id.as_ref() {
+        env_lines.push(format!("MEMD_TAB_ID={}\n", q(tid)));
+    }
+    env_lines.push(format!("MEMD_ROUTE={}\n", q(&args.route)));
+    env_lines.push(format!("MEMD_INTENT={}\n", q(&args.intent)));
+    env_lines.push(format!("MEMD_HEARTBEAT_MODEL={}\n", q(&config.heartbeat_model)));
+    env_lines.push(format!("MEMD_VOICE_MODE={}\n", q(&config.voice_mode)));
+    env_lines.push(format!("MEMD_AUTO_SHORT_TERM_CAPTURE={}\n", if config.auto_short_term_capture { "'true'" } else { "'false'" }));
+    if let Some(ws) = args.workspace.as_ref() {
+        env_lines.push(format!("MEMD_WORKSPACE={}\n", q(ws)));
+    }
+    if let Some(vis) = args.visibility.as_ref() {
+        env_lines.push(format!("MEMD_VISIBILITY={}\n", q(vis)));
+    }
+    if let Some(ru) = rag_url.as_ref() {
+        env_lines.push(format!("MEMD_RAG_URL={}\n", q(ru)));
+    }
+    fs::write(output.join("env"), env_lines.join(""))
+        .with_context(|| format!("write {}", output.join("env").display()))?;
 
     if let Some(hive_system) = hive_profile.hive_system.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_SYSTEM=",
-            &format!("MEMD_PEER_SYSTEM={hive_system}\n"),
+            &format!("MEMD_PEER_SYSTEM={}\n", q(hive_system)),
         )?;
     }
     if let Some(hive_role) = hive_profile.hive_role.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_ROLE=",
-            &format!("MEMD_PEER_ROLE={hive_role}\n"),
+            &format!("MEMD_PEER_ROLE={}\n", q(hive_role)),
         )?;
     }
     if !hive_profile.capabilities.is_empty() {
@@ -1766,7 +1759,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
             "MEMD_PEER_CAPABILITIES=",
             &format!(
                 "MEMD_PEER_CAPABILITIES={}\n",
-                hive_profile.capabilities.join(",")
+                q(&hive_profile.capabilities.join(","))
             ),
         )?;
     }
@@ -1774,28 +1767,28 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_GROUPS=",
-            &format!("MEMD_PEER_GROUPS={}\n", hive_profile.hive_groups.join(",")),
+            &format!("MEMD_PEER_GROUPS={}\n", q(&hive_profile.hive_groups.join(","))),
         )?;
     }
     if let Some(goal) = hive_profile.hive_group_goal.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_GROUP_GOAL=",
-            &format!("MEMD_PEER_GROUP_GOAL={goal}\n"),
+            &format!("MEMD_PEER_GROUP_GOAL={}\n", q(goal)),
         )?;
     }
     if let Some(authority) = hive_profile.authority.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_PEER_AUTHORITY=",
-            &format!("MEMD_PEER_AUTHORITY={authority}\n"),
+            &format!("MEMD_PEER_AUTHORITY={}\n", q(authority)),
         )?;
     }
     if let Some(value) = tab_id.as_deref() {
         rewrite_env_assignment(
             &output.join("env"),
             "MEMD_TAB_ID=",
-            &format!("MEMD_TAB_ID={value}\n"),
+            &format!("MEMD_TAB_ID={}\n", q(value)),
         )?;
     }
 

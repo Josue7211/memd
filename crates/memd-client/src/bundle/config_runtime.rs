@@ -36,16 +36,8 @@ pub(crate) fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()>
         agent,
         session.as_deref(),
     );
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_AGENT=",
-        &format!("MEMD_AGENT={effective_agent}\n"),
-    )?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_WORKER_NAME=",
-        &format!("MEMD_WORKER_NAME={}\n", shell_single_quote(&worker_name)),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_AGENT", &effective_agent)?;
+    rewrite_shell_env(&output.join("env"), "MEMD_WORKER_NAME", &worker_name)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_AGENT = ",
@@ -81,21 +73,9 @@ pub(crate) fn set_bundle_session(output: &Path, session: &str) -> anyhow::Result
     let effective_agent = compose_agent_identity(agent, Some(session));
     let worker_name =
         default_bundle_worker_name_for_project(config.project.as_deref(), agent, Some(session));
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_SESSION=",
-        &format!("MEMD_SESSION={session}\n"),
-    )?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_AGENT=",
-        &format!("MEMD_AGENT={effective_agent}\n"),
-    )?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_WORKER_NAME=",
-        &format!("MEMD_WORKER_NAME={}\n", shell_single_quote(&worker_name)),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_SESSION", session)?;
+    rewrite_shell_env(&output.join("env"), "MEMD_AGENT", &effective_agent)?;
+    rewrite_shell_env(&output.join("env"), "MEMD_WORKER_NAME", &worker_name)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_SESSION = ",
@@ -132,11 +112,7 @@ pub(crate) fn set_bundle_tab_id(output: &Path, tab_id: &str) -> anyhow::Result<(
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_TAB_ID=",
-        &format!("MEMD_TAB_ID={tab_id}\n"),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_TAB_ID", tab_id)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_TAB_ID = ",
@@ -163,11 +139,7 @@ pub(crate) fn set_bundle_base_url(output: &Path, base_url: &str) -> anyhow::Resu
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_BASE_URL=",
-        &format!("MEMD_BASE_URL={base_url}\n"),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_BASE_URL", base_url)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_BASE_URL = ",
@@ -181,11 +153,7 @@ pub(crate) fn set_bundle_project(output: &Path, project: &str) -> anyhow::Result
     let (config_path, mut config) = read_bundle_config_file(output)?;
     config.project = Some(project.trim().to_string());
     write_bundle_config_file(&config_path, &config)?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_PROJECT=",
-        &format!("MEMD_PROJECT={}\n", project.trim()),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_PROJECT", project.trim())?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_PROJECT = ",
@@ -198,11 +166,7 @@ pub(crate) fn set_bundle_namespace(output: &Path, namespace: &str) -> anyhow::Re
     let (config_path, mut config) = read_bundle_config_file(output)?;
     config.namespace = Some(namespace.trim().to_string());
     write_bundle_config_file(&config_path, &config)?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_NAMESPACE=",
-        &format!("MEMD_NAMESPACE={}\n", namespace.trim()),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_NAMESPACE", namespace.trim())?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_NAMESPACE = ",
@@ -231,11 +195,7 @@ pub(crate) fn set_bundle_route(output: &Path, route: &str) -> anyhow::Result<()>
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_ROUTE=",
-        &format!("MEMD_ROUTE={route}\n"),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_ROUTE", route)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_ROUTE = ",
@@ -262,11 +222,7 @@ pub(crate) fn set_bundle_intent(output: &Path, intent: &str) -> anyhow::Result<(
     fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")
         .with_context(|| format!("write {}", config_path.display()))?;
 
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_INTENT=",
-        &format!("MEMD_INTENT={intent}\n"),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_INTENT", intent)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_INTENT = ",
@@ -382,6 +338,24 @@ pub(crate) fn detect_setup_agent(project_root: Option<&Path>, output: &Path) -> 
 
     if output.join("agents").join("CLAUDE_IMPORTS.md").exists() {
         return "claude-code".to_string();
+    }
+
+    if let Some(home) = home_dir() {
+        if home.join(".claude").is_dir() {
+            return "claude-code".to_string();
+        }
+        if home.join(".codex").is_dir() {
+            return "codex".to_string();
+        }
+        if home.join(".config").join("opencode").is_dir() || home.join(".opencode").is_dir() {
+            return "opencode".to_string();
+        }
+        if home.join(".openclaw").join("workspace").is_dir() {
+            return "openclaw".to_string();
+        }
+        if home.join(".config").join("claw").is_dir() || home.join(".claw").is_dir() {
+            return "openclaw".to_string();
+        }
     }
 
     "codex".to_string()
@@ -1153,6 +1127,15 @@ pub(crate) fn rewrite_env_assignment(
     }
     fs::write(path, output).with_context(|| format!("write {}", path.display()))?;
     Ok(())
+}
+
+/// Shell-safe variant: quotes the value with single quotes before writing.
+pub(crate) fn rewrite_shell_env(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    rewrite_env_assignment(
+        path,
+        &format!("{key}="),
+        &format!("{key}={}\n", shell_single_quote(value)),
+    )
 }
 
 pub(crate) fn remove_env_assignment(path: &Path, prefix: &str) -> anyhow::Result<()> {

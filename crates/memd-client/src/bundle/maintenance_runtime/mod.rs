@@ -170,17 +170,7 @@ pub(crate) fn preserve_codex_capture_locally(output: &Path, content: &str) -> an
     let mut note = String::new();
     note.push_str("\n## Codex Capture Fallback\n\n");
     note.push_str(&format!("- {}\n", compact_inline(content.trim(), 220)));
-    append_text_to_memory_surface(&output.join("MEMD_MEMORY.md"), &note)?;
-    for file_name in [
-        "CODEX_MEMORY.md",
-        "CLAUDE_CODE_MEMORY.md",
-        "AGENT_ZERO_MEMORY.md",
-        "OPENCLAW_MEMORY.md",
-        "OPENCODE_MEMORY.md",
-        "HERMES_MEMORY.md",
-    ] {
-        append_text_to_memory_surface(&output.join("agents").join(file_name), &note)?;
-    }
+    append_text_to_memory_surface(&output.join("mem.md"), &note)?;
     Ok(())
 }
 
@@ -1329,14 +1319,9 @@ pub(crate) fn render_voice_mode_section(voice_mode: &str) -> String {
     let voice_mode =
         normalize_voice_mode_value(voice_mode).unwrap_or_else(|_| default_voice_mode());
     match voice_mode.as_str() {
-        "normal" => {
-            "- default: normal\n- keep replies clear and complete\n- avoid forced compression\n"
-                .to_string()
-        }
-        "caveman-lite" => "- default: `caveman-lite`\n- keep replies short\n- compress, but not to ultra level\n- keep technical accuracy\n- match `.memd/config.json` exactly if the user changes voice_mode\n- reply style is derived from config; if draft slips, rewrite before sending\n"
-            .to_string(),
-        _ => "- default: `caveman-ultra`\n- few tokens\n- do trick\n- keep technical accuracy\n- match `.memd/config.json` exactly if the user changes voice_mode\n- reply style is derived from config; if draft slips, rewrite before sending\n"
-            .to_string(),
+        "normal" => "- default: normal\n- keep replies clear and complete\n- avoid forced compression\n".to_string(),
+        "caveman-lite" => "- default: `caveman-lite`\n- compress, keep normal spelling and exact technical terms\n".to_string(),
+        _ => "- default: `caveman-ultra`\n- compress hard, keep normal spelling and exact technical terms\n".to_string(),
     }
 }
 
@@ -1345,7 +1330,7 @@ pub(crate) fn render_codex_agents_bridge_markdown(output: &Path) -> String {
     let normalized =
         normalize_voice_mode_value(&voice_mode).unwrap_or_else(|_| default_voice_mode());
     format!(
-        "These instructions are managed by memd.\n\n## memd voice bootstrap\n\n- Treat `.memd/config.json` as the source of truth for this repo's active `voice_mode`.\n- Valid repo voice modes are `normal`, `caveman-lite`, and `caveman-ultra`.\n- If the user asks which voice is active, answer from `.memd/config.json`.\n- Do not tell the user to manually enable a voice that `.memd/config.json` already sets.\n- Do not invent a second source of truth for voice mode.\n- Do not slip from the repo voice mode; stay in `{current_default}` unless `.memd/config.json` changes.\n- Reply style is derived from config. If your draft is not in `{current_default}`, stop and rewrite it before sending.\n\n## current repo default\n\n- The current bundle file `.memd/config.json` sets `voice_mode` to `{current_default}`.\n- Until that bundle setting changes, use `{current_default}` by default in this repo.\n\n## memd runtime\n\n- memd is the memory/bootstrap dependency for this repo.\n- Treat memd bundle state as startup truth before answering.\n- Start from `.memd/agents/CODEX_WAKEUP.md` before relying on transcript recall.\n- Use `.memd/agents/CODEX_MEMORY.md` when you need the deeper compact memory view.\n- Durable truth beats transcript recall.\n- For decisions, preferences, project history, or prior corrections, run `memd lookup --output .memd --query \"...\"` before answering.\n- Use `memd hook spill --output .memd --stdin --apply` at compaction boundaries to turn turn-state deltas into durable candidate memory.\n- Spill is the live bridge from compact turn state into durable memory candidates.\n- If the user corrects you, write the correction back instead of trusting the transcript.\n- Keep responses short, direct, and token-efficient unless the user asks for detail.\n",
+        "These instructions are managed by memd.\n\n## memd voice\n\n- Voice source of truth: `.memd/config.json` → `voice_mode`.\n- Current default: `{current_default}`.\n- Caveman = compressed wording, not broken spelling. Keep exact technical terms.\n\n## memd runtime\n\n- memd is the memory dependency for this repo.\n- Start from `.memd/wake.md` before relying on transcript recall.\n- Deeper recall: `memd lookup --output .memd --query \"...\"` or `memd resume --output .memd`.\n- Corrections: write back via `correct-memory.sh`, do not trust transcript over durable truth.\n",
         current_default = normalized,
     )
 }
@@ -1384,33 +1369,57 @@ pub(crate) fn upsert_project_agents_bridge(output: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
+pub(crate) fn upsert_project_claude_bridge(output: &Path) -> anyhow::Result<()> {
+    const START: &str = "<!-- memd-managed:claude-import:start -->";
+    const END: &str = "<!-- memd-managed:claude-import:end -->";
+
+    let Some(project_root) = infer_bundle_project_root(output) else {
+        return Ok(());
+    };
+    let claude_path = project_root.join("CLAUDE.md");
+    let managed = format!("{START}\n@.memd/agents/CLAUDE_IMPORTS.md\n{END}\n");
+
+    let next = match fs::read_to_string(&claude_path) {
+        Ok(existing) => {
+            if existing.contains("@.memd/agents/CLAUDE_IMPORTS.md") {
+                existing
+            } else if let (Some(start), Some(end)) = (existing.find(START), existing.find(END)) {
+                let end = end + END.len();
+                format!(
+                    "{}{}{}",
+                    &existing[..start],
+                    managed,
+                    existing[end..].trim_start_matches('\n')
+                )
+            } else if existing.trim().is_empty() {
+                format!("# Claude Instructions\n\n{managed}")
+            } else if let Some((first, rest)) = existing.split_once('\n') {
+                if first.trim_start().starts_with('#') {
+                    format!("{first}\n\n{managed}\n{}", rest.trim_start_matches('\n'))
+                } else {
+                    format!("{managed}\n{}", existing.trim_start_matches('\n'))
+                }
+            } else if existing.trim_start().starts_with('#') {
+                format!("{}\n\n{managed}", existing.trim_end())
+            } else {
+                format!("{managed}\n{}", existing.trim_start_matches('\n'))
+            }
+        }
+        Err(_) => format!("# Claude Instructions\n\n{managed}"),
+    };
+
+    fs::write(&claude_path, next).with_context(|| format!("write {}", claude_path.display()))?;
+    Ok(())
+}
+
 pub(crate) fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
-    let authority_warning = read_bundle_runtime_config(output)
-        .ok()
-        .flatten()
-        .map(|runtime| authority_warning_lines(Some(&runtime)))
-        .unwrap_or_default();
-    let voice_mode = read_bundle_voice_mode(output).unwrap_or_else(default_voice_mode);
     let claude_imports = agents_dir.join("CLAUDE_IMPORTS.md");
-    let authority_warning_section = if authority_warning.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "## Session Start Warning\n\n{}\n\n",
-            authority_warning
-                .iter()
-                .map(|line| format!("- {line}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    };
-    let voice_section = render_voice_mode_section(&voice_mode);
     fs::write(
         &claude_imports,
         format!(
-            "# memd imports for Claude Code\n\nUse this file as the single import target from your project `CLAUDE.md`.\n\nAdd this line to the root `CLAUDE.md` for the workspace:\n\n`@.memd/agents/CLAUDE_IMPORTS.md`\n\nThen run `/memory` inside Claude Code to verify the imported memd files are loaded.\n\n{authority_warning_section}## Imported memd memory files\n\n@../MEMD_WAKEUP.md\n@../MEMD_MEMORY.md\n@../MEMD_EVENTS.md\n@CLAUDE_CODE_WAKEUP.md\n@CLAUDE_CODE_MEMORY.md\n@CLAUDE_CODE_EVENTS.md\n\n## Runtime rules\n\n- Start from the wake-up file before deeper memory surfaces.\n- For prior decisions, preferences, or project history, run `memd lookup --output {bundle} --query \"...\"` before answering.\n- Use the generated lane helpers when you want low-friction memory writes:\n  - `.memd/agents/remember-short.sh --content \"Current blocker: ...\"`\n  - `.memd/agents/remember-decision.sh --content \"decision: ...\"`\n  - `.memd/agents/remember-preference.sh --content \"preference: ...\"`\n  - `.memd/agents/remember-long.sh --content \"fact: ...\"`\n  - `.memd/agents/capture-live.sh --content \"status: ...\"`\n  - `.memd/agents/correct-memory.sh --content \"corrected fact: ...\"`\n  - `.memd/agents/sync-semantic.sh`\n- After `memd reload` (alias: `memd refresh`), use installed `$gsd-*` skills as the GSD interface in Codex.\n- Do not block on standalone `gsd-*` shell binaries unless you verified they are the required interface for this harness and they are missing on `PATH`.\n- If `$gsd-autonomous` is installed as a skill, try that skill path before claiming the autonomous pipeline is unavailable.\n\n## Notes\n\n- `memd wake --output {bundle}` refreshes the startup live-memory surface.\n- `memd lookup --output {bundle} --query \"...\"` is the bundle-aware pre-answer recall path.\n- `memd checkpoint --output {bundle} --content \"...\"` writes current task state into the live backend.\n- `memd hook capture --output {bundle} --stdin` records episodic live-memory updates from hooks.\n- `memd rag sync --project <project> --namespace <namespace>` pushes canonical memory into the configured semantic backend.\n- `memd handoff --output {bundle} --prompt` refreshes the shared handoff view.\n- dream and autodream output should flow back through `memd`, then Claude should pick it up through this import chain.\n- keep `memd` as the source of truth; treat this Claude import surface as a generated bridge.\n{voice_section}\n",
+            "# memd imports for Claude Code\n\n@../wake.md\n\nDeeper recall: `memd resume --output {bundle}` or `memd lookup --output {bundle} --query \"...\"`.\n",
             bundle = output.display(),
         ),
     )
@@ -1434,6 +1443,7 @@ pub(crate) fn write_native_agent_bridge_files(output: &Path) -> anyhow::Result<(
     .with_context(|| format!("write {}", codex_example.display()))?;
 
     upsert_project_agents_bridge(output)?;
+    upsert_project_claude_bridge(output)?;
 
     Ok(())
 }
@@ -1473,26 +1483,10 @@ pub(crate) fn write_memory_markdown_files(output: &Path, markdown: &str) -> anyh
     } else {
         format!("{authority_warning}{markdown}")
     };
-    let root_memory = output.join("MEMD_MEMORY.md");
+    let root_memory = output.join("mem.md");
     fs::write(&root_memory, &markdown)
         .with_context(|| format!("write {}", root_memory.display()))?;
 
-    let agents_dir = output.join("agents");
-    if let Some(parent) = agents_dir.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
-    for file_name in [
-        "CODEX_MEMORY.md",
-        "CLAUDE_CODE_MEMORY.md",
-        "AGENT_ZERO_MEMORY.md",
-        "OPENCLAW_MEMORY.md",
-        "OPENCODE_MEMORY.md",
-        "HERMES_MEMORY.md",
-    ] {
-        let path = agents_dir.join(file_name);
-        fs::write(&path, &markdown).with_context(|| format!("write {}", path.display()))?;
-    }
     Ok(())
 }
 
@@ -1503,26 +1497,10 @@ pub(crate) fn write_wakeup_markdown_files(output: &Path, markdown: &str) -> anyh
     } else {
         format!("{authority_warning}{markdown}")
     };
-    let root_wakeup = output.join("MEMD_WAKEUP.md");
+    let root_wakeup = output.join("wake.md");
     fs::write(&root_wakeup, &markdown)
         .with_context(|| format!("write {}", root_wakeup.display()))?;
 
-    let agents_dir = output.join("agents");
-    if let Some(parent) = agents_dir.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
-    for file_name in [
-        "CODEX_WAKEUP.md",
-        "CLAUDE_CODE_WAKEUP.md",
-        "AGENT_ZERO_WAKEUP.md",
-        "OPENCLAW_WAKEUP.md",
-        "OPENCODE_WAKEUP.md",
-        "HERMES_WAKEUP.md",
-    ] {
-        let path = agents_dir.join(file_name);
-        fs::write(&path, &markdown).with_context(|| format!("write {}", path.display()))?;
-    }
     Ok(())
 }
 

@@ -274,15 +274,11 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     assert!(!claude_imports.contains("@../mem.md"));
     assert!(!claude_imports.contains("@../events.md"));
     assert!(!claude_imports.contains("CLAUDE_CODE_"));
-    assert!(claude_imports.contains("/memory"));
-    assert!(claude_imports.contains("use installed `$gsd-*` skills as the GSD interface"));
-    assert!(claude_imports.contains("standalone `gsd-*` shell binaries"));
-    assert!(claude_imports.contains("`$gsd-autonomous` is installed as a skill"));
+    assert!(claude_imports.contains("memd resume"));
+    assert!(claude_imports.contains("memd lookup"));
     assert!(codex_agents.contains(".memd/wake.md"));
-    assert!(codex_agents.contains("memd resume --output .memd"));
-    assert!(codex_agents.contains("Durable truth beats transcript recall."));
     assert!(codex_agents.contains("memd lookup --output .memd --query"));
-    assert!(codex_agents.contains("stay in `caveman-ultra`"));
+    assert!(codex_agents.contains("`caveman-ultra`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -382,10 +378,8 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
         .expect("read codex agents");
     assert!(memory.contains("default: normal"));
     assert!(memory.contains("avoid forced compression"));
-    assert!(claude_imports.contains("default: normal"));
-    assert!(claude_imports.contains("avoid forced compression"));
-    assert!(codex_agents.contains("stay in `normal`"));
-    assert!(codex_agents.contains("sets `voice_mode` to `normal`"));
+    assert!(claude_imports.contains("memd resume"));
+    assert!(codex_agents.contains("`normal`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -484,17 +478,9 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
         .expect("read codex agents");
     assert!(memory.contains("default: `caveman-lite`"));
-    assert!(memory.contains("compress, but not to ultra level"));
-    assert!(claude_imports.contains("default: `caveman-lite`"));
-    assert!(
-        claude_imports.contains("match `.memd/config.json` exactly if the user changes voice_mode")
-    );
-    assert!(
-        codex_agents
-            .contains("Valid repo voice modes are `normal`, `caveman-lite`, and `caveman-ultra`.")
-    );
-    assert!(codex_agents.contains("stay in `caveman-lite`"));
-    assert!(codex_agents.contains("sets `voice_mode` to `caveman-lite`"));
+    assert!(memory.contains("compress, keep normal spelling"));
+    assert!(claude_imports.contains("memd resume"));
+    assert!(codex_agents.contains("`caveman-lite`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -2075,7 +2061,7 @@ fn caveman_voice_bridge_keeps_normal_spelling_in_generated_guidance() {
 
     let bridge = render_codex_agents_bridge_markdown(&bundle);
     assert!(bridge.contains("compressed wording, not broken spelling"));
-    assert!(bridge.contains("Keep normal spelling"));
+    assert!(bridge.contains("exact technical terms"));
 
     let voice = render_voice_mode_section("caveman-ultra");
     assert!(voice.contains("keep normal spelling"));

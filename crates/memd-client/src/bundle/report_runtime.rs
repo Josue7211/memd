@@ -156,19 +156,53 @@ pub(crate) fn detect_codex_memd_wiring() -> serde_json::Value {
 pub(crate) fn detect_claude_memd_wiring() -> serde_json::Value {
     let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
     let settings = home.join(".claude").join("settings.json");
-    let hook = home
-        .join(".claude")
-        .join("hooks")
-        .join("gsd-session-context.js");
-    let hook_wired = hook.exists()
-        && fs::read_to_string(&hook)
-            .ok()
-            .map(|content| content.contains("memd"))
-            .unwrap_or(false);
+    let hook_candidates = [
+        home.join(".claude")
+            .join("hooks")
+            .join("gsd-session-context.js"),
+        home.join(".claude")
+            .join("hooks")
+            .join("memd-session-context.js"),
+    ];
+    let hook_wired = hook_candidates.iter().any(|path| {
+        path.exists()
+            && fs::read_to_string(path)
+                .ok()
+                .map(|content| content.contains("memd"))
+                .unwrap_or(false)
+    });
+    let skill_wired = [
+        home.join(".claude").join("skills").join("memd").join("SKILL.md"),
+        home.join(".claude")
+            .join("skills")
+            .join("memd-init")
+            .join("SKILL.md"),
+        home.join(".claude")
+            .join("skills")
+            .join("memd-reload")
+            .join("SKILL.md"),
+        home.join(".claude")
+            .join("skills")
+            .join("memd-status")
+            .join("SKILL.md"),
+    ]
+    .iter()
+    .any(|path| path.is_file());
+    let command_wired = [
+        home.join(".claude").join("commands").join("memd.md"),
+        home.join(".claude").join("commands").join("memd").join("init.md"),
+        home.join(".claude").join("commands").join("memd").join("reload.md"),
+        home.join(".claude").join("commands").join("memd").join("status.md"),
+        home.join(".claude").join("command").join("memd.md"),
+    ]
+    .iter()
+    .any(|path| path.is_file());
     serde_json::json!({
-        "wired": settings.exists() && hook_wired,
+        "wired": settings.exists() && hook_wired && skill_wired && command_wired,
         "settings": settings.exists(),
         "hook": hook_wired,
+        "skill": skill_wired,
+        "command": command_wired,
     })
 }
 
@@ -255,12 +289,14 @@ pub(crate) fn detect_opencode_memd_wiring() -> serde_json::Value {
         path.is_file()
             && fs::read_to_string(path)
                 .ok()
-                .map(|content| content.contains("MEMD_MEMORY.md"))
+                .map(|content| content.contains("mem.md"))
                 .unwrap_or(false)
     });
     let command_files = [
         config_dir.join("command").join("memd.md"),
+        config_dir.join("commands").join("memd.md"),
         legacy_dir.join("command").join("memd.md"),
+        legacy_dir.join("commands").join("memd.md"),
     ];
     let command_wired = command_files.iter().any(|path| {
         path.is_file()
@@ -631,11 +667,7 @@ pub(crate) fn write_bundle_authority_env(
     policy: &BundleAuthorityPolicy,
     state: &BundleAuthorityState,
 ) -> anyhow::Result<()> {
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_AUTHORITY_MODE=",
-        &format!("MEMD_AUTHORITY_MODE={}\n", state.mode),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_AUTHORITY_MODE", &state.mode)?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_AUTHORITY_MODE = ",
@@ -644,14 +676,7 @@ pub(crate) fn write_bundle_authority_env(
             escape_ps1(&state.mode)
         ),
     )?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_LOCALHOST_FALLBACK_POLICY=",
-        &format!(
-            "MEMD_LOCALHOST_FALLBACK_POLICY={}\n",
-            policy.localhost_fallback_policy.as_str()
-        ),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_LOCALHOST_FALLBACK_POLICY", policy.localhost_fallback_policy.as_str())?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_LOCALHOST_FALLBACK_POLICY = ",
@@ -660,14 +685,7 @@ pub(crate) fn write_bundle_authority_env(
             escape_ps1(policy.localhost_fallback_policy.as_str())
         ),
     )?;
-    rewrite_env_assignment(
-        &output.join("env"),
-        "MEMD_AUTHORITY_DEGRADED=",
-        &format!(
-            "MEMD_AUTHORITY_DEGRADED={}\n",
-            if state.degraded { "true" } else { "false" }
-        ),
-    )?;
+    rewrite_shell_env(&output.join("env"), "MEMD_AUTHORITY_DEGRADED", if state.degraded { "true" } else { "false" })?;
     rewrite_env_assignment(
         &output.join("env.ps1"),
         "$env:MEMD_AUTHORITY_DEGRADED = ",
@@ -677,11 +695,7 @@ pub(crate) fn write_bundle_authority_env(
         ),
     )?;
     if let Some(shared_base_url) = state.shared_base_url.as_deref() {
-        rewrite_env_assignment(
-            &output.join("env"),
-            "MEMD_SHARED_BASE_URL=",
-            &format!("MEMD_SHARED_BASE_URL={shared_base_url}\n"),
-        )?;
+        rewrite_shell_env(&output.join("env"), "MEMD_SHARED_BASE_URL", shared_base_url)?;
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_SHARED_BASE_URL = ",
@@ -695,11 +709,7 @@ pub(crate) fn write_bundle_authority_env(
         remove_env_assignment(&output.join("env.ps1"), "$env:MEMD_SHARED_BASE_URL = ")?;
     }
     if let Some(fallback_base_url) = state.fallback_base_url.as_deref() {
-        rewrite_env_assignment(
-            &output.join("env"),
-            "MEMD_LOCALHOST_FALLBACK_BASE_URL=",
-            &format!("MEMD_LOCALHOST_FALLBACK_BASE_URL={fallback_base_url}\n"),
-        )?;
+        rewrite_shell_env(&output.join("env"), "MEMD_LOCALHOST_FALLBACK_BASE_URL", fallback_base_url)?;
         rewrite_env_assignment(
             &output.join("env.ps1"),
             "$env:MEMD_LOCALHOST_FALLBACK_BASE_URL = ",
