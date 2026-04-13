@@ -4,8 +4,9 @@ use anyhow::Context;
 use clap::Parser;
 use memd_client::MemdClient;
 use memd_schema::{
-    ExpireMemoryRequest, MemoryConsolidationRequest, MemoryDecayRequest, MemoryKind, MemoryScope,
-    MemoryStage, MemoryStatus, ProcedureDetectRequest, SearchMemoryRequest, VerifyMemoryRequest,
+    ExpireMemoryRequest, MemoryConsolidationRequest, MemoryDecayRequest, MemoryDrainRequest,
+    MemoryKind, MemoryScope, MemoryStage, MemoryStatus, ProcedureDetectRequest,
+    SearchMemoryRequest, VerifyMemoryRequest,
 };
 use tokio::time::{Duration, sleep};
 
@@ -44,19 +45,21 @@ async fn main() -> anyhow::Result<()> {
         let result = run_once(&client, &args).await?;
         if args.report {
             println!(
-                "learning report: reinforced={} cooled={} consolidated={} procedures={} stale_checked={} skipped={}",
+                "learning report: reinforced={} cooled={} consolidated={} procedures={} stale_checked={} drained={} skipped={}",
                 result.verified,
                 result.decayed,
                 result.consolidated,
                 result.procedures_detected,
                 result.expired,
+                result.drained,
                 result.skipped
             );
         } else {
             println!(
-                "verification pass complete: verified={}, expired={}, decayed={}, consolidated={}, procedures={}, skipped={}",
+                "verification pass complete: verified={}, expired={}, drained={}, decayed={}, consolidated={}, procedures={}, skipped={}",
                 result.verified,
                 result.expired,
+                result.drained,
                 result.decayed,
                 result.consolidated,
                 result.procedures_detected,
@@ -70,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
 struct WorkerResult {
     verified: usize,
     expired: usize,
+    drained: usize,
     decayed: usize,
     consolidated: usize,
     procedures_detected: usize,
@@ -159,9 +163,19 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         .await
         .context("detect procedures")?;
 
+    let drained = client
+        .drain(&MemoryDrainRequest {
+            project: None,
+            namespace: None,
+            max_items: Some(args.batch_size),
+        })
+        .await
+        .context("drain expired items")?;
+
     Ok(WorkerResult {
         verified,
         expired,
+        drained: drained.deleted,
         decayed: decay.updated,
         consolidated: consolidation.consolidated,
         procedures_detected: procedures.created,

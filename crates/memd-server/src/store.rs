@@ -1545,6 +1545,82 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
+    pub fn drain_expired(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        max_items: usize,
+    ) -> anyhow::Result<usize> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("begin drain transaction")?;
+
+        let expired_status =
+            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let mut param_values: Vec<String> = vec![expired_status];
+        let mut sql = String::from(
+            "DELETE FROM memory_items WHERE id IN (SELECT id FROM memory_items WHERE status = ?1",
+        );
+        if let Some(project) = project {
+            param_values.push(project.to_string());
+            sql.push_str(&format!(" AND project = ?{}", param_values.len()));
+        }
+        if let Some(namespace) = namespace {
+            param_values.push(namespace.to_string());
+            sql.push_str(&format!(" AND namespace = ?{}", param_values.len()));
+        }
+        param_values.push(max_items.to_string());
+        sql.push_str(&format!(" LIMIT ?{})", param_values.len()));
+
+        let params: Vec<&dyn rusqlite::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+        let deleted = tx.execute(&sql, params.as_slice()).context("drain expired items")?;
+        tx.commit()?;
+        Ok(deleted)
+    }
+
+    pub fn dismiss_items(&self, ids: &[Uuid]) -> anyhow::Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let expired_status =
+            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("begin dismiss transaction")?;
+
+        let mut dismissed = 0usize;
+        for id in ids {
+            let payload = tx.query_row(
+                "SELECT payload_json FROM memory_items WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, String>(0),
+            );
+            let Ok(payload) = payload else { continue };
+            let mut item: MemoryItem =
+                serde_json::from_str(&payload).context("deserialize dismiss target")?;
+            if item.status == memd_schema::MemoryStatus::Expired {
+                continue;
+            }
+            item.status = memd_schema::MemoryStatus::Expired;
+            item.updated_at = chrono::Utc::now();
+            let updated_payload = serde_json::to_string(&item).context("serialize dismissed item")?;
+            let updated_status = &expired_status;
+            tx.execute(
+                "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = ?3 WHERE id = ?4",
+                params![updated_status, item.updated_at.to_rfc3339(), updated_payload, id.to_string()],
+            )
+            .context("dismiss inbox item")?;
+            dismissed += 1;
+        }
+        tx.commit()?;
+        Ok(dismissed)
+    }
+
     pub fn send_hive_message(
         &self,
         request: &HiveMessageSendRequest,

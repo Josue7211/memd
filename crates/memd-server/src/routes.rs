@@ -1132,6 +1132,38 @@ pub(crate) async fn consolidate_memory(
     Ok(Json(response))
 }
 
+pub(crate) async fn drain_memory(
+    State(state): State<AppState>,
+    Json(req): Json<MemoryDrainRequest>,
+) -> Result<Json<MemoryDrainResponse>, (StatusCode, String)> {
+    let max_items = req.max_items.unwrap_or(500).min(5000);
+    let deleted = state
+        .store
+        .drain_expired(req.project.as_deref(), req.namespace.as_deref(), max_items)
+        .map_err(internal_error)?;
+    Ok(Json(MemoryDrainResponse { deleted }))
+}
+
+pub(crate) async fn dismiss_inbox(
+    State(state): State<AppState>,
+    Json(req): Json<InboxDismissRequest>,
+) -> Result<Json<InboxDismissResponse>, (StatusCode, String)> {
+    if req.ids.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "ids must not be empty".to_string(),
+        ));
+    }
+    if req.ids.len() > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "max 100 items per dismiss".to_string(),
+        ));
+    }
+    let dismissed = state.store.dismiss_items(&req.ids).map_err(internal_error)?;
+    Ok(Json(InboxDismissResponse { dismissed }))
+}
+
 pub(crate) async fn get_maintenance_report(
     State(state): State<AppState>,
     Query(req): Query<MemoryMaintenanceReportRequest>,

@@ -58,7 +58,8 @@ use memd_schema::{
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
     MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryEntityLinkRecord,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
+    MemoryDrainResponse, InboxDismissRequest, InboxDismissResponse, MemoryEntityLinkRecord,
     MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
     MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
     MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
@@ -409,7 +410,9 @@ async fn main() {
         .route("/coordination/tasks", get(get_hive_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
+        .route("/memory/maintenance/drain", post(drain_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
+        .route("/memory/inbox/dismiss", post(dismiss_inbox))
         .route("/runtime/maintain", post(post_runtime_maintain))
         .route("/memory/policy", get(get_memory_policy))
         .route("/atlas/regions", get(get_atlas_regions))

@@ -3532,3 +3532,118 @@ async fn runtime_maintain_route_returns_report() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+fn test_drain_router(state: AppState) -> Router {
+    Router::new()
+        .route("/memory/maintenance/drain", post(drain_memory))
+        .route("/memory/inbox/dismiss", post(dismiss_inbox))
+        .with_state(state)
+}
+
+#[tokio::test]
+async fn drain_deletes_expired_items() {
+    let (dir, state) = temp_state("memd-drain-expired");
+    let app = test_drain_router(state.clone());
+
+    // Store and expire an item via store layer
+    let item = store_test_item(&state);
+    crate::repair::expire_item(
+        &state,
+        memd_schema::ExpireMemoryRequest {
+            id: item.id,
+            status: None,
+        },
+    )
+    .expect("expire item");
+
+    // Drain expired via HTTP
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/maintenance/drain")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&memd_schema::MemoryDrainRequest {
+                        project: None,
+                        namespace: None,
+                        max_items: None,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("drain items");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: memd_schema::MemoryDrainResponse = decode_json(response).await;
+    assert_eq!(body.deleted, 1);
+
+    // Verify item is gone from the store
+    assert!(state.store.get(item.id).unwrap().is_none());
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[tokio::test]
+async fn dismiss_inbox_expires_items() {
+    let (dir, state) = temp_state("memd-dismiss-inbox");
+    let app = test_drain_router(state.clone());
+
+    // Store a candidate item via store layer
+    let item = sample_memory_item(Some("test-ws"));
+    let (stored, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: item.content.clone(),
+                kind: item.kind,
+                scope: item.scope,
+                project: item.project.clone(),
+                namespace: item.namespace.clone(),
+                workspace: item.workspace.clone(),
+                visibility: Some(item.visibility),
+                source_agent: item.source_agent.clone(),
+                source_system: item.source_system.clone(),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(item.confidence),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: item.tags.clone(),
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Candidate,
+        )
+        .expect("store candidate item");
+
+    // Dismiss via HTTP
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/inbox/dismiss")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&memd_schema::InboxDismissRequest {
+                        ids: vec![stored.id],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("dismiss inbox items");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: memd_schema::InboxDismissResponse = decode_json(response).await;
+    assert_eq!(body.dismissed, 1);
+
+    // Verify item is expired
+    let updated = state.store.get(stored.id).unwrap().unwrap();
+    assert_eq!(updated.status, MemoryStatus::Expired);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}

@@ -6,10 +6,10 @@
 truth_date: 2026-04-13
 version: v1
 version_status: in_progress
-current_phase: phase_g
-phase_status: verified
-next_phase: phase_h
-next_step: start_phase_h
+current_phase: phase_h
+phase_status: in_progress
+next_phase: phase_i
+next_step: fix_inbox_drain
 active_blockers: []
 -->
 
@@ -18,17 +18,18 @@ active_blockers: []
 - truth date: `2026-04-13`
 - current version: `v1`
 - version status: `in_progress`
-- current phase: `Phase G: Procedural Learning`
-- phase status: `verified`
-- next phase: `Phase H: Hive Coordination`
-- next step: `start Phase H`
+- current phase: `Phase H: Core Hardening`
+- phase status: `in_progress`
+- next phase: `Phase I: Human Dashboard`
+- next step: `fix inbox drain (#29)`
 
 ## Current Focus
 
-Phase G verified. Procedural memory: 7 API routes, 1 DB table, 9 procedural
-tests, 98 total server tests. Full lifecycle: record → promote → match → use
-→ retire. Auto-detect from event spine. Cross-session tracking. Wake packet
-integration. Voice modes aligned with upstream caveman skill (7 modes).
+Phase H in progress. Core hardening — fix operational pipeline so phases B-G
+actually work. Fix order: #29 inbox drain → #27 status noise → #22 ghost refs
+→ #15 wake kind coverage → #28 procedure detection → #26 dogfood gate → #34
+memory navigation. Pass gate: eval ≥ 65, working memory has ≥1 non-status item,
+wake packet has ≥1 fact/decision, inbox has 0 expired items.
 
 ## Blockers
 
@@ -79,7 +80,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
 | F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `verified` | learn reusable operating procedures | [[phase-g-procedural-learning]] |
-| H | Core Hardening | `pending` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
+| H | Core Hardening | `in_progress` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | I | Human Dashboard | `pending` | web UI for memory browsing, correction, navigation, status | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | J | Hive Coordination | `pending` | shared second brain across harnesses | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | K | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |

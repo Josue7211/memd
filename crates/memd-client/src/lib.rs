@@ -18,8 +18,10 @@ use memd_schema::{
     HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
     HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
     HiveTasksRequest, HiveTasksResponse, MaintainReport, MaintainReportRequest,
+    InboxDismissRequest, InboxDismissResponse,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryDecayRequest,
-    MemoryDecayResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
+    MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
     MemoryMaintenanceReportResponse, MemoryPolicyResponse, PromoteMemoryRequest,
     PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, SearchMemoryRequest,
     SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
@@ -256,6 +258,17 @@ impl MemdClient {
         req: &MemoryConsolidationRequest,
     ) -> anyhow::Result<MemoryConsolidationResponse> {
         self.post_json("/memory/maintenance/consolidate", req).await
+    }
+
+    pub async fn drain(&self, req: &MemoryDrainRequest) -> anyhow::Result<MemoryDrainResponse> {
+        self.post_json("/memory/maintenance/drain", req).await
+    }
+
+    pub async fn dismiss_inbox(
+        &self,
+        req: &InboxDismissRequest,
+    ) -> anyhow::Result<InboxDismissResponse> {
+        self.post_json("/memory/inbox/dismiss", req).await
     }
 
     pub async fn maintenance_report(

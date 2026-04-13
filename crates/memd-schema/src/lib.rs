@@ -1898,6 +1898,28 @@ pub struct MemoryConsolidationResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryDrainRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryDrainResponse {
+    pub deleted: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxDismissRequest {
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxDismissResponse {
+    pub dismissed: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryMaintenanceReportRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
