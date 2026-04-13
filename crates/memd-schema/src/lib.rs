@@ -1614,6 +1614,44 @@ pub struct AtlasExploreResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasSaveTrailRequest {
+    pub name: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub region_id: Option<Uuid>,
+    pub node_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasSavedTrail {
+    pub id: Uuid,
+    pub name: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub region_id: Option<Uuid>,
+    pub node_ids: Vec<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasSaveTrailResponse {
+    pub trail: AtlasSavedTrail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AtlasListTrailsRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasListTrailsResponse {
+    pub trails: Vec<AtlasSavedTrail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AtlasRenameRegionRequest {
     pub region_id: Uuid,
     pub name: String,

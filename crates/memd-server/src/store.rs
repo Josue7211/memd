@@ -343,6 +343,19 @@ impl SqliteStore {
               ON atlas_links(from_node_id);
             CREATE INDEX IF NOT EXISTS idx_atlas_links_to
               ON atlas_links(to_node_id);
+
+            CREATE TABLE IF NOT EXISTS atlas_trails (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              region_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_atlas_trails_project
+              ON atlas_trails(project, namespace);
             "#,
         )
         .context("initialize sqlite schema")?;

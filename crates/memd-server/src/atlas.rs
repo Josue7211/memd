@@ -1,9 +1,10 @@
 use chrono::Utc;
 use memd_schema::{
     AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasLink,
-    AtlasLinkKind, AtlasNode, AtlasRegion, AtlasRegionsRequest, AtlasRegionsResponse,
-    AtlasRenameRegionRequest, AtlasRenameRegionResponse, MemoryEventRecord, MemoryItem, MemoryKind,
-    MemoryStatus,
+    AtlasLinkKind, AtlasListTrailsRequest, AtlasListTrailsResponse, AtlasNode, AtlasRegion,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest,
+    AtlasRenameRegionResponse, AtlasSaveTrailRequest, AtlasSaveTrailResponse, AtlasSavedTrail,
+    MemoryEventRecord, MemoryItem, MemoryKind, MemoryStatus,
 };
 use rusqlite::params;
 use uuid::Uuid;
@@ -511,6 +512,83 @@ impl SqliteStore {
             expanded_nodes,
             links,
         })
+    }
+
+    pub(crate) fn save_atlas_trail(
+        &self,
+        req: &AtlasSaveTrailRequest,
+    ) -> anyhow::Result<AtlasSaveTrailResponse> {
+        let now = Utc::now();
+        let trail = AtlasSavedTrail {
+            id: deterministic_region_id(
+                req.project.as_deref(),
+                req.namespace.as_deref(),
+                &req.name,
+            ),
+            name: req.name.clone(),
+            project: req.project.clone(),
+            namespace: req.namespace.clone(),
+            region_id: req.region_id,
+            node_ids: req.node_ids.clone(),
+            created_at: now,
+            updated_at: now,
+        };
+        let conn = self.connect()?;
+        let payload = serde_json::to_string(&trail)?;
+        conn.execute(
+            r#"
+            INSERT INTO atlas_trails (id, name, project, namespace, region_id, created_at, updated_at, payload_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              region_id = excluded.region_id,
+              updated_at = excluded.updated_at,
+              payload_json = excluded.payload_json
+            "#,
+            params![
+                trail.id.to_string(),
+                trail.name,
+                trail.project,
+                trail.namespace,
+                trail.region_id.map(|id| id.to_string()),
+                trail.created_at.to_rfc3339(),
+                trail.updated_at.to_rfc3339(),
+                payload,
+            ],
+        )?;
+        Ok(AtlasSaveTrailResponse { trail })
+    }
+
+    pub(crate) fn list_atlas_trails(
+        &self,
+        req: &AtlasListTrailsRequest,
+    ) -> anyhow::Result<AtlasListTrailsResponse> {
+        let conn = self.connect()?;
+        let mut sql = String::from("SELECT payload_json FROM atlas_trails WHERE 1=1");
+        let mut bind_values: Vec<String> = Vec::new();
+        if let Some(project) = &req.project {
+            sql.push_str(" AND project = ?");
+            bind_values.push(project.clone());
+        }
+        if let Some(namespace) = &req.namespace {
+            sql.push_str(" AND namespace = ?");
+            bind_values.push(namespace.clone());
+        }
+        sql.push_str(" ORDER BY updated_at DESC");
+        let limit = req.limit.unwrap_or(20);
+        sql.push_str(&format!(" LIMIT {limit}"));
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = bind_values
+            .iter()
+            .map(|v| v as &dyn rusqlite::ToSql)
+            .collect();
+        let trails = stmt
+            .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .filter_map(|json| serde_json::from_str::<AtlasSavedTrail>(&json).ok())
+            .collect();
+        Ok(AtlasListTrailsResponse { trails })
     }
 
     pub(crate) fn persist_atlas_link(&self, link: &AtlasLink) -> anyhow::Result<()> {

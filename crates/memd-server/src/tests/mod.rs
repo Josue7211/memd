@@ -2869,3 +2869,65 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
         response.nodes.len()
     );
 }
+
+#[tokio::test]
+async fn atlas_saved_trails_persist_and_list() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-trail-save-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+
+    let node_a = uuid::Uuid::new_v4();
+    let node_b = uuid::Uuid::new_v4();
+    let node_c = uuid::Uuid::new_v4();
+
+    let response = store
+        .save_atlas_trail(&memd_schema::AtlasSaveTrailRequest {
+            name: "auth investigation".to_string(),
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            region_id: None,
+            node_ids: vec![node_a, node_b, node_c],
+        })
+        .expect("save trail");
+
+    assert_eq!(response.trail.name, "auth investigation");
+    assert_eq!(response.trail.node_ids.len(), 3);
+
+    // List trails
+    let listed = store
+        .list_atlas_trails(&memd_schema::AtlasListTrailsRequest {
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            limit: None,
+        })
+        .expect("list trails");
+
+    assert_eq!(listed.trails.len(), 1);
+    assert_eq!(listed.trails[0].name, "auth investigation");
+    assert_eq!(listed.trails[0].node_ids, vec![node_a, node_b, node_c]);
+
+    // Save again with same name — should upsert
+    let updated = store
+        .save_atlas_trail(&memd_schema::AtlasSaveTrailRequest {
+            name: "auth investigation".to_string(),
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            region_id: None,
+            node_ids: vec![node_a, node_c],
+        })
+        .expect("upsert trail");
+
+    assert_eq!(updated.trail.node_ids.len(), 2);
+
+    let relisted = store
+        .list_atlas_trails(&memd_schema::AtlasListTrailsRequest {
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            limit: None,
+        })
+        .expect("relist");
+    assert_eq!(relisted.trails.len(), 1, "upsert should not duplicate");
+    assert_eq!(relisted.trails[0].node_ids.len(), 2);
+}

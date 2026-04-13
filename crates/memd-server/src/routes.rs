@@ -1593,6 +1593,22 @@ pub(crate) async fn post_atlas_explore(
     Ok(Json(response))
 }
 
+pub(crate) async fn post_atlas_trail_save(
+    State(state): State<AppState>,
+    Json(req): Json<AtlasSaveTrailRequest>,
+) -> Result<Json<AtlasSaveTrailResponse>, (StatusCode, String)> {
+    let response = state.store.save_atlas_trail(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn get_atlas_trails(
+    State(state): State<AppState>,
+    Query(req): Query<AtlasListTrailsRequest>,
+) -> Result<Json<AtlasListTrailsResponse>, (StatusCode, String)> {
+    let response = state.store.list_atlas_trails(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 pub(crate) async fn post_atlas_rename(
     State(state): State<AppState>,
     Json(req): Json<AtlasRenameRegionRequest>,
