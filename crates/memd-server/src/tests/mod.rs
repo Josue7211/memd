@@ -1441,3 +1441,247 @@ async fn ui_action_handler_returns_open_metadata() {
         Some("obsidian://open?path=wiki/runtime-spine.md")
     );
 }
+
+#[tokio::test]
+async fn atlas_generate_creates_regions_from_stored_memory() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store several memory items of different kinds
+    for (i, kind) in [
+        MemoryKind::Fact,
+        MemoryKind::Fact,
+        MemoryKind::Decision,
+        MemoryKind::Decision,
+        MemoryKind::Procedural,
+        MemoryKind::Procedural,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let req = StoreMemoryRequest {
+            content: format!("test memory item {i}"),
+            kind: *kind,
+            scope: MemoryScope::Project,
+            project: Some("atlas-test".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(0.9),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-test"), Some("main"), None)
+        .expect("generate regions");
+
+    assert!(
+        regions.len() >= 2,
+        "should generate at least 2 regions (facts, decisions), got {}",
+        regions.len()
+    );
+
+    // Regions should be persisted
+    let listed = store
+        .list_atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: Some("atlas-test".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            limit: None,
+        })
+        .expect("list regions");
+    assert!(!listed.regions.is_empty());
+}
+
+#[tokio::test]
+async fn atlas_explore_returns_nodes_for_region() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items
+    let mut stored_ids = Vec::new();
+    for i in 0..3 {
+        let req = StoreMemoryRequest {
+            content: format!("explore test item {i}"),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("atlas-explore".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(0.8),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        let (item, _) = state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+        stored_ids.push(item.id);
+    }
+
+    // Generate regions
+    let regions = store
+        .generate_regions_for_project(Some("atlas-explore"), Some("main"), None)
+        .expect("generate regions");
+    assert!(!regions.is_empty());
+
+    let region = &regions[0];
+
+    // Explore the region
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-explore".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore atlas");
+
+    assert_eq!(response.nodes.len(), 3);
+    assert!(response.region.is_some());
+    assert_eq!(response.region.unwrap().id, region.id);
+}
+
+#[tokio::test]
+async fn atlas_explore_single_node_returns_that_item() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    let req = StoreMemoryRequest {
+        content: "single node test".to_string(),
+        kind: MemoryKind::Decision,
+        scope: MemoryScope::Project,
+        project: Some("atlas-single".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        source_system: None,
+        source_path: None,
+        source_quality: None,
+        confidence: Some(0.95),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: Vec::new(),
+        status: None,
+    };
+    let (item, _) = state
+        .store_item(req, MemoryStage::Canonical)
+        .expect("store test item");
+
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(item.id),
+            project: None,
+            namespace: None,
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore single node");
+
+    assert_eq!(response.nodes.len(), 1);
+    assert_eq!(response.nodes[0].memory_id, item.id);
+    assert_eq!(response.nodes[0].label, "single node test");
+}
+
+#[tokio::test]
+async fn atlas_pivot_filters_by_min_trust() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items with different confidence
+    for (i, cf) in [0.3, 0.5, 0.9].iter().enumerate() {
+        let req = StoreMemoryRequest {
+            content: format!("trust filter item {i}"),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("atlas-trust".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(*cf),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-trust"), Some("main"), None)
+        .expect("generate regions");
+    let region = &regions[0];
+
+    // Explore with min_trust filter
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-trust".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: Some(0.8),
+        })
+        .expect("explore with trust filter");
+
+    assert_eq!(
+        response.nodes.len(),
+        1,
+        "only the 0.9 confidence item should pass"
+    );
+}

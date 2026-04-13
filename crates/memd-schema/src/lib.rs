@@ -1503,6 +1503,104 @@ pub struct TimelineMemoryResponse {
     pub events: Vec<MemoryEventRecord>,
 }
 
+// ---------------------------------------------------------------------------
+// Atlas types (Phase F)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AtlasLinkKind {
+    Temporal,
+    Causal,
+    Procedural,
+    Semantic,
+    Corrective,
+    Ownership,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasRegion {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub lane: Option<String>,
+    pub auto_generated: bool,
+    pub node_count: usize,
+    pub tags: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasNode {
+    pub id: Uuid,
+    pub region_id: Option<Uuid>,
+    pub memory_id: Uuid,
+    pub entity_id: Option<Uuid>,
+    pub label: String,
+    pub kind: MemoryKind,
+    pub stage: MemoryStage,
+    pub lane: Option<String>,
+    pub confidence: f32,
+    pub salience: f32,
+    pub depth: usize,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasLink {
+    pub from_node_id: Uuid,
+    pub to_node_id: Uuid,
+    pub link_kind: AtlasLinkKind,
+    pub weight: f32,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasTrail {
+    pub name: String,
+    pub nodes: Vec<Uuid>,
+    pub links: Vec<AtlasLink>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AtlasRegionsRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub lane: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasRegionsResponse {
+    pub regions: Vec<AtlasRegion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasExploreRequest {
+    pub region_id: Option<Uuid>,
+    pub node_id: Option<Uuid>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub lane: Option<String>,
+    pub depth: Option<usize>,
+    pub limit: Option<usize>,
+    pub pivot_time: Option<DateTime<Utc>>,
+    pub pivot_kind: Option<MemoryKind>,
+    pub min_trust: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasExploreResponse {
+    pub region: Option<AtlasRegion>,
+    pub nodes: Vec<AtlasNode>,
+    pub links: Vec<AtlasLink>,
+    pub trails: Vec<AtlasTrail>,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryDecayRequest {
     pub max_items: Option<usize>,

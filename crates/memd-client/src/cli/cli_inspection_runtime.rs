@@ -275,6 +275,159 @@ pub(crate) async fn run_timeline_command(
     Ok(())
 }
 
+pub(crate) async fn run_atlas_command(
+    client: &MemdClient,
+    args: AtlasArgs,
+) -> anyhow::Result<()> {
+    match args.command {
+        AtlasCommand::Regions(args) => {
+            let req = memd_schema::AtlasRegionsRequest {
+                project: args.project,
+                namespace: args.namespace,
+                lane: args.lane,
+                limit: args.limit,
+            };
+            let response = client.atlas_regions(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_atlas_regions(&response));
+            }
+        }
+        AtlasCommand::Explore(args) => {
+            let region_id = args
+                .region
+                .as_deref()
+                .map(|s| s.parse::<uuid::Uuid>())
+                .transpose()
+                .context("parse region id")?;
+            let node_id = args
+                .node
+                .as_deref()
+                .map(|s| s.parse::<uuid::Uuid>())
+                .transpose()
+                .context("parse node id")?;
+            let pivot_kind = args
+                .kind
+                .as_deref()
+                .map(parse_memory_kind_value)
+                .transpose()?;
+            let req = memd_schema::AtlasExploreRequest {
+                region_id,
+                node_id,
+                project: args.project,
+                namespace: args.namespace,
+                lane: args.lane,
+                depth: args.depth,
+                limit: args.limit,
+                pivot_time: None,
+                pivot_kind,
+                min_trust: args.min_trust,
+            };
+            let response = client.atlas_explore(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_atlas_explore(&response));
+            }
+        }
+        AtlasCommand::Generate(args) => {
+            let req = memd_schema::AtlasRegionsRequest {
+                project: args.project,
+                namespace: args.namespace,
+                lane: args.lane,
+                limit: args.limit,
+            };
+            let response = client.atlas_generate(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_atlas_regions(&response));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn render_atlas_regions(response: &memd_schema::AtlasRegionsResponse) -> String {
+    let mut out = String::from("# Atlas Regions\n\n");
+    if response.regions.is_empty() {
+        out.push_str("No regions found. Run `memd atlas generate` to create them.\n");
+        return out;
+    }
+    for region in &response.regions {
+        out.push_str(&format!(
+            "- **{}** [{}] ({} nodes{})\n",
+            region.name,
+            &region.id.to_string()[..8],
+            region.node_count,
+            region
+                .lane
+                .as_deref()
+                .map(|l| format!(", lane={l}"))
+                .unwrap_or_default(),
+        ));
+        if let Some(desc) = &region.description {
+            out.push_str(&format!("  {desc}\n"));
+        }
+    }
+    out
+}
+
+fn render_atlas_explore(response: &memd_schema::AtlasExploreResponse) -> String {
+    let mut out = String::new();
+    if let Some(region) = &response.region {
+        out.push_str(&format!(
+            "# Region: {} [{}]\n\n",
+            region.name,
+            &region.id.to_string()[..8]
+        ));
+    } else {
+        out.push_str("# Atlas Explore\n\n");
+    }
+
+    if response.nodes.is_empty() {
+        out.push_str("No nodes found.\n");
+        return out;
+    }
+
+    out.push_str(&format!("## Nodes ({})\n\n", response.nodes.len()));
+    for node in &response.nodes {
+        let depth_marker = if node.depth > 0 {
+            format!(" d={}", node.depth)
+        } else {
+            String::new()
+        };
+        out.push_str(&format!(
+            "- [{}] {} ({:?}, cf={:.2}{})\n",
+            &node.id.to_string()[..8],
+            node.label,
+            node.kind,
+            node.confidence,
+            depth_marker,
+        ));
+    }
+
+    if !response.links.is_empty() {
+        out.push_str(&format!("\n## Links ({})\n\n", response.links.len()));
+        for link in &response.links {
+            out.push_str(&format!(
+                "- [{}] --{:?}--> [{}] (w={:.2})\n",
+                &link.from_node_id.to_string()[..8],
+                link.link_kind,
+                &link.to_node_id.to_string()[..8],
+                link.weight,
+            ));
+        }
+    }
+
+    if response.truncated {
+        out.push_str("\n(truncated — increase --limit for more)\n");
+    }
+
+    out
+}
+
 pub(crate) fn run_events_command(args: EventsArgs) -> anyhow::Result<()> {
     let bundle_root = resolve_compiled_event_bundle_root(Some(&args.root))?;
     if args.list {

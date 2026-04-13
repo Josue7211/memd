@@ -1,5 +1,6 @@
 use anyhow::Context;
 use memd_schema::{
+    AtlasExploreRequest, AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
     AssociativeRecallResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
@@ -159,6 +160,27 @@ impl MemdClient {
         req: &TimelineMemoryRequest,
     ) -> anyhow::Result<TimelineMemoryResponse> {
         self.get_json_with_query("/memory/timeline", req).await
+    }
+
+    pub async fn atlas_regions(
+        &self,
+        req: &AtlasRegionsRequest,
+    ) -> anyhow::Result<AtlasRegionsResponse> {
+        self.get_json_with_query("/atlas/regions", req).await
+    }
+
+    pub async fn atlas_explore(
+        &self,
+        req: &AtlasExploreRequest,
+    ) -> anyhow::Result<AtlasExploreResponse> {
+        self.post_json("/atlas/explore", req).await
+    }
+
+    pub async fn atlas_generate(
+        &self,
+        req: &AtlasRegionsRequest,
+    ) -> anyhow::Result<AtlasRegionsResponse> {
+        self.post_json("/atlas/generate", req).await
     }
 
     pub async fn decay(&self, req: &MemoryDecayRequest) -> anyhow::Result<MemoryDecayResponse> {

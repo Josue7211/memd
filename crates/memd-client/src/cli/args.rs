@@ -80,6 +80,7 @@ pub(crate) enum Commands {
     EntityLinks(EntityLinksArgs),
     Recall(RecallArgs),
     Timeline(TimelineArgs),
+    Atlas(AtlasArgs),
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
@@ -490,6 +491,70 @@ pub(crate) struct TimelineArgs {
 
     #[arg(long)]
     pub(crate) follow: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum AtlasCommand {
+    Regions(AtlasRegionsArgs),
+    Explore(AtlasExploreArgs),
+    Generate(AtlasRegionsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AtlasArgs {
+    #[command(subcommand)]
+    pub(crate) command: AtlasCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AtlasRegionsArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) lane: Option<String>,
+
+    #[arg(long)]
+    pub(crate) limit: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AtlasExploreArgs {
+    #[arg(long)]
+    pub(crate) region: Option<String>,
+
+    #[arg(long)]
+    pub(crate) node: Option<String>,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) lane: Option<String>,
+
+    #[arg(long)]
+    pub(crate) depth: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) limit: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) kind: Option<String>,
+
+    #[arg(long)]
+    pub(crate) min_trust: Option<f32>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

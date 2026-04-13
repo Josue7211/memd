@@ -1573,6 +1573,41 @@ impl AppState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Atlas routes
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn get_atlas_regions(
+    State(state): State<AppState>,
+    Query(req): Query<AtlasRegionsRequest>,
+) -> Result<Json<AtlasRegionsResponse>, (StatusCode, String)> {
+    let response = state.store.list_atlas_regions(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_atlas_explore(
+    State(state): State<AppState>,
+    Json(req): Json<AtlasExploreRequest>,
+) -> Result<Json<AtlasExploreResponse>, (StatusCode, String)> {
+    let response = state.store.explore_atlas(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_atlas_generate(
+    State(state): State<AppState>,
+    Json(req): Json<AtlasRegionsRequest>,
+) -> Result<Json<AtlasRegionsResponse>, (StatusCode, String)> {
+    let regions = state
+        .store
+        .generate_regions_for_project(
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.lane.as_deref(),
+        )
+        .map_err(internal_error)?;
+    Ok(Json(AtlasRegionsResponse { regions }))
+}
+
 #[derive(Clone)]
 pub(crate) struct MemoryViewItem {
     pub(crate) item: MemoryItem,

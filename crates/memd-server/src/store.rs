@@ -304,6 +304,31 @@ impl SqliteStore {
               ON hive_session_groups(session_key);
             CREATE INDEX IF NOT EXISTS idx_hive_session_groups_hive_group
               ON hive_session_groups(hive_group, session_key);
+
+            CREATE TABLE IF NOT EXISTS atlas_regions (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              lane TEXT,
+              auto_generated INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_atlas_regions_project_namespace
+              ON atlas_regions(project, namespace);
+            CREATE INDEX IF NOT EXISTS idx_atlas_regions_lane
+              ON atlas_regions(lane);
+
+            CREATE TABLE IF NOT EXISTS atlas_region_members (
+              region_id TEXT NOT NULL,
+              memory_id TEXT NOT NULL,
+              PRIMARY KEY (region_id, memory_id),
+              FOREIGN KEY (region_id) REFERENCES atlas_regions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_atlas_region_members_memory
+              ON atlas_region_members(memory_id);
             "#,
         )
         .context("initialize sqlite schema")?;

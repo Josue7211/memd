@@ -6,10 +6,10 @@
 truth_date: 2026-04-12
 version: v1
 version_status: in_progress
-current_phase: phase_e
-phase_status: verified
-next_phase: phase_f
-next_step: start_phase_f
+current_phase: phase_f
+phase_status: in_progress
+next_phase: phase_g
+next_step: verify_progressive_zoom_and_trail_generation
 active_blockers: []
 -->
 
@@ -18,16 +18,16 @@ active_blockers: []
 - truth date: `2026-04-12`
 - current version: `v1`
 - version status: `in_progress`
-- current phase: `Phase E: Wake Packet Compiler`
-- phase status: `verified`
-- next phase: `Phase F: Memory Atlas`
-- next step: `start Phase F`
+- current phase: `Phase F: Memory Atlas`
+- phase status: `in_progress`
+- next phase: `Phase G: Procedural Learning`
+- next step: `verify progressive zoom and trail generation`
 
 ## Current Focus
 
-Phase E is verified. All blockers closed. Boot context slimmed from 12.5KB to
-2.7KB (competitive with mempalace). Shell env quoting fixed. CODEX_MEMORY
-zombies killed. Ready for Phase F (Memory Atlas).
+Phase F core landed. Atlas region generation, explore with neighborhood
+expansion, cross-dimensional pivots (trust, kind, project, namespace), CLI
+surface, and 4 passing tests. Trails and time-based pivots still open.
 
 ## Blockers
 
@@ -76,7 +76,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | C | Typed Memory | `verified` | explicit memory kinds instead of one flat store | [[phase-c-typed-memory]] |
 | D | Canonical Truth | `verified` | corrections, trust, freshness, conflict handling | [[phase-d-canonical-truth]] |
 | E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
-| F | Memory Atlas | `pending` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
+| F | Memory Atlas | `in_progress` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `pending` | learn reusable operating procedures | [[2026-04-11-memd-ralph-roadmap]] |
 | H | Hive Coordination | `pending` | shared second brain across harnesses | [[2026-04-11-memd-ralph-roadmap]] |
 | I | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[2026-04-11-memd-ralph-roadmap]] |
