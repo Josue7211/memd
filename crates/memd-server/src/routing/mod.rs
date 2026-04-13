@@ -86,7 +86,7 @@ impl RetrievalPlan {
                 MemoryScope::Local => 0.55,
                 MemoryScope::Synced => 1.0,
                 MemoryScope::Project => 1.15,
-                MemoryScope::Global => -0.2,
+                MemoryScope::Global => 0.15,
             },
             RetrievalIntent::Decision => match scope {
                 MemoryScope::Project => 1.1,
