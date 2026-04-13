@@ -1685,3 +1685,250 @@ async fn atlas_pivot_filters_by_min_trust() {
         "only the 0.9 confidence item should pass"
     );
 }
+
+#[tokio::test]
+async fn atlas_explore_generates_trails_for_multi_node_regions() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items with varying confidence
+    for (i, cf) in [0.5, 0.9, 0.7].iter().enumerate() {
+        let req = StoreMemoryRequest {
+            content: format!("trail item {i}"),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(*cf),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-trails"), Some("main"), None)
+        .expect("generate regions");
+    let region = &regions[0];
+
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-trails".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore atlas with trails");
+
+    // Should have at least a salience trail
+    assert!(
+        !response.trails.is_empty(),
+        "should generate at least one trail for 3+ nodes"
+    );
+    let salience_trail = response
+        .trails
+        .iter()
+        .find(|t| t.name == "salience")
+        .expect("salience trail should exist");
+    assert_eq!(salience_trail.nodes.len(), 3);
+    // First node in salience trail should be the highest confidence (0.9)
+    let first_node = response
+        .nodes
+        .iter()
+        .find(|n| n.id == salience_trail.nodes[0])
+        .expect("first trail node should exist in nodes");
+    assert!(
+        first_node.confidence >= 0.9,
+        "salience trail should start with highest confidence node"
+    );
+}
+
+#[tokio::test]
+async fn atlas_explore_time_pivot_filters_recent_items() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items
+    for i in 0..3 {
+        let req = StoreMemoryRequest {
+            content: format!("time pivot item {i}"),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("atlas-time".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(0.8),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-time"), Some("main"), None)
+        .expect("generate regions");
+    let region = &regions[0];
+
+    // Use a pivot_time far in the past — should filter out all items
+    let old_time = chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-time".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: Some(old_time),
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore with time pivot");
+
+    assert_eq!(
+        response.nodes.len(),
+        0,
+        "all items created after 2020 should be filtered out"
+    );
+
+    // Now use a pivot_time in the future — should keep all items
+    let future_time = chrono::DateTime::parse_from_rfc3339("2030-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-time".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: Some(future_time),
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore with future time pivot");
+
+    assert_eq!(
+        response.nodes.len(),
+        3,
+        "all items should pass future time pivot"
+    );
+}
+
+#[tokio::test]
+async fn atlas_lane_tags_create_lane_specific_regions() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items with lane tags
+    for i in 0..3 {
+        let req = StoreMemoryRequest {
+            content: format!("design item {i}"),
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("atlas-lanes".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(0.8),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: vec!["lane:design".to_string()],
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+    // Also store non-lane items
+    for i in 0..2 {
+        let req = StoreMemoryRequest {
+            content: format!("untagged item {i}"),
+            kind: MemoryKind::Decision,
+            scope: MemoryScope::Project,
+            project: Some("atlas-lanes".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: Some(0.8),
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: None,
+        };
+        state
+            .store_item(req, MemoryStage::Canonical)
+            .expect("store test item");
+    }
+
+    // Generate all regions
+    let all_regions = store
+        .generate_regions_for_project(Some("atlas-lanes"), Some("main"), None)
+        .expect("generate all regions");
+    let design_region = all_regions
+        .iter()
+        .find(|r| r.name == "design")
+        .expect("design lane region should exist");
+    assert_eq!(design_region.node_count, 3);
+
+    // Filter by lane
+    let lane_regions = store
+        .generate_regions_for_project(Some("atlas-lanes"), Some("main"), Some("design"))
+        .expect("generate lane regions");
+    assert_eq!(lane_regions.len(), 1);
+    assert_eq!(lane_regions[0].name, "design");
+}

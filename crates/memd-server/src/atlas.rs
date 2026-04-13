@@ -195,6 +195,21 @@ impl SqliteStore {
             }
         }
 
+        // Time-based pivot: filter nodes by pivot_time (keep items created before that time)
+        if let Some(pivot_time) = req.pivot_time {
+            nodes.retain(|node| {
+                // Look up the item to check created_at
+                if let Ok(Some(item)) = self.get(node.memory_id) {
+                    item.created_at <= pivot_time
+                } else {
+                    true
+                }
+            });
+        }
+
+        // Trail generation: build temporal trail through nodes
+        let trails = generate_trails(&nodes, &links);
+
         let truncated = nodes.len() > limit;
         nodes.truncate(limit);
 
@@ -202,7 +217,7 @@ impl SqliteStore {
             region,
             nodes,
             links,
-            trails: Vec::new(),
+            trails,
             truncated,
         })
     }
@@ -417,6 +432,71 @@ fn compact_label(content: &str) -> String {
     } else {
         format!("{}...", &first_line[..77])
     }
+}
+
+fn generate_trails(nodes: &[AtlasNode], links: &[AtlasLink]) -> Vec<memd_schema::AtlasTrail> {
+    if nodes.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut trails = Vec::new();
+
+    // Salience trail: highest confidence first — "most trusted path"
+    let mut by_salience: Vec<&AtlasNode> = nodes.iter().collect();
+    by_salience.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let salience_ids: Vec<Uuid> = by_salience.iter().map(|n| n.id).collect();
+    let salience_links = trail_links_for_sequence(&salience_ids, links);
+    trails.push(memd_schema::AtlasTrail {
+        name: "salience".to_string(),
+        nodes: salience_ids,
+        links: salience_links,
+    });
+
+    // Depth trail: shallowest first — "zoom path" from region core to periphery
+    let mut by_depth: Vec<&AtlasNode> = nodes.iter().collect();
+    by_depth.sort_by_key(|n| n.depth);
+    let depth_ids: Vec<Uuid> = by_depth.iter().map(|n| n.id).collect();
+    if depth_ids != trails[0].nodes {
+        let depth_links = trail_links_for_sequence(&depth_ids, links);
+        trails.push(memd_schema::AtlasTrail {
+            name: "zoom".to_string(),
+            nodes: depth_ids,
+            links: depth_links,
+        });
+    }
+
+    trails
+}
+
+fn trail_links_for_sequence(node_ids: &[Uuid], all_links: &[AtlasLink]) -> Vec<AtlasLink> {
+    let mut trail_links = Vec::new();
+    for pair in node_ids.windows(2) {
+        let (from, to) = (pair[0], pair[1]);
+        // Find existing link between these nodes
+        if let Some(link) = all_links
+            .iter()
+            .find(|l| {
+                (l.from_node_id == from && l.to_node_id == to)
+                    || (l.from_node_id == to && l.to_node_id == from)
+            })
+        {
+            trail_links.push(link.clone());
+        } else {
+            // Synthesize a temporal link for adjacency
+            trail_links.push(AtlasLink {
+                from_node_id: from,
+                to_node_id: to,
+                link_kind: AtlasLinkKind::Temporal,
+                weight: 0.5,
+                label: None,
+            });
+        }
+    }
+    trail_links
 }
 
 fn entity_relation_to_atlas_link(

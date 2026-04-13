@@ -498,6 +498,7 @@ pub(crate) enum AtlasCommand {
     Regions(AtlasRegionsArgs),
     Explore(AtlasExploreArgs),
     Generate(AtlasRegionsArgs),
+    Compile(AtlasCompileArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -555,6 +556,21 @@ pub(crate) struct AtlasExploreArgs {
 
     #[arg(long)]
     pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct AtlasCompileArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) vault: Option<String>,
+
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]

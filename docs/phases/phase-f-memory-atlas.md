@@ -2,16 +2,16 @@
 
 <!-- PHASE_STATE
 phase: f
-status: in_progress
+status: verified
 truth_date: 2026-04-12
 version: v1
-next_step: verify progressive zoom and trail generation
+next_step: none
 -->
 
-- status: `in_progress`
+- status: `verified`
 - version: `v1`
 - truth date: `2026-04-12`
-- next step: verify progressive zoom and trail generation
+- next step: none
 
 ## Purpose
 
@@ -27,19 +27,20 @@ and raw evidence without transcript search.
 - server: `atlas_regions` table + `atlas_region_members` junction table
 - server: region generation from existing memory (kind-based + lane-based bucketing)
 - server: explore endpoint with region/node anchor, neighborhood expansion via entity links
-- server: cross-dimensional pivot filters (min_trust, pivot_kind, project, namespace)
+- server: cross-dimensional pivot filters (min_trust, pivot_kind, pivot_time, project, namespace)
 - server: 3 API routes: `GET /atlas/regions`, `POST /atlas/explore`, `POST /atlas/generate`
 - client: `MemdClient` methods for all 3 endpoints
-- client: `memd atlas regions`, `memd atlas explore`, `memd atlas generate` CLI commands
+- client: `memd atlas regions/explore/generate/compile` CLI commands
 - client: human-readable markdown rendering for regions and explore results
-- tests: 4 atlas tests (generate, explore region, explore node, trust pivot filter)
+- tests: 7 atlas tests (generate, explore region, explore node, trust pivot, trails, time pivot, lanes)
+- trail auto-generation: salience trail (by confidence) and zoom trail (by depth)
+- time-based pivot: `pivot_time` filters items by created_at
+- Obsidian atlas surface: `memd atlas compile` writes region notes + index to vault
+- lane convention documented in setup.md
 
 ## Open
 
-- trail generation not yet auto-populated (trails struct exists but empty in responses)
-- lane-based region generation relies on `lane:` tag prefix convention
-- no Obsidian atlas surface yet
-- no time-based pivot implemented yet
+None.
 
 ## Links
 

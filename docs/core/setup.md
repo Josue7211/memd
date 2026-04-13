@@ -421,6 +421,66 @@ When you change memory behavior, rerun the reusable verification contracts inste
   - [docs/verification/milestones/MILESTONE-v2.md](./verification/milestones/MILESTONE-v2.md)
   - [docs/verification/milestones/MILESTONE-v3.md](./verification/milestones/MILESTONE-v3.md)
 
+## Memory Atlas
+
+The atlas is the navigation layer over canonical memory. It lets you move from
+wake packet to region to node to raw evidence without searching from scratch.
+
+### Atlas CLI
+
+```bash
+# Generate regions from existing memory
+memd atlas generate --project myproject --namespace main
+
+# List regions
+memd atlas regions --project myproject
+
+# Explore a region (shows nodes, links, trails)
+memd atlas explore --region <region-uuid>
+
+# Explore a single node with neighborhood expansion
+memd atlas explore --node <memory-uuid> --depth 1
+
+# Filter by trust or kind
+memd atlas explore --region <uuid> --min-trust 0.8 --kind decision
+
+# Compile to Obsidian vault
+memd atlas compile --project myproject --vault /path/to/vault
+```
+
+### Lanes
+
+Lanes group memory by domain across kinds. Tag memory items with `lane:<name>`
+to assign them to a lane. Recognized lane names:
+
+- `lane:design` — design decisions, aesthetic choices
+- `lane:architecture` — system structure, data flow
+- `lane:research` — investigation, experiments, findings
+- `lane:workflow` — process, automation, tooling
+- `lane:preference` — user and team preferences
+- `lane:inspiration` — ideas, references, vision
+
+Items without lane tags are grouped by kind (facts, decisions, procedures,
+continuity, patterns, model).
+
+Source paths containing lane keywords also auto-assign lanes (e.g., a memory
+with `source_path` containing "design" joins the design lane).
+
+### Regions
+
+Regions are meaningful memory neighborhoods. They are:
+
+- **auto-generated** from lane tags and memory kinds
+- **deterministic** — regenerating produces the same region IDs
+- **user-nameable** — rename via the API for human curation
+
+### Trails
+
+Trails are ordered paths through nodes in a region:
+
+- **salience** trail: highest confidence first
+- **zoom** trail: shallowest depth first (core to periphery)
+
 Minimum rerun loop after a memory-path change:
 
 ```bash

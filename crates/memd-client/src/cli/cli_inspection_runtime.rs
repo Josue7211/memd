@@ -331,6 +331,9 @@ pub(crate) async fn run_atlas_command(
                 println!("{}", render_atlas_explore(&response));
             }
         }
+        AtlasCommand::Compile(args) => {
+            run_atlas_compile(client, args).await?;
+        }
         AtlasCommand::Generate(args) => {
             let req = memd_schema::AtlasRegionsRequest {
                 project: args.project,
@@ -426,6 +429,156 @@ fn render_atlas_explore(response: &memd_schema::AtlasExploreResponse) -> String 
     }
 
     out
+}
+
+async fn run_atlas_compile(client: &MemdClient, args: AtlasCompileArgs) -> anyhow::Result<()> {
+    // Generate regions first
+    let gen_req = memd_schema::AtlasRegionsRequest {
+        project: args.project.clone(),
+        namespace: args.namespace.clone(),
+        lane: None,
+        limit: None,
+    };
+    let regions = client.atlas_generate(&gen_req).await?;
+
+    if regions.regions.is_empty() {
+        println!("No atlas regions to compile.");
+        return Ok(());
+    }
+
+    // Determine output directory
+    let atlas_dir = if let Some(vault) = &args.vault {
+        std::path::PathBuf::from(vault).join("atlas")
+    } else {
+        args.output.join("compiled").join("atlas")
+    };
+    std::fs::create_dir_all(&atlas_dir)
+        .with_context(|| format!("create atlas dir {}", atlas_dir.display()))?;
+
+    // Write index
+    let mut index = String::from("# Memory Atlas\n\n");
+    index.push_str(&format!(
+        "Generated: {}\n\n",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M")
+    ));
+    index.push_str("## Regions\n\n");
+
+    for region in &regions.regions {
+        // Explore each region to get nodes
+        let explore_req = memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            lane: None,
+            depth: Some(1),
+            limit: Some(50),
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: None,
+        };
+        let explored = client.atlas_explore(&explore_req).await?;
+
+        // Build region markdown
+        let region_md = build_region_obsidian_note(region, &explored);
+        let safe_name = region.name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let region_path = atlas_dir.join(format!("{safe_name}.md"));
+        std::fs::write(&region_path, &region_md)
+            .with_context(|| format!("write region {}", region_path.display()))?;
+
+        index.push_str(&format!(
+            "- [[atlas/{safe_name}|{}]] — {} nodes\n",
+            region.name, region.node_count,
+        ));
+    }
+
+    let index_path = atlas_dir.join("_atlas-index.md");
+    std::fs::write(&index_path, &index)
+        .with_context(|| format!("write atlas index {}", index_path.display()))?;
+
+    println!(
+        "Compiled {} regions to {}",
+        regions.regions.len(),
+        atlas_dir.display()
+    );
+    Ok(())
+}
+
+fn build_region_obsidian_note(
+    region: &memd_schema::AtlasRegion,
+    explored: &memd_schema::AtlasExploreResponse,
+) -> String {
+    let mut md = format!("# {}\n\n", region.name);
+    md.push_str(&format!("- id: `{}`\n", region.id));
+    if let Some(project) = &region.project {
+        md.push_str(&format!("- project: `{project}`\n"));
+    }
+    if let Some(ns) = &region.namespace {
+        md.push_str(&format!("- namespace: `{ns}`\n"));
+    }
+    if let Some(lane) = &region.lane {
+        md.push_str(&format!("- lane: `{lane}`\n"));
+    }
+    md.push_str(&format!("- nodes: {}\n", explored.nodes.len()));
+    md.push_str(&format!(
+        "- auto: {}\n\n",
+        if region.auto_generated { "yes" } else { "no" }
+    ));
+
+    if !explored.nodes.is_empty() {
+        md.push_str("## Nodes\n\n");
+        for node in &explored.nodes {
+            let depth_tag = if node.depth > 0 {
+                format!(" (neighbor, depth={})", node.depth)
+            } else {
+                String::new()
+            };
+            md.push_str(&format!(
+                "- `[{}]` **{}** — {:?}, cf={:.2}{}\n",
+                &node.id.to_string()[..8],
+                node.label,
+                node.kind,
+                node.confidence,
+                depth_tag,
+            ));
+        }
+    }
+
+    if !explored.links.is_empty() {
+        md.push_str("\n## Links\n\n");
+        for link in &explored.links {
+            md.push_str(&format!(
+                "- `[{}]` → `[{}]` ({:?}, w={:.2})\n",
+                &link.from_node_id.to_string()[..8],
+                &link.to_node_id.to_string()[..8],
+                link.link_kind,
+                link.weight,
+            ));
+        }
+    }
+
+    if !explored.trails.is_empty() {
+        md.push_str("\n## Trails\n\n");
+        for trail in &explored.trails {
+            md.push_str(&format!(
+                "### {} trail ({} nodes)\n\n",
+                trail.name,
+                trail.nodes.len()
+            ));
+            for (i, node_id) in trail.nodes.iter().enumerate() {
+                let label = explored
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == *node_id)
+                    .map(|n| n.label.as_str())
+                    .unwrap_or("?");
+                md.push_str(&format!("{}. `[{}]` {}\n", i + 1, &node_id.to_string()[..8], label));
+            }
+            md.push('\n');
+        }
+    }
+
+    md
 }
 
 pub(crate) fn run_events_command(args: EventsArgs) -> anyhow::Result<()> {

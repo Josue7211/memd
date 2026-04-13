@@ -7,9 +7,9 @@ truth_date: 2026-04-12
 version: v1
 version_status: in_progress
 current_phase: phase_f
-phase_status: in_progress
+phase_status: verified
 next_phase: phase_g
-next_step: verify_progressive_zoom_and_trail_generation
+next_step: start_phase_g
 active_blockers: []
 -->
 
@@ -19,15 +19,16 @@ active_blockers: []
 - current version: `v1`
 - version status: `in_progress`
 - current phase: `Phase F: Memory Atlas`
-- phase status: `in_progress`
+- phase status: `verified`
 - next phase: `Phase G: Procedural Learning`
-- next step: `verify progressive zoom and trail generation`
+- next step: `start Phase G`
 
 ## Current Focus
 
-Phase F core landed. Atlas region generation, explore with neighborhood
-expansion, cross-dimensional pivots (trust, kind, project, namespace), CLI
-surface, and 4 passing tests. Trails and time-based pivots still open.
+Phase F verified. Atlas regions, explore with neighborhood expansion,
+cross-dimensional pivots (trust, kind, time, project, namespace), trail
+generation (salience + zoom), Obsidian compile surface, lane convention
+documented. 7 tests all passing. Ready for Phase G.
 
 ## Blockers
 
@@ -76,7 +77,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | C | Typed Memory | `verified` | explicit memory kinds instead of one flat store | [[phase-c-typed-memory]] |
 | D | Canonical Truth | `verified` | corrections, trust, freshness, conflict handling | [[phase-d-canonical-truth]] |
 | E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
-| F | Memory Atlas | `in_progress` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
+| F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `pending` | learn reusable operating procedures | [[2026-04-11-memd-ralph-roadmap]] |
 | H | Hive Coordination | `pending` | shared second brain across harnesses | [[2026-04-11-memd-ralph-roadmap]] |
 | I | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[2026-04-11-memd-ralph-roadmap]] |
