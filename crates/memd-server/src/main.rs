@@ -147,8 +147,8 @@ impl AppState {
                 }
                 return Ok((revived, None));
             }
-        if duplicate.is_none()
-            && let Err(e) = self.record_item_event(
+        if duplicate.is_none() {
+            if let Err(e) = self.record_item_event(
                 &item,
                 event_type_for_stage(stage),
                 format!(
@@ -161,6 +161,14 @@ impl AppState {
             ) {
                 eprintln!("warn: record_item_event (stored): {e:#}");
             }
+
+            // Auto-expire excess status items to prevent noise accumulation
+            if item.kind == MemoryKind::Status {
+                if let Err(e) = self.expire_excess_status_items(&item, 4) {
+                    eprintln!("warn: expire_excess_status_items: {e:#}");
+                }
+            }
+        }
         Ok((item, duplicate))
     }
 
@@ -205,6 +213,39 @@ impl AppState {
         };
         self.store.update(&revived, canonical_key, redundancy_key)?;
         Ok(Some(revived))
+    }
+
+    fn expire_excess_status_items(
+        &self,
+        new_item: &MemoryItem,
+        max_keep: usize,
+    ) -> anyhow::Result<()> {
+        let all = self.store.list()?;
+        let mut status_items: Vec<MemoryItem> = all
+            .into_iter()
+            .filter(|item| {
+                item.kind == MemoryKind::Status
+                    && item.status == MemoryStatus::Active
+                    && item.project == new_item.project
+                    && item.source_agent == new_item.source_agent
+                    && item.id != new_item.id
+            })
+            .collect();
+        if status_items.len() < max_keep {
+            return Ok(());
+        }
+        // Sort oldest first
+        status_items.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        let expire_count = status_items.len() - max_keep + 1;
+        for item in status_items.into_iter().take(expire_count) {
+            let mut expired = item;
+            expired.status = MemoryStatus::Expired;
+            expired.updated_at = Utc::now();
+            let ck = canonical_key(&expired);
+            let rk = redundancy_key(&expired);
+            self.store.update(&expired, &ck, &rk)?;
+        }
+        Ok(())
     }
 
     fn snapshot(&self) -> anyhow::Result<Vec<MemoryItem>> {

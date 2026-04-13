@@ -64,6 +64,23 @@ pub(crate) fn working_memory(
         ranked_items.push((score, reasons, item));
     }
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
+
+    // Cap status items to avoid noise flooding working memory.
+    // Keep at most 2 status items; evict the rest regardless of score.
+    let max_status_items = 2usize;
+    let mut status_count = 0usize;
+    let mut capped_items = Vec::with_capacity(ranked_items.len());
+    for entry in ranked_items {
+        if entry.2.kind == memd_schema::MemoryKind::Status {
+            status_count += 1;
+            if status_count > max_status_items {
+                continue;
+            }
+        }
+        capped_items.push(entry);
+    }
+    let ranked_items = capped_items;
+
     let selected_items = ranked_items
         .iter()
         .map(|(_, _, item)| item.clone())
