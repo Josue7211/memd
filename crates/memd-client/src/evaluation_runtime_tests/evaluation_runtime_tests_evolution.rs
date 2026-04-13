@@ -1167,7 +1167,7 @@ description: route project chat through a compact visible lane
     #[test]
     fn inspiration_search_reuses_cache_for_unchanged_files() {
         let root = std::env::temp_dir().join(format!("memd-inspiration-{}", uuid::Uuid::new_v4()));
-        let lane_dir = root.join(".planning").join("codebase");
+        let lane_dir = root.join(".memd").join("lanes").join("inspiration");
         fs::create_dir_all(&lane_dir).expect("create inspiration lane dir");
         fs::write(
             lane_dir.join("INSPIRATION-LANE.md"),

@@ -4,12 +4,11 @@ use chrono::Utc;
 use std::{path::Path, process::Command};
 
 pub(crate) fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
-    let planning_root = project_root.join(".planning");
     let mut evidence = Vec::new();
     let mut repo_evidence = collect_gap_repo_evidence(project_root);
-    let roadmap = read_text_file(&planning_root.join("ROADMAP.md"));
-    let state = read_text_file(&planning_root.join("STATE.md"));
-    let project = read_text_file(&planning_root.join("PROJECT.md"));
+    let roadmap = read_text_file(&project_root.join("ROADMAP.md"));
+    let state = read_text_file(&project_root.join("START-HERE.md"));
+    let project = read_text_file(&project_root.join("docs").join("WHERE-AM-I.md"));
 
     if let Some(roadmap) = roadmap {
         let lines = roadmap
@@ -127,8 +126,8 @@ pub(crate) fn collect_gap_repo_evidence(project_root: &Path) -> Vec<String> {
             &["memd", "openclaw", "tailnet"][..],
         ),
         (
-            project_root.join(".planning/STATE.md"),
-            ".planning/STATE.md",
+            project_root.join("START-HERE.md"),
+            "START-HERE.md",
             &["memory", "gap", "open loop"][..],
         ),
     ] {

@@ -7,15 +7,15 @@ Use this after session clear or when an agent feels lost.
 1. [[ROADMAP]]
 2. [[docs/verification/milestones/MILESTONE-v1.md|MILESTONE-v1]]
 3. backlog items linked from `ROADMAP`
-4. active phase summary note: [[phase-e-wake-packet-compiler]]
+4. active phase summary note: [[phase-g-procedural-learning]]
 
 ## Current Truth
 
 - active version: `v1`
-- active phase: `Phase E`
-- next phase: `Phase F`
-- next step: `cross-harness wake-packet proof`
-- main blocker: `FEATURE-V1-WAKE-PACKET`
+- active phase: `Phase G: Procedural Learning` (verified)
+- next phase: `Phase H: Hive Coordination`
+- next step: `start Phase H`
+- main blocker: none
 
 ## If You Need More Detail
 

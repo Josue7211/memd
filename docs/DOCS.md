@@ -26,7 +26,7 @@ high-signal:
 ## Secondary Docs
 
 Everything in `docs/core/`, `docs/policy/`, `docs/reference/`, `docs/strategy/`,
-`docs/verification/`, and `.planning/` is secondary unless explicitly promoted.
+`docs/verification/`, and `docs/codebase/` is secondary unless explicitly promoted.
 
 ### Rules For Secondary Docs
 

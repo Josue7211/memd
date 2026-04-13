@@ -90,6 +90,7 @@ Underneath them, `memd` should run a Hermes-style improvement loop:
 - [memd-atlas-theory-lock-v1.md](./docs/superpowers/specs/2026-04-11-memd-atlas-theory-lock-v1.md)
 - [memd-hive-theory-lock-v1.md](./docs/superpowers/specs/2026-04-11-memd-hive-theory-lock-v1.md)
 - [memd-evaluation-theory-lock-v1.md](./docs/superpowers/specs/2026-04-11-memd-evaluation-theory-lock-v1.md)
+- [memd-lane-theory-lock-v1.md](./docs/superpowers/specs/2026-04-13-memd-lane-theory-lock-v1.md)
 
 ## Comparative / Teardown Docs
 

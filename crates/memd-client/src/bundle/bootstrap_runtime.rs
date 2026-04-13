@@ -312,9 +312,9 @@ pub(crate) fn source_kind_from_path(path: &Path) -> String {
     }
     if path
         .components()
-        .any(|part| part.as_os_str().to_string_lossy() == ".planning")
+        .any(|part| part.as_os_str().to_string_lossy() == "docs")
     {
-        return "planning".to_string();
+        return "docs".to_string();
     }
     if path.extension().and_then(|value| value.to_str()).is_some() {
         return "doc".to_string();

@@ -1219,7 +1219,7 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
 fn init_bootstrap_summarizes_existing_project_files() {
     let project_root =
         std::env::temp_dir().join(format!("memd-init-bootstrap-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(project_root.join(".planning")).expect("create project root");
+    fs::create_dir_all(&project_root).expect("create project root");
     fs::write(
         project_root.join("CLAUDE.md"),
         "# project instructions\n\nremember memd",
@@ -1230,11 +1230,6 @@ fn init_bootstrap_summarizes_existing_project_files() {
         "# design\n\nuse clean typography",
     )
     .expect("write design");
-    fs::write(
-        project_root.join(".planning").join("STATE.md"),
-        "# state\n\nactive",
-    )
-    .expect("write state");
     fs::write(project_root.join("README.md"), "# demo repo").expect("write readme");
 
     let args = InitArgs {
@@ -1269,7 +1264,6 @@ fn init_bootstrap_summarizes_existing_project_files() {
         .expect("bootstrap context");
     assert!(bootstrap.markdown.contains("CLAUDE.md"));
     assert!(bootstrap.markdown.contains("DESIGN.md"));
-    assert!(bootstrap.markdown.contains(".planning/STATE.md"));
     assert!(bootstrap.markdown.contains("README.md"));
     assert!(
         bootstrap

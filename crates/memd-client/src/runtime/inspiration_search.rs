@@ -103,10 +103,10 @@ fn write_inspiration_search_cache(
 }
 
 const INSPIRATION_FILES: &[&str] = &[
-    ".planning/codebase/INSPIRATION-LANE.md",
-    ".planning/codebase/INSPIRATION-ARCHITECTURE.md",
-    ".planning/codebase/INSPIRATION-BACKLOG.md",
-    ".planning/codebase/INSPIRATION-MATRIX.md",
+    ".memd/lanes/inspiration/INSPIRATION-LANE.md",
+    ".memd/lanes/inspiration/INSPIRATION-ARCHITECTURE.md",
+    ".memd/lanes/inspiration/INSPIRATION-BACKLOG.md",
+    ".memd/lanes/inspiration/INSPIRATION-MATRIX.md",
 ];
 
 pub(crate) fn resolve_inspiration_root(explicit: Option<&Path>) -> anyhow::Result<PathBuf> {
@@ -116,7 +116,7 @@ pub(crate) fn resolve_inspiration_root(explicit: Option<&Path>) -> anyhow::Resul
 
     let mut dir = std::env::current_dir().context("read current directory")?;
     loop {
-        if dir.join(".planning/codebase/INSPIRATION-LANE.md").exists() {
+        if dir.join(".memd/lanes/inspiration/INSPIRATION-LANE.md").exists() {
             return Ok(dir);
         }
         if !dir.pop() {
@@ -124,7 +124,7 @@ pub(crate) fn resolve_inspiration_root(explicit: Option<&Path>) -> anyhow::Resul
         }
     }
 
-    anyhow::bail!("could not find .planning/codebase/INSPIRATION-LANE.md from current directory")
+    anyhow::bail!("could not find .memd/lanes/inspiration/INSPIRATION-LANE.md from current directory")
 }
 
 pub(crate) fn search_inspiration_lane(

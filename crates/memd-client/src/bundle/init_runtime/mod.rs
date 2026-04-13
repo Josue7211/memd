@@ -1045,16 +1045,6 @@ pub(crate) fn collect_project_bootstrap_sources(project_root: &Path) -> Vec<Path
         "README.md",
         "CONTRIBUTING.md",
         "ROADMAP.md",
-        "docs/core/setup.md",
-        "docs/policy/config.md",
-        "docs/reference/infra-facts.md",
-        "docs/policy/release-process.md",
-        "docs/reference/maintainer-workflow.md",
-        ".planning/STATE.md",
-        ".planning/PROJECT.md",
-        ".planning/ROADMAP.md",
-        ".planning/codebase/ARCHITECTURE.md",
-        ".planning/codebase/STRUCTURE.md",
     ];
 
     for candidate in candidates {
@@ -2582,7 +2572,7 @@ pub(crate) struct LoopSummaryEntry {
 
 pub(crate) fn is_project_root_candidate(dir: &Path) -> bool {
     dir.join(".git").exists()
-        || dir.join(".planning").exists()
+        || dir.join(".memd").exists()
         || dir.join("CLAUDE.md").exists()
         || dir.join("AGENTS.md").exists()
         || dir.join(".claude").join("CLAUDE.md").exists()

@@ -38,7 +38,7 @@ without hardcoding the address into the repo.
 When you run this inside a repo, `memd setup` seeds `.memd/` from existing
 project docs, planning files, and memory files when it can infer a project
 root. That includes `AGENTS.md`, `CLAUDE.md`, `MEMORY.md`, `memory/*.md`, and
-`.planning/*` when they exist. Use `--global` if you want `~/.memd` instead of
+`docs/codebase/*` when they exist. Use `--global` if you want `~/.memd` instead of
 a project bundle. Use `--project-root <path>` if you want to seed a different
 repo.
 
@@ -374,7 +374,7 @@ Search the inspiration lane:
 cargo run -p memd-client --bin memd -- inspiration --query LightRAG
 ```
 
-That command searches the local repo memory docs under `.planning/codebase/`
+That command searches the lane source files under `.memd/lanes/inspiration/`
 so you can jump back into repo inspiration without re-scanning the web.
 
 For research-heavy work, use the Karpathy-style loop:

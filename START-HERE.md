@@ -13,11 +13,11 @@ This is the first doc to read after session clear.
 ## Current Truth
 
 - active version: `v1`
-- active phase: `Phase E`
-- next phase: `Phase F`
-- next step: `cross-harness wake-packet proof`
-- main blocker: `FEATURE-V1-WAKE-PACKET`
-- priority harnesses: Codex, OpenCode, Hermes, OpenClaw
+- active phase: `Phase G: Procedural Learning` (verified)
+- next phase: `Phase H: Hive Coordination`
+- next step: `start Phase H`
+- main blocker: none
+- priority harnesses: Codex, Claude Code, OpenCode, Hermes, OpenClaw
 
 ## Rule
 

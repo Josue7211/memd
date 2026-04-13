@@ -112,6 +112,24 @@ All audit tail items resolved:
 4. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
    Fixed by closing Phase E audit tail and aligning all state sources. Phase-flip rule added.
 
+5. [[2026-04-13-planning-ghost-refs-in-tests]] — `open`.
+   7 test files create `.planning/` in temp fixtures. Should use `.memd/`.
+
+6. [[2026-04-13-ambiguous-glob-imports]] — `open`.
+   3 ambiguous symbols in `runtime/mod.rs` glob re-exports. Future Rust hard error.
+
+7. [[2026-04-13-dead-code-cleanup]] — `open`.
+   85 suppressed warnings across 25 files. 2 dead functions.
+
+8. [[2026-04-13-stale-doc-refs]] — `open`.
+   FEATURES.md + benchmark-registry.json reference `.rs` files now refactored to directories.
+
+9. [[2026-04-13-lane-architecture-gaps]] — `open`.
+   5 gaps: only inspiration lane seeded, no activation logic, no lane tagging, file-scan only.
+
+10. [[2026-04-13-flaky-handoff-verifier-test]] — `open`.
+    Port collision in full suite. Passes alone.
+
 ## Recently Closed
 
 - `Phase A` raw truth spine: `verified`
