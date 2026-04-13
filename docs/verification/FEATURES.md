@@ -192,7 +192,7 @@ transcript.
 
 #### Notes
 
-- `.planning/codebase/MEMORY-AUDIT.md` shows storage exists, but recall is the higher-risk part of the contract
+- storage exists, but recall is the higher-risk part of the contract
 - current regression coverage includes keeping a recalled project fact visible in bundle memory during resume
 - first Phase C slice now exposes top-level typed-memory families in lookup and bundle surfaces so retrieval no longer reads like one flat bucket
 - benchmark_feature_id: `feature.v1.core.store`
@@ -477,7 +477,7 @@ Project bundles can configure runtime defaults, and attach flows make `memd` usa
 
 - `crates/memd-client/src/main.rs`
 - `crates/memd-client/src/render.rs`
-- `.planning/REQUIREMENTS.md`
+- `ROADMAP.md`
 - `memd attach`
 
 #### Dependencies

@@ -38,7 +38,7 @@ check_contains "docs/reference/INDEX.md" "## Recommended Order" "reference index
 check_contains "docs/strategy/INDEX.md" "## Recommended Order" "strategy index order"
 check_contains "docs/verification/INDEX.md" "## Read In This Order" "verification index read order"
 
-for f in docs/core/*.md docs/policy/*.md docs/reference/*.md docs/strategy/*.md docs/verification/*.md .planning/*.md; do
+for f in docs/core/*.md docs/policy/*.md docs/reference/*.md docs/strategy/*.md docs/verification/*.md; do
   check_contains "$f" "\\[\\[ROADMAP\\]\\]|Planning artifact|Reference doc|fresh-session recovery|Secondary/reference doc" "secondary-doc banner"
 done
 

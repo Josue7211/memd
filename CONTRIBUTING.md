@@ -143,7 +143,7 @@ Update docs when you change:
 
 Relevant docs usually live under `docs/`, but roadmap and maintainer workflow
 changes may also require updates to `README.md`, `CHANGELOG.md`, and
-`.planning/` artifacts.
+`ROADMAP.md`.
 
 If you change bundle bootstrap, Obsidian workflow, or token-efficiency behavior,
 also update the release-facing quickstart text so new users can discover the
