@@ -3647,3 +3647,214 @@ async fn dismiss_inbox_expires_items() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+// ── Dogfood E2E Gate Tests ──────────────────────────────
+
+#[test]
+fn dogfood_store_fact_survives_context_retrieval() {
+    let (dir, state) = temp_state("memd-dogfood-fact-context");
+
+    // Store a user fact
+    let (_fact, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "user prefers terse responses without trailing summaries".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.95),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["user_pref".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store user fact");
+
+    // Store status noise
+    for i in 0..5 {
+        let _ = state.store_item(
+            StoreMemoryRequest {
+                content: format!("checkpoint {i}: session state snapshot"),
+                kind: MemoryKind::Status,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some(format!("codex@s{i}")),
+                source_system: Some("memd-short-term".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Derived),
+                confidence: Some(0.8),
+                ttl_seconds: Some(86_400),
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["checkpoint".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        );
+    }
+
+    // Retrieve context with current_task intent
+    let BuildContextResult { items, .. } = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(4),
+            max_chars_per_item: Some(220),
+        },
+    )
+    .expect("build context");
+
+    assert!(
+        items.iter().any(|item| item.kind == MemoryKind::Fact),
+        "dogfood gate: stored fact must survive context retrieval under status noise"
+    );
+
+    // Retrieve working memory
+    let working = crate::working::working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+            max_total_chars: Some(1600),
+            rehydration_limit: Some(4),
+            auto_consolidate: Some(false),
+        },
+    )
+    .expect("build working memory");
+
+    assert!(
+        working
+            .records
+            .iter()
+            .any(|r| r.record.contains("kind=fact")),
+        "dogfood gate: stored fact must appear in working memory (at least 1 fact-kind record)"
+    );
+
+    // Verify working memory has at least 1 non-status record
+    let non_status_in_context = items.iter().filter(|item| item.kind != MemoryKind::Status).count();
+    assert!(
+        non_status_in_context >= 1,
+        "dogfood gate: context must contain at least 1 non-status item (found {non_status_in_context})"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn dogfood_decision_surfaces_over_status_noise() {
+    let (dir, state) = temp_state("memd-dogfood-decision");
+
+    let _ = state.store_item(
+        StoreMemoryRequest {
+            content: "decided: use IMMEDIATE transactions for all writes".to_string(),
+            kind: MemoryKind::Decision,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: None,
+            source_agent: Some("codex".to_string()),
+            source_system: Some("memd".to_string()),
+            source_path: None,
+            source_quality: Some(SourceQuality::Canonical),
+            confidence: Some(0.92),
+            ttl_seconds: None,
+            last_verified_at: Some(Utc::now()),
+            supersedes: Vec::new(),
+            tags: vec!["architecture".to_string()],
+            belief_branch: None,
+            status: None,
+        },
+        MemoryStage::Canonical,
+    );
+
+    for i in 0..8 {
+        let _ = state.store_item(
+            StoreMemoryRequest {
+                content: format!("status noise {i}: session heartbeat"),
+                kind: MemoryKind::Status,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some(format!("codex@s{i}")),
+                source_system: Some("memd-short-term".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Derived),
+                confidence: Some(0.8),
+                ttl_seconds: Some(86_400),
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["checkpoint".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        );
+    }
+
+    let working = crate::working::working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+            max_total_chars: Some(1600),
+            rehydration_limit: Some(4),
+            auto_consolidate: Some(false),
+        },
+    )
+    .expect("build working memory");
+
+    assert!(
+        working
+            .records
+            .iter()
+            .any(|r| r.record.contains("kind=decision")),
+        "dogfood gate: decision must surface in working memory under 8 status items"
+    );
+
+    let status_count = working
+        .records
+        .iter()
+        .filter(|r| r.record.contains("heartbeat") || r.record.contains("checkpoint"))
+        .count();
+    assert!(
+        status_count <= 2,
+        "dogfood gate: working memory must cap status items at 2 (found {status_count})"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
