@@ -98,11 +98,10 @@ All audit tail items resolved:
 
 ## Immediate Backlog
 
-1. [[2026-04-12-phase-g-10-star-gaps]] — `open`.
-   15 gaps to close for 10-star procedural memory: auto-promote, fuzzy matching,
-   versioning, correction integration, atlas integration, wake budget, auto-retire,
-   conflict detection, execution recording, Obsidian export, candidate-procedural lane,
-   doc count fixes.
+1. [[2026-04-12-phase-g-10-star-gaps]] — `in_progress`.
+   16 gaps triaged: 8 closed (auto-promote, auto-retire, conflict detection,
+   supersedes, wake budget, doc fixes), 4 deferred medium, 3 deferred as features,
+   1 deferred to Phase H.
 
 2. [[2026-04-12-claude-code-bootstrap-bridge-gap]] — `closed`, fixed `2026-04-12`.
    Boot context slimmed 78%. CODEX_MEMORY zombies killed. SessionStart hook gutted.

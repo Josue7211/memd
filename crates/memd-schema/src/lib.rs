@@ -1740,6 +1740,9 @@ pub struct Procedure {
     /// Last session that used this procedure.
     #[serde(default)]
     pub last_session: Option<String>,
+    /// ID of the procedure this one supersedes (X1: correction integration).
+    #[serde(default)]
+    pub supersedes: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1783,11 +1786,17 @@ pub struct ProcedureRecordRequest {
     pub project: Option<String>,
     pub namespace: Option<String>,
     pub tags: Vec<String>,
+    /// ID of a procedure this one supersedes (X1: correction integration).
+    #[serde(default)]
+    pub supersedes: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcedureRecordResponse {
     pub procedure: Procedure,
+    /// Existing promoted procedures with overlapping triggers (conflict detection).
+    #[serde(default)]
+    pub conflicts: Vec<Procedure>,
 }
 
 /// Request to promote a candidate procedure.
@@ -1813,6 +1822,9 @@ pub struct ProcedureUseRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcedureUseResponse {
     pub procedure: Procedure,
+    /// Whether the procedure was auto-promoted by crossing use/session thresholds.
+    #[serde(default)]
+    pub auto_promoted: bool,
 }
 
 /// Request to retire a procedure.

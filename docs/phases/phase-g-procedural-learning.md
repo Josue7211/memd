@@ -64,7 +64,7 @@ From `memd-canonical-theory-synthesis.md`:
 - cross-session tracking: test `use_procedure_tracks_sessions` (session_count increments on new sessions)
 - retirement: test `retire_procedure_sets_retired_status` (promoted → retired → invisible in match)
 - wake integration: working memory builds context string, matches procedures, surfaces in wake packet
-- 9 procedural tests, 98 total server tests, 529 workspace tests
+- 13 procedural tests, 102 total server tests (4 new: auto-promote, auto-retire, conflict detection, supersedes)
 
 ## Fail Conditions
 
@@ -104,6 +104,8 @@ From `memd-canonical-theory-synthesis.md`:
 3. Promotion evidence = manual promote (use_count/session_count inform human decision)
 4. Wake integration = working memory context string matched against promoted procedures
 5. Recovery patterns = ProcedureKind::Recovery, same store and lifecycle
+6. Theory lock names "operating preferences" — mapped to `ProcedureKind::Policy` in code.
+   Policy = convention, preference, or operating rule. Same lifecycle as Workflow/Recovery.
 
 ## Open
 

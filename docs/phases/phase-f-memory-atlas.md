@@ -47,7 +47,7 @@ and raw evidence without transcript search.
 - from_working flag auto-seeds explore from current working memory (Status/LiveTruth/Pattern)
 - correction-aware neighborhood: supersedes-linked items appear with corrective links
 - persisted atlas links table for D3 durable high-value links
-- 13 tests, 85 total server tests
+- 18 atlas tests, 98 total server tests
 
 ## Pass Gate (10-Star Atlas Standard)
 

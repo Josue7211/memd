@@ -99,6 +99,7 @@ impl SqliteStore {
             tags: req.tags.clone(),
             session_count: 0,
             last_session: None,
+            supersedes: req.supersedes,
         };
         let payload = serde_json::to_string(&procedure)?;
         let kind_str = serde_json::to_value(&procedure.kind)
@@ -124,7 +125,80 @@ impl SqliteStore {
         )
         .context("insert procedure")?;
 
-        Ok(ProcedureRecordResponse { procedure })
+        // G7: Check for conflicting promoted procedures with overlapping triggers.
+        let trigger_words: Vec<String> = procedure
+            .trigger
+            .to_lowercase()
+            .split_whitespace()
+            .filter(|w| w.len() >= 3)
+            .map(String::from)
+            .collect();
+        let mut conflicts = Vec::new();
+        if !trigger_words.is_empty() {
+            let conn2 = self.connect()?;
+            let mut stmt2 = conn2.prepare(
+                "SELECT payload_json FROM procedures WHERE status = 'promoted' AND id != ?1",
+            )?;
+            let promoted: Vec<Procedure> = stmt2
+                .query_map(params![procedure.id.to_string()], |row| {
+                    let p: String = row.get(0)?;
+                    Ok(p)
+                })?
+                .filter_map(|r| r.ok())
+                .filter_map(|p| serde_json::from_str::<Procedure>(&p).ok())
+                .collect();
+            for existing in promoted {
+                let existing_trigger = existing.trigger.to_lowercase();
+                let overlap: usize = trigger_words
+                    .iter()
+                    .filter(|w| existing_trigger.contains(w.as_str()))
+                    .count();
+                if overlap >= 2 || (trigger_words.len() == 1 && overlap == 1) {
+                    conflicts.push(existing);
+                }
+            }
+        }
+
+        Ok(ProcedureRecordResponse {
+            procedure,
+            conflicts,
+        })
+    }
+
+    /// G6: Auto-retire procedures with 0 uses and stale for 30+ days.
+    pub(crate) fn auto_retire_stale_procedures(&self) -> anyhow::Result<usize> {
+        const STALE_DAYS: i64 = 30;
+        let cutoff = Utc::now() - chrono::Duration::days(STALE_DAYS);
+        let conn = self.connect()?;
+
+        // Find stale candidates: promoted with 0 uses, not updated in 30 days.
+        let mut stmt = conn.prepare(
+            "SELECT id, payload_json FROM procedures WHERE status = 'promoted' AND use_count = 0 AND updated_at < ?1",
+        )?;
+        let stale: Vec<(String, String)> = stmt
+            .query_map(params![cutoff.to_rfc3339()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+
+        let now = Utc::now();
+        let mut retired = 0;
+        for (id_str, payload) in &stale {
+            if let Ok(mut proc) = serde_json::from_str::<Procedure>(payload) {
+                proc.status = ProcedureStatus::Retired;
+                proc.updated_at = now;
+                if let Ok(new_payload) = serde_json::to_string(&proc) {
+                    let _ = conn.execute(
+                        "UPDATE procedures SET status = 'retired', updated_at = ?1, payload_json = ?2 WHERE id = ?3",
+                        params![now.to_rfc3339(), new_payload, id_str],
+                    );
+                    retired += 1;
+                }
+            }
+        }
+        Ok(retired)
     }
 
     /// Match procedures relevant to a context string.
@@ -135,6 +209,8 @@ impl SqliteStore {
         &self,
         req: &ProcedureMatchRequest,
     ) -> anyhow::Result<ProcedureMatchResponse> {
+        // G6: Auto-retire stale procedures before matching.
+        let _ = self.auto_retire_stale_procedures();
         let conn = self.connect()?;
         let mut sql = String::from(
             "SELECT id, payload_json FROM procedures WHERE status = 'promoted'",
@@ -267,14 +343,33 @@ impl SqliteStore {
             procedure.last_session = Some(session.clone());
         }
 
+        // G1: Auto-promote when use_count >= 3 AND session_count >= 2.
+        const AUTO_PROMOTE_USE_COUNT: usize = 3;
+        const AUTO_PROMOTE_SESSION_COUNT: usize = 2;
+        let auto_promoted = procedure.status == ProcedureStatus::Candidate
+            && procedure.use_count >= AUTO_PROMOTE_USE_COUNT
+            && procedure.session_count >= AUTO_PROMOTE_SESSION_COUNT;
+        if auto_promoted {
+            procedure.status = ProcedureStatus::Promoted;
+            procedure.confidence = (procedure.confidence + 0.2).min(1.0);
+        }
+
         let new_payload = serde_json::to_string(&procedure)?;
+        let status_str = if auto_promoted { "promoted" } else {
+            match procedure.status {
+                ProcedureStatus::Candidate => "candidate",
+                ProcedureStatus::Promoted => "promoted",
+                ProcedureStatus::Retired => "retired",
+            }
+        };
         conn.execute(
             r#"
-            UPDATE procedures SET use_count = ?1, confidence = ?2,
-                                  updated_at = ?3, payload_json = ?4
-            WHERE id = ?5
+            UPDATE procedures SET status = ?1, use_count = ?2, confidence = ?3,
+                                  updated_at = ?4, payload_json = ?5
+            WHERE id = ?6
             "#,
             params![
+                status_str,
                 procedure.use_count as i64,
                 procedure.confidence,
                 now.to_rfc3339(),
@@ -284,7 +379,10 @@ impl SqliteStore {
         )
         .context("record procedure use")?;
 
-        Ok(ProcedureUseResponse { procedure })
+        Ok(ProcedureUseResponse {
+            procedure,
+            auto_promoted,
+        })
     }
 
     /// Retire a procedure (manual or automatic).
@@ -458,6 +556,18 @@ impl SqliteStore {
                 .as_ref()
                 .and_then(|c| c.namespace.clone());
 
+            // X1: Filter out events whose entities have been superseded.
+            let source_ids: Vec<Uuid> = events
+                .iter()
+                .filter_map(|e| e.entity_id)
+                .filter(|eid| {
+                    self.entity_by_id(*eid)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|ent| ent.current_state.as_deref() != Some("superseded"))
+                })
+                .collect();
+
             let record_req = ProcedureRecordRequest {
                 name: procedure_name.clone(),
                 description: format!(
@@ -469,10 +579,11 @@ impl SqliteStore {
                 trigger: format!("when working with {}", procedure_name),
                 steps,
                 success_criteria: None,
-                source_ids: events.iter().filter_map(|e| e.entity_id).collect(),
+                source_ids,
                 project,
                 namespace,
                 tags: vec!["auto-detected".to_string()],
+                supersedes: None,
             };
 
             match self.record_procedure(&record_req) {
@@ -545,6 +656,7 @@ mod tests {
             project: Some("memd".into()),
             namespace: Some("main".into()),
             tags: vec!["deploy".into(), "production".into()],
+            supersedes: None,
         };
         let resp = store.record_procedure(&req).unwrap();
         assert_eq!(resp.procedure.name, "deploy to prod");
@@ -576,6 +688,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 tags: vec!["ssh".into(), "recovery".into()],
+                supersedes: None,
             })
             .unwrap();
         assert_eq!(rec.procedure.status, ProcedureStatus::Candidate);
@@ -604,6 +717,7 @@ mod tests {
                 project: Some("memd".into()),
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
 
@@ -647,6 +761,7 @@ mod tests {
                 project: Some("memd".into()),
                 namespace: None,
                 tags: vec!["deploy".into()],
+                supersedes: None,
             })
             .unwrap();
         store
@@ -661,6 +776,7 @@ mod tests {
                 project: Some("memd".into()),
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
 
@@ -697,6 +813,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
         store
@@ -711,6 +828,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
 
@@ -739,6 +857,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
 
@@ -792,6 +911,7 @@ mod tests {
                 project: None,
                 namespace: None,
                 tags: vec![],
+                supersedes: None,
             })
             .unwrap();
 
@@ -965,5 +1085,195 @@ mod tests {
             })
             .unwrap();
         assert_eq!(detected2.created, 0);
+    }
+
+    #[test]
+    fn auto_promote_after_threshold() {
+        let store = temp_store();
+        let rec = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "auto promote candidate".into(),
+                description: "should auto-promote".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "when auto-promoting".into(),
+                steps: vec!["step1".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: None,
+            })
+            .unwrap();
+        assert_eq!(rec.procedure.status, ProcedureStatus::Candidate);
+
+        // Use across 2 sessions, 3+ times total.
+        store
+            .use_procedure(&ProcedureUseRequest {
+                procedure_id: rec.procedure.id,
+                session: Some("sess-a".into()),
+            })
+            .unwrap();
+        store
+            .use_procedure(&ProcedureUseRequest {
+                procedure_id: rec.procedure.id,
+                session: Some("sess-a".into()),
+            })
+            .unwrap();
+        // 2 uses, 1 session — still candidate.
+        let after2 = store
+            .use_procedure(&ProcedureUseRequest {
+                procedure_id: rec.procedure.id,
+                session: Some("sess-b".into()),
+            })
+            .unwrap();
+        // 3 uses, 2 sessions — should auto-promote.
+        assert_eq!(after2.procedure.status, ProcedureStatus::Promoted);
+        assert!(after2.auto_promoted);
+    }
+
+    #[test]
+    fn auto_retire_stale_procedures() {
+        let store = temp_store();
+        let rec = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "stale procedure".into(),
+                description: "will be stale".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "never used".into(),
+                steps: vec!["step1".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: None,
+            })
+            .unwrap();
+
+        // Promote it.
+        store
+            .promote_procedure(&ProcedurePromoteRequest {
+                procedure_id: rec.procedure.id,
+            })
+            .unwrap();
+
+        // Manually backdate updated_at to 31 days ago.
+        let stale_date = Utc::now() - chrono::Duration::days(31);
+        {
+            let conn = store.connect().unwrap();
+            conn.execute(
+                "UPDATE procedures SET updated_at = ?1 WHERE id = ?2",
+                params![stale_date.to_rfc3339(), rec.procedure.id.to_string()],
+            )
+            .unwrap();
+        }
+
+        let retired = store.auto_retire_stale_procedures().unwrap();
+        assert_eq!(retired, 1);
+
+        // Should not appear in match results.
+        let matches = store
+            .match_procedures(&ProcedureMatchRequest {
+                context: "stale procedure".into(),
+                project: None,
+                namespace: None,
+                limit: None,
+            })
+            .unwrap();
+        assert_eq!(matches.procedures.len(), 0);
+    }
+
+    #[test]
+    fn conflict_detection_on_record() {
+        let store = temp_store();
+        // Create and promote a procedure.
+        let rec1 = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "deploy to production".into(),
+                description: "production deploy".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "when deploying to production servers".into(),
+                steps: vec!["build".into(), "deploy".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: None,
+            })
+            .unwrap();
+        store
+            .promote_procedure(&ProcedurePromoteRequest {
+                procedure_id: rec1.procedure.id,
+            })
+            .unwrap();
+
+        // Record a new procedure with overlapping trigger.
+        let rec2 = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "deploy v2".into(),
+                description: "new deploy".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "when deploying to production environment".into(),
+                steps: vec!["new step".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: None,
+            })
+            .unwrap();
+
+        // Should detect conflict with the promoted procedure.
+        assert!(!rec2.conflicts.is_empty());
+        assert_eq!(rec2.conflicts[0].name, "deploy to production");
+    }
+
+    #[test]
+    fn supersedes_field_persists() {
+        let store = temp_store();
+        let rec1 = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "original workflow".into(),
+                description: "v1".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "original".into(),
+                steps: vec!["old step".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: None,
+            })
+            .unwrap();
+
+        // Record a new procedure that supersedes the first.
+        let rec2 = store
+            .record_procedure(&ProcedureRecordRequest {
+                name: "updated workflow".into(),
+                description: "v2".into(),
+                kind: ProcedureKind::Workflow,
+                trigger: "updated".into(),
+                steps: vec!["new step".into()],
+                success_criteria: None,
+                source_ids: vec![],
+                project: None,
+                namespace: None,
+                tags: vec![],
+                supersedes: Some(rec1.procedure.id),
+            })
+            .unwrap();
+
+        assert_eq!(rec2.procedure.supersedes, Some(rec1.procedure.id));
+
+        // Verify it persists through list.
+        let list = store
+            .list_procedures(&ProcedureListRequest::default())
+            .unwrap();
+        let found = list.procedures.iter().find(|p| p.name == "updated workflow").unwrap();
+        assert_eq!(found.supersedes, Some(rec1.procedure.id));
     }
 }

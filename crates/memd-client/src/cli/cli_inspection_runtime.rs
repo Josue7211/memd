@@ -421,6 +421,7 @@ pub(crate) async fn run_procedure_command(
                 project: args.project,
                 namespace: args.namespace,
                 tags,
+                supersedes: None,
             };
             let response = client.procedure_record(&req).await?;
             if args.json {
