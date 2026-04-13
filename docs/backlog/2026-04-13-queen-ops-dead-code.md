@@ -1,6 +1,8 @@
 # Queen Operations Dead Code — Routes Without Client
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: Added queen_deny(), queen_reroute(), queen_handoff() client methods
 - found: `2026-04-13`
 - scope: memd-server, memd-client
 - severity: medium

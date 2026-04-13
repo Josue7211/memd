@@ -12,7 +12,8 @@ use memd_schema::{
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterRequest,
+    HiveMessageInboxRequest, HiveMessageSendRequest, HiveMessagesResponse, HiveQueenActionRequest,
+    HiveQueenActionResponse, HiveRosterRequest,
     HiveRosterResponse, HiveSessionAutoRetireRequest, HiveSessionAutoRetireResponse,
     HiveSessionRetireRequest, HiveSessionRetireResponse, HiveSessionUpsertRequest,
     HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest, HiveTaskUpsertRequest,
@@ -466,6 +467,27 @@ impl MemdClient {
 
     pub async fn hive_follow(&self, req: &HiveFollowRequest) -> anyhow::Result<HiveFollowResponse> {
         self.get_json_with_query("/hive/follow", req).await
+    }
+
+    pub async fn queen_deny(
+        &self,
+        req: &HiveQueenActionRequest,
+    ) -> anyhow::Result<HiveQueenActionResponse> {
+        self.post_json("/hive/queen/deny", req).await
+    }
+
+    pub async fn queen_reroute(
+        &self,
+        req: &HiveQueenActionRequest,
+    ) -> anyhow::Result<HiveQueenActionResponse> {
+        self.post_json("/hive/queen/reroute", req).await
+    }
+
+    pub async fn queen_handoff(
+        &self,
+        req: &HiveQueenActionRequest,
+    ) -> anyhow::Result<HiveQueenActionResponse> {
+        self.post_json("/hive/queen/handoff", req).await
     }
 
     pub async fn retire_hive_session(
