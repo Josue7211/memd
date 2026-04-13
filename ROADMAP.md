@@ -25,10 +25,10 @@ active_blockers: []
 
 ## Current Focus
 
-Phase F verified. Atlas regions, explore with neighborhood expansion,
-cross-dimensional pivots (trust, kind, time, project, namespace), trail
-generation (salience + zoom), Obsidian compile surface, lane convention
-documented. 7 tests all passing. Ready for Phase G.
+Phase F fully verified after 5 audit passes. 8 API routes, 4 DB tables,
+18 atlas tests, 90 total server tests. All theory lock requirements covered:
+4 atlas capabilities, 7 pivot dimensions, 4 neighborhood expansion paths,
+5 zoom levels, 3 locked decisions (D1/D2/D3). Ready for Phase G.
 
 ## Blockers
 
