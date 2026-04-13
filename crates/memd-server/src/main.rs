@@ -127,7 +127,7 @@ impl AppState {
             redundancy_key: Some(redundancy_key.clone()),
             ..item
         };
-        let _entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
+        let entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
@@ -166,6 +166,13 @@ impl AppState {
             if item.kind == MemoryKind::Status {
                 if let Err(e) = self.expire_excess_status_items(&item, 4) {
                     eprintln!("warn: expire_excess_status_items: {e:#}");
+                }
+            }
+
+            // Auto-link co-occurring entities within the same project
+            if item.kind != MemoryKind::Status {
+                if let Err(e) = self.auto_link_entity(&entity.record, &item) {
+                    eprintln!("warn: auto_link_entity: {e:#}");
                 }
             }
         }
@@ -213,6 +220,54 @@ impl AppState {
         };
         self.store.update(&revived, canonical_key, redundancy_key)?;
         Ok(Some(revived))
+    }
+
+    fn auto_link_entity(
+        &self,
+        new_entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let Some(project) = &item.project else {
+            return Ok(());
+        };
+        let entities = self.store.list_entities()?;
+        let candidates: Vec<&MemoryEntityRecord> = entities
+            .iter()
+            .filter(|e| e.id != new_entity.id)
+            .filter(|e| {
+                e.context
+                    .as_ref()
+                    .and_then(|ctx| ctx.project.as_deref())
+                    == Some(project.as_str())
+            })
+            .filter(|e| e.salience_score > 0.1)
+            .take(3)
+            .collect();
+
+        for candidate in candidates {
+            let existing_links = self.store.links_for_entity(&EntityLinksRequest {
+                entity_id: new_entity.id,
+            })?;
+            let already_linked = existing_links.iter().any(|link| {
+                link.from_entity_id == candidate.id || link.to_entity_id == candidate.id
+            });
+            if already_linked {
+                continue;
+            }
+            let link = MemoryEntityLinkRecord {
+                id: Uuid::new_v4(),
+                from_entity_id: new_entity.id,
+                to_entity_id: candidate.id,
+                relation_kind: memd_schema::EntityRelationKind::Related,
+                confidence: 0.5,
+                created_at: Utc::now(),
+                note: Some("auto-linked by co-occurrence".to_string()),
+                context: None,
+                tags: vec!["auto".to_string()],
+            };
+            self.store.upsert_entity_link(&link)?;
+        }
+        Ok(())
     }
 
     fn expire_excess_status_items(

@@ -3858,3 +3858,86 @@ fn dogfood_decision_surfaces_over_status_noise() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn auto_link_creates_entity_links_on_store() {
+    let (dir, state) = temp_state("memd-auto-link");
+
+    // Store two facts in the same project
+    let (fact_a, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "architecture uses event sourcing pattern".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["arch".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact A");
+
+    let (fact_b, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "decided: sqlite over postgres for embedded use".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["db".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact B");
+
+    // Check that entity links were auto-created
+    let entity_a = state.store.entity_for_item(fact_a.id).unwrap();
+    let entity_b = state.store.entity_for_item(fact_b.id).unwrap();
+
+    if let (Some(ea), Some(eb)) = (&entity_a, &entity_b) {
+        let links = state
+            .store
+            .links_for_entity(&memd_schema::EntityLinksRequest { entity_id: eb.id })
+            .unwrap();
+        assert!(
+            !links.is_empty(),
+            "auto-linking should create at least one entity link between co-occurring items"
+        );
+        let has_auto_link = links.iter().any(|link| {
+            link.tags.contains(&"auto".to_string())
+                && (link.from_entity_id == ea.id || link.to_entity_id == ea.id)
+        });
+        assert!(
+            has_auto_link,
+            "auto-link should reference the first entity"
+        );
+    }
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
