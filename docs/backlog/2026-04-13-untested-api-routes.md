@@ -1,6 +1,8 @@
 # 15 Untested API Routes
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: 12 integration tests added covering all 15 previously untested routes
 - found: `2026-04-13`
 - scope: memd-server
 

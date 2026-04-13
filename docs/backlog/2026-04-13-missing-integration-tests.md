@@ -1,6 +1,8 @@
 # Missing Integration Tests Across Multiple Subsystems
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: Route coverage now at 100%. 12 new integration tests cover coordination, skill-policy, tasks, claims, maintenance, workspace, profile, verify, and runtime maintain routes. Total: 114 tests.
 - found: `2026-04-13`
 - scope: memd-server
 - severity: medium
