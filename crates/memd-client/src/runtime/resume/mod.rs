@@ -1456,6 +1456,13 @@ impl ResumeSnapshot {
                     return None;
                 }
             }
+            // Skip items whose source_path points to a nonexistent file.
+            if let Some(source_path) = &item.item.source_path {
+                let path = std::path::Path::new(source_path.trim());
+                if !source_path.is_empty() && path.is_absolute() && !path.exists() {
+                    return None;
+                }
+            }
             Some(content)
         }))
     }
