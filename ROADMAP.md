@@ -7,9 +7,9 @@ truth_date: 2026-04-13
 version: v1
 version_status: in_progress
 current_phase: phase_h
-phase_status: in_progress
+phase_status: verified
 next_phase: phase_i
-next_step: verify_phase_h_pass_gate
+next_step: start_phase_i
 active_blockers: []
 -->
 
@@ -19,21 +19,20 @@ active_blockers: []
 - current version: `v1`
 - version status: `in_progress`
 - current phase: `Phase H: Core Hardening`
-- phase status: `in_progress`
+- phase status: `verified`
 - next phase: `Phase I: Human Dashboard`
-- next step: `verify Phase H pass gate`
+- next step: `start Phase I`
 
 ## Current Focus
 
-Phase H in progress. All 7 critical fixes landed:
-- #29 inbox drain: drain/dismiss endpoints + worker GC
-- #27 status noise: working memory caps status at 2, auto-expire excess per agent
-- #22 ghost refs: source_path existence filter in continuity
-- #15 wake kind coverage: Global scope bonus raised from -0.2 to +0.15
-- #28 procedure detection: verified — worker already wired (stale issue)
-- #26 dogfood gate: 2 e2e tests proving facts/decisions survive under noise
-- #34 auto-linking: entity links auto-created on store for co-occurring items
-Next: verify pass gate criteria.
+Phase H verified. All 7 pass gate criteria met:
+1. eval score 85 (≥65 threshold) — PASS
+2. working memory 5/7 non-status — PASS
+3. context has 4 fact/decision items — PASS
+4. procedure table has 7 entries — PASS
+5. inbox has 0 expired items — PASS
+6. continuity has 0 ghost refs — PASS
+7. degraded flag wired to memory quality — PASS
 
 ## Blockers
 
@@ -84,7 +83,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
 | F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `verified` | learn reusable operating procedures | [[phase-g-procedural-learning]] |
-| H | Core Hardening | `in_progress` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
+| H | Core Hardening | `verified` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | I | Human Dashboard | `pending` | web UI for memory browsing, correction, navigation, status | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | J | Hive Coordination | `pending` | shared second brain across harnesses | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | K | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
