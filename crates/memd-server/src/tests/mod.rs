@@ -1568,7 +1568,9 @@ async fn atlas_explore_returns_nodes_for_region() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore atlas");
 
@@ -1623,7 +1625,9 @@ async fn atlas_explore_single_node_returns_that_item() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore single node");
 
@@ -1687,7 +1691,9 @@ async fn atlas_pivot_filters_by_min_trust() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore with trust filter");
 
@@ -1752,7 +1758,9 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore atlas with trails");
 
@@ -1838,7 +1846,9 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore with time pivot");
 
@@ -1868,7 +1878,9 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore with future time pivot");
 
@@ -2061,7 +2073,9 @@ async fn atlas_nodes_include_evidence_count() {
             pivot_scope: None,
             pivot_source_agent: None,
             pivot_source_system: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore single node");
 
@@ -2259,7 +2273,9 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
             pivot_source_agent: None,
             pivot_source_system: None,
             min_trust: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore with tag fallback");
 
@@ -2339,7 +2355,9 @@ async fn atlas_explore_with_evidence_returns_events() {
             pivot_source_agent: None,
             pivot_source_system: None,
             min_trust: None,
+            min_salience: None,
             include_evidence: true,
+            from_working: false,
         })
         .expect("explore with evidence");
 
@@ -2436,7 +2454,9 @@ async fn atlas_scope_pivot_filters_by_scope() {
             pivot_source_agent: None,
             pivot_source_system: None,
             min_trust: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         })
         .expect("explore with scope pivot");
 

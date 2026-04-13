@@ -331,7 +331,9 @@ pub(crate) async fn run_atlas_command(
                 pivot_source_agent: args.source_agent,
                 pivot_source_system: args.source_system,
                 min_trust: args.min_trust,
+                min_salience: args.min_salience,
                 include_evidence: args.include_evidence,
+                from_working: args.from_working,
             };
             let response = client.atlas_explore(&req).await?;
             if args.json {
@@ -507,7 +509,9 @@ async fn run_atlas_compile(client: &MemdClient, args: AtlasCompileArgs) -> anyho
             pivot_source_agent: None,
             pivot_source_system: None,
             min_trust: None,
+            min_salience: None,
             include_evidence: false,
+            from_working: false,
         };
         let explored = client.atlas_explore(&explore_req).await?;
 

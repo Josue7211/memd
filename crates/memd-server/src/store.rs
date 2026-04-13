@@ -329,6 +329,20 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_atlas_region_members_memory
               ON atlas_region_members(memory_id);
+
+            CREATE TABLE IF NOT EXISTS atlas_links (
+              from_node_id TEXT NOT NULL,
+              to_node_id TEXT NOT NULL,
+              link_kind TEXT NOT NULL,
+              weight REAL NOT NULL DEFAULT 0.5,
+              label TEXT,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY (from_node_id, to_node_id, link_kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_atlas_links_from
+              ON atlas_links(from_node_id);
+            CREATE INDEX IF NOT EXISTS idx_atlas_links_to
+              ON atlas_links(to_node_id);
             "#,
         )
         .context("initialize sqlite schema")?;

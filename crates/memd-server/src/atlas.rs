@@ -125,13 +125,19 @@ impl SqliteStore {
         let limit = req.limit.unwrap_or(20);
         let depth = req.depth.unwrap_or(1);
 
-        // If a region is specified, load it and its members
+        // Resolve seed IDs: region, node, or working memory
         let (region, seed_ids) = if let Some(region_id) = req.region_id {
             let region = self.get_atlas_region_by_id(region_id)?;
             let member_ids = self.get_region_member_ids(region_id)?;
             (region, member_ids)
         } else if let Some(node_id) = req.node_id {
             (None, vec![node_id])
+        } else if req.from_working {
+            let working_ids = self.working_memory_item_ids(
+                req.project.as_deref(),
+                req.namespace.as_deref(),
+            )?;
+            (None, working_ids)
         } else {
             // No anchor — generate regions on the fly for the project
             let regions = self.generate_regions_for_project(
@@ -259,6 +265,71 @@ impl SqliteStore {
                                 evidence_count,
                             ));
                         }
+                    }
+                }
+            }
+        }
+
+        // Load persisted atlas links for seed nodes
+        for seed_id in &seed_ids {
+            let persisted = self.load_persisted_links_for_node(*seed_id)?;
+            for pl in persisted {
+                let neighbor_id = if pl.from_node_id == *seed_id {
+                    pl.to_node_id
+                } else {
+                    pl.from_node_id
+                };
+                if let Some(item) = self.get(neighbor_id)? {
+                    if !passes_pivot_filters(&item, req) {
+                        continue;
+                    }
+                    if seen.insert(item.id) {
+                        let entity = self.entity_for_item(item.id)?;
+                        let evidence_count = self.event_count_for_item(item.id)?;
+                        nodes.push(item_to_atlas_node(
+                            &item,
+                            region.as_ref().map(|r| r.id),
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    links.push(pl);
+                }
+            }
+        }
+
+        // Correction-aware neighborhood: items linked via supersedes
+        {
+            let supersede_ids: Vec<Uuid> = seed_ids
+                .iter()
+                .filter_map(|id| self.get(*id).ok().flatten())
+                .flat_map(|item| item.supersedes.clone())
+                .collect();
+            for sid in supersede_ids {
+                if let Some(item) = self.get(sid)? {
+                    if !passes_pivot_filters(&item, req) {
+                        continue;
+                    }
+                    if seen.insert(item.id) {
+                        let entity = self.entity_for_item(item.id)?;
+                        let evidence_count = self.event_count_for_item(item.id)?;
+                        nodes.push(item_to_atlas_node(
+                            &item,
+                            region.as_ref().map(|r| r.id),
+                            1,
+                            entity.as_ref().map(|e| e.id),
+                            evidence_count,
+                        ));
+                    }
+                    if let Some(first_seed) = seed_ids.first() {
+                        links.push(AtlasLink {
+                            from_node_id: *first_seed,
+                            to_node_id: item.id,
+                            link_kind: AtlasLinkKind::Corrective,
+                            weight: 0.6,
+                            label: Some("supersedes".to_string()),
+                        });
                     }
                 }
             }
@@ -442,6 +513,87 @@ impl SqliteStore {
         })
     }
 
+    pub(crate) fn persist_atlas_link(&self, link: &AtlasLink) -> anyhow::Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO atlas_links (from_node_id, to_node_id, link_kind, weight, label, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(from_node_id, to_node_id, link_kind) DO UPDATE SET
+              weight = excluded.weight,
+              label = excluded.label
+            "#,
+            params![
+                link.from_node_id.to_string(),
+                link.to_node_id.to_string(),
+                format!("{:?}", link.link_kind).to_lowercase(),
+                link.weight,
+                link.label,
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn load_persisted_links_for_node(
+        &self,
+        node_id: Uuid,
+    ) -> anyhow::Result<Vec<AtlasLink>> {
+        let conn = self.connect()?;
+        let id_str = node_id.to_string();
+        let mut stmt = conn.prepare(
+            "SELECT from_node_id, to_node_id, link_kind, weight, label FROM atlas_links WHERE from_node_id = ?1 OR to_node_id = ?1",
+        )?;
+        let links = stmt
+            .query_map(params![id_str], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, f32>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(|(from, to, kind, weight, label)| {
+                Some(AtlasLink {
+                    from_node_id: from.parse().ok()?,
+                    to_node_id: to.parse().ok()?,
+                    link_kind: parse_link_kind(&kind)?,
+                    weight,
+                    label,
+                })
+            })
+            .collect();
+        Ok(links)
+    }
+
+    pub(crate) fn working_memory_item_ids(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<Uuid>> {
+        let items = self.list()?;
+        let mut working: Vec<MemoryItem> = items
+            .into_iter()
+            .filter(|item| item.status == MemoryStatus::Active)
+            .filter(|item| {
+                item.kind == MemoryKind::Status
+                    || item.kind == MemoryKind::LiveTruth
+                    || item.kind == MemoryKind::Pattern
+            })
+            .filter(|item| {
+                project.is_none() || item.project.as_deref() == project
+            })
+            .filter(|item| {
+                namespace.is_none() || item.namespace.as_deref() == namespace
+            })
+            .collect();
+        working.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        working.truncate(10);
+        Ok(working.into_iter().map(|item| item.id).collect())
+    }
+
     pub(crate) fn rename_atlas_region(
         &self,
         req: &AtlasRenameRegionRequest,
@@ -578,6 +730,13 @@ fn passes_pivot_filters(item: &MemoryItem, req: &AtlasExploreRequest) -> bool {
             return false;
         }
     }
+    if let Some(min_salience) = req.min_salience {
+        // Salience approximated as confidence for items without entity data.
+        // Entity salience_score is used when available via the enrichment path.
+        if item.confidence < min_salience {
+            return false;
+        }
+    }
     if let Some(pivot_kind) = req.pivot_kind {
         if item.kind != pivot_kind {
             return false;
@@ -707,6 +866,18 @@ fn trail_links_for_sequence(node_ids: &[Uuid], all_links: &[AtlasLink]) -> Vec<A
         }
     }
     trail_links
+}
+
+fn parse_link_kind(value: &str) -> Option<AtlasLinkKind> {
+    match value {
+        "temporal" => Some(AtlasLinkKind::Temporal),
+        "causal" => Some(AtlasLinkKind::Causal),
+        "procedural" => Some(AtlasLinkKind::Procedural),
+        "semantic" => Some(AtlasLinkKind::Semantic),
+        "corrective" => Some(AtlasLinkKind::Corrective),
+        "ownership" => Some(AtlasLinkKind::Ownership),
+        _ => None,
+    }
 }
 
 fn entity_relation_to_atlas_link(

@@ -564,7 +564,13 @@ pub(crate) struct AtlasExploreArgs {
     pub(crate) min_trust: Option<f32>,
 
     #[arg(long)]
+    pub(crate) min_salience: Option<f32>,
+
+    #[arg(long)]
     pub(crate) include_evidence: bool,
+
+    #[arg(long)]
+    pub(crate) from_working: bool,
 
     #[arg(long)]
     pub(crate) json: bool,

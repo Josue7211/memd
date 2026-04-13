@@ -1595,8 +1595,11 @@ pub struct AtlasExploreRequest {
     pub pivot_source_agent: Option<String>,
     pub pivot_source_system: Option<String>,
     pub min_trust: Option<f32>,
+    pub min_salience: Option<f32>,
     #[serde(default)]
     pub include_evidence: bool,
+    #[serde(default)]
+    pub from_working: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

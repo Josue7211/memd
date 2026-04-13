@@ -43,21 +43,24 @@ and raw evidence without transcript search.
 - atlas expand endpoint (`POST /atlas/expand`) for retrieval stage 4 integration
 - region rename endpoint (`POST /atlas/rename`) for user curation (D2)
 - tag-overlap neighborhood fallback when no entity links exist
-- full pivot dimensions: trust, kind, time, scope, provenance (source_agent), harness (source_system)
+- full pivot dimensions: trust, kind, time, scope, provenance, harness, salience (all 7)
+- from_working flag auto-seeds explore from current working memory (Status/LiveTruth/Pattern)
+- correction-aware neighborhood: supersedes-linked items appear with corrective links
+- persisted atlas links table for D3 durable high-value links
 - 13 tests, 85 total server tests
 
 ## Pass Gate (10-Star Atlas Standard)
 
-- [x] user can start from current task and move outward naturally (expand from memory IDs)
-- [x] agent can pull nearby context without rereads (expand + tag fallback)
-- [x] moving deeper feels like zooming (trails + depth + evidence drill)
-- [x] truth and source linkage at every depth (entity_id + evidence events)
+- [x] user starts from current task, moves outward naturally (from_working=true)
+- [x] agent pulls nearby context without rereads (expand + tag fallback + persisted links)
+- [x] moving deeper feels like zooming (wake→region→node→deep dive→evidence)
+- [x] truth and source linkage at every depth (entity_id + evidence events + supersedes)
 
 ## Locked Decisions Verified
 
 - [x] D1: canonical node = promoted memory object (entity_id linked)
 - [x] D2: regions are hybrid (auto-generated, deterministic, user-nameable via rename)
-- [x] D3: persist explicitly (regions, rename), derive on read (neighborhoods, tag overlap, trails)
+- [x] D3: persist (regions, links, rename), derive (neighborhoods, tag overlap, trails, supersedes)
 
 ## Open
 
