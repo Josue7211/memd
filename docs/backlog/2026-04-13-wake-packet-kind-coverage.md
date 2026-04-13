@@ -1,6 +1,6 @@
 # Wake Packet Structurally Excludes Non-Status Memory Kinds
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-server, memd-client
 - severity: critical

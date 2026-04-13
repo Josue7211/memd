@@ -1,6 +1,6 @@
 # Procedure Detection Never Triggers in Runtime
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-worker, memd-server
 - severity: critical

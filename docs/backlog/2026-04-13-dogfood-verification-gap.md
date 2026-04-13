@@ -1,6 +1,6 @@
 # No Dogfood Verification Gate for Phase Completion
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: process
 - severity: critical

@@ -1,6 +1,6 @@
 # Agent Write Helpers Unreachable from Agents
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-client
 - severity: high

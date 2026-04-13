@@ -1,6 +1,6 @@
 # Status Noise Floods Working Memory
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-client, memd-server
 - severity: critical

@@ -1,6 +1,6 @@
 # memd status Reports Healthy While Pipeline Broken
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-client
 - severity: critical
