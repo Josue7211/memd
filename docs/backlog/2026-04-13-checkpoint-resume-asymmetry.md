@@ -31,5 +31,15 @@ during resume but never persisted by checkpoint. Recovery artifacts are transien
 
 ## Evidence
 
-- `checkpoint.rs:171-191` — checkpoint writes
-- `resume/mod.rs:238-260` — resume reads
+- `crates/memd-client/src/runtime/checkpoint.rs:171-191` — checkpoint writes
+- `crates/memd-client/src/runtime/resume/mod.rs:238-260` — resume reads
+
+## Dependencies
+
+- independent: design decision more than bug
+- related to [[docs/backlog/2026-04-13-status-noise-floods-memory.md|status-noise-floods-memory]] (checkpoint noise is the bigger problem)
+
+## Related
+
+- [[docs/audits/2026-04-13-full-codebase-audit.md]] — full audit findings
+- [[docs/theory/locks/2026-04-11-memd-theory-lock-v1.md]] — live loop steps 2-3

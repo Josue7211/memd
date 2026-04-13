@@ -29,5 +29,18 @@ Not data corruption, but user-facing errors under the exact workload Phase H ena
 
 ## Evidence
 
-- `store.rs:2254-2316` — hive session upsert
-- `store.rs:519` — duplicate merge transaction (same pattern)
+- `crates/memd-server/src/store.rs:2254-2316` — hive session upsert
+- `crates/memd-server/src/store.rs:519` — duplicate merge transaction
+- `crates/memd-server/src/store_coordination.rs:502` — session retirement transaction
+- `crates/memd-server/src/store_migrations.rs:105` — migration backfill transaction
+
+## Dependencies
+
+- independent: can fix standalone (4 call sites)
+- Phase H priority — concurrent harness writes are the trigger
+
+## Related
+
+- [[docs/audits/2026-04-13-full-codebase-audit.md]] — full audit findings
+- [[docs/backlog/2026-04-13-queen-ops-dead-code.md|queen-ops-dead-code]] — related hive coordination issue
+- [[docs/theory/locks/2026-04-11-memd-hive-theory-lock-v1.md]] — hive theory

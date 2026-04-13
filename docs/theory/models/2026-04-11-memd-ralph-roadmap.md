@@ -399,6 +399,101 @@ Prove the system actually behaves like one second brain for the human.
 
 - narrow the claim and reopen failed phases instead of shipping false confidence
 
+## Phase H-zero: Core Hardening (added 2026-04-13)
+
+### Goal
+
+Make the operational pipeline actually work. Fix everything the full codebase audit
+found broken. No new features — make existing features function correctly.
+
+### Context
+
+Full codebase audit (2026-04-13) found that Phases B-G are architecturally complete but
+operationally broken. Live loop: 2/7 steps work. 10-star composite: ~2.9/10. 35 gaps
+identified. This phase fixes the 9 critical operational gaps before Phase H can start.
+
+### Deliver
+
+- inbox drains expired items (no ghost refs)
+- status noise reduced to <50% of working memory
+- wake packet surfaces facts/decisions/procedures (not just status)
+- procedure detection triggers automatically in worker
+- memd status reflects real health (eval score integrated)
+- agent write helpers callable from harness context
+- cross-session codebase memory works (store → recall → surfaces in wake)
+- dogfood verification gate added to eval
+- continuity fields reference only existing paths
+
+### Pass Gate
+
+- `memd eval --fail-below 65` passes
+- working memory contains ≥1 non-status item
+- wake packet contains ≥1 fact or decision
+- procedure table is non-empty after worker cycle
+- inbox has 0 expired items
+- continuity references 0 deleted paths
+- `memd status` shows `degraded: true` when eval score < 65
+
+### Evidence
+
+- before/after `memd eval` scores
+- before/after `memd working` output
+- before/after `memd wake` content
+- `memd procedure list` shows auto-detected procedures
+
+### Fail Conditions
+
+- eval score still below 65 after all fixes
+- any existing test regresses
+
+### Rollback
+
+- revert individual fixes that cause regressions
+- do not batch — commit after each fix, eval after each commit
+
+## Phase 11: Human Dashboard and Memory Surface (added 2026-04-13)
+
+### Goal
+
+Ship a real human-facing UI for memd. The human owns the memory — they need a surface
+to see it, approve it, correct it, and navigate it. Currently routes exist but no frontend.
+
+### Deliver
+
+- functional web dashboard (not barebones)
+- memory browser: search, filter, inspect, explain
+- inbox view: approve/reject/dismiss items
+- correction flow: "this is wrong" → supersede → visible change
+- graph view: obsidian-style linked memory visualization
+- procedure view: see learned procedures, promote/retire
+- atlas navigation: regions → nodes → evidence drill-down
+- status dashboard: eval score, health indicators, pressure metrics
+
+### Pass Gate
+
+- human can browse, search, and correct memory through the UI
+- correction made in UI changes next agent session's wake packet
+- graph view shows linked memory items (not just flat list)
+- inbox items can be dismissed/approved from UI
+- status dashboard shows real health (not just "ok")
+
+### Evidence
+
+- screenshots of working UI
+- correction → recall E2E through UI
+- graph view with real entity links
+- agent-browser verification of all features
+
+### Fail Conditions
+
+- UI is cosmetic wrapper with no real memory interaction
+- corrections made in UI don't affect agent behavior
+- graph view has no real links (entity links still empty)
+
+### Rollback
+
+- revert UI that masks broken memory behavior with pretty surfaces
+
 ## Loop Mapping
 
 The existing research loops map into this roadmap:

@@ -1,380 +1,368 @@
-> Secondary/reference doc. For current project truth start with [[ROADMAP]] and [[docs/WHERE-AM-I.md|WHERE-AM-I]].
-
 # memd 10-Star Target
+
+> Authoritative 10-star contract. Updated 2026-04-13 from full codebase audit.
+> For execution truth: [[ROADMAP.md]]. For audit findings: [[docs/audits/2026-04-13-full-codebase-audit.md]].
 
 ## Product Promise
 
-`memd` is not just a memory database. At the 10-star bar, it is a memory
-system and memory OS for agents:
+`memd` is a multiharness second-brain memory substrate for humans and agents.
 
-- the agent reads memory once, then stays synced to a live backend while work
-  changes
-- it stores durable truth
-- it retrieves the right memory on the hot path
-- it lets corrections replace stale beliefs
-- it changes later behavior because recall is trusted and timely
-- it coordinates multiple agents and humans without flattening scope, privacy,
-  or provenance
-- it improves itself without regressing core recall
+At the 10-star bar:
+- agent reads memory once, stays synced while work changes
+- stores durable truth with provenance
+- retrieves the right memory on the hot path
+- corrections replace stale beliefs and change future behavior
+- coordinates agents and humans without flattening scope or privacy
+- navigable like obsidian — linked, explorable, progressive depth
+- improves itself without regressing core recall
+- human owns the memory, agents route through it
 
-If `memd` cannot reliably do those things, it does not deserve the product
-claim.
-
-The live-memory contract is:
-
-1. startup and task-entry read from the wake-up surface first
-2. active work streams updates into the backend continuously
-3. later recall comes from memory and compiled knowledge first
-4. repo rereads are for fresh evidence, not for rebuilding identity or project truth every session
+If it can't do those things reliably, it doesn't deserve the product claim.
 
 ## Non-Negotiable Guarantees
 
-The finished system must satisfy all of these:
+1. Important memories are recallable under real task pressure, not just stored.
+2. User corrections replace stale beliefs durably and visibly.
+3. Recalled memory is inspectable, explainable, and traceable to evidence.
+4. Shared memory never silently leaks, collides, or overwrites across agents or scopes.
+5. Every product claim has rerunnable proof, not planning optimism.
+6. Self-improvement is subordinate to memory correctness.
+7. Live memory updates while the agent works — not "remember later" discipline.
+8. Memory is navigable — linked, explorable, progressive zoom from summary to evidence.
 
-1. Important memories are not merely stored; they are recallable under real task pressure.
-2. User corrections and stronger evidence can replace stale beliefs durably.
-3. Recalled memory can be inspected, explained, and traced back to evidence.
-4. Shared memory never silently leaks, collides, or overwrites across agents, providers, or scopes.
-5. Every major product claim has rerunnable proof, not planning optimism.
-6. Self-improvement loops are subordinate to memory correctness and cannot quietly degrade it.
-7. Live memory updates while the agent works; the system does not depend on “remember later” discipline.
+## 10-Star Composite Scorecard
 
-## 10-Star Pillars
+Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock-v1.md|evaluation theory lock]]:
+
+| Axis | Weight | Score | Status |
+|------|--------|-------|--------|
+| Session continuity | 20% | 2/10 | broken — ghost refs, expired inbox, status noise |
+| Correction retention | 15% | 2/10 | mechanics exist, no UX flow, never proven in practice |
+| Procedural reuse | 15% | 1/10 | code complete, detect never triggers, table empty |
+| Cross-harness continuity | 15% | 3/10 | 6 presets, wake works, content is status noise, never cross-tested |
+| Raw retrieval strength | 15% | 4/10 | search works, but wake/working excludes most kinds, no LongMemEval |
+| Token efficiency | 10% | 6/10 | 78% boot reduction, budget enforced, no cost measurement |
+| Trust + provenance | 10% | 5/10 | explain surfaces exist, source trust scoring, drilldown partial |
+
+**Composite: ~2.9/10 (weighted)**
+
+## 11 Pillars — Current Reality
 
 ### 1. Core Memory Correctness
 
-#### Current Reality
+**Score: 3/10**
 
-- durable storage exists
-- hot-path retrieval has been fragile under synced/session noise
-- some key regressions now exist, but the end-to-end contract is still not fully proven
+What works:
+- durable SQLite storage with WAL
+- dual-key deduplication (canonical + redundancy)
+- 15 tables, 40+ indexes, 50+ store methods
+- entity auto-creation on every item
 
-#### 10-Star Behavior
+What's broken:
+- working memory 80-90% status noise ([[docs/backlog/2026-04-13-status-noise-floods-memory.md|#27]])
+- wake packet excludes facts/decisions/procedures ([[docs/backlog/2026-04-13-wake-packet-kind-coverage.md|#15]])
+- inbox never drains, ghosts accumulate ([[docs/backlog/2026-04-13-inbox-never-drains.md|#29]])
+- no end-to-end proof: store → recall → behavior change
 
-- a user can state a fact once and the system reliably recalls it later when relevant
-- storage, ranking, context assembly, working memory, and rendering act as one closed loop
-- no important memory is lost because of arbitrary bucket order, prompt compression, or transient session noise
+Proof needed:
+- store → resume → behavior-change regression tests
+- adversarial noise tests under task pressure
+- multi-turn scenario where the right fact survives
 
-#### Key Gaps
+### 2. Correction and Belief Revision
 
-- end-to-end proof is still incomplete
-- recall is still too vulnerable to competing fresh-but-weaker state
-- the user-visible contract is stronger than the tested contract
+**Score: 2/10**
 
-#### Proof Required
+What works:
+- supersede mechanics (MemoryStatus::Superseded, supersedes field)
+- belief_branch and preferred flag in schema
+- repair endpoint with 6 modes
 
-- store -> resume -> behavior-change regression tests
-- adversarial noise tests under current-task pressure
-- multi-turn scenario proof that the right fact survives and reappears without rereading source files
+What's broken:
+- no first-class correction UX flow (user says "wrong" → nothing happens automatically)
+- no scenario test where correction changes future sessions
+- contested status exists but contradiction detection never triggers in practice
+- trust hierarchy (human > canonical > promoted > candidate) defined but unproven
 
-### 2. Correction And Belief Revision
-
-#### Current Reality
-
-- low-level supersede mechanics exist
-- correction UX is weak and normal use does not reliably drive the lifecycle
-- stale-belief suppression is not yet proven across realistic flows
-
-#### 10-Star Behavior
-
-- a user correction becomes durable memory immediately
-- stale beliefs lose automatically when stronger corrective evidence arrives
-- the system can show what changed, why it changed, and what it superseded
-
-#### Key Gaps
-
-- no first-class correction flow yet
-- too much depends on manual repair semantics
-- corrected truth is not yet proven to dominate later reasoning consistently
-
-#### Proof Required
-
-- correction E2E tests from user statement to later recall
+Proof needed:
+- correction E2E: user statement → supersede → later recall reflects correction
 - stale-vs-corrected belief precedence tests
-- scenario tests where corrected truth changes later answers and task choices
+- contradiction detection scenario
 
 ### 3. Behavior-Changing Recall
 
-#### Current Reality
+**Score: 1/10**
 
+What works:
 - memory can be stored and sometimes surfaced
-- behavior change is still mostly inferred, not proven
-- prompt output remains compact enough that right-memory omission is still a risk
+- explain endpoint traces retrieval decisions
 
-#### 10-Star Behavior
+What's broken:
+- zero proof that recalled memory changes agent behavior
+- no scenario harness where presence/absence of memory changes decisions
+- no influence tracing ("this memory caused this action")
+- prompt compaction can hide important records
 
-- retrieved memory measurably changes later agent behavior
-- recall affects decisions, not just inspection views
-- the system can show when a memory influenced a later action or answer
-
-#### Key Gaps
-
-- weak proof that recall changes outcomes
-- limited observability around memory influence
-- prompt compaction can still hide important records
-
-#### Proof Required
-
-- scenario harnesses where presence/absence of memory changes decisions
-- explicit influence tracing in explain/inspection surfaces
-- regression checks that detect silent recall-without-impact failures
+Proof needed:
+- A/B scenario: with memory vs without → different agent output
+- influence tracing in explain surfaces
+- regression checks for silent recall-without-impact
 
 ### 4. Working-Memory Control
 
-#### Current Reality
+**Score: 3/10**
 
-- working-memory policy surfaces exist
-- some budget and rehydration behavior is implemented
-- the true quality bar under pressure is still unverified
+What works:
+- 1600-char budget with 8-item admission
+- rehydration queue for evicted items
+- eviction tracking with reasons
+- policy snapshot endpoint
 
-#### 10-Star Behavior
+What's broken:
+- budget consumed by status noise ([[docs/backlog/2026-04-13-status-noise-floods-memory.md|#27]])
+- kind-blind admission — Status ranks equal to Fact
+- rehydration quality unverified in realistic recovery
+- policy hardcoded, not configurable per-project
 
-- working memory is small, explainable, and high-signal
-- admission, eviction, rehydration, and trust-floor behavior are coherent
-- the system stays useful under overload instead of degenerating into noise
-
-#### Key Gaps
-
-- budget behavior is not fully audited under mixed memory classes
-- rehydration quality is not yet proven in realistic task recovery
-- policy surfaces may be ahead of product truth
-
-#### Proof Required
-
+Proof needed:
 - over-capacity adversarial tests
-- rehydration scenario tests after eviction
-- cross-client consistency checks for working-memory output
+- rehydration scenario after eviction
+- cross-client consistency for working-memory output
 
-### 5. Provenance And Explainability
+### 5. Provenance and Explainability
 
-#### Current Reality
+**Score: 5/10**
 
-- explain and provenance surfaces exist
-- enough inspection exists to debug some failures
-- source drilldown is still not proven strong enough for the full trust claim
+What works:
+- explain endpoint with source drilldown
+- source trust scoring formula
+- retrieval feedback tracking
+- entity event timelines
 
-#### 10-Star Behavior
+What's broken:
+- provenance drilldown partial (some paths dead-end)
+- explainability reflects metadata more than decision causality
+- no "why did this memory outrank that one" surface
 
-- every important durable belief has inspectable source, freshness, trust, and verification state
-- operators can see why a memory ranked, why it lost, and what evidence supports it
-- the system never asks users to trust opaque retrieval
+Proof needed:
+- evidence-trace audits from summary to source artifacts
+- ranking-explain tests for winning AND losing memories
+- operator debugging flow without code reading
 
-#### Key Gaps
+### 6. Shared and Federated Memory
 
-- provenance drilldown is still likely partial
-- some explainability may reflect metadata more than true decision causality
-- inspection quality is uneven across surfaces
+**Score: 3/10**
 
-#### Proof Required
+What works:
+- MemoryScope: Local/Synced/Project/Global
+- MemoryVisibility: Private/Workspace/Public
+- workspace-aware retrieval
 
-- evidence-trace audits from summary memory back to source artifacts
-- ranking-explain tests for both winning and losing memories
-- operator-debugging flows that can root-cause bad retrieval without code reading
+What's broken:
+- no adversarial visibility enforcement test (Private leaking to other agents)
+- no multi-project isolation proof
+- no multi-user/team concept beyond agent identity
+- shared retrieval unverified in real multi-client flows
 
-### 6. Shared And Federated Memory
-
-#### Current Reality
-
-- workspace and visibility fields exist
-- workspace-aware retrieval has some targeted coverage
-- end-to-end shared-memory trust is still unverified
-
-#### 10-Star Behavior
-
-- many agents and humans can share memory safely
-- private, workspace, org, and project scopes remain explicit and enforceable
-- shared memory improves collaboration without flattening context
-
-#### Key Gaps
-
-- shared retrieval is not yet fully proven in real multi-client flows
-- visibility enforcement is not yet audited at the product bar
-- federated trust boundaries are still partially aspirational
-
-#### Proof Required
-
-- workspace/shared-memory E2E tests across clients
+Proof needed:
 - visibility-boundary adversarial tests
-- multi-agent collaboration scenarios with both local and shared truth present
+- workspace E2E across clients
+- multi-agent collaboration with local AND shared truth
 
 ### 7. Cross-Harness Portability
 
-#### Current Reality
+**Score: 3/10**
 
-- attach flows and bundle defaults exist
-- multiple harnesses are named as supported
-- parity across those harnesses is not yet proven
+What works:
+- 6 harness presets (Codex, Claude Code, Agent Zero, OpenClaw, Hermes, OpenCode)
+- attach/import flows
+- per-harness wake budgets
 
-#### 10-Star Behavior
+What's broken:
+- no test of starting work in one harness, continuing in another
+- parity across harnesses unaudited
+- handoff packet quality unverified ([[docs/backlog/2026-04-13-memd-no-cross-session-codebase-memory.md|#33]])
+- agent write helpers unreachable ([[docs/backlog/2026-04-13-agent-write-helpers-unreachable.md|#23]])
 
-- Codex, Claude Code, OpenClaw, OpenCode, and future clients can use one memory substrate without divergent semantics
-- attach/import is low-friction and reliable
-- memory behavior does not depend on which harness happened to be used
-
-#### Key Gaps
-
-- cross-harness audits remain sparse
-- attach parity is under-tested
-- some features may work in one client surface and degrade in another
-
-#### Proof Required
-
-- cross-harness audit suite for resume, handoff, correction, and shared-state flows
+Proof needed:
+- cross-harness audit suite: resume, handoff, correction flows
 - bundle-overlay tests across clients
-- parity reporting that flags harness-specific regressions immediately
+- parity regression reporting
 
-### 8. Compiled Knowledge And Evidence Workspaces
+### 8. Navigable Knowledge and Evidence
 
-#### Current Reality
+**Score: 2/10**
 
-- Obsidian and compiled evidence lanes are present in the vision and partially in the implementation surface
-- raw-to-compiled knowledge workflows exist in planning truth more than proven product truth
+What works:
+- atlas fully implemented (7 routes, regions, trails, explore, expand)
+- entities auto-created on every item
+- entity search with multi-factor scoring
+- obsidian compile command
 
-#### 10-Star Behavior
+What's broken:
+- atlas dormant — never called from runtime ([[docs/backlog/2026-04-13-atlas-dormant.md|#30]])
+- entity links table permanently empty
+- memory items are flat text — no wiki link parsing ([[docs/backlog/2026-04-13-memory-not-navigable.md|#34]])
+- no progressive zoom: wake → region → node → evidence
+- no backlinks, no graph traversal in retrieval
+- lanes are grep-over-files, not DB-tag routing
 
-- the system prefers fresh compiled knowledge over cold rereads when appropriate
-- wiki/Obsidian/evidence workspaces are first-class retrieval lanes
-- summaries are reversible and linked to source evidence, not disconnected note fragments
+Proof needed:
+- atlas navigation from wake to evidence without re-searching
+- wiki link resolution in stored content
+- auto-populated entity links from co-occurrence
+- obsidian vault with working graph view
 
-#### Key Gaps
+### 9. Capability Contracts and Runtime Safety
 
-- compiled knowledge behavior is not yet deeply audited
-- precedence between compiled and raw sources is not yet proven
-- evidence-workspace quality may still be stronger on paper than in runtime
+**Score: 2/10**
 
-#### Proof Required
+What works:
+- skill_policy tables and activation records
+- coordination modes (exclusive_write, shared_review) on tasks
+- claim lifecycle (acquire/release/transfer/recover)
 
-- compiled-vs-raw retrieval scenario tests
-- evidence recovery tests from summary back to workspace/source artifacts
-- freshness and precedence tests for compiled knowledge lanes
+What's broken:
+- coordination modes advisory only, not enforced ([[docs/backlog/2026-04-13-queen-ops-dead-code.md|#31]])
+- DEFERRED transactions → SQLITE_BUSY ([[docs/backlog/2026-04-13-hive-deferred-transaction.md|#10]])
+- no admission control or rate limiting
+- no data recovery procedure (SQLite corruption = total loss)
+- skill gating is config flags, no runtime enforcement
 
-### 9. Capability Contracts And Runtime Safety
-
-#### Current Reality
-
-- this is called out as the next architectural gap
-- the repo has policy and coordination machinery, but a hard capability/safety boundary is not yet the product truth
-
-#### 10-Star Behavior
-
-- every harness and tool path advertises what it can actually do
-- the system knows what is runnable, safe, local, shared, or forbidden
-- normal memory operations cannot interfere with runtime correctness or cross-agent safety
-
-#### Key Gaps
-
-- capability-contract registry is not yet first-class shipped behavior
-- runtime safety boundaries are still too soft
-- memory and execution layers are not yet separated by a strong enough contract
-
-#### Proof Required
-
+Proof needed:
 - capability discovery and enforcement tests
-- negative tests proving forbidden or unsupported actions are blocked cleanly
-- scenario tests where multiple agents coordinate without stepping on each other
+- negative tests proving forbidden actions blocked
+- concurrent agent coordination scenarios
+- backup/recovery procedure
 
 ### 10. Self-Improvement Without Regression
 
-#### Current Reality
+**Score: 2/10**
 
-- research loops and autodream direction exist
-- loop orchestration is already a major part of the repo narrative
-- the risk is that optimization machinery outruns product-truth validation
+What works:
+- autoresearch framework exists
+- evolution branch management with git
+- experiment/improve/gap/scenario CLI commands
+- eval_bundle_memory scoring (0-100)
 
-#### 10-Star Behavior
+What's broken:
+- overnight evolution (Phase I) not implemented
+- no dream/autodream/autoevolve loops running
+- regression gate not strong enough (eval score ~35, still "verified")
+- no procedure detection in runtime ([[docs/backlog/2026-04-13-procedure-detection-never-triggers.md|#28]])
+- decay runs but calibration is guesswork (21d/0.12 never tuned)
+- consolidation never measured for quality
 
-- `memd` can improve retrieval, compaction, and coordination quality automatically
-- improvement loops are gated by hard memory-quality regressions
-- accepted improvements become durable procedures without corrupting core recall
-
-#### Key Gaps
-
-- the regression gate around core memory truth is not yet strong enough
-- token-efficiency optimization can still get ahead of correctness
-- loop success needs stronger linkage to real feature audits
-
-#### Proof Required
-
-- pre/post loop regression sweeps against core memory features
+Proof needed:
+- pre/post loop regression sweeps
 - explicit stop conditions on recall degradation
-- accepted-loop artifacts linked to feature-level audit evidence
+- accepted-loop artifacts linked to feature-level evidence
 
-### 11. Operator UX, Audits, And Observability
+### 11. Operator UX, Audits, and Observability
 
-#### Current Reality
+**Score: 2/10**
 
-- debugging is possible but too code-aware
-- audit docs now exist
-- a lot of product truth still depends on expert investigation
+What works:
+- memd eval / gap / scenario / composite CLI commands
+- memd status (liveness check)
+- explain endpoint
+- 98 server tests
 
-#### 10-Star Behavior
+What's broken:
+- memd status lies about health ([[docs/backlog/2026-04-13-status-reports-healthy-while-broken.md|#25]])
+- no dogfood verification gate ([[docs/backlog/2026-04-13-dogfood-verification-gap.md|#26]])
+- no metrics, tracing, or structured logging
+- dashboard UI barebones/incomplete — routes exist, no real frontend
+- debugging requires code reading, not system operation
+- no mobile/web surface for human interaction
 
-- operators can tell what works, what is broken, and why without spelunking the codebase
-- milestone truth and feature truth are always visible and rerunnable
-- debugging bad memory behavior feels like operating a system, not reverse-engineering a mystery
+Proof needed:
+- milestone audits rerunnable after changes
+- operator runbooks tied to commands
+- dashboards surfacing regressions before users do
+- functional human-facing UI
 
-#### Key Gaps
+## Complete Gap Inventory (27 items)
 
-- the new verification system is seeded, not fully operationalized
-- more scenario harnesses and audit automation are needed
-- observability around “why this memory influenced behavior” is still immature
+### Operational Pipeline (fix to reach functional)
 
-#### Proof Required
+| # | Gap | Backlog |
+|---|-----|---------|
+| 1 | status noise floods memory | [[docs/backlog/2026-04-13-status-noise-floods-memory.md|#27]] |
+| 2 | wake excludes non-status kinds | [[docs/backlog/2026-04-13-wake-packet-kind-coverage.md|#15]] |
+| 3 | procedure detection never triggers | [[docs/backlog/2026-04-13-procedure-detection-never-triggers.md|#28]] |
+| 4 | inbox never drains | [[docs/backlog/2026-04-13-inbox-never-drains.md|#29]] |
+| 5 | continuity ghost refs | [[docs/backlog/2026-04-13-stale-continuity-ghost-refs.md|#22]] |
+| 6 | memd status lies | [[docs/backlog/2026-04-13-status-reports-healthy-while-broken.md|#25]] |
+| 7 | no dogfood verification gate | [[docs/backlog/2026-04-13-dogfood-verification-gap.md|#26]] |
+| 8 | agent write helpers unreachable | [[docs/backlog/2026-04-13-agent-write-helpers-unreachable.md|#23]] |
+| 9 | no cross-session codebase memory | [[docs/backlog/2026-04-13-memd-no-cross-session-codebase-memory.md|#33]] |
 
-- milestone audits that can be rerun after changes
-- operator runbooks tied to real commands and scenario suites
-- dashboards or reports that surface regressions before users do
+### Architectural Gaps (fix to reach correct)
 
-## Dependency Order
+| # | Gap | Pillar |
+|---|-----|--------|
+| 10 | no correction flow end-to-end | 2 |
+| 11 | no behavior-changing recall proof | 3 |
+| 12 | no cross-harness continuity proof | 7 |
+| 13 | memory not navigable (flat, not graph) | 8 |
+| 14 | atlas dormant | 8 |
+| 15 | contradiction detection never triggers | 2 |
+| 16 | trust hierarchy unproven | 2 |
+| 17 | lanes are grep-over-files | 8 |
 
-The 10-star version should not be built in random order.
+### Measurement Gaps (fix to reach provable)
 
-Priority stack:
+| # | Gap | Pillar |
+|---|-----|--------|
+| 18 | no token efficiency measurement | eval |
+| 19 | no public benchmark parity (LongMemEval) | eval |
+| 20 | no compaction quality proof | 4 |
+| 21 | no decay calibration | 10 |
+| 22 | no consolidation quality proof | 10 |
+| 23 | no handoff quality proof | 7 |
 
-1. Core memory correctness
-2. Correction and belief revision
-3. Behavior-changing recall
-4. Working-memory control
-5. Provenance and explainability
-6. Shared and federated memory
-7. Cross-harness portability
-8. Compiled knowledge and evidence workspaces
-9. Capability contracts and runtime safety
-10. Self-improvement without regression
-11. Operator UX, audits, and observability
+### Product Gaps (fix to reach 10-star)
 
-Reason:
+| # | Gap | Pillar |
+|---|-----|--------|
+| 24 | no overnight evolution (Phase I) | 10 |
+| 25 | no live memory contract | 1 |
+| 26 | skill gating is config flags, not product | 9 |
+| 27 | no human surface / dashboard UI | 11 |
+| 28 | no multi-user/team support | 6 |
+| 29 | no semantic search baseline (RAG disabled) | 5 |
+| 30 | no data recovery procedure | 9 |
+| 31 | no admission control / rate limiting | 9 |
+| 32 | no observability (metrics, tracing) | 11 |
+| 33 | no privacy/visibility enforcement proof | 6 |
+| 34 | no multi-project isolation proof | 6 |
+| 35 | no latency briefing | 7 |
 
-- if core correctness and correction are weak, everything above them is built on false memory
-- if behavior-changing recall is not proven, `memd` is still a database, not a memory OS
-- if shared and cross-harness layers are weak, the product cannot safely scale beyond one local operator
-- if self-improvement outruns truth, the system will optimize the wrong thing
+## Path to 10-Star
 
-## Mapping Back To Current Verification Work
+### Tier 1: Make it work (3.0 → 6.0)
+Fix operational pipeline (gaps 1-9). Run `memd eval --fail-below 65`.
 
-This document does not replace the current verification registry.
+### Tier 2: Make it correct (6.0 → 7.5)
+Fix architectural gaps (gaps 10-17). Prove correction flow, behavior change, navigation.
 
-- [FEATURES.md](./FEATURES.md) is the current auditable contract surface
-- [RUNBOOK.md](./RUNBOOK.md) defines how to rerun audits
-- milestone files under [milestones](./milestones) track product truth by version
+### Tier 3: Make it provable (7.5 → 8.5)
+Fix measurement gaps (gaps 18-23). Run public benchmarks, calibrate decay, prove quality.
 
-Relationship:
-
-- `FEATURES.md` answers: what exists now, and how do we verify it?
-- `MEMD-10-STAR.md` answers: what must the whole system become to deserve the product claim?
+### Tier 4: Make it 10-star (8.5 → 10.0)
+Fix product gaps (gaps 24-35). Overnight evolution, human surface, team support, observability.
 
 ## Bottom Line
 
-The best possible version of `memd` is not “a project with many memory features.”
+memd has the right architecture. 7 crates, 15 tables, 207 types, 90 client methods,
+79 CLI commands, 6 harness presets, theory-locked model with 7 memory kinds and 3
+control functions. The infrastructure is ahead of any competitor.
 
-It is a system where:
+But the product doesn't work. The live loop is broken at 5 of 7 steps. The 10-star
+score is ~2.9. No correction flow, no behavior proof, no navigation, no human surface.
 
-- important things are remembered
-- corrections become truth
-- recalled truth changes behavior
-- evidence is inspectable
-- many agents can share memory safely
-- self-improvement never outruns correctness
-- every claim is backed by rerunnable proof
+The fix is not more features. The fix is making what exists actually work, then proving
+it works, then shipping the product surfaces that make it usable.
 
 That is the standard the rest of the repo should be measured against.
