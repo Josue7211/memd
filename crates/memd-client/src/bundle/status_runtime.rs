@@ -108,6 +108,7 @@ pub(crate) async fn read_bundle_status(
     if !agents_exists {
         missing.push("agents/");
     }
+    let mut memory_quality_degraded = false;
     let resume_preview = if full_mode && output.join("config.json").exists() && health.is_some() {
         let preview = timeout_ok(crate::runtime::read_bundle_resume(
             &ResumeArgs {
@@ -129,6 +130,24 @@ pub(crate) async fn read_bundle_status(
         ))
         .await;
         preview.map(|snapshot| {
+            // Lightweight memory quality check (mirrors eval assertions).
+            let total_working = snapshot.working.records.len();
+            let status_count = snapshot
+                .working
+                .records
+                .iter()
+                .filter(|r| r.record.contains("kind=status"))
+                .count();
+            let has_non_status = total_working > status_count;
+            let context_has_facts = snapshot.context.records.iter().any(|r| {
+                r.record.contains("kind=fact")
+                    || r.record.contains("kind=decision")
+                    || r.record.contains("kind=procedural")
+            });
+            if (total_working > 0 && !has_non_status) || (!snapshot.context.records.is_empty() && !context_has_facts) {
+                memory_quality_degraded = true;
+            }
+
             serde_json::json!({
                 "project": snapshot.project,
                 "namespace": snapshot.namespace,
@@ -141,6 +160,9 @@ pub(crate) async fn read_bundle_status(
                 "intent": snapshot.intent,
                 "context_records": snapshot.context.records.len(),
                 "working_records": snapshot.working.records.len(),
+                "working_status_records": status_count,
+                "working_has_non_status": has_non_status,
+                "context_has_facts": context_has_facts,
                 "inbox_items": snapshot.inbox.items.len(),
                 "workspace_lanes": snapshot.workspaces.workspaces.len(),
                 "rehydration_queue": snapshot.working.rehydration_queue.len(),
@@ -507,7 +529,9 @@ pub(crate) async fn read_bundle_status(
         "degraded": runtime
             .as_ref()
             .map(|config| config.authority_state.degraded)
-            .unwrap_or(false),
+            .unwrap_or(false)
+            || memory_quality_degraded,
+        "memory_quality_degraded": memory_quality_degraded,
         "shared_base_url": runtime
             .as_ref()
             .and_then(|config| config.authority_state.shared_base_url.clone()),
