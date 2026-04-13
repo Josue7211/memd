@@ -6,10 +6,10 @@
 truth_date: 2026-04-13
 version: v1
 version_status: in_progress
-current_phase: phase_h
-phase_status: verified
-next_phase: phase_i
-next_step: start_phase_i
+current_phase: phase_i
+phase_status: in_progress
+next_phase: phase_j
+next_step: design_system_and_api_client
 active_blockers: []
 -->
 
@@ -18,12 +18,15 @@ active_blockers: []
 - truth date: `2026-04-13`
 - current version: `v1`
 - version status: `in_progress`
-- current phase: `Phase H: Core Hardening`
-- phase status: `verified`
-- next phase: `Phase I: Human Dashboard`
-- next step: `start Phase I`
+- current phase: `Phase I: Human Dashboard`
+- phase status: `in_progress`
+- next phase: `Phase J: Hive Coordination`
+- next step: `design system + API client (#5-6)`
 
 ## Current Focus
+
+Phase I in progress. Dashboard scaffold complete (TanStack Router + Vite + Tailwind v4).
+Shell layout with sidebar nav, status stub, TRON design tokens, production build verified.
 
 Phase H verified. All 7 pass gate criteria met:
 1. eval score 85 (≥65 threshold) — PASS
@@ -84,7 +87,7 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
 | G | Procedural Learning | `verified` | learn reusable operating procedures | [[phase-g-procedural-learning]] |
 | H | Core Hardening | `verified` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
-| I | Human Dashboard | `pending` | web UI for memory browsing, correction, navigation, status | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
+| I | Human Dashboard | `pending` | web UI for memory browsing, correction, navigation, status | [[docs/phases/phase-i-human-dashboard.md|phase-i-human-dashboard]] |
 | J | Hive Coordination | `pending` | shared second brain across harnesses | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 | K | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
 
