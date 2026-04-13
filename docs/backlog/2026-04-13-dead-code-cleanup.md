@@ -19,8 +19,16 @@ Phase: cross-phase
 - `coordination/mod.rs` — 4 suppressed
 - `workflow/mod.rs` — 4 suppressed
 
-## Specific Dead Functions
+## Truly Dead Functions (zero callers anywhere)
 
-- `atlas.rs:594` — `persist_atlas_link()` only used in tests
-- `preset.rs:127` — `is_wake_only_agent()` only used in tests
-- `helpers.rs:483` — suppressed dead helper
+- `helpers.rs:484` — `legacy_dashboard_html()` — never called
+- `ui/mod.rs:49` — `empty_dashboard_html()` — never called
+- `atlas.rs:594` — `persist_atlas_link()` — compiler warning, zero callers
+- `preset.rs:127` — `is_wake_only_agent()` — compiler warning, zero callers
+
+## Test-Only (suppressed correctly, keep)
+
+- 6 harness pack render functions in `render/mod.rs` — called from tests only
+- 7 autoresearch loop functions — Phase I scaffolding
+- `HarnessPackView` trait + `render_harness_pack_markdown` — test infrastructure
+- `render_harness_preset_markdown` — 1 test caller

@@ -112,23 +112,57 @@ All audit tail items resolved:
 4. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
    Fixed by closing Phase E audit tail and aligning all state sources. Phase-flip rule added.
 
-5. [[2026-04-13-planning-ghost-refs-in-tests]] — `open`.
-   7 test files create `.planning/` in temp fixtures. Should use `.memd/`.
+5. [[2026-04-13-ambiguous-glob-imports]] — `open`. **BLOCKER**.
+   2 ambiguous symbols, 4 call sites. Future Rust hard compile error.
 
-6. [[2026-04-13-ambiguous-glob-imports]] — `open`.
-   3 ambiguous symbols in `runtime/mod.rs` glob re-exports. Future Rust hard error.
+6. [[2026-04-13-silent-event-loss]] — `open`. **HIGH**.
+   `let _ =` discards event-spine errors in 3+ production paths.
 
-7. [[2026-04-13-dead-code-cleanup]] — `open`.
-   85 suppressed warnings across 25 files. 2 dead functions.
+7. [[2026-04-13-healthz-masks-db-errors]] — `open`. **HIGH**.
+   `count().unwrap_or(0)` makes broken DB look healthy.
 
-8. [[2026-04-13-stale-doc-refs]] — `open`.
-   FEATURES.md + benchmark-registry.json reference `.rs` files now refactored to directories.
+8. [[2026-04-13-flaky-handoff-verifier-test]] — `open`. **HIGH**.
+   Port collision in full suite. Passes alone.
 
-9. [[2026-04-13-lane-architecture-gaps]] — `open`.
-   5 gaps: only inspiration lane seeded, no activation logic, no lane tagging, file-scan only.
+9. [[2026-04-13-stale-per-harness-bundle-files]] — `open`. **HIGH**.
+   16 dead per-harness files (~93KB) in `.memd/agents/`. Pre-10-star fossils.
 
-10. [[2026-04-13-flaky-handoff-verifier-test]] — `open`.
-    Port collision in full suite. Passes alone.
+10. [[2026-04-13-hive-deferred-transaction]] — `open`.
+    `.transaction()` uses DEFERRED. Concurrent harness writes → SQLITE_BUSY.
+
+11. [[2026-04-13-lane-architecture-gaps]] — `open`.
+    Theory-implementation divergence. Grep-over-files instead of DB tags.
+    5 of 6 lanes missing. `INSPIRATION_FILES` misses 2 of 6 files.
+
+12. [[2026-04-13-dead-code-cleanup]] — `open`.
+    4 truly dead functions, 85 suppressions across 25 files.
+
+13. [[2026-04-13-planning-ghost-refs-in-tests]] — `open`.
+    26 `.planning/` refs across 6 test files. Should use `.memd/`.
+
+14. [[2026-04-13-stale-doc-refs]] — `open`.
+    FEATURES.md paths point to old single-file modules now refactored to directories.
+
+15. [[2026-04-13-wake-packet-kind-coverage]] — `open`.
+    Wake packets only surface kinds matching retrieval intent. Others invisible.
+
+16. [[2026-04-13-checkpoint-resume-asymmetry]] — `open`.
+    Checkpoint saves per-item metadata. Resume loads aggregate snapshot. No round-trip.
+
+17. [[2026-04-13-server-startup-panics]] — `open`. **HIGH**.
+    `expect()`/`panic!()` on DB open and TCP bind. Crashes instead of graceful error.
+
+18. [[2026-04-13-silent-ok-chains]] — `open`.
+    `.filter_map(|r| r.ok())` in procedural + atlas silently drops corrupt rows.
+
+19. [[2026-04-13-untested-api-routes]] — `open`.
+    15 of 72 routes (21%) untested. Mostly coordination/tasks — Phase H territory.
+
+20. [[2026-04-13-multimodal-extraction-stubs]] — `open`.
+    PDF/Image/Video extraction returns placeholder strings. Mineru/RagAnything unwired.
+
+21. [[2026-04-13-clippy-warnings]] — `open`.
+    158 warnings. 52 collapsible ifs, 14 too-many-args, 6 identical blocks.
 
 ## Recently Closed
 
@@ -142,8 +176,8 @@ All audit tail items resolved:
 - [[docs/core/setup.md|Setup and harness behavior]]
 - [[docs/verification/milestones/MILESTONE-v1.md|Milestone v1 verification]]
 - [[docs/strategy/research-loops.md|Research loops]]
-- [[docs/superpowers/specs/2026-04-11-memd-ralph-roadmap.md|Detailed Ralph roadmap spec]]
-- [[docs/superpowers/specs/2026-04-11-memd-canonical-theory-synthesis.md|Canonical theory synthesis]]
+- [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|Detailed Ralph roadmap spec]]
+- [[docs/theory/models/2026-04-11-memd-canonical-theory-synthesis.md|Canonical theory synthesis]]
 
 ## Non-Goals
 

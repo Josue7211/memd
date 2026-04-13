@@ -1,25 +1,43 @@
 # Lane Architecture Gaps
 
-Status: `open`
-Created: 2026-04-13
-Phase: Phase H / cross-phase
-Related: [[2026-04-13-memd-lane-theory-lock-v1]]
+- status: `open`
+- found: `2026-04-13`
+- scope: memd-client, memd-server, memd-schema
 
-Lane theory lock written. Implementation gaps remain.
+## Summary
 
-## Gaps
+Lane theory lock defines lanes as atlas tags on memory items with automatic
+activation. Implementation is grep-over-markdown-files. Theory and code fully
+divergent. 5 of 6 starter lanes completely missing.
 
-1. **Only inspiration lane has source files** — Design, Architecture, Research,
-   Workflow, Preference lanes have no `.memd/lanes/<name>/` content yet.
+## Symptom
 
-2. **`memd inspiration` is file-scan only** — Theory says lane queries should
-   hit the server via atlas. File scan is bootstrap fallback only.
+- `memd inspiration --query "..."` greps raw files instead of querying the DB
+- `INSPIRATION_FILES` constant lists 4 of 6 files — misses `INSPIRATION-CLAUDE-CODE.md`
+  and `INSPIRATION-DOCTRINE.md` (never searched)
+- `lane_id` exists on hive sessions but NOT on `memory_items` — can't tag a memory
+- No lane auto-activation, no lane retrieval boosting, no lane tagging on ingest
+- 5 starter lanes (Design, Architecture, Research, Workflow, Preference) have zero code
 
-3. **No lane activation logic** — Theory says lanes activate automatically from
-   task context (topic, scope, working memory signals). Not implemented.
+## Root Cause
 
-4. **No lane tagging on ingest** — Memory items aren't tagged with lane membership
-   at ingest time. Schema has the field, runtime doesn't populate it.
+- `inspiration_search.rs:105-110` hardcodes 4 file paths and does substring match
+- Theory lock says "source files are ingested on `memd wake`" — never implemented
+- Schema has `lane_id` on `HiveSessionRecord` but not on `MemoryItem`
+- Atlas `lane` column exists but `generate_regions_for_project()` never sets it
 
-5. **Atlas regions have `lane` field but unused** — `atlas_regions` table has a
-   `lane` column. `generate_regions_for_project()` doesn't set it.
+## Fix Shape
+
+1. Add `lane` field to `memory_items` table (schema migration)
+2. Implement lane auto-detection from working context signals
+3. Tag memory items with lane at ingest time
+4. Boost lane-tagged items in working memory retrieval
+5. Ingest inspiration source files into DB as lane-tagged items
+6. Fix `INSPIRATION_FILES` constant to include all 6 files
+7. Seed remaining 5 lanes (even if empty initially)
+
+## Evidence
+
+- [[docs/theory/locks/2026-04-13-memd-lane-theory-lock-v1]] — canonical theory
+- `inspiration_search.rs:105-110` — hardcoded file list
+- `store.rs:2064-2065` — `lane_id` on hive sessions only

@@ -4,8 +4,9 @@ Status: `open`
 Created: 2026-04-13
 Phase: cross-phase
 
-7 test files create `.planning/` directories in temp fixtures as project root heuristic.
-Should migrate to `.memd/` to match real architecture.
+26 occurrences across 6 files create `.planning/` directories in temp fixtures.
+Some test `.planning/` integration (valid), some should use `.memd/` (the canonical
+bundle dir). Original count of 7 was from shallow scan.
 
 ## Locations
 

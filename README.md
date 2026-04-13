@@ -151,7 +151,7 @@ between different projects.
 - [Setup](./docs/core/setup.md)
 - [API](./docs/core/api.md)
 - [Architecture](./docs/core/architecture.md)
-- [10-Star Model](./docs/superpowers/specs/2026-04-11-memd-10-star-memory-model-v2.md)
+- [10-Star Model](./docs/theory/models/2026-04-11-memd-10-star-memory-model-v2.md)
 - [Obsidian Bridge](./docs/core/obsidian.md)
 - [RAG](./docs/core/rag.md)
 - [Efficiency](./docs/policy/efficiency.md)
