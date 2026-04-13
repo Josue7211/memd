@@ -1546,6 +1546,8 @@ pub struct AtlasNode {
     pub confidence: f32,
     pub salience: f32,
     pub depth: usize,
+    #[serde(default)]
+    pub evidence_count: usize,
     pub tags: Vec<String>,
 }
 
@@ -1599,6 +1601,22 @@ pub struct AtlasExploreResponse {
     pub links: Vec<AtlasLink>,
     pub trails: Vec<AtlasTrail>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AtlasExpandRequest {
+    pub memory_ids: Vec<Uuid>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub depth: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasExpandResponse {
+    pub seed_count: usize,
+    pub expanded_nodes: Vec<AtlasNode>,
+    pub links: Vec<AtlasLink>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

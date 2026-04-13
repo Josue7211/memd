@@ -1,7 +1,8 @@
 use chrono::Utc;
 use memd_schema::{
-    AtlasExploreRequest, AtlasExploreResponse, AtlasLink, AtlasLinkKind, AtlasNode, AtlasRegion,
-    AtlasRegionsRequest, AtlasRegionsResponse, MemoryItem, MemoryKind, MemoryStatus,
+    AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasLink,
+    AtlasLinkKind, AtlasNode, AtlasRegion, AtlasRegionsRequest, AtlasRegionsResponse, MemoryItem,
+    MemoryKind, MemoryStatus,
 };
 use rusqlite::params;
 use uuid::Uuid;
@@ -146,7 +147,7 @@ impl SqliteStore {
             });
         };
 
-        // Load memory items for seed IDs
+        // Load memory items for seed IDs, enriched with entity linkage
         let mut nodes = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for id in &seed_ids {
@@ -155,7 +156,15 @@ impl SqliteStore {
                     continue;
                 }
                 if seen.insert(item.id) {
-                    nodes.push(item_to_atlas_node(&item, region.as_ref().map(|r| r.id), 0));
+                    let entity = self.entity_for_item(item.id)?;
+                    let evidence_count = self.event_count_for_item(item.id)?;
+                    nodes.push(item_to_atlas_node(
+                        &item,
+                        region.as_ref().map(|r| r.id),
+                        0,
+                        entity.as_ref().map(|e| e.id),
+                        evidence_count,
+                    ));
                 }
             }
         }
@@ -171,16 +180,20 @@ impl SqliteStore {
                     } else {
                         el.from_entity_id
                     };
-                    // Try to find memory items linked to this entity
                     if let Some(neighbor_item) = self.get(neighbor_id)? {
                         if !passes_pivot_filters(&neighbor_item, req) {
                             continue;
                         }
                         if seen.insert(neighbor_item.id) {
+                            let entity = self.entity_for_item(neighbor_item.id)?;
+                            let evidence_count =
+                                self.event_count_for_item(neighbor_item.id)?;
                             nodes.push(item_to_atlas_node(
                                 &neighbor_item,
                                 region.as_ref().map(|r| r.id),
                                 1,
+                                entity.as_ref().map(|e| e.id),
+                                evidence_count,
                             ));
                         }
                         links.push(AtlasLink {
@@ -299,6 +312,80 @@ impl SqliteStore {
         Ok(regions)
     }
 
+    pub(crate) fn atlas_expand(
+        &self,
+        req: &AtlasExpandRequest,
+    ) -> anyhow::Result<AtlasExpandResponse> {
+        let limit = req.limit.unwrap_or(10);
+        let depth = req.depth.unwrap_or(1);
+        let mut expanded_nodes = Vec::new();
+        let mut links = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = req.memory_ids.iter().copied().collect();
+
+        if depth > 0 {
+            for seed_id in &req.memory_ids {
+                let entity_links = self.get_entity_links_for_item(*seed_id)?;
+                for el in entity_links {
+                    let neighbor_id = if el.from_entity_id == *seed_id {
+                        el.to_entity_id
+                    } else {
+                        el.from_entity_id
+                    };
+                    if let Some(item) = self.get(neighbor_id)? {
+                        if item.status != MemoryStatus::Active {
+                            continue;
+                        }
+                        if let Some(p) = &req.project {
+                            if item.project.as_deref() != Some(p) {
+                                continue;
+                            }
+                        }
+                        if seen.insert(item.id) {
+                            let entity = self.entity_for_item(item.id)?;
+                            let evidence_count = self.event_count_for_item(item.id)?;
+                            expanded_nodes.push(item_to_atlas_node(
+                                &item,
+                                None,
+                                1,
+                                entity.as_ref().map(|e| e.id),
+                                evidence_count,
+                            ));
+                        }
+                        links.push(AtlasLink {
+                            from_node_id: *seed_id,
+                            to_node_id: item.id,
+                            link_kind: entity_relation_to_atlas_link(el.relation_kind),
+                            weight: el.confidence,
+                            label: el.note.clone(),
+                        });
+                    }
+                    if expanded_nodes.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+
+        expanded_nodes.truncate(limit);
+        Ok(AtlasExpandResponse {
+            seed_count: req.memory_ids.len(),
+            expanded_nodes,
+            links,
+        })
+    }
+
+    pub(crate) fn event_count_for_item(&self, item_id: Uuid) -> anyhow::Result<usize> {
+        let conn = self.connect()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memory_events WHERE memory_item_id = ?1",
+                params![item_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count as usize)
+    }
+
     fn get_entity_links_for_item(
         &self,
         item_id: Uuid,
@@ -408,12 +495,18 @@ fn passes_pivot_filters(item: &MemoryItem, req: &AtlasExploreRequest) -> bool {
     true
 }
 
-fn item_to_atlas_node(item: &MemoryItem, region_id: Option<Uuid>, depth: usize) -> AtlasNode {
+fn item_to_atlas_node(
+    item: &MemoryItem,
+    region_id: Option<Uuid>,
+    depth: usize,
+    entity_id: Option<Uuid>,
+    evidence_count: usize,
+) -> AtlasNode {
     AtlasNode {
         id: item.id,
         region_id,
         memory_id: item.id,
-        entity_id: None,
+        entity_id,
         label: compact_label(&item.content),
         kind: item.kind,
         stage: item.stage,
@@ -421,6 +514,7 @@ fn item_to_atlas_node(item: &MemoryItem, region_id: Option<Uuid>, depth: usize) 
         confidence: item.confidence,
         salience: item.confidence,
         depth,
+        evidence_count,
         tags: item.tags.clone(),
     }
 }

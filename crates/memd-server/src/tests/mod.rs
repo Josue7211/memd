@@ -1932,3 +1932,116 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
     assert_eq!(lane_regions.len(), 1);
     assert_eq!(lane_regions[0].name, "design");
 }
+
+#[tokio::test]
+async fn atlas_expand_returns_neighborhood_for_seed_items() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-expand-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    let req = StoreMemoryRequest {
+        content: "expand seed item".to_string(),
+        kind: MemoryKind::Fact,
+        scope: MemoryScope::Project,
+        project: Some("atlas-expand".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        source_system: None,
+        source_path: None,
+        source_quality: None,
+        confidence: Some(0.9),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: Vec::new(),
+        status: None,
+    };
+    let (item, _) = state
+        .store_item(req, MemoryStage::Canonical)
+        .expect("store test item");
+
+    // Expand from the stored item (no entity links exist, so expansion should
+    // return empty but not error)
+    let response = store
+        .atlas_expand(&memd_schema::AtlasExpandRequest {
+            memory_ids: vec![item.id],
+            project: Some("atlas-expand".to_string()),
+            namespace: Some("main".to_string()),
+            depth: Some(1),
+            limit: Some(10),
+        })
+        .expect("atlas expand");
+
+    assert_eq!(response.seed_count, 1);
+    // No entity links → no expanded nodes
+    assert!(response.expanded_nodes.is_empty());
+    assert!(response.links.is_empty());
+}
+
+#[tokio::test]
+async fn atlas_nodes_include_evidence_count() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-evidence-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    let req = StoreMemoryRequest {
+        content: "evidence count item".to_string(),
+        kind: MemoryKind::Decision,
+        scope: MemoryScope::Project,
+        project: Some("atlas-evidence".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        source_system: None,
+        source_path: None,
+        source_quality: None,
+        confidence: Some(0.85),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: Vec::new(),
+        status: None,
+    };
+    let (item, _) = state
+        .store_item(req, MemoryStage::Canonical)
+        .expect("store test item");
+
+    // Explore single node — evidence_count should be populated
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(item.id),
+            project: None,
+            namespace: None,
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            min_trust: None,
+        })
+        .expect("explore single node");
+
+    assert_eq!(response.nodes.len(), 1);
+    // store_item records an event, so evidence_count >= 1
+    assert!(
+        response.nodes[0].evidence_count >= 1,
+        "node should have at least 1 evidence event from store, got {}",
+        response.nodes[0].evidence_count
+    );
+}

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use memd_schema::{
-    AtlasExploreRequest, AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse,
+    AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse,
+    AtlasRegionsRequest, AtlasRegionsResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
     AssociativeRecallResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, ContextRequest, ContextResponse, EntityLinkRequest, EntityLinkResponse,
@@ -174,6 +175,13 @@ impl MemdClient {
         req: &AtlasExploreRequest,
     ) -> anyhow::Result<AtlasExploreResponse> {
         self.post_json("/atlas/explore", req).await
+    }
+
+    pub async fn atlas_expand(
+        &self,
+        req: &AtlasExpandRequest,
+    ) -> anyhow::Result<AtlasExpandResponse> {
+        self.post_json("/atlas/expand", req).await
     }
 
     pub async fn atlas_generate(

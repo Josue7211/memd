@@ -401,13 +401,19 @@ fn render_atlas_explore(response: &memd_schema::AtlasExploreResponse) -> String 
         } else {
             String::new()
         };
+        let evidence_tag = if node.evidence_count > 0 {
+            format!(", ev={}", node.evidence_count)
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "- [{}] {} ({:?}, cf={:.2}{})\n",
+            "- [{}] {} ({:?}, cf={:.2}{}{})\n",
             &node.id.to_string()[..8],
             node.label,
             node.kind,
             node.confidence,
             depth_marker,
+            evidence_tag,
         ));
     }
 
@@ -533,13 +539,19 @@ fn build_region_obsidian_note(
             } else {
                 String::new()
             };
+            let ev_tag = if node.evidence_count > 0 {
+                format!(", {} evidence events", node.evidence_count)
+            } else {
+                String::new()
+            };
             md.push_str(&format!(
-                "- `[{}]` **{}** — {:?}, cf={:.2}{}\n",
+                "- `[{}]` **{}** — {:?}, cf={:.2}{}{}\n",
                 &node.id.to_string()[..8],
                 node.label,
                 node.kind,
                 node.confidence,
                 depth_tag,
+                ev_tag,
             ));
         }
     }

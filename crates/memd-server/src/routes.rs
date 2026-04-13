@@ -1593,6 +1593,14 @@ pub(crate) async fn post_atlas_explore(
     Ok(Json(response))
 }
 
+pub(crate) async fn post_atlas_expand(
+    State(state): State<AppState>,
+    Json(req): Json<AtlasExpandRequest>,
+) -> Result<Json<AtlasExpandResponse>, (StatusCode, String)> {
+    let response = state.store.atlas_expand(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 pub(crate) async fn post_atlas_generate(
     State(state): State<AppState>,
     Json(req): Json<AtlasRegionsRequest>,
