@@ -1448,12 +1448,16 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn compact_inbox_items(&self) -> Vec<String> {
-        Self::compact_memory_values(
-            self.inbox
-                .items
-                .iter()
-                .map(|item| item.item.content.as_str()),
-        )
+        Self::compact_memory_values(self.inbox.items.iter().filter_map(|item| {
+            let content = item.item.content.as_str();
+            // Skip items referencing deleted files (ghost refs from expired entries).
+            if let Some(path) = content.strip_prefix("file_edited: ") {
+                if !std::path::Path::new(path.trim()).exists() {
+                    return None;
+                }
+            }
+            Some(content)
+        }))
     }
 
     pub(crate) fn compact_semantic_items(&self) -> Vec<String> {
