@@ -262,6 +262,7 @@ pub(crate) async fn get_inbox(
         .map_err(internal_error)?;
     let mut inbox = items
         .into_iter()
+        .filter(|entry| entry.item.status != MemoryStatus::Expired)
         .filter(|entry| {
             entry.item.stage == MemoryStage::Candidate || entry.item.status != MemoryStatus::Active
         })
