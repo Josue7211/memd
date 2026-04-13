@@ -1,6 +1,8 @@
 # Hive Session Upsert Uses DEFERRED Transaction
 
-- status: `open`
+- status: `closed`
+- closed: `2026-04-13`
+- resolution: All 4 transaction sites changed from DEFERRED to IMMEDIATE
 - found: `2026-04-13`
 - scope: memd-server
 

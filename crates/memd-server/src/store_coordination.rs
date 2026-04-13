@@ -499,7 +499,7 @@ impl SqliteStore {
 
         let mut conn = self.connect()?;
         let tx = conn
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("begin hive session retire transaction")?;
         for session_key in all_targets.keys() {
             tx.execute(

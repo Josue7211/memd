@@ -17,7 +17,7 @@ use memd_schema::{
     MemoryEntityRecord, MemoryEventRecord, MemoryItem, SourceMemoryRecord, SourceMemoryRequest,
     SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
 
 use crate::store_entities::{
@@ -516,7 +516,7 @@ impl SqliteStore {
                 }
 
                 let tx = conn
-                    .transaction()
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
                     .context("begin duplicate merge transaction")?;
                 tx.execute(
                     "DELETE FROM memory_items WHERE id = ?1",
@@ -2253,7 +2253,7 @@ impl SqliteStore {
 
         let mut conn = self.connect()?;
         let tx = conn
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("begin hive session upsert transaction")?;
         tx.execute(
             r#"

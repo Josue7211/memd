@@ -1,6 +1,6 @@
 use anyhow::Context;
 use memd_schema::{HiveSessionRecord, MemoryItem};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::redundancy_key;
 
@@ -102,7 +102,7 @@ pub(crate) fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> a
         || hive_session_groups_empty
     {
         let tx = conn
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("begin hive session migration backfill")?;
 
         {
