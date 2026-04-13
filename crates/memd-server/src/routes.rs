@@ -1593,6 +1593,14 @@ pub(crate) async fn post_atlas_explore(
     Ok(Json(response))
 }
 
+pub(crate) async fn post_atlas_rename(
+    State(state): State<AppState>,
+    Json(req): Json<AtlasRenameRegionRequest>,
+) -> Result<Json<AtlasRenameRegionResponse>, (StatusCode, String)> {
+    let response = state.store.rename_atlas_region(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 pub(crate) async fn post_atlas_expand(
     State(state): State<AppState>,
     Json(req): Json<AtlasExpandRequest>,

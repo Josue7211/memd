@@ -552,7 +552,19 @@ pub(crate) struct AtlasExploreArgs {
     pub(crate) kind: Option<String>,
 
     #[arg(long)]
+    pub(crate) scope: Option<String>,
+
+    #[arg(long)]
+    pub(crate) source_agent: Option<String>,
+
+    #[arg(long)]
+    pub(crate) source_system: Option<String>,
+
+    #[arg(long)]
     pub(crate) min_trust: Option<f32>,
+
+    #[arg(long)]
+    pub(crate) include_evidence: bool,
 
     #[arg(long)]
     pub(crate) json: bool,

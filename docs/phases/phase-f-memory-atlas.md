@@ -39,21 +39,25 @@ and raw evidence without transcript search.
 - lane convention documented in setup.md
 - entity_id populated on atlas nodes via store entity resolution
 - evidence_count on each node shows raw evidence depth (event spine linkage)
+- include_evidence flag drills from nodes to raw MemoryEventRecords
 - atlas expand endpoint (`POST /atlas/expand`) for retrieval stage 4 integration
-- nodes link to entities and evidence — truth/source linkage at every depth
+- region rename endpoint (`POST /atlas/rename`) for user curation (D2)
+- tag-overlap neighborhood fallback when no entity links exist
+- full pivot dimensions: trust, kind, time, scope, provenance (source_agent), harness (source_system)
+- 13 tests, 85 total server tests
 
 ## Pass Gate (10-Star Atlas Standard)
 
-- [x] user can start from current task and move outward naturally
-- [x] agent can pull nearby context without giant rereads
-- [x] moving deeper feels like zooming, not searching from scratch
-- [x] truth and source linkage remain intact through every depth
+- [x] user can start from current task and move outward naturally (expand from memory IDs)
+- [x] agent can pull nearby context without rereads (expand + tag fallback)
+- [x] moving deeper feels like zooming (trails + depth + evidence drill)
+- [x] truth and source linkage at every depth (entity_id + evidence events)
 
 ## Locked Decisions Verified
 
 - [x] D1: canonical node = promoted memory object (entity_id linked)
-- [x] D2: regions are hybrid (auto-generated, deterministic, user-nameable)
-- [x] D3: regions persisted explicitly, neighborhoods derived on read
+- [x] D2: regions are hybrid (auto-generated, deterministic, user-nameable via rename)
+- [x] D3: persist explicitly (regions, rename), derive on read (neighborhoods, tag overlap, trails)
 
 ## Open
 

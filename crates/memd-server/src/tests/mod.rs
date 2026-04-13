@@ -1565,6 +1565,10 @@ async fn atlas_explore_returns_nodes_for_region() {
             pivot_time: None,
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore atlas");
 
@@ -1616,6 +1620,10 @@ async fn atlas_explore_single_node_returns_that_item() {
             pivot_time: None,
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore single node");
 
@@ -1676,6 +1684,10 @@ async fn atlas_pivot_filters_by_min_trust() {
             pivot_time: None,
             pivot_kind: None,
             min_trust: Some(0.8),
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore with trust filter");
 
@@ -1737,6 +1749,10 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
             pivot_time: None,
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore atlas with trails");
 
@@ -1819,6 +1835,10 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             pivot_time: Some(old_time),
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore with time pivot");
 
@@ -1845,6 +1865,10 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             pivot_time: Some(future_time),
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore with future time pivot");
 
@@ -2034,6 +2058,10 @@ async fn atlas_nodes_include_evidence_count() {
             pivot_time: None,
             pivot_kind: None,
             min_trust: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            include_evidence: false,
         })
         .expect("explore single node");
 
@@ -2044,4 +2072,378 @@ async fn atlas_nodes_include_evidence_count() {
         "node should have at least 1 evidence event from store, got {}",
         response.nodes[0].evidence_count
     );
+}
+
+#[tokio::test]
+async fn atlas_rename_region_persists_new_name() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-rename-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Create items so regions can be generated
+    for i in 0..3 {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("rename test {i}"),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("atlas-rename".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: Some(0.8),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: Vec::new(),
+                    status: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-rename"), Some("main"), None)
+        .expect("generate");
+    let region = &regions[0];
+
+    let response = store
+        .rename_atlas_region(&memd_schema::AtlasRenameRegionRequest {
+            region_id: region.id,
+            name: "Custom Region Name".to_string(),
+            description: Some("user-curated region".to_string()),
+        })
+        .expect("rename region");
+
+    assert_eq!(response.region.name, "Custom Region Name");
+    assert_eq!(
+        response.region.description.as_deref(),
+        Some("user-curated region")
+    );
+    assert!(!response.region.auto_generated);
+
+    // Verify persistence
+    let listed = store
+        .list_atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: Some("atlas-rename".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            limit: None,
+        })
+        .expect("list");
+    let found = listed
+        .regions
+        .iter()
+        .find(|r| r.id == region.id)
+        .expect("region should still exist");
+    assert_eq!(found.name, "Custom Region Name");
+}
+
+#[tokio::test]
+async fn atlas_tag_overlap_fallback_finds_neighbors() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-tagfallback-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store a seed item with tags
+    let (seed, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "seed with tags".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-tagfb".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["auth".to_string(), "security".to_string()],
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store seed");
+
+    // Store a neighbor sharing a tag
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "neighbor sharing auth tag".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("atlas-tagfb".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.85),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["auth".to_string(), "migration".to_string()],
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store neighbor");
+
+    // Store an unrelated item
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "unrelated item no shared tags".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-tagfb".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.7),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["unrelated".to_string()],
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store unrelated");
+
+    // Explore from seed with depth=1, no entity links exist so tag fallback kicks in
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(seed.id),
+            project: Some("atlas-tagfb".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(1),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            include_evidence: false,
+        })
+        .expect("explore with tag fallback");
+
+    // Should find the seed + the neighbor (shares "auth" tag), but not the unrelated item
+    assert_eq!(
+        response.nodes.len(),
+        2,
+        "should find seed + 1 tag-overlap neighbor, got {}",
+        response.nodes.len()
+    );
+    assert!(
+        response
+            .nodes
+            .iter()
+            .any(|n| n.label.contains("neighbor sharing auth")),
+        "should include tag-overlap neighbor"
+    );
+    assert!(
+        !response
+            .nodes
+            .iter()
+            .any(|n| n.label.contains("unrelated")),
+        "should NOT include unrelated item"
+    );
+}
+
+#[tokio::test]
+async fn atlas_explore_with_evidence_returns_events() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-evidence-drill-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    let (item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "evidence drill test".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-ev".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item");
+
+    // Explore with include_evidence=true
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(item.id),
+            project: None,
+            namespace: None,
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            include_evidence: true,
+        })
+        .expect("explore with evidence");
+
+    assert_eq!(response.nodes.len(), 1);
+    // store_item records events, so evidence should be non-empty
+    assert!(
+        !response.evidence.is_empty(),
+        "evidence should contain events from store"
+    );
+}
+
+#[tokio::test]
+async fn atlas_scope_pivot_filters_by_scope() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-scope-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store project-scoped and global-scoped items
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "project scoped".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-scope".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store project item");
+
+    let (global_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "global scoped".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Global,
+                project: Some("atlas-scope".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store global item");
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-scope"), Some("main"), None)
+        .expect("generate");
+    let region = &regions[0];
+
+    // Pivot by global scope
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-scope".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: Some(MemoryScope::Global),
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            include_evidence: false,
+        })
+        .expect("explore with scope pivot");
+
+    assert_eq!(
+        response.nodes.len(),
+        1,
+        "only global-scoped item should pass"
+    );
+    assert_eq!(response.nodes[0].memory_id, global_item.id);
 }

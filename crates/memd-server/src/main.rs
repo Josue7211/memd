@@ -37,7 +37,8 @@ use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
     AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse,
-    AtlasRegionsRequest, AtlasRegionsResponse,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest,
+    AtlasRenameRegionResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
     AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
     CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
@@ -399,6 +400,7 @@ async fn main() {
         .route("/atlas/regions", get(get_atlas_regions))
         .route("/atlas/explore", post(post_atlas_explore))
         .route("/atlas/expand", post(post_atlas_expand))
+        .route("/atlas/rename", post(post_atlas_rename))
         .route("/atlas/generate", post(post_atlas_generate))
         .with_state(state);
 

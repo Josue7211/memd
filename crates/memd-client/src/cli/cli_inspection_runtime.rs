@@ -312,6 +312,11 @@ pub(crate) async fn run_atlas_command(
                 .as_deref()
                 .map(parse_memory_kind_value)
                 .transpose()?;
+            let pivot_scope = args
+                .scope
+                .as_deref()
+                .map(parse_memory_scope_value)
+                .transpose()?;
             let req = memd_schema::AtlasExploreRequest {
                 region_id,
                 node_id,
@@ -322,7 +327,11 @@ pub(crate) async fn run_atlas_command(
                 limit: args.limit,
                 pivot_time: None,
                 pivot_kind,
+                pivot_scope,
+                pivot_source_agent: args.source_agent,
+                pivot_source_system: args.source_system,
                 min_trust: args.min_trust,
+                include_evidence: args.include_evidence,
             };
             let response = client.atlas_explore(&req).await?;
             if args.json {
@@ -430,6 +439,19 @@ fn render_atlas_explore(response: &memd_schema::AtlasExploreResponse) -> String 
         }
     }
 
+    if !response.evidence.is_empty() {
+        out.push_str(&format!("\n## Evidence ({} events)\n\n", response.evidence.len()));
+        for event in &response.evidence {
+            out.push_str(&format!(
+                "- [{}] {} — {} ({})\n",
+                &event.id.to_string()[..8],
+                event.event_type,
+                event.summary.lines().next().unwrap_or(""),
+                event.occurred_at.format("%Y-%m-%d %H:%M"),
+            ));
+        }
+    }
+
     if response.truncated {
         out.push_str("\n(truncated — increase --limit for more)\n");
     }
@@ -481,7 +503,11 @@ async fn run_atlas_compile(client: &MemdClient, args: AtlasCompileArgs) -> anyho
             limit: Some(50),
             pivot_time: None,
             pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
             min_trust: None,
+            include_evidence: false,
         };
         let explored = client.atlas_explore(&explore_req).await?;
 

@@ -1591,7 +1591,12 @@ pub struct AtlasExploreRequest {
     pub limit: Option<usize>,
     pub pivot_time: Option<DateTime<Utc>>,
     pub pivot_kind: Option<MemoryKind>,
+    pub pivot_scope: Option<MemoryScope>,
+    pub pivot_source_agent: Option<String>,
+    pub pivot_source_system: Option<String>,
     pub min_trust: Option<f32>,
+    #[serde(default)]
+    pub include_evidence: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1600,7 +1605,21 @@ pub struct AtlasExploreResponse {
     pub nodes: Vec<AtlasNode>,
     pub links: Vec<AtlasLink>,
     pub trails: Vec<AtlasTrail>,
+    #[serde(default)]
+    pub evidence: Vec<MemoryEventRecord>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasRenameRegionRequest {
+    pub region_id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtlasRenameRegionResponse {
+    pub region: AtlasRegion,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

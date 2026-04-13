@@ -1,8 +1,9 @@
 use chrono::Utc;
 use memd_schema::{
     AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasLink,
-    AtlasLinkKind, AtlasNode, AtlasRegion, AtlasRegionsRequest, AtlasRegionsResponse, MemoryItem,
-    MemoryKind, MemoryStatus,
+    AtlasLinkKind, AtlasNode, AtlasRegion, AtlasRegionsRequest, AtlasRegionsResponse,
+    AtlasRenameRegionRequest, AtlasRenameRegionResponse, MemoryEventRecord, MemoryItem, MemoryKind,
+    MemoryStatus,
 };
 use rusqlite::params;
 use uuid::Uuid;
@@ -143,6 +144,7 @@ impl SqliteStore {
                 nodes: Vec::new(),
                 links: Vec::new(),
                 trails: Vec::new(),
+                evidence: Vec::new(),
                 truncated: false,
             });
         };
@@ -169,9 +171,10 @@ impl SqliteStore {
             }
         }
 
-        // Neighborhood expansion via entity links
+        // Neighborhood expansion: entity links first, tag-overlap fallback
         let mut links = Vec::new();
         if depth > 0 {
+            let mut found_via_entity = false;
             for seed_id in &seed_ids {
                 let entity_links = self.get_entity_links_for_item(*seed_id)?;
                 for el in entity_links {
@@ -185,6 +188,7 @@ impl SqliteStore {
                             continue;
                         }
                         if seen.insert(neighbor_item.id) {
+                            found_via_entity = true;
                             let entity = self.entity_for_item(neighbor_item.id)?;
                             let evidence_count =
                                 self.event_count_for_item(neighbor_item.id)?;
@@ -206,12 +210,63 @@ impl SqliteStore {
                     }
                 }
             }
+
+            // Tag-overlap fallback: if no entity links found, find neighbors
+            // sharing tags with seed items
+            if !found_via_entity {
+                let seed_tags: std::collections::HashSet<String> = nodes
+                    .iter()
+                    .flat_map(|n| n.tags.iter().cloned())
+                    .collect();
+                if !seed_tags.is_empty() {
+                    let all_items = self.list()?;
+                    let mut tag_neighbors: Vec<(usize, MemoryItem)> = all_items
+                        .into_iter()
+                        .filter(|item| item.status == MemoryStatus::Active)
+                        .filter(|item| !seen.contains(&item.id))
+                        .filter(|item| passes_pivot_filters(item, req))
+                        .map(|item| {
+                            let overlap = item
+                                .tags
+                                .iter()
+                                .filter(|t| seed_tags.contains(t.as_str()))
+                                .count();
+                            (overlap, item)
+                        })
+                        .filter(|(overlap, _)| *overlap > 0)
+                        .collect();
+                    tag_neighbors.sort_by(|a, b| b.0.cmp(&a.0));
+
+                    for (_, neighbor) in tag_neighbors.into_iter().take(limit / 2) {
+                        if seen.insert(neighbor.id) {
+                            let entity = self.entity_for_item(neighbor.id)?;
+                            let evidence_count = self.event_count_for_item(neighbor.id)?;
+                            // Link from first seed to neighbor
+                            if let Some(first_seed) = seed_ids.first() {
+                                links.push(AtlasLink {
+                                    from_node_id: *first_seed,
+                                    to_node_id: neighbor.id,
+                                    link_kind: AtlasLinkKind::Semantic,
+                                    weight: 0.4,
+                                    label: Some("tag overlap".to_string()),
+                                });
+                            }
+                            nodes.push(item_to_atlas_node(
+                                &neighbor,
+                                region.as_ref().map(|r| r.id),
+                                1,
+                                entity.as_ref().map(|e| e.id),
+                                evidence_count,
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
-        // Time-based pivot: filter nodes by pivot_time (keep items created before that time)
+        // Time-based pivot
         if let Some(pivot_time) = req.pivot_time {
             nodes.retain(|node| {
-                // Look up the item to check created_at
                 if let Ok(Some(item)) = self.get(node.memory_id) {
                     item.created_at <= pivot_time
                 } else {
@@ -220,7 +275,19 @@ impl SqliteStore {
             });
         }
 
-        // Trail generation: build temporal trail through nodes
+        // Evidence loading: drill to raw events when requested
+        let evidence = if req.include_evidence {
+            let mut events = Vec::new();
+            for node in &nodes {
+                events.extend(self.events_for_item(node.memory_id)?);
+            }
+            events.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
+            events.truncate(50);
+            events
+        } else {
+            Vec::new()
+        };
+
         let trails = generate_trails(&nodes, &links);
 
         let truncated = nodes.len() > limit;
@@ -231,6 +298,7 @@ impl SqliteStore {
             nodes,
             links,
             trails,
+            evidence,
             truncated,
         })
     }
@@ -374,6 +442,39 @@ impl SqliteStore {
         })
     }
 
+    pub(crate) fn rename_atlas_region(
+        &self,
+        req: &AtlasRenameRegionRequest,
+    ) -> anyhow::Result<AtlasRenameRegionResponse> {
+        let mut region = self
+            .get_atlas_region_by_id(req.region_id)?
+            .ok_or_else(|| anyhow::anyhow!("region not found"))?;
+        region.name = req.name.clone();
+        region.description = req.description.clone();
+        region.auto_generated = false;
+        region.updated_at = Utc::now();
+        self.upsert_atlas_region(&region)?;
+        Ok(AtlasRenameRegionResponse { region })
+    }
+
+    pub(crate) fn events_for_item(
+        &self,
+        item_id: Uuid,
+    ) -> anyhow::Result<Vec<MemoryEventRecord>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            "SELECT payload_json FROM memory_events WHERE memory_item_id = ?1 ORDER BY recorded_at DESC LIMIT 10",
+        )?;
+        let events = stmt
+            .query_map(params![item_id.to_string()], |row| {
+                row.get::<_, String>(0)
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(|json| serde_json::from_str::<MemoryEventRecord>(&json).ok())
+            .collect();
+        Ok(events)
+    }
+
     pub(crate) fn event_count_for_item(&self, item_id: Uuid) -> anyhow::Result<usize> {
         let conn = self.connect()?;
         let count: i64 = conn
@@ -479,6 +580,21 @@ fn passes_pivot_filters(item: &MemoryItem, req: &AtlasExploreRequest) -> bool {
     }
     if let Some(pivot_kind) = req.pivot_kind {
         if item.kind != pivot_kind {
+            return false;
+        }
+    }
+    if let Some(pivot_scope) = req.pivot_scope {
+        if item.scope != pivot_scope {
+            return false;
+        }
+    }
+    if let Some(ref agent) = req.pivot_source_agent {
+        if item.source_agent.as_deref() != Some(agent) {
+            return false;
+        }
+    }
+    if let Some(ref system) = req.pivot_source_system {
+        if item.source_system.as_deref() != Some(system) {
             return false;
         }
     }
