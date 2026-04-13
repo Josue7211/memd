@@ -48,8 +48,8 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|payload| serde_json::from_str::<AtlasRegion>(&payload).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas region row read: {e}")).ok())
+            .filter_map(|payload| serde_json::from_str::<AtlasRegion>(&payload).inspect_err(|e| eprintln!("warn: atlas region json parse: {e}")).ok())
             .collect();
 
         Ok(AtlasRegionsResponse { regions })
@@ -113,8 +113,8 @@ impl SqliteStore {
             .query_map(params![region_id.to_string()], |row| {
                 row.get::<_, String>(0)
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|s| s.parse::<Uuid>().ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: region member row read: {e}")).ok())
+            .filter_map(|s| s.parse::<Uuid>().inspect_err(|e| eprintln!("warn: region member uuid parse: {e}")).ok())
             .collect();
         Ok(ids)
     }
@@ -405,16 +405,14 @@ impl SqliteStore {
             if item.status != MemoryStatus::Active {
                 continue;
             }
-            if let Some(p) = project {
-                if item.project.as_deref() != Some(p) {
+            if let Some(p) = project
+                && item.project.as_deref() != Some(p) {
                     continue;
                 }
-            }
-            if let Some(ns) = namespace {
-                if item.namespace.as_deref() != Some(ns) {
+            if let Some(ns) = namespace
+                && item.namespace.as_deref() != Some(ns) {
                     continue;
                 }
-            }
 
             let bucket_key = region_bucket_key(&item, lane_filter);
             if let Some(key) = bucket_key {
@@ -442,9 +440,13 @@ impl SqliteStore {
                 updated_at: now,
             };
             // Persist the generated region
-            let _ = self.upsert_atlas_region(&region);
+            if let Err(e) = self.upsert_atlas_region(&region) {
+                eprintln!("warn: upsert_atlas_region: {e:#}");
+            }
             let member_ids: Vec<Uuid> = members.iter().map(|m| m.id).collect();
-            let _ = self.set_region_members(region_id, &member_ids);
+            if let Err(e) = self.set_region_members(region_id, &member_ids) {
+                eprintln!("warn: set_region_members: {e:#}");
+            }
             regions.push(region);
         }
 
@@ -475,11 +477,10 @@ impl SqliteStore {
                         if item.status != MemoryStatus::Active {
                             continue;
                         }
-                        if let Some(p) = &req.project {
-                            if item.project.as_deref() != Some(p) {
+                        if let Some(p) = &req.project
+                            && item.project.as_deref() != Some(p) {
                                 continue;
                             }
-                        }
                         if seen.insert(item.id) {
                             let entity = self.entity_for_item(item.id)?;
                             let evidence_count = self.event_count_for_item(item.id)?;
@@ -585,12 +586,13 @@ impl SqliteStore {
             .collect();
         let trails = stmt
             .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .filter_map(|json| serde_json::from_str::<AtlasSavedTrail>(&json).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas trail row read: {e}")).ok())
+            .filter_map(|json| serde_json::from_str::<AtlasSavedTrail>(&json).inspect_err(|e| eprintln!("warn: atlas trail json parse: {e}")).ok())
             .collect();
         Ok(AtlasListTrailsResponse { trails })
     }
 
+    #[allow(dead_code)] // Reserved for Phase H atlas link persistence
     pub(crate) fn persist_atlas_link(&self, link: &AtlasLink) -> anyhow::Result<()> {
         let conn = self.connect()?;
         conn.execute(
@@ -632,7 +634,7 @@ impl SqliteStore {
                     row.get::<_, Option<String>>(4)?,
                 ))
             })?
-            .filter_map(|r| r.ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas link row read: {e}")).ok())
             .filter_map(|(from, to, kind, weight, label)| {
                 Some(AtlasLink {
                     from_node_id: from.parse().ok()?,
@@ -699,8 +701,8 @@ impl SqliteStore {
             .query_map(params![item_id.to_string()], |row| {
                 row.get::<_, String>(0)
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|json| serde_json::from_str::<MemoryEventRecord>(&json).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: event row read: {e}")).ok())
+            .filter_map(|json| serde_json::from_str::<MemoryEventRecord>(&json).inspect_err(|e| eprintln!("warn: event json parse: {e}")).ok())
             .collect();
         Ok(events)
     }
@@ -728,8 +730,8 @@ impl SqliteStore {
         )?;
         let links = stmt
             .query_map(params![id_str], |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .filter_map(|json| serde_json::from_str(&json).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: entity link row read: {e}")).ok())
+            .filter_map(|json| serde_json::from_str(&json).inspect_err(|e| eprintln!("warn: entity link json parse: {e}")).ok())
             .collect();
         Ok(links)
     }
@@ -759,11 +761,10 @@ fn deterministic_region_id(
 fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<String> {
     // Group by lane_id if present
     if let Some(lane) = item_lane(item) {
-        if let Some(filter) = lane_filter {
-            if lane != filter {
+        if let Some(filter) = lane_filter
+            && lane != filter {
                 return None;
             }
-        }
         return Some(lane);
     }
 
@@ -811,11 +812,10 @@ fn passes_pivot_filters_with_entity(
     entity: Option<&memd_schema::MemoryEntityRecord>,
     req: &AtlasExploreRequest,
 ) -> bool {
-    if let Some(min_trust) = req.min_trust {
-        if item.confidence < min_trust {
+    if let Some(min_trust) = req.min_trust
+        && item.confidence < min_trust {
             return false;
         }
-    }
     if let Some(min_salience) = req.min_salience {
         let salience = entity
             .map(|e| e.salience_score)
@@ -824,36 +824,30 @@ fn passes_pivot_filters_with_entity(
             return false;
         }
     }
-    if let Some(pivot_kind) = req.pivot_kind {
-        if item.kind != pivot_kind {
+    if let Some(pivot_kind) = req.pivot_kind
+        && item.kind != pivot_kind {
             return false;
         }
-    }
-    if let Some(pivot_scope) = req.pivot_scope {
-        if item.scope != pivot_scope {
+    if let Some(pivot_scope) = req.pivot_scope
+        && item.scope != pivot_scope {
             return false;
         }
-    }
-    if let Some(ref agent) = req.pivot_source_agent {
-        if item.source_agent.as_deref() != Some(agent) {
+    if let Some(ref agent) = req.pivot_source_agent
+        && item.source_agent.as_deref() != Some(agent) {
             return false;
         }
-    }
-    if let Some(ref system) = req.pivot_source_system {
-        if item.source_system.as_deref() != Some(system) {
+    if let Some(ref system) = req.pivot_source_system
+        && item.source_system.as_deref() != Some(system) {
             return false;
         }
-    }
-    if let Some(project) = &req.project {
-        if item.project.as_deref() != Some(project) {
+    if let Some(project) = &req.project
+        && item.project.as_deref() != Some(project) {
             return false;
         }
-    }
-    if let Some(namespace) = &req.namespace {
-        if item.namespace.as_deref() != Some(namespace) {
+    if let Some(namespace) = &req.namespace
+        && item.namespace.as_deref() != Some(namespace) {
             return false;
         }
-    }
     true
 }
 

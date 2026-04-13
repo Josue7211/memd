@@ -353,32 +353,27 @@ pub(crate) fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("kind={}", enum_label_kind(item.kind)));
     parts.push(format!("status={}", enum_label_status(item.status)));
 
-    if let Some(project) = &item.project {
-        if !project.is_empty() {
+    if let Some(project) = &item.project
+        && !project.is_empty() {
             parts.push(format!("project={}", sanitize_value(project)));
         }
-    }
-    if let Some(namespace) = &item.namespace {
-        if !namespace.is_empty() {
+    if let Some(namespace) = &item.namespace
+        && !namespace.is_empty() {
             parts.push(format!("ns={}", sanitize_value(namespace)));
         }
-    }
-    if let Some(workspace) = &item.workspace {
-        if !workspace.is_empty() {
+    if let Some(workspace) = &item.workspace
+        && !workspace.is_empty() {
             parts.push(format!("ws={}", sanitize_value(workspace)));
         }
-    }
     parts.push(format!("vis={}", enum_label_visibility(item.visibility)));
-    if let Some(branch) = &item.belief_branch {
-        if !branch.is_empty() {
+    if let Some(branch) = &item.belief_branch
+        && !branch.is_empty() {
             parts.push(format!("belief_branch={}", sanitize_value(branch)));
         }
-    }
-    if let Some(agent) = &item.source_agent {
-        if !agent.is_empty() {
+    if let Some(agent) = &item.source_agent
+        && !agent.is_empty() {
             parts.push(format!("agent={}", sanitize_value(agent)));
         }
-    }
     if !item.tags.is_empty() {
         let tags = item
             .tags
@@ -480,374 +475,6 @@ pub(crate) fn associative_recall_reasons(
     reasons
 }
 
-#[allow(dead_code)]
-pub(crate) fn legacy_dashboard_html() -> String {
-    r#"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>memd</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0b0d10;
-      --panel: #11151b;
-      --panel-2: #161b23;
-      --text: #e7eef8;
-      --muted: #93a4ba;
-      --line: #243041;
-      --accent: #69a8ff;
-      --accent-2: #7bf1c8;
-      --warn: #ffbd59;
-      --bad: #ff6b6b;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(105,168,255,0.12), transparent 32%),
-        radial-gradient(circle at top right, rgba(123,241,200,0.10), transparent 28%),
-        linear-gradient(180deg, #090b0e, var(--bg));
-      color: var(--text);
-    }
-    header {
-      padding: 28px 24px 16px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(10, 13, 17, 0.92);
-      position: sticky;
-      top: 0;
-      backdrop-filter: blur(14px);
-      z-index: 2;
-    }
-    .shell {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    h1 {
-      margin: 0 0 6px;
-      font-size: 28px;
-      letter-spacing: -0.02em;
-    }
-    .sub {
-      color: var(--muted);
-      margin: 0;
-    }
-    main {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px 24px 32px;
-      display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 18px;
-      align-items: start;
-    }
-    .panel {
-      background: linear-gradient(180deg, rgba(17,21,27,0.95), rgba(13,17,22,0.95));
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      box-shadow: 0 24px 60px rgba(0,0,0,0.25);
-      overflow: hidden;
-    }
-    .panel h2 {
-      margin: 0;
-      padding: 16px 16px 12px;
-      border-bottom: 1px solid var(--line);
-      font-size: 14px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-    .content {
-      padding: 16px;
-    }
-    label {
-      display: block;
-      margin: 0 0 10px;
-      color: var(--muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    input, select, textarea, button {
-      width: 100%;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--text);
-      padding: 11px 12px;
-      font: inherit;
-    }
-    textarea {
-      min-height: 120px;
-      resize: vertical;
-    }
-    button {
-      cursor: pointer;
-      background: linear-gradient(180deg, rgba(105,168,255,0.95), rgba(76,131,245,0.95));
-      border: 0;
-      font-weight: 650;
-    }
-    button.secondary {
-      background: var(--panel-2);
-      border: 1px solid var(--line);
-      color: var(--text);
-      font-weight: 600;
-    }
-    .stack {
-      display: grid;
-      gap: 10px;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 12px;
-    }
-    .pill {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 6px 10px;
-      background: rgba(255,255,255,0.02);
-    }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: #dce7f4;
-      background: #0b0f14;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 14px;
-      min-height: 240px;
-      max-height: 68vh;
-      overflow: auto;
-    }
-    .section {
-      display: grid;
-      gap: 12px;
-    }
-    .toolbar {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .toolbar button {
-      width: auto;
-      padding: 10px 14px;
-    }
-    .note {
-      color: var(--muted);
-      font-size: 12px;
-    }
-    @media (max-width: 1040px) {
-      main { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="shell">
-      <h1>memd</h1>
-      <p class="sub">Memory manager, retrieval router, inbox, and explain surface.</p>
-    </div>
-  </header>
-  <main>
-    <section class="panel">
-      <h2>Controls</h2>
-      <div class="content stack">
-        <div class="grid-2">
-          <div>
-            <label>Project</label>
-            <input id="project" placeholder="demo">
-          </div>
-          <div>
-            <label>Agent</label>
-            <input id="agent" placeholder="codex">
-          </div>
-        </div>
-        <div class="grid-2">
-          <div>
-            <label>Workspace</label>
-            <input id="workspace" placeholder="team-alpha">
-          </div>
-          <div>
-            <label>Visibility</label>
-            <select id="visibility">
-              <option value="">all</option>
-              <option value="private">private</option>
-              <option value="workspace">workspace</option>
-              <option value="public">public</option>
-            </select>
-          </div>
-        </div>
-        <div class="grid-2">
-          <div>
-            <label>Route</label>
-            <select id="route">
-              <option value="auto">auto</option>
-              <option value="local_only">local_only</option>
-              <option value="synced_only">synced_only</option>
-              <option value="project_only">project_only</option>
-              <option value="global_only">global_only</option>
-              <option value="local_first">local_first</option>
-              <option value="synced_first">synced_first</option>
-              <option value="project_first">project_first</option>
-              <option value="global_first">global_first</option>
-              <option value="all">all</option>
-            </select>
-          </div>
-          <div>
-            <label>Intent</label>
-            <select id="intent">
-              <option value="general">general</option>
-              <option value="current_task">current_task</option>
-              <option value="decision">decision</option>
-              <option value="runbook">runbook</option>
-              <option value="procedural">procedural</option>
-              <option value="self_model">self_model</option>
-              <option value="topology">topology</option>
-              <option value="preference">preference</option>
-              <option value="fact">fact</option>
-              <option value="pattern">pattern</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label>Search query</label>
-          <input id="query" placeholder="postgres, routing, memory, etc.">
-        </div>
-        <div>
-          <label>Explain id</label>
-          <input id="id" placeholder="UUID">
-        </div>
-        <div class="toolbar">
-          <button onclick="loadHealth()">Refresh health</button>
-          <button onclick="loadContext()">Load context</button>
-          <button onclick="loadInbox()">Load inbox</button>
-          <button onclick="loadSearch()">Search</button>
-          <button onclick="loadWorkspaces()">Workspaces</button>
-          <button class="secondary" onclick="loadSources()">Sources</button>
-          <button class="secondary" onclick="loadExplain()">Explain</button>
-        </div>
-        <div class="note" id="healthNote">Loading health...</div>
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Output</h2>
-      <div class="content section">
-        <pre id="output">{}</pre>
-      </div>
-    </section>
-  </main>
-  <script>
-    const output = document.getElementById('output');
-    const healthNote = document.getElementById('healthNote');
-    const qs = () => ({
-      project: document.getElementById('project').value.trim(),
-      workspace: document.getElementById('workspace').value.trim(),
-      visibility: document.getElementById('visibility').value,
-      agent: document.getElementById('agent').value.trim(),
-      route: document.getElementById('route').value,
-      intent: document.getElementById('intent').value,
-      query: document.getElementById('query').value.trim(),
-      id: document.getElementById('id').value.trim(),
-    });
-    function pretty(data) {
-      output.textContent = JSON.stringify(data, null, 2);
-    }
-    async function loadHealth() {
-      const res = await fetch('/healthz');
-      const data = await res.json();
-      healthNote.textContent = `status=${data.status} items=${data.items}`;
-      pretty(data);
-    }
-    async function loadContext() {
-      const q = qs();
-      const params = new URLSearchParams();
-      if (q.project) params.set('project', q.project);
-      if (q.workspace) params.set('workspace', q.workspace);
-      if (q.visibility) params.set('visibility', q.visibility);
-      if (q.agent) params.set('agent', q.agent);
-      if (q.route !== 'auto') params.set('route', q.route);
-      if (q.intent !== 'general') params.set('intent', q.intent);
-      const res = await fetch('/memory/context/compact?' + params.toString());
-      pretty(await res.json());
-    }
-    async function loadInbox() {
-      const q = qs();
-      const params = new URLSearchParams();
-      if (q.project) params.set('project', q.project);
-      if (q.workspace) params.set('workspace', q.workspace);
-      if (q.visibility) params.set('visibility', q.visibility);
-      if (q.agent) params.set('agent', q.agent);
-      if (q.route !== 'auto') params.set('route', q.route);
-      if (q.intent !== 'general') params.set('intent', q.intent);
-      const res = await fetch('/memory/inbox?' + params.toString());
-      pretty(await res.json());
-    }
-    async function loadSearch() {
-      const q = qs();
-      const body = {
-        query: q.query || undefined,
-        project: q.project || undefined,
-        workspace: q.workspace || undefined,
-        visibility: q.visibility || undefined,
-        route: q.route,
-        intent: q.intent,
-      };
-      const res = await fetch('/memory/search', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      pretty(await res.json());
-    }
-    async function loadWorkspaces() {
-      const q = qs();
-      const params = new URLSearchParams();
-      if (q.project) params.set('project', q.project);
-      if (q.workspace) params.set('workspace', q.workspace);
-      if (q.visibility) params.set('visibility', q.visibility);
-      const res = await fetch('/memory/workspaces?' + params.toString());
-      pretty(await res.json());
-    }
-    async function loadSources() {
-      const q = qs();
-      const params = new URLSearchParams();
-      if (q.project) params.set('project', q.project);
-      if (q.workspace) params.set('workspace', q.workspace);
-      if (q.visibility) params.set('visibility', q.visibility);
-      const res = await fetch('/memory/source?' + params.toString());
-      pretty(await res.json());
-    }
-    async function loadExplain() {
-      const q = qs();
-      const params = new URLSearchParams();
-      params.set('id', q.id);
-      if (q.route !== 'auto') params.set('route', q.route);
-      if (q.intent !== 'general') params.set('intent', q.intent);
-      const res = await fetch('/memory/explain?' + params.toString());
-      pretty(await res.json());
-    }
-    loadHealth().catch(err => {
-      healthNote.textContent = `health check failed: ${err}`;
-      output.textContent = JSON.stringify({error: String(err)}, null, 2);
-    });
-    setInterval(() => { loadHealth().catch(() => {}); }, 5000);
-  </script>
-</body>
-</html>"#
-        .to_string()
-}
 
 pub(crate) fn sanitize_value(value: &str) -> String {
     value
@@ -926,17 +553,15 @@ pub(crate) fn context_score(
     score += entity_attention_bonus(item, entity);
     score += project_scope_bonus(item, req.project.as_ref(), None);
 
-    if let Some(project) = &req.project {
-        if item.project.as_ref() == Some(project) {
+    if let Some(project) = &req.project
+        && item.project.as_ref() == Some(project) {
             score += 1.9;
         }
-    }
 
-    if let Some(agent) = &req.agent {
-        if item.source_agent.as_ref() == Some(agent) {
+    if let Some(agent) = &req.agent
+        && item.source_agent.as_ref() == Some(agent) {
             score += 0.75;
         }
-    }
 
     score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
     score += durable_truth_rank_adjustment(item);
@@ -1174,11 +799,10 @@ pub(crate) fn project_scope_bonus(
         }
     }
 
-    if let Some(namespace) = requested_namespace {
-        if item.namespace.as_ref() == Some(namespace) {
+    if let Some(namespace) = requested_namespace
+        && item.namespace.as_ref() == Some(namespace) {
             bonus += 0.2;
         }
-    }
 
     bonus
 }

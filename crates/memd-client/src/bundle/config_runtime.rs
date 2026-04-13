@@ -4,12 +4,11 @@ use crate::bundle::BundleConfigFile;
 pub(crate) fn read_bundle_voice_mode(output: &Path) -> Option<String> {
     read_bundle_config_file(output)
         .ok()
-        .map(|(_, config)| {
+        .and_then(|(_, config)| {
             config
                 .voice_mode
                 .and_then(|value| normalize_voice_mode_value(&value).ok())
         })
-        .flatten()
 }
 
 pub(crate) fn set_bundle_agent(output: &Path, agent: &str) -> anyhow::Result<()> {
@@ -583,14 +582,13 @@ pub(crate) fn render_doctor_status_markdown(
             .and_then(|value| value.as_bool())
             .unwrap_or(false)
     ));
-    if let Some(missing) = status.get("missing").and_then(|value| value.as_array()) {
-        if !missing.is_empty() {
+    if let Some(missing) = status.get("missing").and_then(|value| value.as_array())
+        && !missing.is_empty() {
             markdown.push_str("\n## Missing\n");
             for item in missing {
                 markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
             }
         }
-    }
     if let Some(evolution) = status
         .get("evolution")
         .and_then(|value| if value.is_null() { None } else { Some(value) })

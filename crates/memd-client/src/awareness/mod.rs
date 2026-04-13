@@ -148,9 +148,9 @@ pub(crate) fn is_superseded_stale_remote_session(
         && entry.base_url == current.base_url
 }
 
-pub(crate) fn project_awareness_visible_entries<'a>(
-    response: &'a ProjectAwarenessResponse,
-) -> Vec<&'a ProjectAwarenessEntry> {
+pub(crate) fn project_awareness_visible_entries(
+    response: &ProjectAwarenessResponse,
+) -> Vec<&ProjectAwarenessEntry> {
     let current_entry = response
         .entries
         .iter()

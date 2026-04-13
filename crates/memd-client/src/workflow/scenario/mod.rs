@@ -962,8 +962,8 @@ pub(crate) async fn run_composite_command(
         details: format!("weighted composite score={score}"),
     });
 
-    if let Some(expected) = args.scenario.as_deref() {
-        if scenario
+    if let Some(expected) = args.scenario.as_deref()
+        && scenario
             .as_ref()
             .is_none_or(|value| value.scenario != expected)
         {
@@ -973,7 +973,6 @@ pub(crate) async fn run_composite_command(
             recommendations
                 .push("rerun the expected scenario before trusting the composite gate".to_string());
         }
-    }
 
     if scenario.is_none() {
         recommendations.push("run `memd scenario --write` before composite scoring".to_string());

@@ -315,8 +315,8 @@ pub(crate) fn render_bundle_memory_object_markdown(
         }
     }
 
-    if matches!(lane, MemoryObjectLane::Workspace) {
-        if let Some(hive) = hive {
+    if matches!(lane, MemoryObjectLane::Workspace)
+        && let Some(hive) = hive {
             markdown.push_str("\n## Hive\n\n");
             markdown.push_str(&format!(
                 "- queen={} active={} stale={} review={} overlap={}\n",
@@ -342,7 +342,6 @@ pub(crate) fn render_bundle_memory_object_markdown(
                 ));
             }
         }
-    }
 
     markdown.push_str("\n## Items\n\n");
     let item_count = memory_object_lane_item_count(snapshot, lane);
@@ -491,8 +490,8 @@ pub(crate) fn render_bundle_memory_object_item_markdown(
         markdown.push_str(&format!("- sources={}\n", handoff.sources.sources.len()));
     }
 
-    if matches!(lane, MemoryObjectLane::Workspace) {
-        if let Some(hive) = hive {
+    if matches!(lane, MemoryObjectLane::Workspace)
+        && let Some(hive) = hive {
             markdown.push_str("\n## Hive\n\n");
             markdown.push_str(&format!(
                 "- queen={} active={} overlap={} stale={}\n",
@@ -515,7 +514,6 @@ pub(crate) fn render_bundle_memory_object_item_markdown(
                 ));
             }
         }
-    }
 
     Some(markdown)
 }

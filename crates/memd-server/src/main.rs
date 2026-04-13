@@ -130,23 +130,24 @@ impl AppState {
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
-        if let Some(found) = duplicate.as_ref() {
-            if let Some(revived) = self.revive_duplicate_on_explicit_store(
+        if let Some(found) = duplicate.as_ref()
+            && let Some(revived) = self.revive_duplicate_on_explicit_store(
                 found,
                 &item,
                 &canonical_key,
                 &redundancy_key,
             )? {
-                let _ = self.record_item_event(
+                if let Err(e) = self.record_item_event(
                     &revived,
                     "restored",
                     "duplicate memory item restored to active canonical state".to_string(),
-                );
+                ) {
+                    eprintln!("warn: record_item_event (restored): {e:#}");
+                }
                 return Ok((revived, None));
             }
-        }
-        if duplicate.is_none() {
-            let _ = self.record_item_event(
+        if duplicate.is_none()
+            && let Err(e) = self.record_item_event(
                 &item,
                 event_type_for_stage(stage),
                 format!(
@@ -156,8 +157,9 @@ impl AppState {
                         MemoryStage::Canonical => "canonical",
                     }
                 ),
-            );
-        }
+            ) {
+                eprintln!("warn: record_item_event (stored): {e:#}");
+            }
         Ok((item, duplicate))
     }
 
@@ -261,11 +263,13 @@ impl AppState {
         let redundancy_key_value = redundancy_key(&item);
         self.store
             .update(&item, &canonical_key, &redundancy_key_value)?;
-        let _ = self.record_item_event(
+        if let Err(e) = self.record_item_event(
             &item,
             "promoted",
             "memory item promoted to canonical stage".to_string(),
-        );
+        ) {
+            eprintln!("warn: record_item_event (promoted): {e:#}");
+        }
         Ok((item, None))
     }
 
@@ -306,9 +310,14 @@ async fn main() {
     let db_path = std::env::var("MEMD_DB_PATH").unwrap_or_else(|_| ".memd/memd.db".to_string());
     let bind_addr =
         std::env::var("MEMD_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open memd sqlite store"),
+    let store = match SqliteStore::open(&db_path) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("error: failed to open database at {db_path}: {e:#}");
+            std::process::exit(1);
+        }
     };
+    let state = AppState { store };
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
@@ -419,8 +428,16 @@ async fn main() {
         .route("/procedures/detect", post(post_procedure_detect))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
-        .await
-        .unwrap_or_else(|_| panic!("bind memd to {}", bind_addr));
-    axum::serve(listener, app).await.expect("serve memd");
+    let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("error: failed to bind to {bind_addr}: {e:#}");
+            eprintln!("hint: port may be in use, set MEMD_BIND_ADDR to change");
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("error: server exited unexpectedly: {e:#}");
+        std::process::exit(1);
+    }
 }

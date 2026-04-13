@@ -1,6 +1,6 @@
 # Ambiguous Glob Imports
 
-Status: `open`
+Status: `closed`
 Created: 2026-04-13
 Phase: cross-phase
 

@@ -712,8 +712,8 @@ pub(crate) fn suggest_coordination_actions(
                        out: &mut Vec<CoordinationSuggestion>| {
         let key = (
             suggestion.action.clone(),
-            suggestion.task_id.clone().unwrap_or_else(String::new),
-            suggestion.scope.clone().unwrap_or_else(String::new),
+            suggestion.task_id.clone().unwrap_or_default(),
+            suggestion.scope.clone().unwrap_or_default(),
             suggestion.target_session.clone(),
             suggestion.message_id.clone(),
             suggestion.stale_session.clone(),

@@ -124,6 +124,7 @@ pub(crate) fn wake_char_budget_for_agent(agent: Option<&str>) -> usize {
         .unwrap_or(1800)
 }
 
+#[allow(dead_code)] // Used in tests, reserved for wake-only routing in Phase H
 pub(crate) fn is_wake_only_agent(agent: Option<&str>) -> bool {
     let normalized = agent
         .map(str::trim)

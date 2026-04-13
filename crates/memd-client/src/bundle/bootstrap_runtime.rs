@@ -23,22 +23,18 @@ pub(crate) fn hardcoded_default_voice_mode() -> String {
 /// 4. caveman-ultra — hard compressed, rewrite-before-send discipline
 
 pub(crate) fn default_voice_mode() -> String {
-    if let Ok(value) = std::env::var("MEMD_VOICE_MODE") {
-        if let Ok(normalized) = normalize_voice_mode_value(&value) {
+    if let Ok(value) = std::env::var("MEMD_VOICE_MODE")
+        && let Ok(normalized) = normalize_voice_mode_value(&value) {
             return normalized;
         }
-    }
 
     let config_path = default_global_bundle_root().join("config.json");
-    if let Ok(raw) = fs::read_to_string(&config_path) {
-        if let Ok(config) = serde_json::from_str::<BundleConfigFile>(&raw) {
-            if let Some(voice_mode) = config.voice_mode {
-                if let Ok(normalized) = normalize_voice_mode_value(&voice_mode) {
+    if let Ok(raw) = fs::read_to_string(&config_path)
+        && let Ok(config) = serde_json::from_str::<BundleConfigFile>(&raw)
+            && let Some(voice_mode) = config.voice_mode
+                && let Ok(normalized) = normalize_voice_mode_value(&voice_mode) {
                     return normalized;
                 }
-            }
-        }
-    }
 
     hardcoded_default_voice_mode()
 }
@@ -511,8 +507,8 @@ pub(crate) fn print_loop_list(entries: &[LoopEntry], output: &Path) {
     }
 
     println!(
-        "{:<24} {:>10} {:>12} {:<10} {}",
-        "Loop", "Improved", "Tokens", "Status", "Name"
+        "{:<24} {:>10} {:>12} {:<10} Name",
+        "Loop", "Improved", "Tokens", "Status"
     );
     for entry in entries {
         println!(

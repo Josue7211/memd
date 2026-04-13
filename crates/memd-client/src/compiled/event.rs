@@ -481,11 +481,10 @@ pub(crate) fn render_compiled_event_index_markdown(
         output.push('\n');
     }
 
-    if let Ok(raw_spine) = render_raw_spine_markdown(bundle_root) {
-        if !raw_spine.is_empty() {
+    if let Ok(raw_spine) = render_raw_spine_markdown(bundle_root)
+        && !raw_spine.is_empty() {
             output.push_str(&raw_spine);
         }
-    }
     output
 }
 
@@ -670,7 +669,7 @@ mod tests {
 
 fn event_kind_title(kind: &str) -> String {
     let mut words = Vec::new();
-    for word in kind.split(|ch| ch == '-' || ch == '_' || ch == ' ') {
+    for word in kind.split(['-', '_', ' ']) {
         let word = word.trim();
         if word.is_empty() {
             continue;

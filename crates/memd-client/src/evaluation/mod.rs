@@ -3,10 +3,7 @@ use super::*;
 #[allow(dead_code)]
 mod eval_runtime;
 #[allow(unused_imports)]
-pub(crate) use eval_runtime::{
-    invalidate_bundle_runtime_caches, read_bundle_handoff, read_bundle_resume,
-    simplify_awareness_work_text,
-};
+pub(crate) use eval_runtime::simplify_awareness_work_text;
 
 #[allow(dead_code)]
 mod eval_report_runtime;

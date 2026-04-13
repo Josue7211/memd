@@ -366,19 +366,19 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
         drivers.dedup();
 
         let action = if refresh || pressure == "high" {
-            if drivers.iter().any(|value| *value == "inbox") {
+            if drivers.contains(&"inbox") {
                 "drain inbox before the next prompt"
-            } else if drivers.iter().any(|value| *value == "rehydration") {
+            } else if drivers.contains(&"rehydration") {
                 "resolve rehydration backlog before the next prompt"
-            } else if drivers.iter().any(|value| *value == "duplicates") {
+            } else if drivers.contains(&"duplicates") {
                 "collapse repeated context before the next prompt"
             } else {
                 "trim context before the next prompt"
             }
         } else if pressure == "medium" {
-            if drivers.iter().any(|value| *value == "inbox") {
+            if drivers.contains(&"inbox") {
                 "handle inbox items before pulling more context"
-            } else if drivers.iter().any(|value| *value == "rehydration") {
+            } else if drivers.contains(&"rehydration") {
                 "resolve rehydration before the prompt grows"
             } else {
                 "watch prompt growth"

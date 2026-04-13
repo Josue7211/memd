@@ -456,14 +456,13 @@ pub(crate) fn derive_hive_task_id(
             }
         }
     }
-    if let Some(topic) = topic_claim {
-        if let Some(task_id) = topic.strip_prefix("task:") {
+    if let Some(topic) = topic_claim
+        && let Some(task_id) = topic.strip_prefix("task:") {
             let task_id = task_id.trim();
             if !task_id.is_empty() {
                 return Some(task_id.to_string());
             }
         }
-    }
     None
 }
 
@@ -503,8 +502,7 @@ pub(crate) fn confirmed_hive_overlap_reason(
             .map(str::trim)
             .filter(|value| !value.is_empty()),
     ) && current_task != target_task
-    {
-        if !target_scopes.is_empty()
+        && !target_scopes.is_empty()
             && current_scopes.iter().any(|scope| {
                 target_scopes
                     .iter()
@@ -517,7 +515,6 @@ pub(crate) fn confirmed_hive_overlap_reason(
                 target_task
             ));
         }
-    }
 
     let shared_scopes = current_scopes
         .iter()

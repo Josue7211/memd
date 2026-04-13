@@ -1,6 +1,6 @@
 # Stale Per-Harness Bundle Files
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-client (init_runtime), .memd bundle
 

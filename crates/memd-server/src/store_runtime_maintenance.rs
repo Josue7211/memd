@@ -221,11 +221,10 @@ impl SqliteStore {
             {
                 continue;
             }
-            if let Some(source_path) = &item.source_path {
-                if Path::new(source_path).exists() {
+            if let Some(source_path) = &item.source_path
+                && Path::new(source_path).exists() {
                     count += 1;
                 }
-            }
         }
         Ok(count)
     }

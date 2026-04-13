@@ -992,12 +992,11 @@ pub(crate) async fn run_improvement_loop(
             generated_at: Utc::now(),
         });
 
-        if let Some(previous_gap) = previous_gap.as_ref() {
-            if !improvement_progress(previous_gap, &current_gap) {
+        if let Some(previous_gap) = previous_gap.as_ref()
+            && !improvement_progress(previous_gap, &current_gap) {
                 converged = true;
                 break;
             }
-        }
         previous_gap = Some(current_gap.clone());
 
         if iteration + 1 >= args.max_iterations {
@@ -1119,12 +1118,11 @@ pub(crate) async fn run_experiment_command(
         && hard_correctness_gate == "pass";
 
     let mut restored = false;
-    if args.apply && !accepted {
-        if let Some(backup_root) = backup_root.as_ref() {
+    if args.apply && !accepted
+        && let Some(backup_root) = backup_root.as_ref() {
             restore_bundle_snapshot(backup_root, &args.output)?;
             restored = true;
         }
-    }
 
     let mut learnings = Vec::new();
     if accepted && args.consolidate {

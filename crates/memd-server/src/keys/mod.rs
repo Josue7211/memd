@@ -110,8 +110,8 @@ fn stem_redundancy_token(token: &str) -> String {
 pub fn apply_lifecycle(mut item: MemoryItem) -> (MemoryItem, bool) {
     let now = Utc::now();
 
-    if item.status != MemoryStatus::Expired {
-        if let Some(ttl_seconds) = item.ttl_seconds {
+    if item.status != MemoryStatus::Expired
+        && let Some(ttl_seconds) = item.ttl_seconds {
             let ttl_expired = item.created_at + Duration::seconds(ttl_seconds as i64) <= now;
             if ttl_expired {
                 item.status = MemoryStatus::Expired;
@@ -119,7 +119,6 @@ pub fn apply_lifecycle(mut item: MemoryItem) -> (MemoryItem, bool) {
                 return (item, true);
             }
         }
-    }
 
     if item.status == MemoryStatus::Active && item.stage == memd_schema::MemoryStage::Canonical {
         let reference_time = item.last_verified_at.unwrap_or(item.updated_at);

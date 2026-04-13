@@ -1,6 +1,6 @@
 # Stale File References in Docs
 
-Status: `open`
+Status: `closed` — FEATURES.md no longer exists
 Created: 2026-04-13
 Phase: cross-phase
 

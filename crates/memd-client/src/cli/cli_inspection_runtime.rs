@@ -431,7 +431,7 @@ pub(crate) async fn run_procedure_command(
                     "Recorded procedure: {} [{}] ({})",
                     response.procedure.name,
                     &response.procedure.id.to_string()[..8],
-                    serde_json::to_value(&response.procedure.status)
+                    serde_json::to_value(response.procedure.status)
                         .ok()
                         .and_then(|v| v.as_str().map(String::from))
                         .unwrap_or_default()
@@ -537,11 +537,11 @@ fn render_procedures(response: &memd_schema::ProcedureListResponse) -> String {
         return out;
     }
     for p in &response.procedures {
-        let status = serde_json::to_value(&p.status)
+        let status = serde_json::to_value(p.status)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default();
-        let kind = serde_json::to_value(&p.kind)
+        let kind = serde_json::to_value(p.kind)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default();

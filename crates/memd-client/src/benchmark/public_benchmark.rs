@@ -140,7 +140,7 @@ pub(crate) fn locomo_category_name(category: i64) -> &'static str {
     }
 }
 
-pub(crate) fn json_stringish_field<'a>(row: &'a JsonValue, key: &str) -> anyhow::Result<String> {
+pub(crate) fn json_stringish_field(row: &JsonValue, key: &str) -> anyhow::Result<String> {
     let value = row.get(key).ok_or_else(|| anyhow!("missing {key} field"))?;
     match value {
         JsonValue::String(value) => Ok(value.clone()),
@@ -150,8 +150,8 @@ pub(crate) fn json_stringish_field<'a>(row: &'a JsonValue, key: &str) -> anyhow:
     }
 }
 
-pub(crate) fn json_stringish_or_array_field<'a>(
-    row: &'a JsonValue,
+pub(crate) fn json_stringish_or_array_field(
+    row: &JsonValue,
     key: &str,
 ) -> anyhow::Result<String> {
     let value = row.get(key).ok_or_else(|| anyhow!("missing {key} field"))?;

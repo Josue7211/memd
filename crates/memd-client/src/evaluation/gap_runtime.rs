@@ -401,8 +401,8 @@ pub(crate) fn build_gap_candidates(
         evidence.push("benchmark coverage gaps=unavailable".to_string());
     }
 
-    if let Some(runtime) = runtime {
-        if let Some(agent) = runtime.agent.as_ref() {
+    if let Some(runtime) = runtime
+        && let Some(agent) = runtime.agent.as_ref() {
             let mut session_hint = String::new();
             if let Some(session) = runtime.session.as_ref() {
                 session_hint.push_str(session);
@@ -411,7 +411,6 @@ pub(crate) fn build_gap_candidates(
                 evidence.push(format!("agent={agent} session={session_hint}"));
             }
         }
-    }
 
     if recent_commits.is_empty() {
         add(

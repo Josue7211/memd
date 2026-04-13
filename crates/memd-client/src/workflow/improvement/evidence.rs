@@ -38,14 +38,13 @@ pub(crate) fn collect_gap_plan_evidence(project_root: &Path) -> Vec<String> {
             }
         }
     }
-    if let Some(project) = project {
-        if let Some(core) = project
+    if let Some(project) = project
+        && let Some(core) = project
             .lines()
             .find(|line| line.starts_with("##") && line.contains("Core"))
         {
             evidence.push(format!("project: {core}"));
         }
-    }
 
     evidence.append(&mut repo_evidence);
     evidence

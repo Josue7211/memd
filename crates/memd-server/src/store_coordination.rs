@@ -680,11 +680,9 @@ impl SqliteStore {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-        {
-            if task.session.as_deref() != Some(from_session) {
+            && task.session.as_deref() != Some(from_session) {
                 anyhow::bail!("task '{}' is not owned by {}", task.task_id, from_session);
             }
-        }
         task.session = Some(request.to_session.trim().to_string());
         task.agent = request.to_agent.clone();
         task.effective_agent = request.to_effective_agent.clone();

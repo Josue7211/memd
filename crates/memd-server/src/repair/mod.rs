@@ -29,7 +29,9 @@ pub(crate) fn expire_item(
         .store
         .update(&item, &canonical_key, &redundancy_key)
         .map_err(internal_error)?;
-    let _ = record_lifecycle_event(state, &item, "expired", "memory item marked expired");
+    if let Err(e) = record_lifecycle_event(state, &item, "expired", "memory item marked expired") {
+        eprintln!("warn: record_lifecycle_event (expired): {e:#}");
+    }
     Ok(item)
 }
 
@@ -228,7 +230,9 @@ pub(crate) fn repair_item(
         .update(&item, &canonical_key, &redundancy_key)
         .map_err(internal_error)?;
     let summary = format!("memory item {} via {}", event_type, format_mode(req.mode));
-    let _ = record_lifecycle_event(state, &item, event_type, &summary);
+    if let Err(e) = record_lifecycle_event(state, &item, event_type, &summary) {
+        eprintln!("warn: record_lifecycle_event ({event_type}): {e:#}");
+    }
     Ok(RepairMemoryResponse {
         item,
         mode: req.mode,

@@ -160,9 +160,7 @@ pub(crate) fn render_benchmark_registry_benchmarks_markdown(
     let mut markdown = String::new();
     markdown.push_str("# memd benchmark registry\n\n");
     markdown.push_str(&format!("- Root: `{}`\n", repo_root.display()));
-    markdown.push_str(&format!(
-        "- Registry: `docs/verification/benchmark-registry.json`\n"
-    ));
+    markdown.push_str(&"- Registry: `docs/verification/benchmark-registry.json`\n".to_string());
     markdown.push_str(&format!("- Version: `{}`\n", registry.version));
     markdown.push_str(&format!("- App goal: {}\n", registry.app_goal));
     markdown.push_str(&format!(

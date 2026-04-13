@@ -544,8 +544,8 @@ pub(crate) fn render_compiled_memory_index_grouped_markdown(
 fn compiled_memory_page_group(page: &str) -> Option<(String, String)> {
     let path = Path::new(page);
     let file_name = path.file_name()?.to_str()?.to_string();
-    if let Some(parent) = path.parent() {
-        if parent
+    if let Some(parent) = path.parent()
+        && parent
             .components()
             .any(|component| component.as_os_str() == "items")
         {
@@ -553,7 +553,6 @@ fn compiled_memory_page_group(page: &str) -> Option<(String, String)> {
             let label = path.file_stem()?.to_str()?.to_string();
             return Some((lane, label));
         }
-    }
 
     let stem = Path::new(&file_name).file_stem()?.to_str()?.to_string();
     let title = lane_title(&stem);
@@ -918,7 +917,7 @@ pub(crate) fn build_compiled_memory_quality_report(
         && (memory_file_text.contains("source_note") || memory_file_text.contains("source_path"))
     {
         100
-    } else if index.pages.len() > 0 {
+    } else if !index.pages.is_empty() {
         80
     } else {
         40

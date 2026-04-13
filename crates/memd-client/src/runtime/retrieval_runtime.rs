@@ -164,7 +164,7 @@ fn broad_lookup_score(
         }
     }
 
-    if req.kinds.iter().any(|kind| *kind == item.kind) {
+    if req.kinds.contains(&item.kind) {
         score += 1;
     }
 

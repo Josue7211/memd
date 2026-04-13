@@ -495,7 +495,7 @@ pub(crate) fn materialize_fixture(
             let session_identity = format!(
                 "{}-{}",
                 session_label,
-                uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
+                &uuid::Uuid::new_v4().simple().to_string()[..8]
             );
             session_seed.insert(
                 "session".to_string(),

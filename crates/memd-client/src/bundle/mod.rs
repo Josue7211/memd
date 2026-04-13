@@ -159,16 +159,13 @@ pub(crate) struct BundleHooksConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub(crate) enum LocalhostFallbackPolicy {
+    #[default]
     Deny,
     AllowReadOnly,
 }
 
-impl Default for LocalhostFallbackPolicy {
-    fn default() -> Self {
-        Self::Deny
-    }
-}
 
 impl LocalhostFallbackPolicy {
     pub(crate) fn as_str(&self) -> &'static str {

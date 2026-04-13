@@ -471,8 +471,7 @@ fn render_hive_follow_watch_changes(
 }
 
 pub(crate) fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> String {
-    let lines = vec![
-        format!(
+    let lines = [format!(
             "hive_handoff from={} ({}) to={} ({}) task={} message_id={}",
             response.packet.from_worker.as_deref().unwrap_or("unknown"),
             response.packet.from_session,
@@ -495,14 +494,12 @@ pub(crate) fn render_hive_handoff_summary(response: &HiveHandoffResponse) -> Str
             response.receipt_kind,
             response.recommended_follow,
         ),
-        format!("receipt_summary=\"{}\"", response.receipt_summary),
-    ];
+        format!("receipt_summary=\"{}\"", response.receipt_summary)];
     lines.join("\n")
 }
 
 pub(crate) fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> String {
-    let lines = vec![
-        format!(
+    let lines = [format!(
             "hive_cowork action={} from={} ({}) to={} ({}) task={} message_id={}",
             response.packet.action,
             response.packet.from_worker.as_deref().unwrap_or("unknown"),
@@ -524,8 +521,7 @@ pub(crate) fn render_hive_cowork_summary(response: &HiveCoworkResponse) -> Strin
             response.receipt_kind,
             response.recommended_follow,
         ),
-        format!("receipt_summary=\"{}\"", response.receipt_summary),
-    ];
+        format!("receipt_summary=\"{}\"", response.receipt_summary)];
     lines.join("\n")
 }
 

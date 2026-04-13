@@ -2016,6 +2016,7 @@ pub struct MemoryPolicyConsolidation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MemoryPolicyRuntime {
     pub live_truth: MemoryPolicyLiveTruth,
     pub memory_compilation: MemoryPolicyMemoryCompilation,
@@ -2023,18 +2024,9 @@ pub struct MemoryPolicyRuntime {
     pub skill_gating: MemoryPolicySkillGating,
 }
 
-impl Default for MemoryPolicyRuntime {
-    fn default() -> Self {
-        Self {
-            live_truth: MemoryPolicyLiveTruth::default(),
-            memory_compilation: MemoryPolicyMemoryCompilation::default(),
-            semantic_fallback: MemoryPolicySemanticFallback::default(),
-            skill_gating: MemoryPolicySkillGating::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MemoryPolicyLiveTruth {
     pub read_once_sources: bool,
     pub raw_reopen_requires_change_or_doubt: bool,
@@ -2042,18 +2034,9 @@ pub struct MemoryPolicyLiveTruth {
     pub compile_from_events: bool,
 }
 
-impl Default for MemoryPolicyLiveTruth {
-    fn default() -> Self {
-        Self {
-            read_once_sources: false,
-            raw_reopen_requires_change_or_doubt: false,
-            visible_memory_objects: false,
-            compile_from_events: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MemoryPolicyMemoryCompilation {
     pub event_driven_updates: bool,
     pub patch_not_rewrite: bool,
@@ -2061,18 +2044,9 @@ pub struct MemoryPolicyMemoryCompilation {
     pub source_on_demand: bool,
 }
 
-impl Default for MemoryPolicyMemoryCompilation {
-    fn default() -> Self {
-        Self {
-            event_driven_updates: false,
-            patch_not_rewrite: false,
-            preserve_provenance: false,
-            source_on_demand: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MemoryPolicySemanticFallback {
     pub enabled: bool,
     pub source_of_truth: bool,
@@ -2080,18 +2054,9 @@ pub struct MemoryPolicySemanticFallback {
     pub rerank_with_visible_memory: bool,
 }
 
-impl Default for MemoryPolicySemanticFallback {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            source_of_truth: false,
-            max_items_per_query: 0,
-            rerank_with_visible_memory: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MemoryPolicySkillGating {
     pub propose_from_repeated_patterns: bool,
     pub sandboxed_evaluation: bool,
@@ -2101,18 +2066,6 @@ pub struct MemoryPolicySkillGating {
     pub require_policy_approval: bool,
 }
 
-impl Default for MemoryPolicySkillGating {
-    fn default() -> Self {
-        Self {
-            propose_from_repeated_patterns: false,
-            sandboxed_evaluation: false,
-            auto_activate_low_risk_only: false,
-            gated_activation: false,
-            require_evaluation: false,
-            require_policy_approval: false,
-        }
-    }
-}
 
 fn default_rehydration_limit() -> usize {
     3

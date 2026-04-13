@@ -34,10 +34,10 @@ pub(crate) async fn run_memory_command(
     let bundle_root = resolve_compiled_memory_bundle_root(args.root.as_deref())?;
     let use_runtime_summary = !args.quality
         && !args.list
-        && compiled_memory_target(&args).is_none()
+        && compiled_memory_target(args).is_none()
         && args.query.is_none();
     if use_runtime_summary {
-        match read_memory_surface(&bundle_root, &base_url).await {
+        match read_memory_surface(&bundle_root, base_url).await {
             Ok(response) if args.json => print_json(&response)?,
             Ok(response) => println!("{}", render_memory_surface_summary(&response)),
             Err(_) if !args.json => {
@@ -93,7 +93,7 @@ pub(crate) async fn run_memory_command(
                 render_compiled_memory_index_markdown(&bundle_root, &index)
             );
         }
-    } else if let Some(target) = compiled_memory_target(&args) {
+    } else if let Some(target) = compiled_memory_target(args) {
         let path = resolve_compiled_memory_page(&bundle_root, target)?;
         let content =
             fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;

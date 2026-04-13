@@ -304,8 +304,8 @@ pub(crate) fn ensure_directory_skill_bridge(
 
     if let Ok(existing) = fs::symlink_metadata(target) {
         if existing.file_type().is_symlink() {
-            if let Ok(current) = fs::read_link(target) {
-                if current == source {
+            if let Ok(current) = fs::read_link(target)
+                && current == source {
                     return CapabilityBridgeAction {
                         harness: harness.to_string(),
                         capability: capability.to_string(),
@@ -315,7 +315,6 @@ pub(crate) fn ensure_directory_skill_bridge(
                         notes: vec!["bridge already points at the current source".to_string()],
                     };
                 }
-            }
             if let Err(err) = fs::remove_file(target) {
                 return CapabilityBridgeAction {
                     harness: harness.to_string(),
@@ -395,8 +394,8 @@ pub(crate) fn inspect_directory_skill_bridge(
 
     if let Ok(existing) = fs::symlink_metadata(target) {
         if existing.file_type().is_symlink() {
-            if let Ok(current) = fs::read_link(target) {
-                if current == source {
+            if let Ok(current) = fs::read_link(target)
+                && current == source {
                     return CapabilityBridgeAction {
                         harness: harness.to_string(),
                         capability: capability.to_string(),
@@ -406,7 +405,6 @@ pub(crate) fn inspect_directory_skill_bridge(
                         notes: vec!["bridge already points at the current source".to_string()],
                     };
                 }
-            }
             return CapabilityBridgeAction {
                 harness: harness.to_string(),
                 capability: capability.to_string(),
@@ -677,8 +675,8 @@ pub(crate) fn ensure_claude_command_bridge(
     let target_path = target.display().to_string();
     let desired = render_claude_command_skill_bridge(source_skill, command_name);
 
-    if let Some(parent) = target.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
+    if let Some(parent) = target.parent()
+        && let Err(err) = fs::create_dir_all(parent) {
             return CapabilityBridgeAction {
                 harness: "claude".to_string(),
                 capability: capability.to_string(),
@@ -688,7 +686,6 @@ pub(crate) fn ensure_claude_command_bridge(
                 notes: vec![format!("failed to create target directory: {err}")],
             };
         }
-    }
 
     if let Ok(existing) = fs::read_to_string(&target) {
         if existing == desired {
@@ -1975,7 +1972,7 @@ pub(crate) fn build_bundle_turn_placeholder_config(
         .and_then(|value| value.hive_project_anchor.clone());
     let hive_project_joined_at = runtime
         .as_ref()
-        .and_then(|value| value.hive_project_joined_at.clone());
+        .and_then(|value| value.hive_project_joined_at);
     let authority = runtime.as_ref().and_then(|value| value.authority.clone());
     let base_url = runtime
         .as_ref()
@@ -2124,6 +2121,23 @@ pub(crate) fn maybe_explicit_init_output(args: &InitArgs) -> Option<PathBuf> {
 pub(crate) fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
     let agents_dir = output.join("agents");
     fs::create_dir_all(&agents_dir).with_context(|| format!("create {}", agents_dir.display()))?;
+
+    // Clean up stale per-harness files from pre-10-star model.
+    for stale in [
+        "AGENT_ZERO_MEMORY.md", "AGENT_ZERO_WAKEUP.md",
+        "CLAUDE_CODE_EVENTS.md", "CLAUDE_CODE_MEMORY.md", "CLAUDE_CODE_WAKEUP.md",
+        "CODEX_EVENTS.md", "CODEX_MEMORY.md", "CODEX_WAKEUP.md",
+        "HERMES_MEMORY.md", "HERMES_WAKEUP.md",
+        "OPENCLAW_EVENTS.md", "OPENCLAW_MEMORY.md", "OPENCLAW_WAKEUP.md",
+        "OPENCODE_EVENTS.md", "OPENCODE_MEMORY.md", "OPENCODE_WAKEUP.md",
+        "HARNESS_BRIDGES.md",
+    ] {
+        let path = agents_dir.join(stale);
+        if path.exists() {
+            let _ = fs::remove_file(&path);
+        }
+    }
+
     for (slug, env_agent) in [
         ("agent", None),
         ("codex", Some("codex")),
@@ -2241,7 +2255,8 @@ pub(crate) fn write_agent_profiles(output: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("write {}", ps1_path.display()))?;
     }
 
-    for slug in ["watch"] {
+    {
+        let slug = "watch";
         let shell_profile = render_watch_shell_profile(output);
         let shell_path = agents_dir.join(format!("{slug}.sh"));
         fs::write(&shell_path, shell_profile)
@@ -2733,8 +2748,8 @@ pub(crate) fn build_bundle_capability_registry_with_home(
         });
     }
 
-    for harness_root in detect_claude_family_harness_roots(&home) {
-        capabilities.extend(collect_claude_family_capabilities(&harness_root, &home));
+    for harness_root in detect_claude_family_harness_roots(home) {
+        capabilities.extend(collect_claude_family_capabilities(&harness_root, home));
     }
 
     let opencode_plugin = home

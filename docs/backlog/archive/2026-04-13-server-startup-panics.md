@@ -1,6 +1,6 @@
 # Server Startup Panics on Failure
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-server
 

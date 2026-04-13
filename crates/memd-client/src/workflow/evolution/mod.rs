@@ -924,9 +924,8 @@ pub(crate) fn ensure_evolution_artifacts(
         built
     };
     let existing_branch_manifest = read_latest_evolution_branch_manifest(output)?;
-    if !existing_branch_manifest
-        .as_ref()
-        .is_some_and(|manifest| !manifest.project_root.as_deref().unwrap_or("").is_empty())
+    if existing_branch_manifest
+        .as_ref().is_none_or(|manifest| manifest.project_root.as_deref().unwrap_or("").is_empty())
     {
         let branch_manifest = create_or_update_evolution_branch(output, &proposal)?;
         write_evolution_branch_artifacts(output, &branch_manifest)?;

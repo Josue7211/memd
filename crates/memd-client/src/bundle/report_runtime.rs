@@ -365,11 +365,10 @@ pub(crate) fn read_bundle_rag_config(
         None
     };
 
-    if let Some(state) = resolved.as_ref() {
-        if state.url.is_some() {
+    if let Some(state) = resolved.as_ref()
+        && state.url.is_some() {
             return Ok(Some(state.clone()));
         }
-    }
 
     if let Ok(value) = std::env::var("MEMD_RAG_URL") {
         let value = value.trim().to_string();

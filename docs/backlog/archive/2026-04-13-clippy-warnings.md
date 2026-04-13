@@ -1,6 +1,6 @@
 # 158 Clippy Warnings
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: all crates
 

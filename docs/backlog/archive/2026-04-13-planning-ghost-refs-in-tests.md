@@ -1,6 +1,6 @@
 # .planning/ Ghost References in Tests
 
-Status: `open`
+Status: `closed` — false positive, intentional project fixture setup
 Created: 2026-04-13
 Phase: cross-phase
 

@@ -3,7 +3,7 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-12
+truth_date: 2026-04-13
 version: v1
 version_status: in_progress
 current_phase: phase_g
@@ -15,7 +15,7 @@ active_blockers: []
 
 ## Status Snapshot
 
-- truth date: `2026-04-12`
+- truth date: `2026-04-13`
 - current version: `v1`
 - version status: `in_progress`
 - current phase: `Phase G: Procedural Learning`
@@ -112,20 +112,20 @@ All audit tail items resolved:
 4. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
    Fixed by closing Phase E audit tail and aligning all state sources. Phase-flip rule added.
 
-5. [[2026-04-13-ambiguous-glob-imports]] — `open`. **BLOCKER**.
-   2 ambiguous symbols, 4 call sites. Future Rust hard compile error.
+5. [[2026-04-13-ambiguous-glob-imports]] — `closed`, fixed `2026-04-13`.
+   Removed duplicate re-exports from evaluation/mod.rs. Dropped `allow(ambiguous_glob_imports)`.
 
-6. [[2026-04-13-silent-event-loss]] — `open`. **HIGH**.
-   `let _ =` discards event-spine errors in 3+ production paths.
+6. [[2026-04-13-silent-event-loss]] — `closed`, fixed `2026-04-13`.
+   8 production `let _ =` sites replaced with `if let Err(e)` + eprintln warn logging.
 
-7. [[2026-04-13-healthz-masks-db-errors]] — `open`. **HIGH**.
-   `count().unwrap_or(0)` makes broken DB look healthy.
+7. [[2026-04-13-healthz-masks-db-errors]] — `closed`, fixed `2026-04-13`.
+   healthz now returns 500 on DB errors instead of silent 200 with 0 items.
 
-8. [[2026-04-13-flaky-handoff-verifier-test]] — `open`. **HIGH**.
-   Port collision in full suite. Passes alone.
+8. [[2026-04-13-flaky-handoff-verifier-test]] — `closed`, fixed `2026-04-13`.
+   3 verify-feature tests now spawn mock servers with dynamic ports instead of hardcoded 59999.
 
-9. [[2026-04-13-stale-per-harness-bundle-files]] — `open`. **HIGH**.
-   16 dead per-harness files (~93KB) in `.memd/agents/`. Pre-10-star fossils.
+9. [[2026-04-13-stale-per-harness-bundle-files]] — `closed`, fixed `2026-04-13`.
+   17 dead files deleted. Cleanup step added to `write_agent_profiles` init.
 
 10. [[2026-04-13-hive-deferred-transaction]] — `open`.
     `.transaction()` uses DEFERRED. Concurrent harness writes → SQLITE_BUSY.
@@ -134,14 +134,15 @@ All audit tail items resolved:
     Theory-implementation divergence. Grep-over-files instead of DB tags.
     5 of 6 lanes missing. `INSPIRATION_FILES` misses 2 of 6 files.
 
-12. [[2026-04-13-dead-code-cleanup]] — `open`.
-    4 truly dead functions, 85 suppressions across 25 files.
+12. [[2026-04-13-dead-code-cleanup]] — `closed`, fixed `2026-04-13`.
+    Removed `legacy_dashboard_html` (368 lines) and `empty_dashboard_html` (77 lines).
+    `persist_atlas_link` annotated (Phase H). `is_wake_only_agent` annotated (tested).
 
-13. [[2026-04-13-planning-ghost-refs-in-tests]] — `open`.
-    26 `.planning/` refs across 6 test files. Should use `.memd/`.
+13. [[2026-04-13-planning-ghost-refs-in-tests]] — `closed`, false positive.
+    `.planning/` refs in tests are intentional project fixture setup, not ghost refs.
 
-14. [[2026-04-13-stale-doc-refs]] — `open`.
-    FEATURES.md paths point to old single-file modules now refactored to directories.
+14. [[2026-04-13-stale-doc-refs]] — `closed`, already resolved.
+    FEATURES.md no longer exists — removed in prior audit.
 
 15. [[2026-04-13-wake-packet-kind-coverage]] — `open`.
     Wake packets only surface kinds matching retrieval intent. Others invisible.
@@ -149,11 +150,11 @@ All audit tail items resolved:
 16. [[2026-04-13-checkpoint-resume-asymmetry]] — `open`.
     Checkpoint saves per-item metadata. Resume loads aggregate snapshot. No round-trip.
 
-17. [[2026-04-13-server-startup-panics]] — `open`. **HIGH**.
-    `expect()`/`panic!()` on DB open and TCP bind. Crashes instead of graceful error.
+17. [[2026-04-13-server-startup-panics]] — `closed`, fixed `2026-04-13`.
+    DB open and TCP bind now use match+eprintln+exit(1) with actionable hints.
 
-18. [[2026-04-13-silent-ok-chains]] — `open`.
-    `.filter_map(|r| r.ok())` in procedural + atlas silently drops corrupt rows.
+18. [[2026-04-13-silent-ok-chains]] — `closed`, fixed `2026-04-13`.
+    13 `.ok()` sites in procedural.rs + atlas.rs now log warnings via `.inspect_err()`.
 
 19. [[2026-04-13-untested-api-routes]] — `open`.
     15 of 72 routes (21%) untested. Mostly coordination/tasks — Phase H territory.
@@ -161,8 +162,9 @@ All audit tail items resolved:
 20. [[2026-04-13-multimodal-extraction-stubs]] — `open`.
     PDF/Image/Video extraction returns placeholder strings. Mineru/RagAnything unwired.
 
-21. [[2026-04-13-clippy-warnings]] — `open`.
-    158 warnings. 52 collapsible ifs, 14 too-many-args, 6 identical blocks.
+21. [[2026-04-13-clippy-warnings]] — `closed`, fixed `2026-04-13`.
+    158→36 warnings (77% reduction). Collapsible ifs auto-fixed, derive impls, lifetime elision.
+    Remaining 35 are too-many-args and identical blocks requiring manual refactoring.
 
 ## Recently Closed
 

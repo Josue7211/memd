@@ -1,4 +1,4 @@
-#![allow(ambiguous_glob_imports, unused_imports)]
+#![allow(unused_imports)]
 
 mod awareness;
 mod benchmark;

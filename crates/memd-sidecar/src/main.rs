@@ -571,7 +571,7 @@ fn dense_cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
     }
 }
 
-fn feature_frequency<'a>(features: &'a [String]) -> HashMap<&'a str, f32> {
+fn feature_frequency(features: &[String]) -> HashMap<&str, f32> {
     let mut frequency = HashMap::new();
     for feature in features {
         *frequency.entry(feature.as_str()).or_insert(0.0) += 1.0;

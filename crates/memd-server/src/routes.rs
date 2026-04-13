@@ -1,10 +1,13 @@
 use super::*;
 
-pub(crate) async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse {
+pub(crate) async fn healthz(
+    State(state): State<AppState>,
+) -> Result<Json<HealthResponse>, (StatusCode, String)> {
+    let items = state.store.count().map_err(internal_error)?;
+    Ok(Json(HealthResponse {
         status: "ok".to_string(),
-        items: state.store.count().unwrap_or(0),
-    })
+        items,
+    }))
 }
 
 pub(crate) async fn dashboard(
@@ -717,14 +720,13 @@ pub(crate) async fn post_hive_claim_recover(
             "from_session must not be empty".to_string(),
         ));
     }
-    if let Some(to_session) = req.to_session.as_deref() {
-        if to_session.trim().is_empty() {
+    if let Some(to_session) = req.to_session.as_deref()
+        && to_session.trim().is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
                 "to_session must not be empty".to_string(),
             ));
         }
-    }
     let response = state
         .store
         .recover_hive_claim(&req)

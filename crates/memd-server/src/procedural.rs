@@ -66,8 +66,8 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
+            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
             .collect();
 
         Ok(ProcedureListResponse { procedures })
@@ -102,7 +102,7 @@ impl SqliteStore {
             supersedes: req.supersedes,
         };
         let payload = serde_json::to_string(&procedure)?;
-        let kind_str = serde_json::to_value(&procedure.kind)
+        let kind_str = serde_json::to_value(procedure.kind)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default();
@@ -144,8 +144,8 @@ impl SqliteStore {
                     let p: String = row.get(0)?;
                     Ok(p)
                 })?
-                .filter_map(|r| r.ok())
-                .filter_map(|p| serde_json::from_str::<Procedure>(&p).ok())
+                .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
+                .filter_map(|p| serde_json::from_str::<Procedure>(&p).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
                 .collect();
             for existing in promoted {
                 let existing_trigger = existing.trigger.to_lowercase();
@@ -179,7 +179,7 @@ impl SqliteStore {
             .query_map(params![cutoff.to_rfc3339()], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
-            .filter_map(|r| r.ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: stale procedure row read: {e}")).ok())
             .collect();
         drop(stmt);
 
@@ -190,10 +190,12 @@ impl SqliteStore {
                 proc.status = ProcedureStatus::Retired;
                 proc.updated_at = now;
                 if let Ok(new_payload) = serde_json::to_string(&proc) {
-                    let _ = conn.execute(
+                    if let Err(e) = conn.execute(
                         "UPDATE procedures SET status = 'retired', updated_at = ?1, payload_json = ?2 WHERE id = ?3",
                         params![now.to_rfc3339(), new_payload, id_str],
-                    );
+                    ) {
+                        eprintln!("warn: auto_retire_stale_procedures update: {e:#}");
+                    }
                     retired += 1;
                 }
             }
@@ -210,7 +212,9 @@ impl SqliteStore {
         req: &ProcedureMatchRequest,
     ) -> anyhow::Result<ProcedureMatchResponse> {
         // G6: Auto-retire stale procedures before matching.
-        let _ = self.auto_retire_stale_procedures();
+        if let Err(e) = self.auto_retire_stale_procedures() {
+            eprintln!("warn: auto_retire_stale_procedures: {e:#}");
+        }
         let conn = self.connect()?;
         let mut sql = String::from(
             "SELECT id, payload_json FROM procedures WHERE status = 'promoted'",
@@ -239,8 +243,8 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: procedure row read: {e}")).ok())
+            .filter_map(|payload| serde_json::from_str::<Procedure>(&payload).inspect_err(|e| eprintln!("warn: procedure json parse: {e}")).ok())
             .collect();
 
         // Score each procedure against the context string.
@@ -456,7 +460,7 @@ impl SqliteStore {
                 ],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )?
-            .filter_map(|r| r.ok())
+            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: detect candidate row read: {e}")).ok())
             .collect();
         drop(stmt);
         drop(conn);

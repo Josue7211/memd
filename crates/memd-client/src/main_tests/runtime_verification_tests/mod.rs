@@ -1775,6 +1775,10 @@ async fn run_verify_feature_command_executes_seeded_handoff_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
+    let base_url =
+        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    write_test_bundle_config(&output, &base_url);
+
     let report = run_verify_feature_command(&VerifyFeatureArgs {
         feature_id: "feature.bundle.handoff".to_string(),
         output: output.clone(),
@@ -1805,6 +1809,10 @@ async fn run_verify_feature_command_executes_seeded_verifier() {
     fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
+
+    let base_url =
+        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
         feature_id: "feature.session_continuity".to_string(),
@@ -1844,6 +1852,10 @@ async fn run_verify_feature_command_executes_seeded_wake_verifier() {
     fs::create_dir_all(repo_root.join(".git")).expect("create git dir");
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
+
+    let base_url =
+        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
         feature_id: "feature.bundle.wake".to_string(),

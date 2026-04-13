@@ -197,14 +197,13 @@ pub(crate) fn eval_failure_reason(
     fail_below: Option<u8>,
     fail_on_regression: bool,
 ) -> Option<String> {
-    if let Some(threshold) = fail_below {
-        if response.score < threshold {
+    if let Some(threshold) = fail_below
+        && response.score < threshold {
             return Some(format!(
                 "bundle evaluation score {} fell below required threshold {}",
                 response.score, threshold
             ));
         }
-    }
 
     if fail_on_regression && response.score_delta.is_some_and(|delta| delta < 0) {
         let baseline = response

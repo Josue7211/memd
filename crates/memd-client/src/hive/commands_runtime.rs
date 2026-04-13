@@ -520,8 +520,8 @@ pub(crate) async fn run_hive_project_command(
         if let Some(shared_base_url) = resolve_project_hive_base_url(
             Some(&runtime_after_enable),
             runtime_after_enable.base_url.as_deref(),
-        ) {
-            if shared_base_url != runtime_after_enable.base_url.as_deref().unwrap_or_default() {
+        )
+            && shared_base_url != runtime_after_enable.base_url.as_deref().unwrap_or_default() {
                 set_bundle_base_url(&args.output, &shared_base_url)?;
                 set_bundle_shared_authority_state(
                     &args.output,
@@ -530,7 +530,6 @@ pub(crate) async fn run_hive_project_command(
                     "shared authority available",
                 )?;
             }
-        }
         write_agent_profiles(&args.output)?;
         action = "enabled".to_string();
     } else if args.disable {

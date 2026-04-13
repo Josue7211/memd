@@ -1,6 +1,6 @@
 # healthz Masks Database Errors
 
-- status: `open`
+- status: `closed`
 - found: `2026-04-13`
 - scope: memd-server
 

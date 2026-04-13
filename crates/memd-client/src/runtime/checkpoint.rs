@@ -319,11 +319,10 @@ pub(crate) fn supersede_query_keywords(query: &str) -> Vec<String> {
 
 pub(crate) fn supersede_query_candidates(query: &str) -> Vec<String> {
     let mut candidates = vec![query.trim().to_string()];
-    if let Some(condensed) = condensed_supersede_query(query) {
-        if !candidates.iter().any(|existing| existing == &condensed) {
+    if let Some(condensed) = condensed_supersede_query(query)
+        && !candidates.iter().any(|existing| existing == &condensed) {
             candidates.push(condensed);
         }
-    }
     let keywords = supersede_query_keywords(query);
     for window in keywords.windows(2).take(3) {
         let candidate = window.join(" ");
