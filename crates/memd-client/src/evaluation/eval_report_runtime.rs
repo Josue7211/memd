@@ -58,6 +58,44 @@ pub(crate) async fn eval_bundle_memory(
         findings.push("inbox pressure is high; resume lane may need maintenance".to_string());
     }
 
+    // Dogfood assertions: operational health checks.
+    let status_record_count = snapshot
+        .working
+        .records
+        .iter()
+        .filter(|r| r.record.contains("kind=status"))
+        .count();
+    let total_working = snapshot.working.records.len();
+    let has_non_status = total_working > status_record_count;
+    if total_working > 0 && !has_non_status {
+        score -= 15;
+        findings.push("working memory contains only status records; no user facts/decisions".to_string());
+    }
+    if total_working >= 4 && status_record_count * 2 > total_working {
+        score -= 10;
+        findings.push(format!(
+            "status records are {}/{} (>{:.0}%) of working memory",
+            status_record_count,
+            total_working,
+            (status_record_count as f32 / total_working as f32) * 100.0
+        ));
+    }
+
+    let context_has_fact_or_decision = snapshot.context.records.iter().any(|r| {
+        r.record.contains("kind=fact")
+            || r.record.contains("kind=decision")
+            || r.record.contains("kind=procedural")
+    });
+    if !snapshot.context.records.is_empty() && !context_has_fact_or_decision {
+        score -= 10;
+        findings.push("context/wake contains no facts, decisions, or procedures".to_string());
+    }
+
+    if snapshot.working.procedures.is_empty() {
+        score -= 5;
+        findings.push("procedure table is empty; no auto-detected procedures".to_string());
+    }
+
     let score = score.clamp(0, 100) as u8;
     let status = if score >= 85 {
         "strong"
