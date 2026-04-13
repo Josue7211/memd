@@ -548,6 +548,15 @@ pub(crate) fn context_score(
         MemoryStage::Candidate => 0.25,
     };
 
+    // Kind-based scoring: boost user-meaningful kinds, demote status noise.
+    score += match item.kind {
+        MemoryKind::Fact | MemoryKind::Decision | MemoryKind::Procedural => 0.30,
+        MemoryKind::Preference | MemoryKind::Constraint | MemoryKind::Runbook => 0.20,
+        MemoryKind::Pattern | MemoryKind::Topology | MemoryKind::SelfModel => 0.10,
+        MemoryKind::Status => -0.20,
+        _ => 0.0,
+    };
+
     score += plan.scope_rank_bonus(item.scope);
     score += plan.intent_scope_bonus(item.scope);
     score += entity_attention_bonus(item, entity);
