@@ -2467,3 +2467,405 @@ async fn atlas_scope_pivot_filters_by_scope() {
     );
     assert_eq!(response.nodes[0].memory_id, global_item.id);
 }
+
+#[tokio::test]
+async fn atlas_from_working_seeds_from_working_memory() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-fromwork-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store Status items (working memory candidates)
+    for i in 0..2 {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("working status {i}"),
+                    kind: MemoryKind::Status,
+                    scope: MemoryScope::Project,
+                    project: Some("atlas-work".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: Some(0.8),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: Vec::new(),
+                    status: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store status item");
+    }
+
+    // Store a non-working Fact (should NOT be seeded)
+    state
+        .store_item(
+            StoreMemoryRequest {
+                content: "regular fact not working".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-work".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact");
+
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: None,
+            project: Some("atlas-work".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            min_salience: None,
+            include_evidence: false,
+            from_working: true,
+        })
+        .expect("explore from working");
+
+    // Should seed from Status items only, not the Fact
+    assert_eq!(
+        response.nodes.len(),
+        2,
+        "from_working should seed 2 Status items, got {}",
+        response.nodes.len()
+    );
+    assert!(response.nodes.iter().all(|n| n.kind == MemoryKind::Status));
+}
+
+#[tokio::test]
+async fn atlas_supersedes_neighborhood_finds_corrections() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-supersedes-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store the old item (will be superseded)
+    let (old_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "old belief about auth".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-super".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.5),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store old item");
+
+    // Store the new item that supersedes the old
+    let (new_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "corrected belief about auth".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-super".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.95),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![old_item.id],
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store new item");
+
+    // Explore from the new item — old item should appear as corrective neighbor
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(new_item.id),
+            project: Some("atlas-super".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(1),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            min_salience: None,
+            include_evidence: false,
+            from_working: false,
+        })
+        .expect("explore with supersedes");
+
+    assert_eq!(
+        response.nodes.len(),
+        2,
+        "should find new item + superseded old item"
+    );
+    let corrective_link = response
+        .links
+        .iter()
+        .find(|l| l.link_kind == memd_schema::AtlasLinkKind::Corrective);
+    assert!(
+        corrective_link.is_some(),
+        "should have a corrective link to superseded item"
+    );
+    assert_eq!(
+        corrective_link.unwrap().label.as_deref(),
+        Some("supersedes")
+    );
+}
+
+#[tokio::test]
+async fn atlas_persisted_links_survive_reload() {
+    let db_path = std::env::temp_dir().join(format!(
+        "memd-atlas-persist-{}.db",
+        uuid::Uuid::new_v4()
+    ));
+    let store = SqliteStore::open(&db_path).expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store two items
+    let (item_a, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "persist link A".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("atlas-persist".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store A");
+
+    let (item_b, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "persist link B".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("atlas-persist".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: Some(0.85),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                status: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store B");
+
+    // Persist a link
+    let link = memd_schema::AtlasLink {
+        from_node_id: item_a.id,
+        to_node_id: item_b.id,
+        link_kind: memd_schema::AtlasLinkKind::Causal,
+        weight: 0.8,
+        label: Some("A caused B".to_string()),
+    };
+    store.persist_atlas_link(&link).expect("persist link");
+
+    // Reopen the store (simulates restart)
+    let store2 = SqliteStore::open(&db_path).expect("reopen store");
+
+    // Load persisted links
+    let loaded = store2
+        .load_persisted_links_for_node(item_a.id)
+        .expect("load links");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].to_node_id, item_b.id);
+    assert_eq!(loaded[0].link_kind, memd_schema::AtlasLinkKind::Causal);
+    assert_eq!(loaded[0].label.as_deref(), Some("A caused B"));
+
+    // Explore from A — should find B via persisted link
+    let response = store2
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: None,
+            node_id: Some(item_a.id),
+            project: Some("atlas-persist".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(1),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            min_salience: None,
+            include_evidence: false,
+            from_working: false,
+        })
+        .expect("explore with persisted link");
+
+    assert_eq!(
+        response.nodes.len(),
+        2,
+        "should find A + B via persisted link"
+    );
+    assert!(
+        response
+            .links
+            .iter()
+            .any(|l| l.link_kind == memd_schema::AtlasLinkKind::Causal),
+        "should include the persisted causal link"
+    );
+}
+
+#[tokio::test]
+async fn atlas_salience_pivot_uses_entity_salience_score() {
+    let store = SqliteStore::open(std::env::temp_dir().join(format!(
+        "memd-atlas-salience-{}.db",
+        uuid::Uuid::new_v4()
+    )))
+    .expect("open test store");
+    let state = AppState {
+        store: store.clone(),
+    };
+
+    // Store items — entity salience_score is set during store_item
+    // via entity creation. Items with higher confidence get higher salience.
+    for (i, cf) in [0.3, 0.9].iter().enumerate() {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("salience test item {i}"),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("atlas-sal".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: None,
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: Some(*cf),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: Vec::new(),
+                    status: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store item");
+    }
+
+    let regions = store
+        .generate_regions_for_project(Some("atlas-sal"), Some("main"), None)
+        .expect("generate");
+    let region = &regions[0];
+
+    // Filter by min_salience=0.8 — only the 0.9 item should pass
+    let response = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("atlas-sal".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            min_salience: Some(0.8),
+            include_evidence: false,
+            from_working: false,
+        })
+        .expect("explore with salience filter");
+
+    assert_eq!(
+        response.nodes.len(),
+        1,
+        "only high-salience item should pass, got {}",
+        response.nodes.len()
+    );
+}

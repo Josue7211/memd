@@ -160,11 +160,11 @@ impl SqliteStore {
         let mut seen = std::collections::HashSet::new();
         for id in &seed_ids {
             if let Some(item) = self.get(*id)? {
-                if !passes_pivot_filters(&item, req) {
+                let entity = self.entity_for_item(item.id)?;
+                if !passes_pivot_filters_with_entity(&item, entity.as_ref(), req) {
                     continue;
                 }
                 if seen.insert(item.id) {
-                    let entity = self.entity_for_item(item.id)?;
                     let evidence_count = self.event_count_for_item(item.id)?;
                     nodes.push(item_to_atlas_node(
                         &item,
@@ -725,15 +725,24 @@ fn item_lane(item: &MemoryItem) -> Option<String> {
 }
 
 fn passes_pivot_filters(item: &MemoryItem, req: &AtlasExploreRequest) -> bool {
+    passes_pivot_filters_with_entity(item, None, req)
+}
+
+fn passes_pivot_filters_with_entity(
+    item: &MemoryItem,
+    entity: Option<&memd_schema::MemoryEntityRecord>,
+    req: &AtlasExploreRequest,
+) -> bool {
     if let Some(min_trust) = req.min_trust {
         if item.confidence < min_trust {
             return false;
         }
     }
     if let Some(min_salience) = req.min_salience {
-        // Salience approximated as confidence for items without entity data.
-        // Entity salience_score is used when available via the enrichment path.
-        if item.confidence < min_salience {
+        let salience = entity
+            .map(|e| e.salience_score)
+            .unwrap_or(item.confidence);
+        if salience < min_salience {
             return false;
         }
     }
