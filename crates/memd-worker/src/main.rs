@@ -5,7 +5,7 @@ use clap::Parser;
 use memd_client::MemdClient;
 use memd_schema::{
     ExpireMemoryRequest, MemoryConsolidationRequest, MemoryDecayRequest, MemoryKind, MemoryScope,
-    MemoryStage, MemoryStatus, SearchMemoryRequest, VerifyMemoryRequest,
+    MemoryStage, MemoryStatus, ProcedureDetectRequest, SearchMemoryRequest, VerifyMemoryRequest,
 };
 use tokio::time::{Duration, sleep};
 
@@ -44,20 +44,22 @@ async fn main() -> anyhow::Result<()> {
         let result = run_once(&client, &args).await?;
         if args.report {
             println!(
-                "learning report: reinforced={} cooled={} consolidated={} stale_checked={} skipped={}",
+                "learning report: reinforced={} cooled={} consolidated={} procedures={} stale_checked={} skipped={}",
                 result.verified,
                 result.decayed,
                 result.consolidated,
+                result.procedures_detected,
                 result.expired,
                 result.skipped
             );
         } else {
             println!(
-                "verification pass complete: verified={}, expired={}, decayed={}, consolidated={}, skipped={}",
+                "verification pass complete: verified={}, expired={}, decayed={}, consolidated={}, procedures={}, skipped={}",
                 result.verified,
                 result.expired,
                 result.decayed,
                 result.consolidated,
+                result.procedures_detected,
                 result.skipped
             );
         }
@@ -70,6 +72,7 @@ struct WorkerResult {
     expired: usize,
     decayed: usize,
     consolidated: usize,
+    procedures_detected: usize,
     skipped: usize,
 }
 
@@ -145,11 +148,23 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         .await
         .context("consolidate semantic memory")?;
 
+    let procedures = client
+        .procedure_detect(&ProcedureDetectRequest {
+            project: None,
+            namespace: None,
+            min_events: Some(3),
+            lookback_days: Some(14),
+            max_candidates: Some(5),
+        })
+        .await
+        .context("detect procedures")?;
+
     Ok(WorkerResult {
         verified,
         expired,
         decayed: decay.updated,
         consolidated: consolidation.consolidated,
+        procedures_detected: procedures.created,
         skipped: 0,
     })
 }

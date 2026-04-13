@@ -1151,8 +1151,9 @@ fn codex_pack_docs_cover_operational_flow_and_fallback() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
     let setup = fs::read_to_string(repo_root.join("docs/core/setup.md")).expect("read setup docs");
     let api = fs::read_to_string(repo_root.join("docs/core/api.md")).expect("read api docs");
-    let positioning = fs::read_to_string(repo_root.join("docs/reference/oss-positioning.md"))
-        .expect("read oss docs");
+    let positioning =
+        fs::read_to_string(repo_root.join("docs/reference/archive/oss-positioning.md"))
+            .expect("read oss docs");
     let agent_zero = fs::read_to_string(repo_root.join("integrations/agent-zero/README.md"))
         .expect("read agent zero docs");
     let codex = fs::read_to_string(repo_root.join("integrations/codex/README.md"))

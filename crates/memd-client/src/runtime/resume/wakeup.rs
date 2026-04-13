@@ -258,7 +258,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
         );
         protocol.push_str("- Recall: `memd lookup --output .memd --query \"...\"`.\n");
         protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
-        protocol.push_str("- Writes: `remember-short`, `remember-decision`, `remember-preference`, `remember-long`, `capture-live`, `correct-memory`, `sync-semantic`, `watch`.\n");
+        protocol.push_str("- Writes: `memd remember --kind fact` (long-term), `memd remember --kind decision`, `memd remember --kind preference`, `memd checkpoint` (short-term), `memd hook capture --summary` (live/correction).\n");
         if verbose {
             protocol
                 .push_str("- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n");
