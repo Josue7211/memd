@@ -1320,8 +1320,13 @@ pub(crate) fn render_voice_mode_section(voice_mode: &str) -> String {
         normalize_voice_mode_value(voice_mode).unwrap_or_else(|_| default_voice_mode());
     match voice_mode.as_str() {
         "normal" => "- default: normal\n- keep replies clear and complete\n- avoid forced compression\n".to_string(),
-        "caveman-lite" => "- default: `caveman-lite`\n- compress, keep normal spelling and exact technical terms\n".to_string(),
-        _ => "- default: `caveman-ultra`\n- compress hard, keep normal spelling and exact technical terms\n".to_string(),
+        "caveman-lite" => "- default: `caveman-lite`\n- no filler/hedging, keep articles + full sentences\n- professional but tight\n- keep exact technical terms\n".to_string(),
+        "caveman-full" => "- default: `caveman-full`\n- drop articles, fragments OK, short synonyms\n- keep exact technical terms\n- keep technical accuracy\n".to_string(),
+        "caveman-ultra" => "- default: `caveman-ultra`\n- abbreviate (DB/auth/config/req/res/fn/impl), strip conjunctions\n- arrows for causality (X → Y), one word when one word enough\n- keep exact technical terms\n- keep technical accuracy\n- match `.memd/config.json` exactly if the user changes voice_mode\n- reply style is derived from config; if draft slips, rewrite before sending\n".to_string(),
+        "wenyan-lite" => "- default: `wenyan-lite`\n- semi-classical Chinese, drop filler/hedging but keep grammar structure\n- classical register\n".to_string(),
+        "wenyan-full" => "- default: `wenyan-full`\n- maximum classical terseness, fully 文言文\n- 80-90% character reduction, classical sentence patterns\n".to_string(),
+        "wenyan-ultra" => "- default: `wenyan-ultra`\n- extreme abbreviation, classical Chinese feel, maximum compression\n".to_string(),
+        _ => "- default: `caveman-full`\n- drop articles, fragments OK, short synonyms\n- keep exact technical terms\n- keep technical accuracy\n".to_string(),
     }
 }
 
@@ -1330,7 +1335,7 @@ pub(crate) fn render_codex_agents_bridge_markdown(output: &Path) -> String {
     let normalized =
         normalize_voice_mode_value(&voice_mode).unwrap_or_else(|_| default_voice_mode());
     format!(
-        "These instructions are managed by memd.\n\n## memd voice\n\n- Voice source of truth: `.memd/config.json` → `voice_mode`.\n- Current default: `{current_default}`.\n- Caveman = compressed wording, not broken spelling. Keep exact technical terms.\n\n## memd runtime\n\n- memd is the memory dependency for this repo.\n- Start from `.memd/wake.md` before relying on transcript recall.\n- Deeper recall: `memd lookup --output .memd --query \"...\"` or `memd resume --output .memd`.\n- Corrections: write back via `correct-memory.sh`, do not trust transcript over durable truth.\n",
+        "These instructions are managed by memd.\n\n## memd voice bootstrap\n\n- Treat `.memd/config.json` as the source of truth for this repo's active `voice_mode`.\n- Valid repo voice modes are `normal`, `caveman-lite`, `caveman-full`, `caveman-ultra`, `wenyan-lite`, `wenyan-full`, and `wenyan-ultra`.\n- If the user asks which voice is active, answer from `.memd/config.json`.\n- Do not tell the user to manually enable a voice that `.memd/config.json` already sets.\n- Do not invent a second source of truth for voice mode.\n- Do not slip from the repo voice mode; stay in `{current_default}` unless `.memd/config.json` changes.\n- Caveman modes mean compressed wording, not broken spelling.\n- Keep normal spelling and exact technical terms even when voice mode is `caveman-lite` or `caveman-ultra`.\n- Reply style is derived from config. If your draft is not in `{current_default}`, stop and rewrite it before sending.\n\n## current repo default\n\n- The current bundle file `.memd/config.json` sets `voice_mode` to `{current_default}`.\n- Until that bundle setting changes, use `{current_default}` by default in this repo.\n\n## memd runtime\n\n- memd is the memory/bootstrap dependency for this repo.\n- Treat memd bundle state as startup truth before answering.\n- Start from `.memd/wake.md` before relying on transcript recall.\n- Use `.memd/mem.md` for the deeper compact memory view.\n- Use `.memd/events.md` for the event log.\n- Durable truth beats transcript recall.\n- For decisions, preferences, project history, or prior corrections, run `memd lookup --output .memd --query \"...\"` before answering.\n- Use `memd hook spill --output .memd --stdin --apply` at compaction boundaries to turn turn-state deltas into durable candidate memory.\n- If the user corrects you, write the correction back instead of trusting the transcript.\n- Keep responses short, direct, and token-efficient unless the user asks for detail.\n",
         current_default = normalized,
     )
 }

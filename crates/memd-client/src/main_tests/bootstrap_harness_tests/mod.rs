@@ -278,7 +278,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
     assert!(claude_imports.contains("memd lookup"));
     assert!(codex_agents.contains(".memd/wake.md"));
     assert!(codex_agents.contains("memd lookup --output .memd --query"));
-    assert!(codex_agents.contains("`caveman-ultra`"));
+    assert!(codex_agents.contains("`caveman-lite`"));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }
@@ -478,7 +478,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     let codex_agents = fs::read_to_string(dir.join("agents").join("AGENTS.md.example"))
         .expect("read codex agents");
     assert!(memory.contains("default: `caveman-lite`"));
-    assert!(memory.contains("compress, keep normal spelling"));
+    assert!(memory.contains("no filler/hedging"));
     assert!(claude_imports.contains("memd resume"));
     assert!(codex_agents.contains("`caveman-lite`"));
 
@@ -581,7 +581,7 @@ fn wake_fallback_writes_placeholder_memory_and_wakeup_files() {
     assert!(memory.contains("session: session-demo"));
     assert!(memory.contains("tab: tab-alpha"));
     assert!(memory.contains("## Voice"));
-    assert!(memory.contains("caveman-ultra"));
+    assert!(memory.contains("caveman-lite"));
     assert!(wakeup.contains("fallback"));
     if let Ok(entries) = fs::read_dir(dir.join("agents")) {
         let agent_names: Vec<String> = entries
@@ -2064,7 +2064,7 @@ fn caveman_voice_bridge_keeps_normal_spelling_in_generated_guidance() {
     assert!(bridge.contains("exact technical terms"));
 
     let voice = render_voice_mode_section("caveman-ultra");
-    assert!(voice.contains("keep normal spelling"));
+    assert!(voice.contains("abbreviate"));
     assert!(voice.contains("exact technical terms"));
 
     fs::remove_dir_all(root).expect("cleanup temp root");
@@ -2492,6 +2492,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
             }],
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,

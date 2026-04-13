@@ -1124,6 +1124,7 @@ items: 7
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
+            procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,
@@ -1186,6 +1187,7 @@ items: 7
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
+            procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,

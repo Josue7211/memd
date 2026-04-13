@@ -372,6 +372,7 @@ mod tests {
                 salience_score: 0.82,
             }],
             semantic_consolidation: None,
+            procedures: vec![],
         };
 
         let summary = render_working_summary(&response, true);

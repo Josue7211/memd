@@ -265,6 +265,7 @@ async fn mock_working_memory_for_spill(
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
+            procedures: vec![],
             }),
     )
 }
@@ -598,6 +599,7 @@ async fn resume_command_surfaces_compact_working_state_from_live_server() {
         rehydration_queue: Vec::new(),
         traces: Vec::new(),
         semantic_consolidation: None,
+            procedures: vec![],
     });
 
     env.set("HOME", &home);
@@ -796,6 +798,7 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
             rehydration_queue: Vec::new(),
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: RetrievalRoute::ProjectFirst,

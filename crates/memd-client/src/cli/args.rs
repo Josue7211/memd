@@ -81,6 +81,7 @@ pub(crate) enum Commands {
     Recall(RecallArgs),
     Timeline(TimelineArgs),
     Atlas(AtlasArgs),
+    Procedure(ProcedureArgs),
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
     MaintenanceReport(MaintenanceReportArgs),
@@ -589,6 +590,160 @@ pub(crate) struct AtlasCompileArgs {
 
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
+}
+
+// ---------------------------------------------------------------------------
+// Procedural memory CLI args (Phase G)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ProcedureCommand {
+    /// List procedures with optional filters.
+    List(ProcedureListArgs),
+    /// Record a new procedure.
+    Record(ProcedureRecordArgs),
+    /// Find procedures matching a context.
+    Match(ProcedureMatchArgs),
+    /// Promote a candidate procedure to promoted status.
+    Promote(ProcedurePromoteArgs),
+    /// Record a successful use of a procedure.
+    Use(ProcedureUseArgs),
+    /// Retire a procedure.
+    Retire(ProcedureRetireArgs),
+    /// Auto-detect procedures from episodic event patterns.
+    Detect(ProcedureDetectArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureArgs {
+    #[command(subcommand)]
+    pub(crate) command: ProcedureCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureListArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) kind: Option<String>,
+
+    #[arg(long)]
+    pub(crate) status: Option<String>,
+
+    #[arg(long)]
+    pub(crate) limit: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureRecordArgs {
+    #[arg(long)]
+    pub(crate) name: String,
+
+    #[arg(long)]
+    pub(crate) description: String,
+
+    /// workflow, policy, or recovery
+    #[arg(long, default_value = "workflow")]
+    pub(crate) kind: String,
+
+    #[arg(long)]
+    pub(crate) trigger: String,
+
+    /// Comma-separated steps
+    #[arg(long)]
+    pub(crate) steps: String,
+
+    #[arg(long)]
+    pub(crate) success_criteria: Option<String>,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Comma-separated tags
+    #[arg(long)]
+    pub(crate) tags: Option<String>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureMatchArgs {
+    /// Context to match against
+    pub(crate) context: String,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) limit: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedurePromoteArgs {
+    /// Procedure ID to promote
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureUseArgs {
+    /// Procedure ID to record use for
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) session: Option<String>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureRetireArgs {
+    /// Procedure ID to retire
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ProcedureDetectArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) min_events: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) lookback_days: Option<i64>,
+
+    #[arg(long)]
+    pub(crate) max_candidates: Option<usize>,
+
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

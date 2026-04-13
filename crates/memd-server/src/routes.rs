@@ -1640,6 +1640,66 @@ pub(crate) async fn post_atlas_generate(
     Ok(Json(AtlasRegionsResponse { regions }))
 }
 
+// ---------------------------------------------------------------------------
+// Procedural memory routes (Phase G)
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn get_procedures(
+    State(state): State<AppState>,
+    Query(req): Query<ProcedureListRequest>,
+) -> Result<Json<ProcedureListResponse>, (StatusCode, String)> {
+    let response = state.store.list_procedures(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_record(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedureRecordRequest>,
+) -> Result<Json<ProcedureRecordResponse>, (StatusCode, String)> {
+    let response = state.store.record_procedure(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_match(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedureMatchRequest>,
+) -> Result<Json<ProcedureMatchResponse>, (StatusCode, String)> {
+    let response = state.store.match_procedures(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_promote(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedurePromoteRequest>,
+) -> Result<Json<ProcedurePromoteResponse>, (StatusCode, String)> {
+    let response = state.store.promote_procedure(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_use(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedureUseRequest>,
+) -> Result<Json<ProcedureUseResponse>, (StatusCode, String)> {
+    let response = state.store.use_procedure(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_retire(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedureRetireRequest>,
+) -> Result<Json<ProcedureRetireResponse>, (StatusCode, String)> {
+    let response = state.store.retire_procedure(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn post_procedure_detect(
+    State(state): State<AppState>,
+    Json(req): Json<ProcedureDetectRequest>,
+) -> Result<Json<ProcedureDetectResponse>, (StatusCode, String)> {
+    let response = state.store.detect_procedures(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 #[derive(Clone)]
 pub(crate) struct MemoryViewItem {
     pub(crate) item: MemoryItem,

@@ -114,6 +114,7 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
             }],
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,

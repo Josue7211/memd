@@ -363,6 +363,226 @@ pub(crate) async fn run_atlas_command(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Procedural memory CLI commands (Phase G)
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn run_procedure_command(
+    client: &MemdClient,
+    args: super::args::ProcedureArgs,
+) -> anyhow::Result<()> {
+    use super::args::ProcedureCommand;
+    match args.command {
+        ProcedureCommand::List(args) => {
+            let kind = args
+                .kind
+                .as_deref()
+                .map(|s| serde_json::from_value(serde_json::Value::String(s.to_string())))
+                .transpose()
+                .context("parse procedure kind")?;
+            let status = args
+                .status
+                .as_deref()
+                .map(|s| serde_json::from_value(serde_json::Value::String(s.to_string())))
+                .transpose()
+                .context("parse procedure status")?;
+            let req = memd_schema::ProcedureListRequest {
+                project: args.project,
+                namespace: args.namespace,
+                kind,
+                status,
+                limit: args.limit,
+            };
+            let response = client.procedures(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_procedures(&response));
+            }
+        }
+        ProcedureCommand::Record(args) => {
+            let kind: memd_schema::ProcedureKind =
+                serde_json::from_value(serde_json::Value::String(args.kind.clone()))
+                    .context("parse procedure kind (workflow/policy/recovery)")?;
+            let steps: Vec<String> = args.steps.split(',').map(|s| s.trim().to_string()).collect();
+            let tags: Vec<String> = args
+                .tags
+                .as_deref()
+                .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+            let req = memd_schema::ProcedureRecordRequest {
+                name: args.name,
+                description: args.description,
+                kind,
+                trigger: args.trigger,
+                steps,
+                success_criteria: args.success_criteria,
+                source_ids: vec![],
+                project: args.project,
+                namespace: args.namespace,
+                tags,
+            };
+            let response = client.procedure_record(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!(
+                    "Recorded procedure: {} [{}] ({})",
+                    response.procedure.name,
+                    &response.procedure.id.to_string()[..8],
+                    serde_json::to_value(&response.procedure.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_default()
+                );
+            }
+        }
+        ProcedureCommand::Match(args) => {
+            let req = memd_schema::ProcedureMatchRequest {
+                context: args.context,
+                project: args.project,
+                namespace: args.namespace,
+                limit: args.limit,
+            };
+            let response = client.procedure_match(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!("{}", render_procedures_match(&response));
+            }
+        }
+        ProcedureCommand::Promote(args) => {
+            let id: uuid::Uuid = args.id.parse().context("parse procedure id")?;
+            let req = memd_schema::ProcedurePromoteRequest { procedure_id: id };
+            let response = client.procedure_promote(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!(
+                    "Promoted: {} [{}] confidence={:.2}",
+                    response.procedure.name,
+                    &response.procedure.id.to_string()[..8],
+                    response.procedure.confidence
+                );
+            }
+        }
+        ProcedureCommand::Use(args) => {
+            let id: uuid::Uuid = args.id.parse().context("parse procedure id")?;
+            let req = memd_schema::ProcedureUseRequest {
+                procedure_id: id,
+                session: args.session,
+            };
+            let response = client.procedure_use(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!(
+                    "Recorded use: {} [{}] use_count={} sessions={}",
+                    response.procedure.name,
+                    &response.procedure.id.to_string()[..8],
+                    response.procedure.use_count,
+                    response.procedure.session_count,
+                );
+            }
+        }
+        ProcedureCommand::Retire(args) => {
+            let id: uuid::Uuid = args.id.parse().context("parse procedure id")?;
+            let req = memd_schema::ProcedureRetireRequest { procedure_id: id };
+            let response = client.procedure_retire(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!(
+                    "Retired: {} [{}]",
+                    response.procedure.name,
+                    &response.procedure.id.to_string()[..8],
+                );
+            }
+        }
+        ProcedureCommand::Detect(args) => {
+            let req = memd_schema::ProcedureDetectRequest {
+                project: args.project,
+                namespace: args.namespace,
+                min_events: args.min_events,
+                lookback_days: args.lookback_days,
+                max_candidates: args.max_candidates,
+            };
+            let response = client.procedure_detect(&req).await?;
+            if args.json {
+                print_json(&response)?;
+            } else {
+                println!(
+                    "Scanned {} entities, created {} candidate procedures",
+                    response.scanned, response.created
+                );
+                for p in &response.procedures {
+                    println!(
+                        "  - {} [{}]: {}",
+                        p.name,
+                        &p.id.to_string()[..8],
+                        p.trigger
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn render_procedures(response: &memd_schema::ProcedureListResponse) -> String {
+    let mut out = String::from("# Procedures\n\n");
+    if response.procedures.is_empty() {
+        out.push_str("No procedures found.\n");
+        return out;
+    }
+    for p in &response.procedures {
+        let status = serde_json::to_value(&p.status)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        let kind = serde_json::to_value(&p.kind)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "- **{}** [{}] ({}/{}) uses={} conf={:.2}\n",
+            p.name,
+            &p.id.to_string()[..8],
+            kind,
+            status,
+            p.use_count,
+            p.confidence,
+        ));
+        out.push_str(&format!("  trigger: {}\n", p.trigger));
+        for (i, step) in p.steps.iter().enumerate() {
+            out.push_str(&format!("  {}. {}\n", i + 1, step));
+        }
+    }
+    out
+}
+
+fn render_procedures_match(response: &memd_schema::ProcedureMatchResponse) -> String {
+    let mut out = String::from("# Matching Procedures\n\n");
+    if response.procedures.is_empty() {
+        out.push_str("No matching procedures found.\n");
+        return out;
+    }
+    for p in &response.procedures {
+        out.push_str(&format!(
+            "- **{}** [{}] uses={} conf={:.2}\n",
+            p.name,
+            &p.id.to_string()[..8],
+            p.use_count,
+            p.confidence,
+        ));
+        out.push_str(&format!("  trigger: {}\n", p.trigger));
+        for (i, step) in p.steps.iter().enumerate() {
+            out.push_str(&format!("  {}. {}\n", i + 1, step));
+        }
+    }
+    out
+}
+
 fn render_atlas_regions(response: &memd_schema::AtlasRegionsResponse) -> String {
     let mut out = String::from("# Atlas Regions\n\n");
     if response.regions.is_empty() {

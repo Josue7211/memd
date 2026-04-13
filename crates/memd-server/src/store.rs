@@ -356,6 +356,28 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_atlas_trails_project
               ON atlas_trails(project, namespace);
+
+            CREATE TABLE IF NOT EXISTS procedures (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'candidate',
+              project TEXT,
+              namespace TEXT,
+              use_count INTEGER NOT NULL DEFAULT 0,
+              confidence REAL NOT NULL DEFAULT 0.5,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_procedures_project_namespace
+              ON procedures(project, namespace);
+            CREATE INDEX IF NOT EXISTS idx_procedures_kind
+              ON procedures(kind);
+            CREATE INDEX IF NOT EXISTS idx_procedures_status
+              ON procedures(status);
+            CREATE INDEX IF NOT EXISTS idx_procedures_updated_at
+              ON procedures(updated_at DESC);
             "#,
         )
         .context("initialize sqlite schema")?;

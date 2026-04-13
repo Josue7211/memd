@@ -758,6 +758,7 @@ fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
+            procedures: vec![],
     };
 
     let summary = crate::render::render_working_summary(&response, true);

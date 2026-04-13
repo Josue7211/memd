@@ -13,8 +13,14 @@ pub(crate) fn default_authority_mode() -> String {
 }
 
 pub(crate) fn hardcoded_default_voice_mode() -> String {
-    "caveman-ultra".to_string()
+    "caveman-lite".to_string()
 }
+
+/// The four caveman voice modes, from most verbose to most compressed:
+/// 1. normal    — full verbose, no compression
+/// 2. caveman-lite — light compression, normal spelling
+/// 3. caveman-full — compressed, few tokens, normal spelling + exact technical terms
+/// 4. caveman-ultra — hard compressed, rewrite-before-send discipline
 
 pub(crate) fn default_voice_mode() -> String {
     if let Ok(value) = std::env::var("MEMD_VOICE_MODE") {

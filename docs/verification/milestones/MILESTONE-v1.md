@@ -5,17 +5,17 @@ truth_date: 2026-04-12
 milestone: v1
 status: in_progress
 phase_d: verified
-phase_e: verified_with_audit_tail
-phase_f: pending
-blockers:
-  - feature_v1_wake_packet_audit
+phase_e: verified
+phase_f: verified
+phase_g: verified
+blockers: []
 -->
 
 - truth date: `2026-04-12`
 - milestone: `v1`
 - status: `in_progress`
-- current focus: finish `Phase E` audit tail, then start `Phase F`
-- blocker: `FEATURE-V1-WAKE-PACKET`
+- current focus: `Phase G: Procedural Learning`
+- blocker: none
 
 ## What v1 Means
 
@@ -35,8 +35,9 @@ blockers:
 | Phase B | `verified` | session continuity landed | [[phase-b-session-continuity]] |
 | Phase C | `verified` | typed memory landed | [[phase-c-typed-memory]] |
 | Phase D | `verified` | canonical truth is in place | [[ROADMAP]] |
-| Phase E | `verified_with_audit_tail` | wake packets landed, audit tail still open | [[2026-04-12-roadmap-state-audit-tail-drift]] |
-| Phase F | `pending` | memory atlas not started cleanly yet | [[2026-04-11-memd-ralph-roadmap]] |
+| Phase E | `verified` | wake packets landed, audit closed | [[2026-04-12-roadmap-state-audit-tail-drift]] |
+| Phase F | `verified` | memory atlas: 8 routes, 4 tables, 18 atlas tests | [[phase-f-memory-atlas]] |
+| Phase G | `verified` | procedural learning: 7 routes, 9 tests, full lifecycle | [[phase-g-procedural-learning]] |
 
 ## Claimed Features
 
@@ -53,9 +54,8 @@ blockers:
 
 - zero-friction correction flow still weak
 - repair actions still shallow
-- atlas/procedural/hive layers not yet active
-- Claude Code bridge wording still overstates parity
-- roadmap/continuity state flip rule still missing
+- procedural/hive layers not yet active (Phase G starting now)
+- overnight evolution not yet active
 
 ## Links
 

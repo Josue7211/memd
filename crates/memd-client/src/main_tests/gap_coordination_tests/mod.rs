@@ -97,6 +97,7 @@ fn describes_eval_changes_against_baseline() {
             ],
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -310,6 +311,7 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
             rehydration_queue: Vec::new(),
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,

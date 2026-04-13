@@ -6,10 +6,10 @@
 truth_date: 2026-04-12
 version: v1
 version_status: in_progress
-current_phase: phase_f
+current_phase: phase_g
 phase_status: verified
-next_phase: phase_g
-next_step: start_phase_g
+next_phase: phase_h
+next_step: start_phase_h
 active_blockers: []
 -->
 
@@ -18,17 +18,17 @@ active_blockers: []
 - truth date: `2026-04-12`
 - current version: `v1`
 - version status: `in_progress`
-- current phase: `Phase F: Memory Atlas`
+- current phase: `Phase G: Procedural Learning`
 - phase status: `verified`
-- next phase: `Phase G: Procedural Learning`
-- next step: `start Phase G`
+- next phase: `Phase H: Hive Coordination`
+- next step: `start Phase H`
 
 ## Current Focus
 
-Phase F fully verified after 5 audit passes. 8 API routes, 4 DB tables,
-18 atlas tests, 90 total server tests. All theory lock requirements covered:
-4 atlas capabilities, 7 pivot dimensions, 4 neighborhood expansion paths,
-5 zoom levels, 3 locked decisions (D1/D2/D3). Ready for Phase G.
+Phase G verified. Procedural memory: 7 API routes, 1 DB table, 9 procedural
+tests, 98 total server tests. Full lifecycle: record → promote → match → use
+→ retire. Auto-detect from event spine. Cross-session tracking. Wake packet
+integration. Voice modes aligned with upstream caveman skill (7 modes).
 
 ## Blockers
 
@@ -78,13 +78,13 @@ Use phases for execution order. Detailed phase plans live in linked docs.
 | D | Canonical Truth | `verified` | corrections, trust, freshness, conflict handling | [[phase-d-canonical-truth]] |
 | E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
 | F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
-| G | Procedural Learning | `pending` | learn reusable operating procedures | [[2026-04-11-memd-ralph-roadmap]] |
+| G | Procedural Learning | `verified` | learn reusable operating procedures | [[phase-g-procedural-learning]] |
 | H | Hive Coordination | `pending` | shared second brain across harnesses | [[2026-04-11-memd-ralph-roadmap]] |
 | I | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[2026-04-11-memd-ralph-roadmap]] |
 
 ## Next Up
 
-1. Start `Phase F` (Memory Atlas).
+1. Start `Phase H` (Hive Coordination).
 
 ## Phase E Follow-Up (Closed)
 
@@ -98,13 +98,19 @@ All audit tail items resolved:
 
 ## Immediate Backlog
 
-1. [[2026-04-12-claude-code-bootstrap-bridge-gap]] — `closed`, fixed `2026-04-12`.
+1. [[2026-04-12-phase-g-10-star-gaps]] — `open`.
+   15 gaps to close for 10-star procedural memory: auto-promote, fuzzy matching,
+   versioning, correction integration, atlas integration, wake budget, auto-retire,
+   conflict detection, execution recording, Obsidian export, candidate-procedural lane,
+   doc count fixes.
+
+2. [[2026-04-12-claude-code-bootstrap-bridge-gap]] — `closed`, fixed `2026-04-12`.
    Boot context slimmed 78%. CODEX_MEMORY zombies killed. SessionStart hook gutted.
 
-2. [[2026-04-12-shell-unsafe-memd-env-generation]] — `closed`, fixed `2026-04-12`.
+3. [[2026-04-12-shell-unsafe-memd-env-generation]] — `closed`, fixed `2026-04-12`.
    All env values now shell-single-quoted via `rewrite_shell_env` helper.
 
-3. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
+4. [[2026-04-12-roadmap-state-audit-tail-drift]] — `closed`, fixed `2026-04-12`.
    Fixed by closing Phase E audit tail and aligning all state sources. Phase-flip rule added.
 
 ## Recently Closed

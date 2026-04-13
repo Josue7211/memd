@@ -199,6 +199,21 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push('\n');
     }
 
+    if !snapshot.working.procedures.is_empty() && !claude_strict {
+        prefix.push_str("## Procedures\n\n");
+        let proc_limit = if verbose { 3 } else { 2 };
+        for proc in snapshot.working.procedures.iter().take(proc_limit) {
+            let steps_compact = proc.steps.join(" → ");
+            prefix.push_str(&format!(
+                "- **{}** ({}): {}\n",
+                proc.name,
+                compact_inline(&proc.trigger, 60),
+                compact_inline(&steps_compact, 100),
+            ));
+        }
+        prefix.push('\n');
+    }
+
     if verbose
         && !claude_strict
         && (!snapshot.inbox.items.is_empty() || !snapshot.working.rehydration_queue.is_empty())
@@ -385,6 +400,7 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
+            procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::Auto,
@@ -469,6 +485,7 @@ mod tests {
                     .collect(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
+            procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -566,8 +583,8 @@ mod tests {
         assert!(markdown.contains("- left_off="));
         assert!(markdown.contains("memd must preserve important user corrections"));
         assert!(markdown.contains("Durable truth beats transcript recall."));
-        assert!(markdown.contains("Reply in `caveman-ultra`"));
-        assert!(markdown.contains("If your draft is not in `caveman-ultra`"));
+        assert!(markdown.contains("Reply in `caveman-lite`"));
+        assert!(markdown.contains("If your draft is not in `caveman-lite`"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }

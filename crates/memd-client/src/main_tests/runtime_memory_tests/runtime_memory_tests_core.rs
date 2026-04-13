@@ -378,6 +378,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
             }],
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -473,6 +474,7 @@ fn working_summary_surfaces_typed_trace_trail() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
+            procedures: vec![],
     };
 
     let summary = render_working_summary(&response, true);

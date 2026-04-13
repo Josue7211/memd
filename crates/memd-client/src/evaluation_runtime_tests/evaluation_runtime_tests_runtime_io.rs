@@ -810,6 +810,7 @@
             rehydration_queue: Vec::new(),
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         });
         let base_url = spawn_mock_runtime_server(state.clone(), false).await;
         fs::write(

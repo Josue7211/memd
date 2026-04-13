@@ -699,6 +699,7 @@ pub(crate) async fn mock_working_memory(
             rehydration_queue: Vec::new(),
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         });
     Json(response)
 }

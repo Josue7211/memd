@@ -157,6 +157,29 @@ pub(crate) fn working_memory(
         None
     };
 
+    // Phase G: match procedures against current working context.
+    let procedures = {
+        let context: String = records
+            .iter()
+            .map(|r| r.record.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if context.is_empty() {
+            Vec::new()
+        } else {
+            state
+                .store
+                .match_procedures(&memd_schema::ProcedureMatchRequest {
+                    context,
+                    project: req.project.clone(),
+                    namespace: req.agent.clone(),
+                    limit: Some(3),
+                })
+                .map(|r| r.procedures)
+                .unwrap_or_default()
+        }
+    };
+
     Ok(WorkingMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -176,6 +199,7 @@ pub(crate) fn working_memory(
         rehydration_queue,
         traces,
         semantic_consolidation,
+        procedures,
     })
 }
 

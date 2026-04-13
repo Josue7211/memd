@@ -468,6 +468,9 @@ pub struct WorkingMemoryResponse {
     pub rehydration_queue: Vec<MemoryRehydrationRecord>,
     pub traces: Vec<WorkingMemoryTraceRecord>,
     pub semantic_consolidation: Option<MemoryConsolidationResponse>,
+    /// Procedures matched against current working context (Phase G).
+    #[serde(default)]
+    pub procedures: Vec<Procedure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1677,6 +1680,173 @@ pub struct AtlasExpandResponse {
     pub seed_count: usize,
     pub expanded_nodes: Vec<AtlasNode>,
     pub links: Vec<AtlasLink>,
+}
+
+// ---------------------------------------------------------------------------
+// Procedural memory types (Phase G)
+// ---------------------------------------------------------------------------
+
+/// Status of a procedure in the promotion pipeline.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcedureStatus {
+    /// Observed pattern, not yet validated.
+    Candidate,
+    /// Validated and promoted for reuse.
+    Promoted,
+    /// Manually or automatically retired.
+    Retired,
+}
+
+/// What kind of procedure this is.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcedureKind {
+    /// A reusable workflow (build, deploy, review, etc.).
+    Workflow,
+    /// An operating policy (preference, convention).
+    Policy,
+    /// A recovery pattern (what to do when X breaks).
+    Recovery,
+}
+
+/// A learned procedure that can be retrieved and reused.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Procedure {
+    pub id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub kind: ProcedureKind,
+    pub status: ProcedureStatus,
+    /// When this procedure applies (natural language trigger condition).
+    pub trigger: String,
+    /// Ordered steps to execute.
+    pub steps: Vec<String>,
+    /// How to know it worked.
+    pub success_criteria: Option<String>,
+    /// Source memory items that evidenced this procedure.
+    pub source_ids: Vec<Uuid>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    /// How many times this procedure was successfully applied.
+    pub use_count: usize,
+    pub confidence: f32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub tags: Vec<String>,
+    /// Number of distinct sessions that have used this procedure.
+    #[serde(default)]
+    pub session_count: usize,
+    /// Last session that used this procedure.
+    #[serde(default)]
+    pub last_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProcedureListRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub kind: Option<ProcedureKind>,
+    pub status: Option<ProcedureStatus>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureListResponse {
+    pub procedures: Vec<Procedure>,
+}
+
+/// Request to retrieve procedures relevant to current context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureMatchRequest {
+    pub context: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureMatchResponse {
+    pub procedures: Vec<Procedure>,
+}
+
+/// Request to record a new procedure (explicit capture).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureRecordRequest {
+    pub name: String,
+    pub description: String,
+    pub kind: ProcedureKind,
+    pub trigger: String,
+    pub steps: Vec<String>,
+    pub success_criteria: Option<String>,
+    pub source_ids: Vec<Uuid>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureRecordResponse {
+    pub procedure: Procedure,
+}
+
+/// Request to promote a candidate procedure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedurePromoteRequest {
+    pub procedure_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedurePromoteResponse {
+    pub procedure: Procedure,
+}
+
+/// Request to record a successful use of a procedure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureUseRequest {
+    pub procedure_id: Uuid,
+    /// Session recording this use (for cross-session tracking).
+    #[serde(default)]
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureUseResponse {
+    pub procedure: Procedure,
+}
+
+/// Request to retire a procedure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureRetireRequest {
+    pub procedure_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureRetireResponse {
+    pub procedure: Procedure,
+}
+
+/// Request to detect candidate procedures from episodic event patterns.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProcedureDetectRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    /// Minimum event occurrences for an entity to be considered (default 3).
+    pub min_events: Option<usize>,
+    /// How many days back to scan (default 14).
+    pub lookback_days: Option<i64>,
+    /// Max candidate procedures to generate (default 5).
+    pub max_candidates: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureDetectResponse {
+    /// Entities scanned.
+    pub scanned: usize,
+    /// Candidate procedures created.
+    pub created: usize,
+    /// Procedures that were created.
+    pub procedures: Vec<Procedure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -3234,6 +3404,7 @@ mod tests {
                 events: 1,
                 highlights: vec!["working-set replay".to_string()],
             }),
+            procedures: vec![],
         };
 
         let request_json = serde_json::to_string(&request).unwrap();

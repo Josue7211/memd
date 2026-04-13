@@ -27,6 +27,10 @@ use memd_schema::{
     SourceMemoryRequest, SourceMemoryResponse, StoreMemoryRequest, StoreMemoryResponse,
     TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest, VerifyMemoryResponse,
     VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
+    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
+    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
+    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -189,6 +193,57 @@ impl MemdClient {
         req: &AtlasRegionsRequest,
     ) -> anyhow::Result<AtlasRegionsResponse> {
         self.post_json("/atlas/generate", req).await
+    }
+
+    // Procedural memory (Phase G)
+
+    pub async fn procedures(
+        &self,
+        req: &ProcedureListRequest,
+    ) -> anyhow::Result<ProcedureListResponse> {
+        self.get_json_with_query("/procedures", req).await
+    }
+
+    pub async fn procedure_record(
+        &self,
+        req: &ProcedureRecordRequest,
+    ) -> anyhow::Result<ProcedureRecordResponse> {
+        self.post_json("/procedures/record", req).await
+    }
+
+    pub async fn procedure_match(
+        &self,
+        req: &ProcedureMatchRequest,
+    ) -> anyhow::Result<ProcedureMatchResponse> {
+        self.post_json("/procedures/match", req).await
+    }
+
+    pub async fn procedure_promote(
+        &self,
+        req: &ProcedurePromoteRequest,
+    ) -> anyhow::Result<ProcedurePromoteResponse> {
+        self.post_json("/procedures/promote", req).await
+    }
+
+    pub async fn procedure_use(
+        &self,
+        req: &ProcedureUseRequest,
+    ) -> anyhow::Result<ProcedureUseResponse> {
+        self.post_json("/procedures/use", req).await
+    }
+
+    pub async fn procedure_retire(
+        &self,
+        req: &ProcedureRetireRequest,
+    ) -> anyhow::Result<ProcedureRetireResponse> {
+        self.post_json("/procedures/retire", req).await
+    }
+
+    pub async fn procedure_detect(
+        &self,
+        req: &ProcedureDetectRequest,
+    ) -> anyhow::Result<ProcedureDetectResponse> {
+        self.post_json("/procedures/detect", req).await
     }
 
     pub async fn decay(&self, req: &MemoryDecayRequest) -> anyhow::Result<MemoryDecayResponse> {

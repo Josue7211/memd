@@ -803,6 +803,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Atlas(args) => {
             run_atlas_command(&client, args).await?;
         }
+        Commands::Procedure(args) => {
+            run_procedure_command(&client, args).await?;
+        }
         Commands::Events(args) => {
             run_events_command(args)?;
         }

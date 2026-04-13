@@ -55,6 +55,7 @@ pub(super) fn test_autoresearch_snapshot(
             }],
             traces: Vec::new(),
             semantic_consolidation: None,
+            procedures: vec![],
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,

@@ -168,11 +168,15 @@ pub(crate) fn parse_retrieval_intent_value(value: &str) -> anyhow::Result<Retrie
 pub(crate) fn normalize_voice_mode_value(value: &str) -> anyhow::Result<String> {
     let normalized = value.trim().to_ascii_lowercase().replace(['-', ' '], "_");
     match normalized.as_str() {
-        "caveman" | "caveman_ultra" | "ultra" => Ok("caveman-ultra".to_string()),
+        "caveman_ultra" | "ultra" => Ok("caveman-ultra".to_string()),
+        "caveman_full" | "caveman" | "full" => Ok("caveman-full".to_string()),
         "caveman_lite" | "lite" => Ok("caveman-lite".to_string()),
+        "wenyan_ultra" => Ok("wenyan-ultra".to_string()),
+        "wenyan_full" | "wenyan" => Ok("wenyan-full".to_string()),
+        "wenyan_lite" => Ok("wenyan-lite".to_string()),
         "normal" | "default" => Ok("normal".to_string()),
         _ => anyhow::bail!(
-            "invalid voice mode '{value}'; expected caveman-ultra, caveman-lite, or normal"
+            "invalid voice mode '{value}'; expected normal, caveman-lite, caveman-full, caveman-ultra, wenyan-lite, wenyan-full, or wenyan-ultra"
         ),
     }
 }
@@ -218,7 +222,23 @@ mod tests {
             normalize_voice_mode_value("caveman ultra").unwrap(),
             "caveman-ultra"
         );
+        assert_eq!(normalize_voice_mode_value("ultra").unwrap(), "caveman-ultra");
+        assert_eq!(
+            normalize_voice_mode_value("caveman full").unwrap(),
+            "caveman-full"
+        );
+        assert_eq!(normalize_voice_mode_value("caveman").unwrap(), "caveman-full");
+        assert_eq!(normalize_voice_mode_value("full").unwrap(), "caveman-full");
         assert_eq!(normalize_voice_mode_value("lite").unwrap(), "caveman-lite");
         assert_eq!(normalize_voice_mode_value("normal").unwrap(), "normal");
+        assert_eq!(normalize_voice_mode_value("wenyan").unwrap(), "wenyan-full");
+        assert_eq!(
+            normalize_voice_mode_value("wenyan ultra").unwrap(),
+            "wenyan-ultra"
+        );
+        assert_eq!(
+            normalize_voice_mode_value("wenyan lite").unwrap(),
+            "wenyan-lite"
+        );
     }
 }

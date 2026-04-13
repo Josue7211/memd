@@ -2,6 +2,7 @@ mod atlas;
 mod helpers;
 mod inspection;
 mod keys;
+mod procedural;
 mod repair;
 mod routes;
 mod routing;
@@ -68,6 +69,10 @@ use memd_schema::{
     SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
     StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
     VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
+    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
+    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
+    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
+    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -405,6 +410,13 @@ async fn main() {
         .route("/atlas/trails", get(get_atlas_trails))
         .route("/atlas/trails/save", post(post_atlas_trail_save))
         .route("/atlas/generate", post(post_atlas_generate))
+        .route("/procedures", get(get_procedures))
+        .route("/procedures/record", post(post_procedure_record))
+        .route("/procedures/match", post(post_procedure_match))
+        .route("/procedures/promote", post(post_procedure_promote))
+        .route("/procedures/use", post(post_procedure_use))
+        .route("/procedures/retire", post(post_procedure_retire))
+        .route("/procedures/detect", post(post_procedure_detect))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
