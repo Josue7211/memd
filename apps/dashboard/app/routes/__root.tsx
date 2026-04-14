@@ -23,7 +23,7 @@ export const Route = createRootRoute({
 function Shell() {
   return (
     <div className="flex min-h-screen bg-bg-primary text-text-primary font-sans">
-      <nav className="w-52 shrink-0 border-r border-border-subtle bg-bg-surface/60 backdrop-blur-xl flex flex-col">
+      <nav className="w-52 shrink-0 border-r border-border-subtle bg-bg-surface/60 flex flex-col">
         <div className="px-5 py-4 border-b border-border-subtle">
           <span className="text-lg font-semibold tracking-tight text-accent-primary">
             memd
@@ -36,7 +36,7 @@ function Shell() {
               key={item.to}
               to={item.to}
               activeOptions={{ exact: item.to === "/" }}
-              className="mx-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-white/[0.04] transition-colors"
+              className="mx-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-hover transition-colors"
               activeProps={{
                 className:
                   "mx-2 px-3 py-2 rounded-lg text-sm text-accent-bright bg-accent-primary/10 border border-border-active",

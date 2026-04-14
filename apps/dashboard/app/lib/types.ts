@@ -68,24 +68,24 @@ export type ProcedureStatus = "candidate" | "promoted" | "retired";
 export interface MemoryItem {
   id: string;
   content: string;
-  redundancy_key?: string;
-  belief_branch?: string;
+  redundancy_key?: string | null;
+  belief_branch?: string | null;
   preferred: boolean;
   kind: MemoryKind;
   scope: MemoryScope;
-  project?: string;
-  namespace?: string;
-  workspace?: string;
+  project?: string | null;
+  namespace?: string | null;
+  workspace?: string | null;
   visibility: MemoryVisibility;
-  source_agent?: string;
-  source_system?: string;
-  source_path?: string;
-  source_quality?: SourceQuality;
+  source_agent?: string | null;
+  source_system?: string | null;
+  source_path?: string | null;
+  source_quality?: SourceQuality | null;
   confidence: number;
-  ttl_seconds?: number;
+  ttl_seconds?: number | null;
   created_at: string;
   updated_at: string;
-  last_verified_at?: string;
+  last_verified_at?: string | null;
   supersedes: string[];
   tags: string[];
   status: MemoryStatus;
@@ -196,16 +196,25 @@ export interface Procedure {
 
 export interface HiveSessionRecord {
   session: string;
-  agent?: string;
-  effective_agent?: string;
-  hive_role?: string;
-  display_name?: string;
-  project?: string;
-  namespace?: string;
-  branch?: string;
-  focus?: string;
+  tab_id?: string | null;
+  agent?: string | null;
+  effective_agent?: string | null;
+  hive_system?: string | null;
+  hive_role?: string | null;
+  worker_name?: string | null;
+  display_name?: string | null;
+  role?: string | null;
+  capabilities?: string[];
+  hive_groups?: string[];
+  lane_id?: string | null;
+  hive_group_goal?: string | null;
+  authority?: string | null;
+  project?: string | null;
+  namespace?: string | null;
+  branch?: string | null;
+  focus?: string | null;
   status: string;
-  last_seen: string;
+  last_seen?: string | null;
 }
 
 export interface HiveTaskRecord {
@@ -219,20 +228,40 @@ export interface HiveTaskRecord {
   updated_at: string;
 }
 
+// ── Working Memory (compact format) ─────────────────────────────────────────
+
+export interface WorkingRecord {
+  id: string;
+  record: string;
+}
+
+export interface EvictedRecord {
+  id: string;
+  record: string;
+  reason: string;
+}
+
+export interface WorkingPolicy {
+  admission_limit: number;
+  max_chars_per_item: number;
+  budget_chars: number;
+  rehydration_limit: number;
+}
+
 // ── Request Types ────────────────────────────────────────────────────────────
 
 export interface SearchMemoryRequest {
   query?: string;
   route?: RetrievalRoute;
   intent?: RetrievalIntent;
-  scopes?: MemoryScope[];
-  kinds?: MemoryKind[];
-  statuses?: MemoryStatus[];
-  stages?: MemoryStage[];
+  scopes: MemoryScope[];
+  kinds: MemoryKind[];
+  statuses: MemoryStatus[];
+  stages: MemoryStage[];
+  tags: string[];
   project?: string;
   namespace?: string;
   source_agent?: string;
-  tags?: string[];
   limit?: number;
 }
 
@@ -281,12 +310,6 @@ export interface HiveQueenActionRequest {
 export interface HealthResponse {
   status: string;
   items: number;
-  eval_score?: number;
-  degraded?: boolean;
-  inbox_count?: number;
-  candidate_count?: number;
-  stale_count?: number;
-  expired_count?: number;
 }
 
 export interface SearchMemoryResponse {
@@ -301,11 +324,23 @@ export interface StoreMemoryResponse {
 }
 
 export interface WorkingMemoryResponse {
-  items: MemoryItem[];
+  route: RetrievalRoute;
+  intent: RetrievalIntent;
+  retrieval_order: string[];
+  budget_chars: number;
+  used_chars: number;
+  remaining_chars: number;
+  truncated: boolean;
+  policy: WorkingPolicy;
+  records: WorkingRecord[];
+  evicted?: EvictedRecord[];
+  rehydration_queue?: string[];
   procedures?: Procedure[];
 }
 
 export interface MemoryInboxResponse {
+  route: RetrievalRoute;
+  intent: RetrievalIntent;
   items: InboxMemoryItem[];
 }
 

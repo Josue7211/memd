@@ -21,6 +21,7 @@
 /apps/dashboard/node_modules/
 /apps/dashboard/dist/
 /apps/dashboard/app/routeTree.gen.ts
+/apps/dashboard/.env
 .gstack/
 .codex
 

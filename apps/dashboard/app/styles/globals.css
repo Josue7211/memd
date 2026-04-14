@@ -1,21 +1,36 @@
 @import "tailwindcss";
 
 @theme {
+  /* ── Surfaces ───────────────────────────── */
   --color-bg-primary: #0a0a0f;
   --color-bg-surface: #12121a;
-  --color-border-subtle: #8b5cf626;
-  --color-border-active: #8b5cf680;
+  --color-earth-gray: #353534;
+
+  /* ── Borders ────────────────────────────── */
+  --color-border-subtle: rgba(139, 92, 246, 0.15);
+  --color-border-active: rgba(139, 92, 246, 0.50);
+
+  /* ── Accent (singular) ──────────────────── */
   --color-accent-primary: #8b5cf6;
   --color-accent-bright: #a78bfa;
-  --color-accent-glow: #8b5cf640;
+  --color-accent-glow: rgba(139, 92, 246, 0.08);
+
+  /* ── Text hierarchy ─────────────────────── */
   --color-text-primary: #f0f0f5;
   --color-text-secondary: #8888a0;
   --color-text-tertiary: #555570;
+
+  /* ── Semantic status ────────────────────── */
   --color-status-current: #34d399;
   --color-status-stale: #fbbf24;
   --color-status-expired: #f87171;
   --color-status-candidate: #60a5fa;
 
+  /* ── Glass ──────────────────────────────── */
+  --color-glass: rgba(255, 255, 255, 0.04);
+  --color-hover: rgba(255, 255, 255, 0.02);
+
+  /* ── Typography ─────────────────────────── */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
@@ -27,7 +42,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar — keep minimal on dark */
+/* ── Scrollbar — minimal ──────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -44,4 +59,10 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-secondary);
+}
+
+/* ── Selection ────────────────────────────── */
+::selection {
+  background: rgba(139, 92, 246, 0.25);
+  color: var(--color-text-primary);
 }

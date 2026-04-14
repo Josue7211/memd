@@ -27,8 +27,6 @@ import type {
   HiveQueenActionRequest,
 } from "./types";
 
-const BASE = import.meta.env.DEV ? "" : "/dashboard";
-
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -61,7 +59,7 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
-// ── Health ───────────────────────────────────────────────────────────────────
+// ── API ─────────────────────────────────────────────────────────────────────
 
 export const api = {
   health: () => get<HealthResponse>("/healthz"),

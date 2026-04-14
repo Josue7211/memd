@@ -23,9 +23,9 @@ export function GlassPanel({
   return (
     <div
       className={`
-        rounded-xl border border-border-subtle bg-bg-surface/40 backdrop-blur-xl
+        rounded-xl border border-border-subtle bg-bg-surface/40
         ${paddings[padding]}
-        ${hover ? "hover:border-border-active hover:shadow-[0_0_20px_rgba(139,92,246,0.08)] transition-all" : ""}
+        ${hover ? "hover:border-border-active hover:shadow-[0_0_20px_var(--color-accent-glow)] transition-all" : ""}
         ${className}
       `}
     >

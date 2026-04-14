@@ -21,7 +21,7 @@ export function KindBadge({ kind }: { kind: MemoryKind }) {
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${kindColors[kind] ?? "bg-zinc-500/15 text-zinc-400 border-zinc-500/30"}`}
     >
-      {kind.replace("_", " ")}
+      {kind.replace(/_/g, " ")}
     </span>
   );
 }
@@ -80,6 +80,16 @@ export function ProcedureStatusBadge({ status }: { status: ProcedureStatus }) {
   );
 }
 
+// ── Scope Label (uppercase taxonomy) ─────────────────────────────────────────
+
+export function ScopeLabel({ value }: { value: string }) {
+  return (
+    <span className="text-[11px] tracking-wide uppercase text-text-tertiary">
+      {value}
+    </span>
+  );
+}
+
 // ── Confidence Bar ───────────────────────────────────────────────────────────
 
 export function ConfidenceBar({ value }: { value: number }) {
@@ -95,7 +105,7 @@ export function ConfidenceBar({ value }: { value: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[11px] text-text-tertiary tabular-nums">
+      <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
         {pct}%
       </span>
     </div>

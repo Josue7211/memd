@@ -2,7 +2,6 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
-  type UseQueryOptions,
 } from "@tanstack/react-query";
 import { api } from "./api";
 import type {
@@ -51,6 +50,7 @@ export function useWorking(params?: { project?: string }) {
   return useQuery({
     queryKey: keys.working(params),
     queryFn: () => api.working(params),
+    refetchInterval: 30_000,
   });
 }
 

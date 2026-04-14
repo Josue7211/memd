@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>memd Design System — Visual Catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --void: #0a0a0f;
+    --surface: #12121a;
+    --parchment: #f0f0f5;
+    --text-secondary: #8888a0;
+    --text-tertiary: #555570;
+    --violet: #8b5cf6;
+    --violet-bright: #a78bfa;
+    --violet-glow: rgba(139, 92, 246, 0.25);
+    --border-subtle: rgba(139, 92, 246, 0.15);
+    --border-active: rgba(139, 92, 246, 0.50);
+    --glass: rgba(255, 255, 255, 0.04);
+    --current: #34d399;
+    --stale: #fbbf24;
+    --expired: #f87171;
+    --candidate: #60a5fa;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  body {
+    background: var(--void);
+    color: var(--parchment);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 48px;
+    max-width: 1152px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.0;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 48px;
+  }
+
+  .section {
+    margin-bottom: 48px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* ── Colors ─────────────────────────────── */
+
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .color-swatch {
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    overflow: hidden;
+  }
+
+  .color-swatch .swatch-block {
+    height: 72px;
+  }
+
+  .color-swatch .swatch-label {
+    padding: 10px 12px;
+    background: var(--surface);
+  }
+
+  .color-swatch .swatch-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--parchment);
+  }
+
+  .color-swatch .swatch-value {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  /* ── Typography ─────────────────────────── */
+
+  .type-specimen {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .type-meta {
+    width: 160px;
+    flex-shrink: 0;
+  }
+
+  .type-role {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .type-spec {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  .type-sample {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ── Components ─────────────────────────── */
+
+  .component-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+
+  /* Panels */
+  .panel-demo {
+    background: rgba(18, 18, 26, 0.4);
+    backdrop-filter: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+    width: 280px;
+  }
+
+  .panel-demo.active {
+    border-color: var(--border-active);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.08);
+  }
+
+  .panel-demo h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+
+  .panel-demo p {
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    border: none;
+  }
+
+  .btn:hover { opacity: 0.85; }
+
+  .btn-primary {
+    background: #353534;
+    color: var(--text-secondary);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .btn-success {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--current);
+    border: 1px solid rgba(52, 211, 153, 0.30);
+  }
+
+  .btn-danger {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--expired);
+    border: 1px solid rgba(248, 113, 113, 0.30);
+  }
+
+  /* Badges */
+  .badge-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+
+  .badge-fact { background: rgba(168,85,247,0.15); color: #c4b5fd; border-color: rgba(168,85,247,0.30); }
+  .badge-decision { background: rgba(139,92,246,0.15); color: #c4b5fd; border-color: rgba(139,92,246,0.30); }
+  .badge-preference { background: rgba(99,102,241,0.15); color: #a5b4fc; border-color: rgba(99,102,241,0.30); }
+  .badge-status { background: rgba(113,113,122,0.15); color: #a1a1aa; border-color: rgba(113,113,122,0.30); }
+  .badge-live-truth { background: rgba(244,63,94,0.15); color: #fda4af; border-color: rgba(244,63,94,0.30); }
+  .badge-pattern { background: rgba(217,70,239,0.15); color: #e879f9; border-color: rgba(217,70,239,0.30); }
+  .badge-constraint { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.30); }
+  .badge-runbook { background: rgba(14,165,233,0.15); color: #7dd3fc; border-color: rgba(14,165,233,0.30); }
+  .badge-procedural { background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.30); }
+  .badge-topology { background: rgba(6,182,212,0.15); color: #67e8f9; border-color: rgba(6,182,212,0.30); }
+  .badge-self-model { background: rgba(245,158,11,0.15); color: #fcd34d; border-color: rgba(245,158,11,0.30); }
+
+  .badge-canonical { background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.30); }
+  .badge-candidate-stage { background: rgba(59,130,246,0.15); color: #93c5fd; border-color: rgba(59,130,246,0.30); }
+
+  /* Status dots */
+  .status-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .dot-active { background: var(--current); }
+  .dot-stale { background: var(--stale); }
+  .dot-expired { background: var(--expired); }
+  .dot-superseded { background: #71717a; }
+  .dot-contested { background: #fb923c; }
+
+  /* Inputs */
+  .input-demo {
+    background: var(--void);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 16px;
+    color: var(--parchment);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    width: 320px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .input-demo:focus {
+    border-color: var(--violet);
+  }
+
+  .input-demo::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  /* Confidence bar */
+  .confidence-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 200px;
+  }
+
+  .confidence-track {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+  }
+
+  .confidence-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  .confidence-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    min-width: 32px;
+    text-align: right;
+  }
+
+  /* Nav demo */
+  .nav-demo {
+    display: flex;
+    flex-direction: column;
+    width: 208px;
+    background: rgba(18, 18, 26, 0.6);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .nav-brand {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--violet);
+    letter-spacing: -0.3px;
+  }
+
+  .nav-links {
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-link {
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+
+  .nav-link:hover {
+    color: var(--parchment);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .nav-link.active {
+    color: var(--violet-bright);
+    background: rgba(139, 92, 246, 0.10);
+    border: 1px solid var(--border-active);
+  }
+
+  .nav-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  /* Metric card */
+  .metric-demo {
+    background: rgba(18, 18, 26, 0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+    width: 180px;
+    transition: all 0.15s;
+  }
+
+  .metric-demo:hover {
+    border-color: var(--border-active);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.08);
+  }
+
+  .metric-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  .metric-value {
+    font-size: 30px;
+    font-weight: 600;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-sub {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  /* List row */
+  .list-demo {
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 640px;
+  }
+
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 13px;
+    transition: background 0.1s;
+  }
+
+  .list-row:last-child { border-bottom: none; }
+  .list-row:hover { background: rgba(255, 255, 255, 0.02); }
+
+  .list-content {
+    flex: 1;
+    color: var(--parchment);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .list-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* Radius demo */
+  .radius-grid {
+    display: flex;
+    gap: 16px;
+    align-items: end;
+  }
+
+  .radius-box {
+    width: 64px;
+    height: 64px;
+    border: 1px solid var(--border-subtle);
+    background: rgba(18, 18, 26, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* Spacing demo */
+  .spacing-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .spacing-block {
+    height: 24px;
+    background: rgba(139, 92, 246, 0.20);
+    border-radius: 4px;
+  }
+
+  .spacing-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    width: 36px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* DNA section */
+  .dna-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dna-card {
+    background: rgba(18, 18, 26, 0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .dna-card h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--parchment);
+    margin-bottom: 8px;
+  }
+
+  .dna-card p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<h1>memd Design System</h1>
+<p class="subtitle">Superhuman confidence · SpaceX minimalism · Warp warmth</p>
+
+<!-- ── Colors ──────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Color Palette</div>
+  <div class="color-grid">
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#0a0a0f"></div>
+      <div class="swatch-label"><div class="swatch-name">Void</div><div class="swatch-value">#0a0a0f</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#12121a"></div>
+      <div class="swatch-label"><div class="swatch-name">Surface</div><div class="swatch-value">#12121a</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#f0f0f5"></div>
+      <div class="swatch-label"><div class="swatch-name">Parchment</div><div class="swatch-value">#f0f0f5</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#8888a0"></div>
+      <div class="swatch-label"><div class="swatch-name">Text Secondary</div><div class="swatch-value">#8888a0</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#555570"></div>
+      <div class="swatch-label"><div class="swatch-name">Text Tertiary</div><div class="swatch-value">#555570</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#8b5cf6"></div>
+      <div class="swatch-label"><div class="swatch-name">Violet</div><div class="swatch-value">#8b5cf6</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#a78bfa"></div>
+      <div class="swatch-label"><div class="swatch-name">Violet Bright</div><div class="swatch-value">#a78bfa</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#34d399"></div>
+      <div class="swatch-label"><div class="swatch-name">Current</div><div class="swatch-value">#34d399</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#fbbf24"></div>
+      <div class="swatch-label"><div class="swatch-name">Stale</div><div class="swatch-value">#fbbf24</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#f87171"></div>
+      <div class="swatch-label"><div class="swatch-name">Expired</div><div class="swatch-value">#f87171</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#60a5fa"></div>
+      <div class="swatch-label"><div class="swatch-name">Candidate</div><div class="swatch-value">#60a5fa</div></div>
+    </div>
+    <div class="color-swatch">
+      <div class="swatch-block" style="background:#353534"></div>
+      <div class="swatch-label"><div class="swatch-name">Earth Gray</div><div class="swatch-value">#353534</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Typography ──────────────────────────── -->
+<div class="section">
+  <div class="section-title">Typography</div>
+  <div class="type-specimen">
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Page Title</div>
+        <div class="type-spec">24px / 600 / -0.5px</div>
+      </div>
+      <div class="type-sample" style="font-size:24px;font-weight:600;line-height:1.0;letter-spacing:-0.5px">Working Memory Status</div>
+    </div>
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Section Head</div>
+        <div class="type-spec">14px / 500 / 0px</div>
+      </div>
+      <div class="type-sample" style="font-size:14px;font-weight:500;line-height:1.2;color:var(--text-secondary)">Active Sessions</div>
+    </div>
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Body</div>
+        <div class="type-spec">14px / 400 / 1.5lh</div>
+      </div>
+      <div class="type-sample" style="font-size:14px;font-weight:400;line-height:1.5">Memory items are promoted from candidate to canonical stage after verification. Each item carries a confidence score, source attribution, and temporal metadata.</div>
+    </div>
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Micro Label</div>
+        <div class="type-spec">11px / 400 / 0.8px / UC</div>
+      </div>
+      <div class="type-sample" style="font-size:11px;font-weight:400;line-height:1.2;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-tertiary)">scope · project · canonical</div>
+    </div>
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Mono ID</div>
+        <div class="type-spec">12px / Mono / 400</div>
+      </div>
+      <div class="type-sample" style="font-family:var(--font-mono);font-size:12px;font-weight:400;color:var(--text-tertiary)">17d42009-f84f-4774-9569-a8b5d3242590</div>
+    </div>
+    <div class="type-row">
+      <div class="type-meta">
+        <div class="type-role">Metric Value</div>
+        <div class="type-spec">30px / 600 / tabular</div>
+      </div>
+      <div class="type-sample" style="font-size:30px;font-weight:600;font-variant-numeric:tabular-nums">436</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Badges ──────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Memory Kind Badges</div>
+  <div class="badge-grid">
+    <span class="badge badge-fact">fact</span>
+    <span class="badge badge-decision">decision</span>
+    <span class="badge badge-preference">preference</span>
+    <span class="badge badge-runbook">runbook</span>
+    <span class="badge badge-procedural">procedural</span>
+    <span class="badge badge-self-model">self model</span>
+    <span class="badge badge-topology">topology</span>
+    <span class="badge badge-status">status</span>
+    <span class="badge badge-live-truth">live truth</span>
+    <span class="badge badge-pattern">pattern</span>
+    <span class="badge badge-constraint">constraint</span>
+  </div>
+  <div style="margin-top:16px">
+    <div class="section-title" style="border:none;margin-bottom:8px">Stage Badges</div>
+    <div class="badge-grid">
+      <span class="badge badge-canonical">canonical</span>
+      <span class="badge badge-candidate-stage">candidate</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Status Indicators ──────────────────── -->
+<div class="section">
+  <div class="section-title">Status Indicators</div>
+  <div class="status-row">
+    <span class="status-indicator"><span class="status-dot dot-active"></span>active</span>
+    <span class="status-indicator"><span class="status-dot dot-stale"></span>stale</span>
+    <span class="status-indicator"><span class="status-dot dot-expired"></span>expired</span>
+    <span class="status-indicator"><span class="status-dot dot-superseded"></span>superseded</span>
+    <span class="status-indicator"><span class="status-dot dot-contested"></span>contested</span>
+  </div>
+</div>
+
+<!-- ── Buttons ─────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Buttons</div>
+  <div class="component-row">
+    <button class="btn btn-primary">Primary</button>
+    <button class="btn btn-ghost">Ghost</button>
+    <button class="btn btn-success">Promote</button>
+    <button class="btn btn-danger">Dismiss</button>
+  </div>
+</div>
+
+<!-- ── Inputs ──────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Input</div>
+  <input class="input-demo" type="text" placeholder="Search memories...">
+</div>
+
+<!-- ── Confidence Bars ─────────────────────── -->
+<div class="section">
+  <div class="section-title">Confidence Bars</div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="confidence-bar">
+      <div class="confidence-track"><div class="confidence-fill" style="width:95%;background:var(--current)"></div></div>
+      <span class="confidence-label">95%</span>
+    </div>
+    <div class="confidence-bar">
+      <div class="confidence-track"><div class="confidence-fill" style="width:68%;background:var(--stale)"></div></div>
+      <span class="confidence-label">68%</span>
+    </div>
+    <div class="confidence-bar">
+      <div class="confidence-track"><div class="confidence-fill" style="width:32%;background:var(--expired)"></div></div>
+      <span class="confidence-label">32%</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Panels ──────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Panels</div>
+  <div class="component-row">
+    <div class="panel-demo">
+      <h3>Default Panel</h3>
+      <p>Glass surface with subtle violet border. No shadows.</p>
+    </div>
+    <div class="panel-demo active">
+      <h3>Active Panel</h3>
+      <p>Active border at 50% opacity with faint violet glow.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Metric Cards ────────────────────────── -->
+<div class="section">
+  <div class="section-title">Metric Cards</div>
+  <div class="component-row">
+    <div class="metric-demo">
+      <div class="metric-label">Total Items</div>
+      <div class="metric-value" style="color:var(--parchment)">436</div>
+    </div>
+    <div class="metric-demo">
+      <div class="metric-label">Working Memory</div>
+      <div class="metric-value" style="color:var(--violet-bright)">7</div>
+      <div class="metric-sub">1540/1600 chars</div>
+    </div>
+    <div class="metric-demo">
+      <div class="metric-label">Inbox</div>
+      <div class="metric-value" style="color:var(--candidate)">7</div>
+    </div>
+    <div class="metric-demo">
+      <div class="metric-label">Sessions</div>
+      <div class="metric-value" style="color:var(--current)">1</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Navigation ──────────────────────────── -->
+<div class="section">
+  <div class="section-title">Sidebar Navigation</div>
+  <div class="nav-demo">
+    <div class="nav-brand">memd</div>
+    <div class="nav-links">
+      <a class="nav-link active" href="#">Status</a>
+      <a class="nav-link" href="#">Memory</a>
+      <a class="nav-link" href="#">Inbox</a>
+      <a class="nav-link" href="#">Graph</a>
+      <a class="nav-link" href="#">Atlas</a>
+    </div>
+    <div class="nav-footer">memd dashboard</div>
+  </div>
+</div>
+
+<!-- ── List Rows ───────────────────────────── -->
+<div class="section">
+  <div class="section-title">List Rows</div>
+  <div class="list-demo">
+    <div class="list-row">
+      <span class="badge badge-live-truth">live truth</span>
+      <span class="badge badge-canonical">canonical</span>
+      <span class="list-content">Current repository state with latest changes and active branches</span>
+      <span class="status-indicator"><span class="status-dot dot-active"></span>active</span>
+      <span class="list-meta">17d42009</span>
+    </div>
+    <div class="list-row">
+      <span class="badge badge-fact">fact</span>
+      <span class="badge badge-canonical">canonical</span>
+      <span class="list-content">memd wake MUST be first action on first message of every session</span>
+      <span class="status-indicator"><span class="status-dot dot-active"></span>active</span>
+      <span class="list-meta">770399d0</span>
+    </div>
+    <div class="list-row">
+      <span class="badge badge-status">status</span>
+      <span class="badge badge-candidate-stage">candidate</span>
+      <span class="list-content">Phase I dashboard scaffold committed at 5962f8f</span>
+      <span class="status-indicator"><span class="status-dot dot-stale"></span>stale</span>
+      <span class="list-meta">dc2e330b</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Border Radius ───────────────────────── -->
+<div class="section">
+  <div class="section-title">Border Radius Scale</div>
+  <div class="radius-grid">
+    <div>
+      <div class="radius-box" style="border-radius:4px">4px</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;text-align:center">Badges</div>
+    </div>
+    <div>
+      <div class="radius-box" style="border-radius:8px">8px</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;text-align:center">Controls</div>
+    </div>
+    <div>
+      <div class="radius-box" style="border-radius:12px">12px</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;text-align:center">Panels</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Spacing ─────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Spacing Scale</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div class="spacing-row"><span class="spacing-label">4px</span><div class="spacing-block" style="width:4px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">8px</span><div class="spacing-block" style="width:8px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">12px</span><div class="spacing-block" style="width:12px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">16px</span><div class="spacing-block" style="width:16px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">20px</span><div class="spacing-block" style="width:20px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">24px</span><div class="spacing-block" style="width:24px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">32px</span><div class="spacing-block" style="width:32px"></div></div>
+    <div class="spacing-row"><span class="spacing-label">48px</span><div class="spacing-block" style="width:48px"></div></div>
+  </div>
+</div>
+
+<!-- ── Design DNA ──────────────────────────── -->
+<div class="section">
+  <div class="section-title">Design DNA</div>
+  <div class="dna-grid">
+    <div class="dna-card">
+      <h3>Superhuman</h3>
+      <p>Purple as singular accent. Tight display compression. Binary radius system. Confidence through emptiness.</p>
+    </div>
+    <div class="dna-card">
+      <h3>SpaceX</h3>
+      <p>Zero shadows. Uppercase taxonomy labels. Ghost interactives. Spectral text. Mission-critical restraint.</p>
+    </div>
+    <div class="dna-card">
+      <h3>Warp</h3>
+      <p>Warm dark canvas. Semi-transparent borders. Regular weight dominance. Editorial spacing. Monochromatic calm.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
