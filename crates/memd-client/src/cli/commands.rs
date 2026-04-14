@@ -222,12 +222,18 @@ mod tests {
             normalize_voice_mode_value("caveman ultra").unwrap(),
             "caveman-ultra"
         );
-        assert_eq!(normalize_voice_mode_value("ultra").unwrap(), "caveman-ultra");
+        assert_eq!(
+            normalize_voice_mode_value("ultra").unwrap(),
+            "caveman-ultra"
+        );
         assert_eq!(
             normalize_voice_mode_value("caveman full").unwrap(),
             "caveman-full"
         );
-        assert_eq!(normalize_voice_mode_value("caveman").unwrap(), "caveman-full");
+        assert_eq!(
+            normalize_voice_mode_value("caveman").unwrap(),
+            "caveman-full"
+        );
         assert_eq!(normalize_voice_mode_value("full").unwrap(), "caveman-full");
         assert_eq!(normalize_voice_mode_value("lite").unwrap(), "caveman-lite");
         assert_eq!(normalize_voice_mode_value("normal").unwrap(), "normal");

@@ -265,7 +265,7 @@ async fn mock_working_memory_for_spill(
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             }),
     )
 }
@@ -515,10 +515,10 @@ async fn hook_spill_apply_writes_candidates_and_compaction_checkpoint() {
     );
     drop(stored);
 
-    let memory = fs::read_to_string(bundle_root.join("mem.md"))
-        .expect("read generated bundle memory");
-    let wakeup = fs::read_to_string(bundle_root.join("wake.md"))
-        .expect("read generated bundle wakeup");
+    let memory =
+        fs::read_to_string(bundle_root.join("mem.md")).expect("read generated bundle memory");
+    let wakeup =
+        fs::read_to_string(bundle_root.join("wake.md")).expect("read generated bundle wakeup");
     assert!(memory.contains("compact context: keep startup surfaces tight"));
     assert!(memory.contains("working record: keep startup surfaces tight"));
     assert!(wakeup.contains("compact context: keep startup surfaces tight"));
@@ -599,7 +599,7 @@ async fn resume_command_surfaces_compact_working_state_from_live_server() {
         rehydration_queue: Vec::new(),
         traces: Vec::new(),
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
     });
 
     env.set("HOME", &home);

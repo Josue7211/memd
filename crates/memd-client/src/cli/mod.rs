@@ -50,6 +50,27 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 print_json(&status)?;
             }
         }
+        Commands::State(args) => {
+            let state = read_bundle_state(&args.output, &base_url).await?;
+            if args.json {
+                print_json(&state)?;
+            } else {
+                println!("{}", render_bundle_state_summary(&state));
+            }
+        }
+        Commands::Claim(args) => {
+            let args = match args.command {
+                ClaimSubcommand::Create(args) => ClaimsArgs::from(args),
+                ClaimSubcommand::List(args) => ClaimsArgs::from(args),
+                ClaimSubcommand::Close(args) => ClaimsArgs::from(args),
+            };
+            let response = run_claims_command(&args, &base_url).await?;
+            if args.summary {
+                println!("{}", render_claims_summary(&response));
+            } else {
+                print_json(&response)?;
+            }
+        }
         Commands::Capabilities(args) => {
             let response = run_capabilities_command(&args)?;
             if args.json {
@@ -470,8 +491,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                         || opencode_pack
                         || openclaw_pack =>
                 {
-                    if let Some(markdown) =
-                        read_codex_pack_local_markdown(&args.output, "mem.md")?
+                    if let Some(markdown) = read_codex_pack_local_markdown(&args.output, "mem.md")?
                     {
                         write_bundle_turn_fallback_artifacts(
                             &args.output,

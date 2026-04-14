@@ -722,12 +722,13 @@ pub(crate) async fn post_hive_claim_recover(
         ));
     }
     if let Some(to_session) = req.to_session.as_deref()
-        && to_session.trim().is_empty() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "to_session must not be empty".to_string(),
-            ));
-        }
+        && to_session.trim().is_empty()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "to_session must not be empty".to_string(),
+        ));
+    }
     let response = state
         .store
         .recover_hive_claim(&req)
@@ -1149,10 +1150,7 @@ pub(crate) async fn dismiss_inbox(
     Json(req): Json<InboxDismissRequest>,
 ) -> Result<Json<InboxDismissResponse>, (StatusCode, String)> {
     if req.ids.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "ids must not be empty".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, "ids must not be empty".to_string()));
     }
     if req.ids.len() > 100 {
         return Err((
@@ -1160,7 +1158,10 @@ pub(crate) async fn dismiss_inbox(
             "max 100 items per dismiss".to_string(),
         ));
     }
-    let dismissed = state.store.dismiss_items(&req.ids).map_err(internal_error)?;
+    let dismissed = state
+        .store
+        .dismiss_items(&req.ids)
+        .map_err(internal_error)?;
     Ok(Json(InboxDismissResponse { dismissed }))
 }
 
@@ -1616,7 +1617,10 @@ pub(crate) async fn get_atlas_regions(
     State(state): State<AppState>,
     Query(req): Query<AtlasRegionsRequest>,
 ) -> Result<Json<AtlasRegionsResponse>, (StatusCode, String)> {
-    let response = state.store.list_atlas_regions(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .list_atlas_regions(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1640,7 +1644,10 @@ pub(crate) async fn get_atlas_trails(
     State(state): State<AppState>,
     Query(req): Query<AtlasListTrailsRequest>,
 ) -> Result<Json<AtlasListTrailsResponse>, (StatusCode, String)> {
-    let response = state.store.list_atlas_trails(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .list_atlas_trails(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1648,7 +1655,10 @@ pub(crate) async fn post_atlas_rename(
     State(state): State<AppState>,
     Json(req): Json<AtlasRenameRegionRequest>,
 ) -> Result<Json<AtlasRenameRegionResponse>, (StatusCode, String)> {
-    let response = state.store.rename_atlas_region(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .rename_atlas_region(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1707,7 +1717,10 @@ pub(crate) async fn post_procedure_promote(
     State(state): State<AppState>,
     Json(req): Json<ProcedurePromoteRequest>,
 ) -> Result<Json<ProcedurePromoteResponse>, (StatusCode, String)> {
-    let response = state.store.promote_procedure(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .promote_procedure(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 
@@ -1731,7 +1744,10 @@ pub(crate) async fn post_procedure_detect(
     State(state): State<AppState>,
     Json(req): Json<ProcedureDetectRequest>,
 ) -> Result<Json<ProcedureDetectResponse>, (StatusCode, String)> {
-    let response = state.store.detect_procedures(&req).map_err(internal_error)?;
+    let response = state
+        .store
+        .detect_procedures(&req)
+        .map_err(internal_error)?;
     Ok(Json(response))
 }
 

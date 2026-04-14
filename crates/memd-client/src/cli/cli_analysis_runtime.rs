@@ -128,8 +128,7 @@ pub(crate) async fn run_benchmark_command(
                         let (primary_label, primary_value) =
                             public_benchmark_primary_metric(&response);
                         let mut memd_scores = std::collections::BTreeMap::new();
-                        memd_scores
-                            .insert(response.manifest.benchmark_id.clone(), primary_value);
+                        memd_scores.insert(response.manifest.benchmark_id.clone(), primary_value);
                         let table = render_comparison_table(&memd_scores, &baselines);
                         eprintln!("\n{table}");
                         let _ = primary_label;

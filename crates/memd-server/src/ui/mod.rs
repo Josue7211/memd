@@ -45,7 +45,6 @@ impl UiPage {
     }
 }
 
-
 pub(crate) fn dashboard_html(snapshot: &VisibleMemorySnapshotResponse, page: UiPage) -> String {
     let focus = &snapshot.home.focus_artifact;
     let source_path = focus.provenance.source_path.as_deref().unwrap_or("none");

@@ -490,7 +490,7 @@ mod tests {
                 }],
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::Auto,

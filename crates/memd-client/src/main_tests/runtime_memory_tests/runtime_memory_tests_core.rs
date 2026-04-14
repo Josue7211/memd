@@ -474,7 +474,7 @@ fn working_summary_surfaces_typed_trace_trail() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
     };
 
     let summary = render_working_summary(&response, true);

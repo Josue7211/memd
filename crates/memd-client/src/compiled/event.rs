@@ -482,9 +482,10 @@ pub(crate) fn render_compiled_event_index_markdown(
     }
 
     if let Ok(raw_spine) = render_raw_spine_markdown(bundle_root)
-        && !raw_spine.is_empty() {
-            output.push_str(&raw_spine);
-        }
+        && !raw_spine.is_empty()
+    {
+        output.push_str(&raw_spine);
+    }
     output
 }
 
@@ -609,7 +610,7 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: memd_schema::RetrievalRoute::ProjectFirst,

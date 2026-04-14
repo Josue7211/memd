@@ -984,7 +984,7 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1068,7 +1068,7 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1167,7 +1167,7 @@ mod tests {
                 }],
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,

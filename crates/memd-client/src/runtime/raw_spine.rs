@@ -180,10 +180,7 @@ mod tests {
         assert_eq!(record.event_type, "hook_capture");
         assert_eq!(record.stage, "candidate");
         assert_eq!(record.source_system.as_deref(), Some("hook-capture"));
-        assert_eq!(
-            record.source_path.as_deref(),
-            Some(".memd/wake.md")
-        );
+        assert_eq!(record.source_path.as_deref(), Some(".memd/wake.md"));
         assert!(record.tags.iter().any(|tag| tag == "raw-spine"));
     }
 }

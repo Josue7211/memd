@@ -188,13 +188,13 @@ use obsidian::runtime::{run_obsidian_handoff, run_obsidian_writeback};
 #[allow(unused_imports)]
 pub(crate) use obsidian::support::*;
 use render::{
-    is_default_runtime, render_bundle_status_summary, render_command_catalog_json,
-    render_command_catalog_markdown, render_command_catalog_summary, render_composite_markdown,
-    render_composite_summary, render_consolidate_summary, render_entity_search_summary,
-    render_entity_summary, render_eval_summary, render_experiment_markdown,
-    render_experiment_summary, render_explain_summary, render_feature_benchmark_markdown,
-    render_feature_benchmark_summary, render_gap_summary, render_handoff_prompt,
-    render_harness_pack_index_json, render_harness_pack_index_markdown,
+    is_default_runtime, render_bundle_state_summary, render_bundle_status_summary,
+    render_command_catalog_json, render_command_catalog_markdown, render_command_catalog_summary,
+    render_composite_markdown, render_composite_summary, render_consolidate_summary,
+    render_entity_search_summary, render_entity_summary, render_eval_summary,
+    render_experiment_markdown, render_experiment_summary, render_explain_summary,
+    render_feature_benchmark_markdown, render_feature_benchmark_summary, render_gap_summary,
+    render_handoff_prompt, render_harness_pack_index_json, render_harness_pack_index_markdown,
     render_harness_pack_index_summary, render_improvement_markdown, render_improvement_summary,
     render_maintenance_report_summary, render_obsidian_scan_summary, render_policy_summary,
     render_profile_summary, render_recall_summary, render_repair_summary, render_resume_prompt,

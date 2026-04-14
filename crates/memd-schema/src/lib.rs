@@ -2041,8 +2041,7 @@ pub struct MemoryPolicyConsolidation {
     pub record_events: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyRuntime {
     pub live_truth: MemoryPolicyLiveTruth,
     pub memory_compilation: MemoryPolicyMemoryCompilation,
@@ -2050,9 +2049,7 @@ pub struct MemoryPolicyRuntime {
     pub skill_gating: MemoryPolicySkillGating,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyLiveTruth {
     pub read_once_sources: bool,
     pub raw_reopen_requires_change_or_doubt: bool,
@@ -2060,9 +2057,7 @@ pub struct MemoryPolicyLiveTruth {
     pub compile_from_events: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicyMemoryCompilation {
     pub event_driven_updates: bool,
     pub patch_not_rewrite: bool,
@@ -2070,9 +2065,7 @@ pub struct MemoryPolicyMemoryCompilation {
     pub source_on_demand: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicySemanticFallback {
     pub enabled: bool,
     pub source_of_truth: bool,
@@ -2080,9 +2073,7 @@ pub struct MemoryPolicySemanticFallback {
     pub rerank_with_visible_memory: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryPolicySkillGating {
     pub propose_from_repeated_patterns: bool,
     pub sandboxed_evaluation: bool,
@@ -2091,7 +2082,6 @@ pub struct MemoryPolicySkillGating {
     pub require_evaluation: bool,
     pub require_policy_approval: bool,
 }
-
 
 fn default_rehydration_limit() -> usize {
     3

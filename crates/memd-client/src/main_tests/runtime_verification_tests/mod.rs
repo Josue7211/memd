@@ -782,7 +782,7 @@ fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
             salience_score: 0.82,
         }],
         semantic_consolidation: None,
-            procedures: vec![],
+        procedures: vec![],
     };
 
     let summary = crate::render::render_working_summary(&response, true);
@@ -1799,8 +1799,7 @@ async fn run_verify_feature_command_executes_seeded_handoff_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
@@ -1834,8 +1833,7 @@ async fn run_verify_feature_command_executes_seeded_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {
@@ -1877,8 +1875,7 @@ async fn run_verify_feature_command_executes_seeded_wake_verifier() {
     fs::create_dir_all(&output).expect("create output dir");
     write_test_benchmark_registry(&repo_root);
 
-    let base_url =
-        spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
+    let base_url = spawn_mock_runtime_server(MockRuntimeState::default(), false).await;
     write_test_bundle_config(&output, &base_url);
 
     let report = run_verify_feature_command(&VerifyFeatureArgs {

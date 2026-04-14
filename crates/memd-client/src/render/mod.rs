@@ -649,5 +649,249 @@ pub(crate) fn render_bundle_status_summary(status: &Value) -> String {
     output
 }
 
+pub(crate) fn render_bundle_state_summary(state: &Value) -> String {
+    let mut lines = vec![format!(
+        "state bundle={} truth={} freshness={} claims={} conflicts={} divergence={} warnings={}",
+        state
+            .get("bundle")
+            .and_then(Value::as_str)
+            .unwrap_or("none"),
+        state
+            .get("live_truth")
+            .and_then(|value| value.get("truth"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown"),
+        state
+            .get("freshness")
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown"),
+        state
+            .get("claims")
+            .and_then(|value| value.get("active_count"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        state
+            .get("claims")
+            .and_then(|value| value.get("conflicts"))
+            .and_then(Value::as_array)
+            .map(std::vec::Vec::len)
+            .unwrap_or(0),
+        state
+            .get("divergence")
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("none"),
+        state
+            .get("warnings")
+            .and_then(Value::as_array)
+            .map(std::vec::Vec::len)
+            .unwrap_or(0),
+    )];
+
+    if let Some(record) = state
+        .get("live_truth")
+        .and_then(|value| value.get("records"))
+        .and_then(Value::as_array)
+        .and_then(|records| records.first())
+    {
+        lines.push(format!(
+            "live_truth lane={} preview=\"{}\"",
+            record.get("lane").and_then(Value::as_str).unwrap_or("none"),
+            compact_inline(
+                record
+                    .get("preview")
+                    .and_then(Value::as_str)
+                    .unwrap_or("none"),
+                84
+            ),
+        ));
+    }
+
+    if let Some(focus) = state.get("focus").and_then(Value::as_str) {
+        lines.push(format!("focus {}", compact_inline(focus, 96)));
+    }
+
+    if let Some(session) = state.get("session") {
+        lines.push(format!(
+            "session project={} namespace={} workspace={} visibility={} agent={} session={} branch={}",
+            session.get("project").and_then(Value::as_str).unwrap_or("none"),
+            session.get("namespace").and_then(Value::as_str).unwrap_or("none"),
+            session.get("workspace").and_then(Value::as_str).unwrap_or("none"),
+            session.get("visibility").and_then(Value::as_str).unwrap_or("none"),
+            session.get("agent").and_then(Value::as_str).unwrap_or("none"),
+            session.get("session").and_then(Value::as_str).unwrap_or("none"),
+            session.get("branch").and_then(Value::as_str).unwrap_or("none"),
+        ));
+    }
+
+    if let Some(freshness) = state.get("freshness") {
+        lines.push(format!(
+            "freshness status={} age_minutes={} refresh={} changes={} repo_changes={}",
+            freshness
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            freshness
+                .get("since_checkpoint_minutes")
+                .and_then(Value::as_i64)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            freshness
+                .get("refresh_recommended")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            freshness
+                .get("change_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            freshness
+                .get("repo_change_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        ));
+    }
+
+    if let Some(claims) = state.get("claims") {
+        lines.push(format!(
+            "claims active={} expired={} conflicts={}",
+            claims
+                .get("active_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            claims
+                .get("expired_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            claims
+                .get("conflicts")
+                .and_then(Value::as_array)
+                .map(std::vec::Vec::len)
+                .unwrap_or(0),
+        ));
+        if let Some(active) = claims.get("active").and_then(Value::as_array) {
+            for claim in active.iter().take(4) {
+                lines.push(format!(
+                    "- claim {} holder={} expires_at={}",
+                    claim.get("scope").and_then(Value::as_str).unwrap_or("none"),
+                    claim
+                        .get("holder")
+                        .and_then(Value::as_str)
+                        .unwrap_or("none"),
+                    claim
+                        .get("expires_at")
+                        .and_then(Value::as_str)
+                        .unwrap_or("none"),
+                ));
+            }
+        }
+    }
+
+    if let Some(divergence) = state.get("divergence") {
+        lines.push(format!(
+            "divergence status={} items={}",
+            divergence
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            divergence
+                .get("items")
+                .and_then(Value::as_array)
+                .map(std::vec::Vec::len)
+                .unwrap_or(0),
+        ));
+        if let Some(items) = divergence.get("items").and_then(Value::as_array) {
+            for item in items.iter().take(4) {
+                let mut detail_parts = Vec::new();
+                if let Some(severity) = item.get("severity").and_then(Value::as_str) {
+                    detail_parts.push(format!("severity={severity}"));
+                }
+                if let Some(scope) = item.get("scope").and_then(Value::as_str) {
+                    detail_parts.push(format!("scope={scope}"));
+                }
+                if let Some(branch) = item.get("branch").and_then(Value::as_str) {
+                    detail_parts.push(format!("branch={branch}"));
+                }
+                if let Some(worktree) = item.get("worktree").and_then(Value::as_str) {
+                    detail_parts.push(format!("worktree={worktree}"));
+                }
+                if let Some(endpoint) = item.get("endpoint").and_then(Value::as_str) {
+                    detail_parts.push(format!("endpoint={endpoint}"));
+                }
+                if let Some(session) = item.get("session").and_then(Value::as_str) {
+                    detail_parts.push(format!("session={session}"));
+                }
+                if let Some(sessions) = item.get("sessions").and_then(Value::as_array) {
+                    let sessions = sessions
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>();
+                    if !sessions.is_empty() {
+                        detail_parts.push(format!("sessions={}", sessions.join(",")));
+                    }
+                }
+                lines.push(format!(
+                    "- divergence {}{} {}",
+                    item.get("kind")
+                        .and_then(Value::as_str)
+                        .unwrap_or("diagnostic"),
+                    if detail_parts.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", detail_parts.join(" "))
+                    },
+                    compact_inline(
+                        item.get("summary")
+                            .and_then(Value::as_str)
+                            .unwrap_or("none"),
+                        96
+                    ),
+                ));
+            }
+        }
+    }
+
+    if let Some(memory_health) = state.get("memory_health") {
+        lines.push(format!(
+            "memory pressure={} tok={} redundant={} inbox={} rehydrate={} degraded={}",
+            memory_health
+                .get("pressure")
+                .and_then(Value::as_str)
+                .unwrap_or("none"),
+            memory_health
+                .get("estimated_prompt_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            memory_health
+                .get("redundant_context_items")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            memory_health
+                .get("inbox_items")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            memory_health
+                .get("rehydration_queue")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            memory_health
+                .get("degraded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        ));
+    }
+
+    if let Some(warnings) = state.get("warnings").and_then(Value::as_array) {
+        for warning in warnings.iter().take(4) {
+            lines.push(format!(
+                "- warning {}",
+                compact_inline(warning.as_str().unwrap_or("none"), 96)
+            ));
+        }
+    }
+
+    lines.join("\n")
+}
+
 mod render_memory;
 pub(crate) use render_memory::*;

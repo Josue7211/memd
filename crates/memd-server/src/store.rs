@@ -1558,8 +1558,7 @@ impl SqliteStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("begin drain transaction")?;
 
-        let expired_status =
-            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let expired_status = serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
         let mut param_values: Vec<String> = vec![expired_status];
         let mut sql = String::from(
             "DELETE FROM memory_items WHERE id IN (SELECT id FROM memory_items WHERE status = ?1",
@@ -1579,7 +1578,9 @@ impl SqliteStore {
             .iter()
             .map(|s| s as &dyn rusqlite::ToSql)
             .collect();
-        let deleted = tx.execute(&sql, params.as_slice()).context("drain expired items")?;
+        let deleted = tx
+            .execute(&sql, params.as_slice())
+            .context("drain expired items")?;
         tx.commit()?;
         Ok(deleted)
     }
@@ -1588,8 +1589,7 @@ impl SqliteStore {
         if ids.is_empty() {
             return Ok(0);
         }
-        let expired_status =
-            serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
+        let expired_status = serde_json::to_string(&memd_schema::MemoryStatus::Expired).unwrap();
         let mut conn = self.connect()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1610,7 +1610,8 @@ impl SqliteStore {
             }
             item.status = memd_schema::MemoryStatus::Expired;
             item.updated_at = chrono::Utc::now();
-            let updated_payload = serde_json::to_string(&item).context("serialize dismissed item")?;
+            let updated_payload =
+                serde_json::to_string(&item).context("serialize dismissed item")?;
             let updated_status = &expired_status;
             tx.execute(
                 "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = ?3 WHERE id = ?4",

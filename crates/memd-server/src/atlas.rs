@@ -2,9 +2,9 @@ use chrono::Utc;
 use memd_schema::{
     AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse, AtlasLink,
     AtlasLinkKind, AtlasListTrailsRequest, AtlasListTrailsResponse, AtlasNode, AtlasRegion,
-    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest,
-    AtlasRenameRegionResponse, AtlasSaveTrailRequest, AtlasSaveTrailResponse, AtlasSavedTrail,
-    MemoryEventRecord, MemoryItem, MemoryKind, MemoryStatus,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
+    AtlasSaveTrailRequest, AtlasSaveTrailResponse, AtlasSavedTrail, MemoryEventRecord, MemoryItem,
+    MemoryKind, MemoryStatus,
 };
 use rusqlite::params;
 use uuid::Uuid;
@@ -17,9 +17,7 @@ impl SqliteStore {
         req: &AtlasRegionsRequest,
     ) -> anyhow::Result<AtlasRegionsResponse> {
         let conn = self.connect()?;
-        let mut sql = String::from(
-            "SELECT id, payload_json FROM atlas_regions WHERE 1=1",
-        );
+        let mut sql = String::from("SELECT id, payload_json FROM atlas_regions WHERE 1=1");
         let mut bind_values: Vec<String> = Vec::new();
 
         if let Some(project) = &req.project {
@@ -48,8 +46,15 @@ impl SqliteStore {
                 let payload: String = row.get(1)?;
                 Ok(payload)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas region row read: {e}")).ok())
-            .filter_map(|payload| serde_json::from_str::<AtlasRegion>(&payload).inspect_err(|e| eprintln!("warn: atlas region json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: atlas region row read: {e}"))
+                    .ok()
+            })
+            .filter_map(|payload| {
+                serde_json::from_str::<AtlasRegion>(&payload)
+                    .inspect_err(|e| eprintln!("warn: atlas region json parse: {e}"))
+                    .ok()
+            })
             .collect();
 
         Ok(AtlasRegionsResponse { regions })
@@ -106,15 +111,21 @@ impl SqliteStore {
 
     pub(crate) fn get_region_member_ids(&self, region_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
         let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT memory_id FROM atlas_region_members WHERE region_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT memory_id FROM atlas_region_members WHERE region_id = ?1")?;
         let ids = stmt
             .query_map(params![region_id.to_string()], |row| {
                 row.get::<_, String>(0)
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: region member row read: {e}")).ok())
-            .filter_map(|s| s.parse::<Uuid>().inspect_err(|e| eprintln!("warn: region member uuid parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: region member row read: {e}"))
+                    .ok()
+            })
+            .filter_map(|s| {
+                s.parse::<Uuid>()
+                    .inspect_err(|e| eprintln!("warn: region member uuid parse: {e}"))
+                    .ok()
+            })
             .collect();
         Ok(ids)
     }
@@ -134,10 +145,8 @@ impl SqliteStore {
         } else if let Some(node_id) = req.node_id {
             (None, vec![node_id])
         } else if req.from_working {
-            let working_ids = self.working_memory_item_ids(
-                req.project.as_deref(),
-                req.namespace.as_deref(),
-            )?;
+            let working_ids =
+                self.working_memory_item_ids(req.project.as_deref(), req.namespace.as_deref())?;
             (None, working_ids)
         } else {
             // No anchor — generate regions on the fly for the project
@@ -197,8 +206,7 @@ impl SqliteStore {
                         if seen.insert(neighbor_item.id) {
                             found_via_entity = true;
                             let entity = self.entity_for_item(neighbor_item.id)?;
-                            let evidence_count =
-                                self.event_count_for_item(neighbor_item.id)?;
+                            let evidence_count = self.event_count_for_item(neighbor_item.id)?;
                             nodes.push(item_to_atlas_node(
                                 &neighbor_item,
                                 region.as_ref().map(|r| r.id),
@@ -221,10 +229,8 @@ impl SqliteStore {
             // Tag-overlap fallback: if no entity links found, find neighbors
             // sharing tags with seed items
             if !found_via_entity {
-                let seed_tags: std::collections::HashSet<String> = nodes
-                    .iter()
-                    .flat_map(|n| n.tags.iter().cloned())
-                    .collect();
+                let seed_tags: std::collections::HashSet<String> =
+                    nodes.iter().flat_map(|n| n.tags.iter().cloned()).collect();
                 if !seed_tags.is_empty() {
                     let all_items = self.list()?;
                     let mut tag_neighbors: Vec<(usize, MemoryItem)> = all_items
@@ -406,13 +412,15 @@ impl SqliteStore {
                 continue;
             }
             if let Some(p) = project
-                && item.project.as_deref() != Some(p) {
-                    continue;
-                }
+                && item.project.as_deref() != Some(p)
+            {
+                continue;
+            }
             if let Some(ns) = namespace
-                && item.namespace.as_deref() != Some(ns) {
-                    continue;
-                }
+                && item.namespace.as_deref() != Some(ns)
+            {
+                continue;
+            }
 
             let bucket_key = region_bucket_key(&item, lane_filter);
             if let Some(key) = bucket_key {
@@ -478,9 +486,10 @@ impl SqliteStore {
                             continue;
                         }
                         if let Some(p) = &req.project
-                            && item.project.as_deref() != Some(p) {
-                                continue;
-                            }
+                            && item.project.as_deref() != Some(p)
+                        {
+                            continue;
+                        }
                         if seen.insert(item.id) {
                             let entity = self.entity_for_item(item.id)?;
                             let evidence_count = self.event_count_for_item(item.id)?;
@@ -586,8 +595,15 @@ impl SqliteStore {
             .collect();
         let trails = stmt
             .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas trail row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str::<AtlasSavedTrail>(&json).inspect_err(|e| eprintln!("warn: atlas trail json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: atlas trail row read: {e}"))
+                    .ok()
+            })
+            .filter_map(|json| {
+                serde_json::from_str::<AtlasSavedTrail>(&json)
+                    .inspect_err(|e| eprintln!("warn: atlas trail json parse: {e}"))
+                    .ok()
+            })
             .collect();
         Ok(AtlasListTrailsResponse { trails })
     }
@@ -634,7 +650,10 @@ impl SqliteStore {
                     row.get::<_, Option<String>>(4)?,
                 ))
             })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: atlas link row read: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: atlas link row read: {e}"))
+                    .ok()
+            })
             .filter_map(|(from, to, kind, weight, label)| {
                 Some(AtlasLink {
                     from_node_id: from.parse().ok()?,
@@ -662,12 +681,8 @@ impl SqliteStore {
                     || item.kind == MemoryKind::LiveTruth
                     || item.kind == MemoryKind::Pattern
             })
-            .filter(|item| {
-                project.is_none() || item.project.as_deref() == project
-            })
-            .filter(|item| {
-                namespace.is_none() || item.namespace.as_deref() == namespace
-            })
+            .filter(|item| project.is_none() || item.project.as_deref() == project)
+            .filter(|item| namespace.is_none() || item.namespace.as_deref() == namespace)
             .collect();
         working.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         working.truncate(10);
@@ -689,20 +704,22 @@ impl SqliteStore {
         Ok(AtlasRenameRegionResponse { region })
     }
 
-    pub(crate) fn events_for_item(
-        &self,
-        item_id: Uuid,
-    ) -> anyhow::Result<Vec<MemoryEventRecord>> {
+    pub(crate) fn events_for_item(&self, item_id: Uuid) -> anyhow::Result<Vec<MemoryEventRecord>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
             "SELECT payload_json FROM memory_events WHERE memory_item_id = ?1 ORDER BY recorded_at DESC LIMIT 10",
         )?;
         let events = stmt
-            .query_map(params![item_id.to_string()], |row| {
-                row.get::<_, String>(0)
-            })?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: event row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str::<MemoryEventRecord>(&json).inspect_err(|e| eprintln!("warn: event json parse: {e}")).ok())
+            .query_map(params![item_id.to_string()], |row| row.get::<_, String>(0))?
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: event row read: {e}"))
+                    .ok()
+            })
+            .filter_map(|json| {
+                serde_json::from_str::<MemoryEventRecord>(&json)
+                    .inspect_err(|e| eprintln!("warn: event json parse: {e}"))
+                    .ok()
+            })
             .collect();
         Ok(events)
     }
@@ -730,18 +747,21 @@ impl SqliteStore {
         )?;
         let links = stmt
             .query_map(params![id_str], |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.inspect_err(|e| eprintln!("warn: entity link row read: {e}")).ok())
-            .filter_map(|json| serde_json::from_str(&json).inspect_err(|e| eprintln!("warn: entity link json parse: {e}")).ok())
+            .filter_map(|r| {
+                r.inspect_err(|e| eprintln!("warn: entity link row read: {e}"))
+                    .ok()
+            })
+            .filter_map(|json| {
+                serde_json::from_str(&json)
+                    .inspect_err(|e| eprintln!("warn: entity link json parse: {e}"))
+                    .ok()
+            })
             .collect();
         Ok(links)
     }
 }
 
-fn deterministic_region_id(
-    project: Option<&str>,
-    namespace: Option<&str>,
-    key: &str,
-) -> Uuid {
+fn deterministic_region_id(project: Option<&str>, namespace: Option<&str>, key: &str) -> Uuid {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     project.hash(&mut hasher);
@@ -762,9 +782,10 @@ fn region_bucket_key(item: &MemoryItem, lane_filter: Option<&str>) -> Option<Str
     // Group by lane_id if present
     if let Some(lane) = item_lane(item) {
         if let Some(filter) = lane_filter
-            && lane != filter {
-                return None;
-            }
+            && lane != filter
+        {
+            return None;
+        }
         return Some(lane);
     }
 
@@ -794,7 +815,14 @@ fn item_lane(item: &MemoryItem) -> Option<String> {
     }
     // Check source_path for lane hints
     if let Some(path) = item.source_path.as_deref() {
-        for prefix in &["design", "architecture", "research", "workflow", "preference", "inspiration"] {
+        for prefix in &[
+            "design",
+            "architecture",
+            "research",
+            "workflow",
+            "preference",
+            "inspiration",
+        ] {
             if path.contains(prefix) {
                 return Some(prefix.to_string());
             }
@@ -813,41 +841,46 @@ fn passes_pivot_filters_with_entity(
     req: &AtlasExploreRequest,
 ) -> bool {
     if let Some(min_trust) = req.min_trust
-        && item.confidence < min_trust {
-            return false;
-        }
+        && item.confidence < min_trust
+    {
+        return false;
+    }
     if let Some(min_salience) = req.min_salience {
-        let salience = entity
-            .map(|e| e.salience_score)
-            .unwrap_or(item.confidence);
+        let salience = entity.map(|e| e.salience_score).unwrap_or(item.confidence);
         if salience < min_salience {
             return false;
         }
     }
     if let Some(pivot_kind) = req.pivot_kind
-        && item.kind != pivot_kind {
-            return false;
-        }
+        && item.kind != pivot_kind
+    {
+        return false;
+    }
     if let Some(pivot_scope) = req.pivot_scope
-        && item.scope != pivot_scope {
-            return false;
-        }
+        && item.scope != pivot_scope
+    {
+        return false;
+    }
     if let Some(ref agent) = req.pivot_source_agent
-        && item.source_agent.as_deref() != Some(agent) {
-            return false;
-        }
+        && item.source_agent.as_deref() != Some(agent)
+    {
+        return false;
+    }
     if let Some(ref system) = req.pivot_source_system
-        && item.source_system.as_deref() != Some(system) {
-            return false;
-        }
+        && item.source_system.as_deref() != Some(system)
+    {
+        return false;
+    }
     if let Some(project) = &req.project
-        && item.project.as_deref() != Some(project) {
-            return false;
-        }
+        && item.project.as_deref() != Some(project)
+    {
+        return false;
+    }
     if let Some(namespace) = &req.namespace
-        && item.namespace.as_deref() != Some(namespace) {
-            return false;
-        }
+        && item.namespace.as_deref() != Some(namespace)
+    {
+        return false;
+    }
     true
 }
 
@@ -927,13 +960,10 @@ fn trail_links_for_sequence(node_ids: &[Uuid], all_links: &[AtlasLink]) -> Vec<A
     for pair in node_ids.windows(2) {
         let (from, to) = (pair[0], pair[1]);
         // Find existing link between these nodes
-        if let Some(link) = all_links
-            .iter()
-            .find(|l| {
-                (l.from_node_id == from && l.to_node_id == to)
-                    || (l.from_node_id == to && l.to_node_id == from)
-            })
-        {
+        if let Some(link) = all_links.iter().find(|l| {
+            (l.from_node_id == from && l.to_node_id == to)
+                || (l.from_node_id == to && l.to_node_id == from)
+        }) {
             trail_links.push(link.clone());
         } else {
             // Synthesize a temporal link for adjacency
@@ -961,9 +991,7 @@ fn parse_link_kind(value: &str) -> Option<AtlasLinkKind> {
     }
 }
 
-fn entity_relation_to_atlas_link(
-    kind: memd_schema::EntityRelationKind,
-) -> AtlasLinkKind {
+fn entity_relation_to_atlas_link(kind: memd_schema::EntityRelationKind) -> AtlasLinkKind {
     match kind {
         memd_schema::EntityRelationKind::SameAs => AtlasLinkKind::Semantic,
         memd_schema::EntityRelationKind::DerivedFrom => AtlasLinkKind::Causal,

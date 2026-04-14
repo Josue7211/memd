@@ -16,6 +16,8 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     Healthz,
     Status(StatusArgs),
+    State(StateArgs),
+    Claim(ClaimArgs),
     Capabilities(CapabilitiesArgs),
     Session(SessionArgs),
     Wake(WakeArgs),
@@ -1681,6 +1683,15 @@ pub(crate) struct StatusArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct StateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct CapabilitiesArgs {
     #[arg(long, default_value_os_t = default_bundle_root_path())]
     pub(crate) output: PathBuf,
@@ -1780,6 +1791,97 @@ pub(crate) struct ClaimsArgs {
 
     #[arg(long)]
     pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimArgs {
+    #[command(subcommand)]
+    pub(crate) command: ClaimSubcommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ClaimSubcommand {
+    Create(ClaimCreateArgs),
+    List(ClaimListArgs),
+    Close(ClaimCloseArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimCreateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) scope: String,
+
+    #[arg(long, default_value_t = 900)]
+    pub(crate) ttl_secs: u64,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimListArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ClaimCloseArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) scope: String,
+
+    #[arg(long)]
+    pub(crate) summary: bool,
+}
+
+impl From<ClaimCreateArgs> for ClaimsArgs {
+    fn from(value: ClaimCreateArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: true,
+            release: false,
+            transfer_to_session: None,
+            scope: Some(value.scope),
+            ttl_secs: value.ttl_secs,
+            summary: value.summary,
+        }
+    }
+}
+
+impl From<ClaimListArgs> for ClaimsArgs {
+    fn from(value: ClaimListArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: false,
+            release: false,
+            transfer_to_session: None,
+            scope: None,
+            ttl_secs: 900,
+            summary: value.summary,
+        }
+    }
+}
+
+impl From<ClaimCloseArgs> for ClaimsArgs {
+    fn from(value: ClaimCloseArgs) -> Self {
+        Self {
+            output: value.output,
+            acquire: false,
+            release: true,
+            transfer_to_session: None,
+            scope: Some(value.scope),
+            ttl_secs: 900,
+            summary: value.summary,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Args)]

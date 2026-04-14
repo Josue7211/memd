@@ -131,7 +131,13 @@ pub(crate) fn render_bundle_wakeup_markdown(
     if snapshot.context.records.is_empty() {
         prefix.push_str("- none\n\n");
     } else {
-        let limit = if claude_strict { 1 } else if verbose { 4 } else { 2 };
+        let limit = if claude_strict {
+            1
+        } else if verbose {
+            4
+        } else {
+            2
+        };
         for item in snapshot.context.records.iter().take(limit) {
             let item_limit = if claude_strict { 120 } else { 160 };
             prefix.push_str(&format!(
@@ -260,8 +266,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
         protocol.push_str("- If the user corrects you, write the correction back instead of trusting the transcript.\n");
         protocol.push_str("- Writes: `memd remember --kind fact` (long-term), `memd remember --kind decision`, `memd remember --kind preference`, `memd checkpoint` (short-term), `memd hook capture --summary` (live/correction).\n");
         if verbose {
-            protocol
-                .push_str("- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n");
+            protocol.push_str(
+                "- Wake/resume/refresh/handoff/hook capture auto-write short-term status.\n",
+            );
         }
         protocol.push_str("- Promote stable truths; do not rely on transcript recall.\n");
         protocol.push_str(&format!("- Default voice: {}\n", active_voice));
@@ -400,7 +407,7 @@ mod tests {
                 rehydration_queue: Vec::new(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::Auto,
@@ -485,7 +492,7 @@ mod tests {
                     .collect(),
                 traces: Vec::new(),
                 semantic_consolidation: None,
-            procedures: vec![],
+                procedures: vec![],
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -625,8 +632,10 @@ mod tests {
 
     #[test]
     fn claude_wakeup_markdown_respects_strict_budget() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-wakeup-claude-budget-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "memd-wakeup-claude-budget-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&dir).expect("create temp bundle");
         fs::write(
             dir.join("config.json"),
@@ -697,7 +706,9 @@ mod tests {
     fn claude_code_is_in_preset_registry_with_wake_only() {
         use crate::harness::preset::HarnessPresetRegistry;
         let registry = HarnessPresetRegistry::default_registry();
-        let claude = registry.get("claude-code").expect("claude-code must be in registry");
+        let claude = registry
+            .get("claude-code")
+            .expect("claude-code must be in registry");
         assert!(claude.wake_only, "claude-code must be wake_only");
         assert_eq!(claude.wake_char_budget, 1200);
         assert_eq!(claude.surface_set.len(), 1);
@@ -798,10 +809,7 @@ mod tests {
         let cold_surfaces = ["@../mem.md", "@../events.md"];
 
         // Simulate what write_native_agent_bridge_files generates
-        let generated = format!(
-            "## Imported memd memory files\n\n{}\n\n",
-            template_fragment
-        );
+        let generated = format!("## Imported memd memory files\n\n{}\n\n", template_fragment);
         assert!(
             generated.contains(template_fragment),
             "CLAUDE_IMPORTS template must import wake.md"

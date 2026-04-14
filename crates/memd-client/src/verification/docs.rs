@@ -268,8 +268,7 @@ pub(crate) fn build_morning_operator_summary(
     }
     top_no_memd_losses.truncate(5);
 
-    let mut proposed_next_actions = benchmark
-        .recommendations.to_vec();
+    let mut proposed_next_actions = benchmark.recommendations.to_vec();
     if let Some(report) = verification_report {
         let ranked_verifier_pressure = collect_ranked_verifier_pressure(registry, report);
         if !report.ok {

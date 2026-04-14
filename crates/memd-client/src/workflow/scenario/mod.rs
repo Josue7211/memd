@@ -966,13 +966,13 @@ pub(crate) async fn run_composite_command(
         && scenario
             .as_ref()
             .is_none_or(|value| value.scenario != expected)
-        {
-            findings.push(format!(
-                "latest scenario snapshot did not match expected scenario {expected}"
-            ));
-            recommendations
-                .push("rerun the expected scenario before trusting the composite gate".to_string());
-        }
+    {
+        findings.push(format!(
+            "latest scenario snapshot did not match expected scenario {expected}"
+        ));
+        recommendations
+            .push("rerun the expected scenario before trusting the composite gate".to_string());
+    }
 
     if scenario.is_none() {
         recommendations.push("run `memd scenario --write` before composite scoring".to_string());

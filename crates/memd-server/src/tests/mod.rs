@@ -1206,10 +1206,7 @@ fn store_item_records_source_linked_event_for_canonical_memory() {
     assert_eq!(event.event_type, "canonical_created");
     assert_eq!(event.source_agent.as_deref(), Some("codex@test"));
     assert_eq!(event.source_system.as_deref(), Some("hook-capture"));
-    assert_eq!(
-        event.source_path.as_deref(),
-        Some(".memd/wake.md")
-    );
+    assert_eq!(event.source_path.as_deref(), Some(".memd/wake.md"));
     assert_eq!(
         event.tags,
         vec!["raw-spine".to_string(), "correction".to_string()]
@@ -1444,7 +1441,10 @@ async fn ui_action_handler_returns_open_metadata() {
 
 #[tokio::test]
 async fn atlas_generate_creates_regions_from_stored_memory() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1510,7 +1510,10 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
 
 #[tokio::test]
 async fn atlas_explore_returns_nodes_for_region() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1581,7 +1584,10 @@ async fn atlas_explore_returns_nodes_for_region() {
 
 #[tokio::test]
 async fn atlas_explore_single_node_returns_that_item() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1638,7 +1644,10 @@ async fn atlas_explore_single_node_returns_that_item() {
 
 #[tokio::test]
 async fn atlas_pivot_filters_by_min_trust() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1706,7 +1715,10 @@ async fn atlas_pivot_filters_by_min_trust() {
 
 #[tokio::test]
 async fn atlas_explore_generates_trails_for_multi_node_regions() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1789,7 +1801,10 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
 
 #[tokio::test]
 async fn atlas_explore_time_pivot_filters_recent_items() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1893,7 +1908,10 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
 
 #[tokio::test]
 async fn atlas_lane_tags_create_lane_specific_regions() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4()))).expect("open test store");
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4())),
+    )
+    .expect("open test store");
     let state = AppState {
         store: store.clone(),
     };
@@ -1971,10 +1989,9 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
 
 #[tokio::test]
 async fn atlas_expand_returns_neighborhood_for_seed_items() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-expand-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-expand-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2024,10 +2041,9 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
 
 #[tokio::test]
 async fn atlas_nodes_include_evidence_count() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-evidence-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-evidence-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2090,10 +2106,9 @@ async fn atlas_nodes_include_evidence_count() {
 
 #[tokio::test]
 async fn atlas_rename_region_persists_new_name() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-rename-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-rename-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2294,10 +2309,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
         "should include tag-overlap neighbor"
     );
     assert!(
-        !response
-            .nodes
-            .iter()
-            .any(|n| n.label.contains("unrelated")),
+        !response.nodes.iter().any(|n| n.label.contains("unrelated")),
         "should NOT include unrelated item"
     );
 }
@@ -2371,10 +2383,9 @@ async fn atlas_explore_with_evidence_returns_events() {
 
 #[tokio::test]
 async fn atlas_scope_pivot_filters_by_scope() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-scope-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-scope-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2470,10 +2481,9 @@ async fn atlas_scope_pivot_filters_by_scope() {
 
 #[tokio::test]
 async fn atlas_from_working_seeds_from_working_memory() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-fromwork-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-fromwork-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2568,10 +2578,9 @@ async fn atlas_from_working_seeds_from_working_memory() {
 
 #[tokio::test]
 async fn atlas_supersedes_neighborhood_finds_corrections() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-supersedes-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-supersedes-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2674,10 +2683,8 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
 
 #[tokio::test]
 async fn atlas_persisted_links_survive_reload() {
-    let db_path = std::env::temp_dir().join(format!(
-        "memd-atlas-persist-{}.db",
-        uuid::Uuid::new_v4()
-    ));
+    let db_path =
+        std::env::temp_dir().join(format!("memd-atlas-persist-{}.db", uuid::Uuid::new_v4()));
     let store = SqliteStore::open(&db_path).expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2796,10 +2803,9 @@ async fn atlas_persisted_links_survive_reload() {
 
 #[tokio::test]
 async fn atlas_salience_pivot_uses_entity_salience_score() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-salience-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-salience-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
     let state = AppState {
         store: store.clone(),
@@ -2872,10 +2878,9 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
 
 #[tokio::test]
 async fn atlas_saved_trails_persist_and_list() {
-    let store = SqliteStore::open(std::env::temp_dir().join(format!(
-        "memd-atlas-trail-save-{}.db",
-        uuid::Uuid::new_v4()
-    )))
+    let store = SqliteStore::open(
+        std::env::temp_dir().join(format!("memd-atlas-trail-save-{}.db", uuid::Uuid::new_v4())),
+    )
     .expect("open test store");
 
     let node_a = uuid::Uuid::new_v4();
@@ -3757,7 +3762,10 @@ fn dogfood_store_fact_survives_context_retrieval() {
     );
 
     // Verify working memory has at least 1 non-status record
-    let non_status_in_context = items.iter().filter(|item| item.kind != MemoryKind::Status).count();
+    let non_status_in_context = items
+        .iter()
+        .filter(|item| item.kind != MemoryKind::Status)
+        .count();
     assert!(
         non_status_in_context >= 1,
         "dogfood gate: context must contain at least 1 non-status item (found {non_status_in_context})"
@@ -3933,10 +3941,7 @@ fn auto_link_creates_entity_links_on_store() {
             link.tags.contains(&"auto".to_string())
                 && (link.from_entity_id == ea.id || link.to_entity_id == ea.id)
         });
-        assert!(
-            has_auto_link,
-            "auto-link should reference the first entity"
-        );
+        assert!(has_auto_link, "auto-link should reference the first entity");
     }
 
     std::fs::remove_dir_all(dir).expect("cleanup");

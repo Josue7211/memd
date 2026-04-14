@@ -37,18 +37,17 @@ use axum::{
 use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
-    AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest, AtlasExploreResponse,
-    AtlasListTrailsRequest, AtlasListTrailsResponse, AtlasRegionsRequest, AtlasRegionsResponse,
-    AtlasRenameRegionRequest, AtlasRenameRegionResponse, AtlasSaveTrailRequest,
-    AtlasSaveTrailResponse,
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
-    AssociativeRecallRequest, AssociativeRecallResponse, CandidateMemoryRequest,
-    CandidateMemoryResponse, CompactContextResponse, CompactMemoryRecord, ContextRequest,
-    ContextResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
-    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
-    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
-    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
-    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse,
+    AtlasExploreRequest, AtlasExploreResponse, AtlasListTrailsRequest, AtlasListTrailsResponse,
+    AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
+    AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
+    CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
+    EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
+    EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
+    ExplainMemoryResponse, HealthResponse, HiveBoardRequest, HiveBoardResponse,
+    HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
@@ -56,13 +55,17 @@ use memd_schema::{
     HiveQueenActionResponse, HiveRosterRequest, HiveRosterResponse, HiveSessionAutoRetireRequest,
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
-    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxMemoryItem, MaintainReport,
-    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
-    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
-    MemoryDrainResponse, InboxDismissRequest, InboxDismissResponse, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest, MemoryInboxResponse, MemoryItem,
-    MemoryKind, MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse,
-    MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility,
+    HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
+    InboxDismissResponse, InboxMemoryItem, MaintainReport, MaintainReportRequest,
+    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
+    MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
+    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
+    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
+    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
+    MemoryVisibility, ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest,
+    ProcedureListResponse, ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
+    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
+    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
     RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
     SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
@@ -70,10 +73,6 @@ use memd_schema::{
     SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
     StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
     VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
-    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
-    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
-    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
-    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
     WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
@@ -137,16 +136,17 @@ impl AppState {
                 &item,
                 &canonical_key,
                 &redundancy_key,
-            )? {
-                if let Err(e) = self.record_item_event(
-                    &revived,
-                    "restored",
-                    "duplicate memory item restored to active canonical state".to_string(),
-                ) {
-                    eprintln!("warn: record_item_event (restored): {e:#}");
-                }
-                return Ok((revived, None));
+            )?
+        {
+            if let Err(e) = self.record_item_event(
+                &revived,
+                "restored",
+                "duplicate memory item restored to active canonical state".to_string(),
+            ) {
+                eprintln!("warn: record_item_event (restored): {e:#}");
             }
+            return Ok((revived, None));
+        }
         if duplicate.is_none() {
             if let Err(e) = self.record_item_event(
                 &item,
@@ -235,10 +235,7 @@ impl AppState {
             .iter()
             .filter(|e| e.id != new_entity.id)
             .filter(|e| {
-                e.context
-                    .as_ref()
-                    .and_then(|ctx| ctx.project.as_deref())
-                    == Some(project.as_str())
+                e.context.as_ref().and_then(|ctx| ctx.project.as_deref()) == Some(project.as_str())
             })
             .filter(|e| e.salience_score > 0.1)
             .take(3)

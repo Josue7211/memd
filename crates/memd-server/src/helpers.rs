@@ -354,26 +354,31 @@ pub(crate) fn compact_record(item: &MemoryItem) -> String {
     parts.push(format!("status={}", enum_label_status(item.status)));
 
     if let Some(project) = &item.project
-        && !project.is_empty() {
-            parts.push(format!("project={}", sanitize_value(project)));
-        }
+        && !project.is_empty()
+    {
+        parts.push(format!("project={}", sanitize_value(project)));
+    }
     if let Some(namespace) = &item.namespace
-        && !namespace.is_empty() {
-            parts.push(format!("ns={}", sanitize_value(namespace)));
-        }
+        && !namespace.is_empty()
+    {
+        parts.push(format!("ns={}", sanitize_value(namespace)));
+    }
     if let Some(workspace) = &item.workspace
-        && !workspace.is_empty() {
-            parts.push(format!("ws={}", sanitize_value(workspace)));
-        }
+        && !workspace.is_empty()
+    {
+        parts.push(format!("ws={}", sanitize_value(workspace)));
+    }
     parts.push(format!("vis={}", enum_label_visibility(item.visibility)));
     if let Some(branch) = &item.belief_branch
-        && !branch.is_empty() {
-            parts.push(format!("belief_branch={}", sanitize_value(branch)));
-        }
+        && !branch.is_empty()
+    {
+        parts.push(format!("belief_branch={}", sanitize_value(branch)));
+    }
     if let Some(agent) = &item.source_agent
-        && !agent.is_empty() {
-            parts.push(format!("agent={}", sanitize_value(agent)));
-        }
+        && !agent.is_empty()
+    {
+        parts.push(format!("agent={}", sanitize_value(agent)));
+    }
     if !item.tags.is_empty() {
         let tags = item
             .tags
@@ -475,7 +480,6 @@ pub(crate) fn associative_recall_reasons(
     reasons
 }
 
-
 pub(crate) fn sanitize_value(value: &str) -> String {
     value
         .split_whitespace()
@@ -563,14 +567,16 @@ pub(crate) fn context_score(
     score += project_scope_bonus(item, req.project.as_ref(), None);
 
     if let Some(project) = &req.project
-        && item.project.as_ref() == Some(project) {
-            score += 1.9;
-        }
+        && item.project.as_ref() == Some(project)
+    {
+        score += 1.9;
+    }
 
     if let Some(agent) = &req.agent
-        && item.source_agent.as_ref() == Some(agent) {
-            score += 0.75;
-        }
+        && item.source_agent.as_ref() == Some(agent)
+    {
+        score += 0.75;
+    }
 
     score += workspace_rank_adjustment(req.workspace.as_ref(), item.workspace.as_ref());
     score += durable_truth_rank_adjustment(item);
@@ -809,9 +815,10 @@ pub(crate) fn project_scope_bonus(
     }
 
     if let Some(namespace) = requested_namespace
-        && item.namespace.as_ref() == Some(namespace) {
-            bonus += 0.2;
-        }
+        && item.namespace.as_ref() == Some(namespace)
+    {
+        bonus += 0.2;
+    }
 
     bonus
 }

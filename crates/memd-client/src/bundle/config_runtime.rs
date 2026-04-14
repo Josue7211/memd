@@ -583,12 +583,13 @@ pub(crate) fn render_doctor_status_markdown(
             .unwrap_or(false)
     ));
     if let Some(missing) = status.get("missing").and_then(|value| value.as_array())
-        && !missing.is_empty() {
-            markdown.push_str("\n## Missing\n");
-            for item in missing {
-                markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
-            }
+        && !missing.is_empty()
+    {
+        markdown.push_str("\n## Missing\n");
+        for item in missing {
+            markdown.push_str(&format!("- {}\n", item.as_str().unwrap_or("unknown")));
         }
+    }
     if let Some(evolution) = status
         .get("evolution")
         .and_then(|value| if value.is_null() { None } else { Some(value) })
