@@ -134,15 +134,28 @@ pub(crate) fn render_bundle_wakeup_markdown(
         let limit = if claude_strict {
             1
         } else if verbose {
-            4
+            6
         } else {
-            2
+            4
+        };
+        let item_limit = if claude_strict {
+            120
+        } else if verbose {
+            160
+        } else {
+            140
         };
         for item in snapshot.context.records.iter().take(limit) {
-            let item_limit = if claude_strict { 120 } else { 160 };
             prefix.push_str(&format!(
                 "- {}\n",
                 compact_inline(item.record.trim(), item_limit)
+            ));
+        }
+        let total = snapshot.context.records.len();
+        if total > limit {
+            prefix.push_str(&format!(
+                "- + {} more via `memd lookup`\n",
+                total - limit
             ));
         }
         prefix.push('\n');
@@ -625,7 +638,14 @@ mod tests {
         assert!(markdown.contains("- changed="));
         assert!(markdown.contains("- next="));
         assert!(!markdown.contains("artifact-3"));
-        assert!(markdown.lines().count() < 40);
+        assert!(
+            markdown.lines().count() < 45,
+            "expanded durable truth budget (4 items + overflow hint) still fits under 45 lines"
+        );
+        assert!(
+            markdown.contains("more via `memd lookup`"),
+            "overflow hint should appear when durable truth items exceed limit"
+        );
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }

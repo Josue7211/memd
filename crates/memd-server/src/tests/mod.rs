@@ -4016,3 +4016,160 @@ async fn search_excludes_ttl_expired_items_by_default() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn status_cap_eviction_tracked_in_working_memory() {
+    let (dir, state) = temp_state("memd-status-cap-eviction");
+
+    // Store 5 status items
+    for i in 0..5 {
+        let _ = state.store_item(
+            StoreMemoryRequest {
+                content: format!("status checkpoint {i}"),
+                kind: MemoryKind::Status,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["checkpoint".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        );
+    }
+
+    // Store 3 facts so they surface alongside capped status
+    for i in 0..3 {
+        let _ = state.store_item(
+            StoreMemoryRequest {
+                content: format!("important fact number {i}"),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["infra".to_string()],
+                belief_branch: None,
+                status: None,
+            },
+            MemoryStage::Canonical,
+        );
+    }
+
+    let working = crate::working::working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(220),
+            max_total_chars: Some(4000),
+            rehydration_limit: Some(4),
+            auto_consolidate: Some(false),
+        },
+    )
+    .expect("build working memory");
+
+    // Count status items in records — should be ≤ 2
+    let status_in_records = working
+        .records
+        .iter()
+        .filter(|r| r.record.contains("kind=status"))
+        .count();
+    assert!(
+        status_in_records <= 2,
+        "at most 2 status items in records, found {status_in_records}"
+    );
+
+    // Evicted list should contain status-capped items
+    let status_evictions: Vec<_> = working
+        .evicted
+        .iter()
+        .filter(|e| e.reason.contains("evicted_by_status_cap"))
+        .collect();
+    assert!(
+        !status_evictions.is_empty(),
+        "evicted list must track status-capped items"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn duplicate_store_reinforces_existing_item() {
+    let (dir, state) = temp_state("memd-reinforce-dedup");
+
+    let req = StoreMemoryRequest {
+        content: "the server runs debian".to_string(),
+        kind: MemoryKind::Fact,
+        scope: MemoryScope::Project,
+        project: Some("memd".to_string()),
+        namespace: Some("main".to_string()),
+        workspace: None,
+        visibility: None,
+        source_agent: Some("codex".to_string()),
+        source_system: Some("memd".to_string()),
+        source_path: None,
+        source_quality: Some(SourceQuality::Canonical),
+        confidence: Some(0.7),
+        ttl_seconds: None,
+        last_verified_at: None,
+        supersedes: Vec::new(),
+        tags: vec!["infra".to_string()],
+        belief_branch: None,
+        status: None,
+    };
+
+    let (first, dup1) = state
+        .store_item(req.clone(), MemoryStage::Canonical)
+        .expect("first store");
+    assert!(dup1.is_none(), "first insert should not be a duplicate");
+
+    let (reinforced, dup2) = state
+        .store_item(req.clone(), MemoryStage::Canonical)
+        .expect("second store");
+    assert!(dup2.is_some(), "second insert should detect duplicate");
+    assert_eq!(reinforced.id, first.id, "should reinforce same item");
+    assert!(
+        reinforced.confidence > first.confidence,
+        "confidence should increase: {} > {}",
+        reinforced.confidence,
+        first.confidence
+    );
+    assert!(
+        reinforced.updated_at >= first.updated_at,
+        "updated_at should be bumped"
+    );
+
+    let items = state.snapshot().expect("snapshot");
+    let matching: Vec<_> = items
+        .iter()
+        .filter(|i| i.content == "the server runs debian")
+        .collect();
+    assert_eq!(matching.len(), 1, "only one item should exist in DB");
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}

@@ -66,14 +66,21 @@ pub(crate) fn working_memory(
     ranked_items.sort_by(|left, right| right.0.total_cmp(&left.0));
 
     // Cap status items to avoid noise flooding working memory.
-    // Keep at most 2 status items; evict the rest regardless of score.
+    // Keep at most 2 status items; evict the rest with tracking.
     let max_status_items = 2usize;
     let mut status_count = 0usize;
     let mut capped_items = Vec::with_capacity(ranked_items.len());
+    let mut status_evictions: Vec<WorkingMemoryEvictionRecord> = Vec::new();
     for entry in ranked_items {
         if entry.2.kind == memd_schema::MemoryKind::Status {
             status_count += 1;
             if status_count > max_status_items {
+                let record = compact_record(&entry.2);
+                status_evictions.push(WorkingMemoryEvictionRecord {
+                    id: entry.2.id,
+                    record,
+                    reason: format!("evicted_by_status_cap;{}", entry.1.join(";")),
+                });
                 continue;
             }
         }
@@ -91,7 +98,7 @@ pub(crate) fn working_memory(
     let mut used_chars = 0usize;
     let mut truncated = false;
     let mut records = Vec::new();
-    let mut evicted = Vec::new();
+    let mut evicted: Vec<WorkingMemoryEvictionRecord> = status_evictions;
 
     let compacted_records = ranked_items
         .iter()

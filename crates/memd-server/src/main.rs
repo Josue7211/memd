@@ -147,6 +147,26 @@ impl AppState {
             }
             return Ok((revived, None));
         }
+        if let Some(found) = duplicate.as_ref() {
+            let mut reinforced = found.item.clone();
+            reinforced.updated_at = Utc::now();
+            reinforced.confidence = (reinforced.confidence + 0.05).min(1.0);
+            let rk = found
+                .item
+                .redundancy_key
+                .as_deref()
+                .unwrap_or(&redundancy_key);
+            self.store
+                .update(&reinforced, &canonical_key, rk)?;
+            if let Err(e) = self.record_item_event(
+                &reinforced,
+                "reinforced",
+                "duplicate store reinforced existing item".to_string(),
+            ) {
+                eprintln!("warn: record_item_event (reinforced): {e:#}");
+            }
+            return Ok((reinforced, Some(found.clone())));
+        }
         if duplicate.is_none() {
             if let Err(e) = self.record_item_event(
                 &item,
