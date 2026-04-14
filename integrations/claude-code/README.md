@@ -59,6 +59,10 @@ The generated import chain pulls in only the hot-path wake surface:
 `mem.md` and `events.md` stay cold by default. Reach for them
 through `memd resume` or `memd lookup` when wake is not enough.
 
+Cached wake is not bootstrap proof for a new session.
+Claude bootstrap now requires one live `memd wake` in-session before cached
+`wake.md` can be trusted again.
+
 And use the Claude-specific entrypoint:
 
 ```bash

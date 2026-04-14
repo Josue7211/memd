@@ -9,6 +9,7 @@ MEMD_WAKE_TTL="${MEMD_WAKE_TTL:-120}"
 # Read hook input from stdin (Claude Code sends JSON with session_id, cwd, etc.)
 INPUT="$(cat)"
 CWD="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null || echo "")"
+SESSION_ID="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || echo "")"
 if [ -z "$CWD" ]; then
   CWD="$(pwd)"
 fi
@@ -42,12 +43,30 @@ emit_context() {
 
 # Staleness check: skip if wake ran recently
 MARKER_FILE="$BUNDLE_ROOT/.last-wake"
+SESSION_MARKER_DIR="$BUNDLE_ROOT/state/bootstrap-sessions"
+SESSION_MARKER_FILE=""
+if [ -n "$SESSION_ID" ]; then
+  SAFE_SESSION_ID="$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')"
+  SESSION_MARKER_FILE="$SESSION_MARKER_DIR/$SAFE_SESSION_ID"
+fi
+
+session_has_live_wake_receipt() {
+  [ -n "$SESSION_MARKER_FILE" ] && [ -f "$SESSION_MARKER_FILE" ]
+}
+
+stamp_live_wake_receipt() {
+  if [ -n "$SESSION_MARKER_FILE" ]; then
+    mkdir -p "$SESSION_MARKER_DIR"
+    date +%s > "$SESSION_MARKER_FILE"
+  fi
+}
+
 if [ -f "$MARKER_FILE" ]; then
   LAST_WAKE="$(cat "$MARKER_FILE" 2>/dev/null || echo "0")"
   NOW="$(date +%s)"
   AGE=$(( NOW - LAST_WAKE ))
-  if [ "$AGE" -lt "$MEMD_WAKE_TTL" ]; then
-    # Still fresh — inject cached wake instead of re-running
+  if [ "$AGE" -lt "$MEMD_WAKE_TTL" ] && session_has_live_wake_receipt; then
+    # Still fresh for this session — inject cached wake instead of re-running
     if [ -f "$BUNDLE_ROOT/wake.md" ]; then
       CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
       emit_context "memd bootstrap (cached ${AGE}s ago):\n${CACHED}"
@@ -62,9 +81,12 @@ WAKE_OUTPUT="$(memd wake --output "$BUNDLE_ROOT" --write 2>&1 || true)"
 if [ -n "$WAKE_OUTPUT" ]; then
   # Stamp the marker
   date +%s > "$MARKER_FILE"
+  stamp_live_wake_receipt
   emit_context "memd bootstrap (live):\n${WAKE_OUTPUT}"
-elif [ -f "$BUNDLE_ROOT/wake.md" ]; then
+elif [ -f "$BUNDLE_ROOT/wake.md" ] && session_has_live_wake_receipt; then
   # Backend down — serve stale cache with warning
   CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
   emit_context "memd bootstrap (stale fallback — backend unreachable):\n${CACHED}"
+else
+  emit_context "memd bootstrap failure: live wake required for this session before cached wake can be trusted."
 fi
