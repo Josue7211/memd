@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# memd bootstrap hook — universal pre-turn enforcement.
-# Runs memd wake and injects output as additional context.
+# memd bootstrap hook — runs on UserPromptSubmit in Claude Code.
+# Hard enforcement: injects memd wake output before the model reasons.
 # Skips if last wake was within MEMD_WAKE_TTL seconds (default 120).
-# Degrades gracefully: serves stale bundle if backend unreachable.
 set -euo pipefail
 
 MEMD_WAKE_TTL="${MEMD_WAKE_TTL:-120}"
 
-# Read hook input from stdin (harness sends JSON with session_id, cwd, etc.)
+# Read hook input from stdin (Claude Code sends JSON with session_id, cwd, etc.)
 INPUT="$(cat)"
 CWD="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null || echo "")"
 if [ -z "$CWD" ]; then
@@ -29,38 +28,43 @@ find_bundle() {
 
 BUNDLE_ROOT="$(find_bundle "$CWD")"
 if [ -z "$BUNDLE_ROOT" ]; then
+  # No bundle — nothing to bootstrap
   exit 0
 fi
 
-escape_json() {
-  python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])"
+# Helper: emit properly structured hookSpecificOutput JSON
+emit_context() {
+  local ctx="$1"
+  local escaped
+  escaped="$(printf '%s' "$ctx" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])")"
+  printf '%s' "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"${escaped}\"}}"
 }
 
-# Staleness check
+# Staleness check: skip if wake ran recently
 MARKER_FILE="$BUNDLE_ROOT/.last-wake"
 if [ -f "$MARKER_FILE" ]; then
   LAST_WAKE="$(cat "$MARKER_FILE" 2>/dev/null || echo "0")"
   NOW="$(date +%s)"
   AGE=$(( NOW - LAST_WAKE ))
   if [ "$AGE" -lt "$MEMD_WAKE_TTL" ]; then
+    # Still fresh — inject cached wake instead of re-running
     if [ -f "$BUNDLE_ROOT/wake.md" ]; then
       CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
-      ESCAPED="$(echo "$CACHED" | escape_json)"
-      printf '%s' "{\"additionalContext\":\"memd bootstrap (cached ${AGE}s ago):\\n${ESCAPED}\"}"
+      emit_context "memd bootstrap (cached ${AGE}s ago):\n${CACHED}"
     fi
     exit 0
   fi
 fi
 
-# Run memd wake
+# Run memd wake — the real enforcement
 WAKE_OUTPUT="$(memd wake --output "$BUNDLE_ROOT" --write 2>&1 || true)"
 
 if [ -n "$WAKE_OUTPUT" ]; then
+  # Stamp the marker
   date +%s > "$MARKER_FILE"
-  ESCAPED="$(echo "$WAKE_OUTPUT" | escape_json)"
-  printf '%s' "{\"additionalContext\":\"memd bootstrap (live):\\n${ESCAPED}\"}"
+  emit_context "memd bootstrap (live):\n${WAKE_OUTPUT}"
 elif [ -f "$BUNDLE_ROOT/wake.md" ]; then
+  # Backend down — serve stale cache with warning
   CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
-  ESCAPED="$(echo "$CACHED" | escape_json)"
-  printf '%s' "{\"additionalContext\":\"memd bootstrap (stale fallback — backend unreachable):\\n${ESCAPED}\"}"
+  emit_context "memd bootstrap (stale fallback — backend unreachable):\n${CACHED}"
 fi

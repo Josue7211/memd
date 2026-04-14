@@ -44,7 +44,8 @@ Weighted scoring from [[docs/theory/locks/2026-04-11-memd-evaluation-theory-lock
 | Token efficiency | 10% | 6/10 | 78% boot reduction, budget enforced, no cost measurement |
 | Trust + provenance | 10% | 5/10 | explain surfaces exist, source trust scoring, drilldown partial |
 
-**Composite: ~2.9/10 (weighted)**
+**Composite: ~1.8/10 (zero-generosity regrade 2026-04-14)**
+*Previously reported 2.9 — that counted "code exists" as partial credit. Regrade counts only "user gets value."*
 
 ## 11 Pillars — Current Reality
 

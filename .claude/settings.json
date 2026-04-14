@@ -1,15 +1,1 @@
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$PWD/.claude/hooks/memd-bootstrap.sh\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ]
-  }
-}
+{}

@@ -3,39 +3,44 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-13
-version: v1
+truth_date: 2026-04-14
+version: v2
 version_status: in_progress
-current_phase: phase_i
-phase_status: in_progress
-next_phase: phase_j
-next_step: design_system_and_api_client
+current_milestone: M0
+milestone_status: pending
+current_phase: phase_a2
+phase_status: pending
+next_milestone: M1
+next_step: extraction_from_inspiration_repos + benchmark_baseline (parallel)
 active_blockers: []
+v1_status: frozen_architecture_complete
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-04-13`
-- current version: `v1`
+- truth date: `2026-04-14`
+- current version: `v2` (hardening)
 - version status: `in_progress`
-- current phase: `Phase I: Human Dashboard`
-- phase status: `in_progress`
-- next phase: `Phase J: Hive Coordination`
-- next step: `design system + API client (#5-6)`
+- v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
+- current phase: `Phase A2: Inspiration Extraction`
+- phase status: `pending`
+- next step: deep-read mempalace + supermemory, extract patterns into architecture lane
 
-## Current Focus
+## V1 → V2 Decision
 
-Phase I in progress. Dashboard scaffold complete (TanStack Router + Vite + Tailwind v4).
-Shell layout with sidebar nav, status stub, TRON design tokens, production build verified.
+V1 built the architecture: 7 crates, 15 tables, 207 types, 90 client methods,
+79 CLI commands, 6 harness presets, theory-locked 10-star model. **The architecture
+is ahead of any competitor.**
 
-Phase H verified. All 7 pass gate criteria met:
-1. eval score 85 (≥65 threshold) — PASS
-2. working memory 5/7 non-status — PASS
-3. context has 4 fact/decision items — PASS
-4. procedure table has 7 entries — PASS
-5. inbox has 0 expired items — PASS
-6. continuity has 0 ghost refs — PASS
-7. degraded flag wired to memory quality — PASS
+V1 did NOT build a working product. Honest audit (2026-04-14):
+- 1 of 12 capabilities delivers value (store a memory)
+- 0 of 8 product-defining features work end-to-end
+- Status noise drowns signal. Atlas dormant. Lanes unimplemented.
+- No correction UX. No recall proof. No human surface.
+
+V2 is the hardening version. Goal: make every existing feature actually work,
+prove it with benchmarks, ship the human surface. No new architecture — just
+make the architecture real.
 
 ## Blockers
 
@@ -43,7 +48,6 @@ None.
 
 ## Status Rules
 
-- `pending`: not started
 - `pending`: not started
 - `in_progress`: active build work
 - `blocked`: cannot move without external fix or decision
@@ -73,42 +77,161 @@ without collapsing back into transcript reconstruction.
 Current priority harnesses are Codex, OpenCode, Hermes, and OpenClaw. They are
 the proving ground for this contract, not the whole definition of the product.
 
-## Canonical Phases
+## V1 Phases (Frozen — Architecture Complete)
 
-Use phases for execution order. Detailed phase plans live in linked docs.
+V1 built the architecture. These phases are frozen. Do not add features to V1 phases.
+Fix operational gaps in V2 phases instead.
 
-| Phase | Name | Status | Purpose | Detail |
+| Phase | Name | V1 Status | Honest Status | Detail |
 | --- | --- | --- | --- | --- |
-| A | Raw Truth Spine | `verified` | capture once, keep raw evidence, preserve source linkage | [[phase-a-raw-truth-spine]] |
-| B | Session Continuity | `verified` | fresh-session resume without transcript rebuild | [[phase-b-session-continuity]] |
-| C | Typed Memory | `verified` | explicit memory kinds instead of one flat store | [[phase-c-typed-memory]] |
-| D | Canonical Truth | `verified` | corrections, trust, freshness, conflict handling | [[phase-d-canonical-truth]] |
-| E | Wake Packet Compiler | `verified` | compile small action-ready memory packets | [[phase-e-wake-packet-compiler]] |
-| F | Memory Atlas | `verified` | packet -> region -> evidence navigation | [[phase-f-memory-atlas]] |
-| G | Procedural Learning | `verified` | learn reusable operating procedures | [[phase-g-procedural-learning]] |
-| H | Core Hardening | `verified` | fix operational pipeline — make phases B-G actually work | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
-| I | Human Dashboard | `pending` | web UI for memory browsing, correction, navigation, status | [[docs/phases/phase-i-human-dashboard.md|phase-i-human-dashboard]] |
-| J | Hive Coordination | `pending` | shared second brain across harnesses | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
-| K | Overnight Evolution | `pending` | dream/autodream/autoresearch with trust gates | [[docs/theory/models/2026-04-11-memd-ralph-roadmap.md|ralph-roadmap]] |
+| A | Raw Truth Spine | `verified` | works — captures events, NDJSON intact | [[phase-a-raw-truth-spine]] |
+| B | Session Continuity | `verified` | broken — ghost refs, expired items in continuity | [[phase-b-session-continuity]] |
+| C | Typed Memory | `verified` | works — kinds stored, but dedup incomplete | [[phase-c-typed-memory]] |
+| D | Canonical Truth | `verified` | stub — mechanics exist, no correction UX | [[phase-d-canonical-truth]] |
+| E | Wake Packet Compiler | `verified` | broken — status noise drowns facts/decisions | [[phase-e-wake-packet-compiler]] |
+| F | Memory Atlas | `verified` | dormant — 974 lines never called from runtime | [[phase-f-memory-atlas]] |
+| G | Procedural Learning | `verified` | partial — detection exists, never triggers in prod | [[phase-g-procedural-learning]] |
+| H | Core Hardening | `verified` | partial — fixed some issues, core pipeline still broken | [[ralph-roadmap|ralph-roadmap]] |
+| I | Human Dashboard | `started` | scaffold only — TanStack Router + Vite shell | [[phase-i-human-dashboard]] |
+| J | Hive Coordination | `pending` | deferred to V2 | — |
+| K | Overnight Evolution | `pending` | deferred to V2 | — |
+
+## V1 → V2 Migration
+
+V1 phases are frozen. V2 phases fix what V1 left broken. This table shows
+which V2 work repairs which V1 promise.
+
+| V1 Phase | V1 Claim | Honest Status | Fixed By | Key Backlog |
+| --- | --- | --- | --- | --- |
+| A — Raw Truth Spine | event capture | works | L2 (spine integrity) | #53 |
+| B — Session Continuity | resume across sessions | broken — ghost refs, stale cache | C2, B2 | #46, #50, #76, #77 |
+| C — Typed Memory | 7 kinds stored | dedup incomplete | B2 | #49 |
+| D — Canonical Truth | corrections work | stub — no UX, no proof | D2 | #43, #57, #58, #78, #80 |
+| E — Wake Packet Compiler | right context on boot | broken — status noise drowns facts | B2 | #42, #66 |
+| F — Memory Atlas | navigable graph | dormant — 974 lines, never called | E2 | #44, #51, #52 |
+| G — Procedural Learning | learns patterns | never triggers in prod | F2, G2 | #37, #38, #40 |
+| H — Core Hardening | pipeline solid | partial — core loop still broken | B2, C2, D2 | spread |
+| I — Human Dashboard | web UI | scaffold only | I2 | product phase |
+
+## V2 Milestones (Hardening — Make It Real)
+
+Goal: 1.8/10 → 10/10. No new architecture. Make existing architecture work.
+
+4 milestones. Each contains parallel phases. Each phase has a Ralph doc
+(bounded goal, pass gate, evidence, rollback). Benchmarks re-run at every
+milestone gate — not just M0 and M3. Load one phase doc at a time.
+
+### M0: Baseline + Research (no code changes)
+
+Establish the "before" number. Extract patterns from competitors.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| A2 | Inspiration Extraction | `pending` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
+| — | Benchmark Baseline | `pending` | #45, #60 | Run LongMemEval/LoCoMo/MemBench with current memd |
+
+**Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded (expect near-zero).
+
+### M1: Core Loop (store → recall → right thing back)
+
+Single highest-impact milestone. Fix the live loop. After M1, memd is usable.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| B2 | Signal vs Noise | `pending` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
+| C2 | Ghost Cleanup | `pending` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
+| F2 | Ingestion Pipeline | `pending` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
+
+**Gate**: `memd eval --fail-below 65`. Store a fact → recall it next session.
+Working memory ≤ 2 status items. Zero ghost refs. Benchmark re-run shows improvement.
+**Fixes V1**: Phase B (continuity), Phase C (dedup), Phase E (wake), Phase G (procedural).
+
+### M2: Truth Layer (correction, navigation, lanes)
+
+Make memory trustworthy and navigable. After M2, users can correct and explore.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| D2 | Correction Flow | `pending` | #43, #57, #58, #78, #80 | [[docs/phases/phase-d2-correction-flow.md]] |
+| E2 | Atlas Activation | `pending` | #44, #51, #52 | [[docs/phases/phase-e2-atlas-activation.md]] |
+| G2 | Lane Architecture | `pending` | #38, #40 | [[docs/phases/phase-g2-lane-architecture.md]] |
+
+**Gate**: Correct a fact → next recall reflects correction. Atlas navigable in ≤ 4 hops.
+6 lanes functional with auto-activation. Benchmark re-run.
+**Fixes V1**: Phase D (canonical), Phase F (atlas).
+
+### M3: Proof + Surface (demo moment)
+
+Prove it works. Ship the human surface. This is the "show me" milestone.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| H2 | Recall Proof | `pending` | #45, #60, #61 | [[docs/phases/phase-h2-recall-proof.md]] |
+| I2 | Human Dashboard | `pending` | — | [[docs/phases/phase-i2-human-dashboard.md]] |
+
+**Gate**: LongMemEval ≥ 80%. Dashboard: browse, correct, navigate in browser. Zero console errors.
+**Demo**: "Store a fact. Correct it. Navigate it. Prove it. All in the UI."
+**Fixes V1**: Phase I (dashboard).
+
+### M4: Hardening (isolation, observability, evolution, polish)
+
+Everything that makes memd production-grade and self-improving.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| J2 | Isolation + Trust | `pending` | #47, #48, #68, #73 | [[docs/phases/phase-j2-isolation-trust.md]] |
+| K2 | Observability | `pending` | #59, #72, #74 | [[docs/phases/phase-k2-observability.md]] |
+| L2 | Hive Hardening | `pending` | #53, #67, #70, #71, #75, #81 | [[docs/phases/phase-l2-hive-hardening.md]] |
+| M2-evo | Overnight Evolution | `pending` | #62, #63, #65 | [[docs/phases/phase-m2-overnight-evolution.md]] |
+| N2 | Integrations Polish | `pending` | #54, #56, #64, #69, #79 | [[docs/phases/phase-n2-integrations-polish.md]] |
+
+**Gate**: Private items don't leak. Cross-harness continuity proven. Backup/restore works.
+Evolution proposes procedures. Obsidian two-way sync. Benchmark re-run ≥ 90%.
+**Fixes V1**: Phase A (spine integrity), Phase J (hive), Phase K (evolution).
+
+## Benchmark Cadence
+
+Benchmarks are not a phase — they're a continuous gate.
+
+| When | What | Minimum |
+| --- | --- | --- |
+| M0 | Baseline: LongMemEval, LoCoMo, MemBench | record number (expect near-zero) |
+| M1 gate | Re-run all | improvement over M0 |
+| M2 gate | Re-run all | ≥ 50% LongMemEval |
+| M3 gate | Full benchmark + A/B influence test | ≥ 80% LongMemEval |
+| M4 gate | Full benchmark + adversarial suite | ≥ 90% LongMemEval |
+
+If any milestone gate shows regression from prior milestone, STOP and fix before continuing.
 
 ## Next Up
 
-1. Start `Phase H` (Core Hardening) — fix 9 operational pipeline issues.
-2. Then `Phase I` (Human Dashboard).
-3. Then `Phase J` (Hive Coordination).
-4. Then `Phase K` (Overnight Evolution).
-5. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for audit findings.
-6. See [[docs/verification/MEMD-10-STAR.md]] for 35-gap 10-star target.
+1. `M0` — extract from mempalace + supermemory + run benchmark baseline (parallel)
+2. `M1` — kill status noise, clean ghosts, build ingestion pipeline
+3. See [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md]] for extraction plan
+4. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
+5. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
 
-## Operational Reality (2026-04-13 Audit)
+## Operational Reality (2026-04-14 Audit — Zero Generosity)
 
-Phase A-G are architecturally complete but operationally broken. Full audit:
-- 10 audit agents + 7 deep-read agents scanned every source file (~600KB)
-- Live loop: 2/7 steps work. 5/7 broken.
-- 10-star composite score: ~3.3/10 (target: 8+)
-- 16 open backlog items (7 critical, 4 high, 5 medium)
-- Fix order: drain ghosts → fix status noise → fix wake kind exclusion →
-  wire procedure detection → fix status lies → fix agent helpers → add dogfood gate
+Honest score: **1.8/10** (previously reported 3.3 — that was generous).
+1 of 12 core capabilities delivers user value (store a memory).
+0 of 8 product-defining capabilities work end-to-end.
+
+- 46 open backlog items (8 critical, 17 high, 21 medium)
+- 81 total items tracked (46 open, 35 closed/deferred from V1)
+- Architecture is correct. Product doesn't work.
+- "Verified" phases passed unit tests, not operational dogfood.
+- Status noise drowns all signal. Lanes unimplemented. Atlas dormant.
+  Correction has no UX. No proof recall changes behavior.
+
+Fix order (Tier 1 — make core work):
+1. Kill status noise (#42) — dedup checkpoint, cap working memory
+2. Fix wake kind scoring (#2) — facts/decisions must outrank status
+3. Drain ghost refs (#46) — filter expired from continuity
+4. Wire procedure detection (#3) — already in worker, surface in runtime
+5. First-class correction flow (#43) — CLI command + E2E proof
+6. Operational dogfood gate — store fact, close session, recall it next session
+7. Wake atlas integration (#44) — surface regions in wake packet
 
 ## Phase E Follow-Up (Closed)
 
@@ -252,12 +375,155 @@ All audit tail items resolved:
     co-occurring entities in the same project. Entity links table now populated.
     Full graph navigation (wiki links, atlas integration) deferred to Phase I.
 
-## Recently Closed
+35. [[docs/backlog/2026-04-13-session-resume-no-memd-memory.md|session-resume-no-memd-memory]] — `partially closed`, fixed `2026-04-13`.
+    Bootstrap hook JSON format fixed (hookSpecificOutput wrapper). Global + project hooks aligned.
+    Stale `.planning/` refs in global CLAUDE.md fixed. Root causes C+D still open.
 
-- `Phase A` raw truth spine: `verified`
-- `Phase B` session continuity: `verified`
-- `Phase C` typed memory: `verified`
-- `Phase D` canonical truth: `verified`
+36. [[docs/backlog/2026-04-13-architecture-knowledge-not-in-lanes.md|architecture-knowledge-not-in-lanes]] — `partially closed`, `2026-04-13`.
+    Core architecture fact stored via `memd remember --kind fact --tag memd-architecture`.
+    Init pipeline seeding and wake compiler surfacing still needed.
+
+37. [[docs/backlog/2026-04-14-no-source-ingestion-pipeline.md|no-source-ingestion-pipeline]] — `open`, `2026-04-14`.
+    Doctrine violation: no ingestion step compiles `.memd/lanes/*/` source files into DB memory items.
+
+38. [[docs/backlog/2026-04-14-lane-queries-grep-files-not-db.md|lane-queries-grep-files-not-db]] — `open`, `2026-04-14`.
+    `memd inspiration` greps raw files (4 of 6 paths). Theory says lane queries hit the server.
+
+39. [[docs/backlog/2026-04-14-theory-design-docs-not-ingestible.md|theory-design-docs-not-ingestible]] — `open`, `2026-04-14`.
+    THEORY.md, DESIGN.md, architecture.md re-read every session. Should be architecture-lane items.
+
+40. [[docs/backlog/2026-04-14-five-starter-lanes-no-source-material.md|five-starter-lanes-no-source-material]] — `open`, `2026-04-14`.
+    5 of 6 starter lanes have zero source material. Only inspiration seeded.
+
+41. [[docs/backlog/2026-04-14-no-change-detection-on-source-material.md|no-change-detection-on-source-material]] — `open`, `2026-04-14`.
+    No mtime/hash tracking outside inspiration lane. Can't know when to re-ingest.
+
+42. [[docs/backlog/2026-04-14-status-noise-runaway-checkpoint-loop.md|status-noise-runaway-checkpoint-loop]] — `open`, `2026-04-14`.
+    CRITICAL: 15+ auto-checkpoint triggers flood DB with status records. 80-90% of working memory is noise.
+
+43. [[docs/backlog/2026-04-14-correction-flow-no-user-pathway.md|correction-flow-no-user-pathway]] — `open`, `2026-04-14`.
+    Correction mechanics exist but zero user pathway. No CLI command, no E2E proof.
+
+44. [[docs/backlog/2026-04-14-atlas-fully-built-completely-dormant.md|atlas-fully-built-completely-dormant]] — `open`, `2026-04-14`.
+    974 lines, 7 routes, 18 tests — never called from any production path.
+
+45. [[docs/backlog/2026-04-14-no-behavior-changing-recall-proof.md|no-behavior-changing-recall-proof]] — `open`, `2026-04-14`.
+    CRITICAL: No benchmark proving memd recall changes agent behavior. mempalace has 96.6% on LongMemEval.
+
+46. [[docs/backlog/2026-04-14-ghost-refs-in-continuity-capsule.md|ghost-refs-in-continuity-capsule]] — `open`, `2026-04-14`.
+    CRITICAL: Expired/deleted items still referenced in continuity fields. No filtering, no path validation.
+
+47. [[docs/backlog/2026-04-14-scope-visibility-isolation-not-enforced.md|scope-visibility-isolation-not-enforced]] — `open`, `2026-04-14`.
+    Scope and visibility fields exist but never checked at retrieval. No agent isolation.
+
+48. [[docs/backlog/2026-04-14-source-quality-ranking-not-enforced.md|source-quality-ranking-not-enforced]] — `open`, `2026-04-14`.
+    canonical > promoted > candidate not enforced in retrieval ranking.
+
+49. [[docs/backlog/2026-04-14-memory-dedup-incomplete.md|memory-dedup-incomplete]] — `open`, `2026-04-14`.
+    Doctrine: "one concept, one memory object." Dedup optional, duplicates accumulate.
+
+50. [[docs/backlog/2026-04-14-ttl-enforcement-no-gc.md|ttl-enforcement-no-gc]] — `open`, `2026-04-14`.
+    Items marked expired but never removed. No GC pass. Dead items pile up.
+
+51. [[docs/backlog/2026-04-14-explain-drilldown-not-wired.md|explain-drilldown-not-wired]] — `open`, `2026-04-14`.
+    No `memd explain <id>` CLI. Provenance chain opaque. Drilldown unimplemented.
+
+52. [[docs/backlog/2026-04-14-tag-system-not-searchable.md|tag-system-not-searchable]] — `open`, `2026-04-14`.
+    Tags stored but not queryable. No listing endpoint, no filter, no faceting.
+
+53. [[docs/backlog/2026-04-14-event-spine-no-integrity-checks.md|event-spine-no-integrity-checks]] — `open`, `2026-04-14`.
+    raw-spine.jsonl has no checksums, no validation, no repair. Corruption silent.
+
+54. [[docs/backlog/2026-04-14-obsidian-integration-one-way-only.md|obsidian-integration-one-way-only]] — `open`, `2026-04-14`.
+    Export works. Import stubbed. No two-way sync. Vault structure hardcoded.
+
+55. [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md|steal-from-inspiration-repos]] — `open`, `2026-04-14`.
+    Deep extraction from mempalace + supermemory. Benchmarks, dedup, entity graph, ingestion, room detection.
+
+56. [[docs/backlog/2026-04-14-no-cross-harness-continuity-proof.md|no-cross-harness-continuity-proof]] — `open`, `2026-04-14`.
+    No test of starting work in one harness, continuing in another.
+
+57. [[docs/backlog/2026-04-14-contradiction-detection-never-triggers.md|contradiction-detection-never-triggers]] — `open`, `2026-04-14`.
+    Contested status exists but contradiction detection never fires in practice.
+
+58. [[docs/backlog/2026-04-14-trust-hierarchy-unproven.md|trust-hierarchy-unproven]] — `open`, `2026-04-14`.
+    human > canonical > promoted > candidate defined but never proven E2E.
+
+59. [[docs/backlog/2026-04-14-no-token-efficiency-measurement.md|no-token-efficiency-measurement]] — `open`, `2026-04-14`.
+    No per-kind token tracking, no cost measurement, no delta-only capture.
+
+60. [[docs/backlog/2026-04-14-no-public-benchmark-parity.md|no-public-benchmark-parity]] — `open`, `2026-04-14`.
+    No LongMemEval/LoCoMo/MemBench results. Datasets exist, no working harness.
+
+61. [[docs/backlog/2026-04-14-no-compaction-quality-proof.md|no-compaction-quality-proof]] — `open`, `2026-04-14`.
+    Memory compaction exists but quality after compaction unproven.
+
+62. [[docs/backlog/2026-04-14-no-decay-calibration.md|no-decay-calibration]] — `open`, `2026-04-14`.
+    Decay hardcoded at 21d/0.12. Never calibrated from real usage data.
+
+63. [[docs/backlog/2026-04-14-no-consolidation-quality-proof.md|no-consolidation-quality-proof]] — `open`, `2026-04-14`.
+    Consolidation runs in worker. Output quality unmeasured.
+
+64. [[docs/backlog/2026-04-14-no-handoff-quality-proof.md|no-handoff-quality-proof]] — `open`, `2026-04-14`.
+    Handoff packet quality and completeness unverified.
+
+65. [[docs/backlog/2026-04-14-no-overnight-evolution-loop.md|no-overnight-evolution-loop]] — `open`, `2026-04-14`.
+    dream/autodream/autoevolve loops not implemented.
+
+66. [[docs/backlog/2026-04-14-no-live-memory-contract.md|no-live-memory-contract]] — `open`, `2026-04-14`.
+    Theory says memory updates while agent works. No live contract enforced.
+
+67. [[docs/backlog/2026-04-14-skill-gating-config-flags-only.md|skill-gating-config-flags-only]] — `open`, `2026-04-14`.
+    Skill gating is config flags. No runtime enforcement, no evaluation gate.
+
+68. [[docs/backlog/2026-04-14-no-multi-user-team-support.md|no-multi-user-team-support]] — `open`, `2026-04-14`.
+    No team/org concept beyond agent identity.
+
+69. [[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md|rag-sidecar-disabled-no-fallback]] — `open`, `2026-04-14`.
+    RAG backend disabled. No timeout, retry, or fallback cache.
+
+70. [[docs/backlog/2026-04-14-no-data-recovery-procedure.md|no-data-recovery-procedure]] — `open`, `2026-04-14`.
+    SQLite corruption = total loss. No backup/restore procedure.
+
+71. [[docs/backlog/2026-04-14-no-admission-control-rate-limiting.md|no-admission-control-rate-limiting]] — `open`, `2026-04-14`.
+    No rate limiting on memory API. Noisy agents flood unchecked.
+
+72. [[docs/backlog/2026-04-14-no-metrics-tracing-observability.md|no-metrics-tracing-observability]] — `open`, `2026-04-14`.
+    No structured logging, no metrics, no tracing. Debug requires source reading.
+
+73. [[docs/backlog/2026-04-14-no-multi-project-isolation-proof.md|no-multi-project-isolation-proof]] — `open`, `2026-04-14`.
+    No test proving one project's memory doesn't leak into another.
+
+74. [[docs/backlog/2026-04-14-no-latency-briefing.md|no-latency-briefing]] — `open`, `2026-04-14`.
+    No retrieval latency measurement. No SLA or performance contract.
+
+75. [[docs/backlog/2026-04-14-concurrent-write-no-retry.md|concurrent-write-no-retry]] — `open`, `2026-04-14`.
+    CRITICAL: SQLITE_BUSY on concurrent writes. No retry/backoff. Multi-agent deadlock.
+
+76. [[docs/backlog/2026-04-14-no-session-orphan-detection.md|no-session-orphan-detection]] — `open`, `2026-04-14`.
+    No way to distinguish crashed vs completed sessions.
+
+77. [[docs/backlog/2026-04-14-stale-working-memory-cache.md|stale-working-memory-cache]] — `open`, `2026-04-14`.
+    Working memory can be hours old. Corrections silently ignored.
+
+78. [[docs/backlog/2026-04-14-no-correction-audit-trail.md|no-correction-audit-trail]] — `open`, `2026-04-14`.
+    Supersede mechanics don't log who changed what or why.
+
+79. [[docs/backlog/2026-04-14-no-backward-compatibility-contract.md|no-backward-compatibility-contract]] — `open`, `2026-04-14`.
+    Schema changes break old bundles. No migration or compat guarantee.
+
+80. [[docs/backlog/2026-04-14-no-selective-memory-reset.md|no-selective-memory-reset]] — `open`, `2026-04-14`.
+    Can only reset everything. No surgical correction of single item.
+
+81. [[docs/backlog/2026-04-14-incomplete-transaction-rollback.md|incomplete-transaction-rollback]] — `open`, `2026-04-14`.
+    Partial failures in checkpoint pipeline leave inconsistent DB state.
+
+## Recently Closed (V1)
+
+- `Phase A` raw truth spine: `verified` (architecture only)
+- `Phase B` session continuity: `verified` (architecture only)
+- `Phase C` typed memory: `verified` (architecture only)
+- `Phase D` canonical truth: `verified` (architecture only)
 
 ## Reference Docs
 
