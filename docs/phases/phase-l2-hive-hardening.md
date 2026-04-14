@@ -41,6 +41,15 @@ Multi-agent coordination works. Queen ops functional. Cross-harness continuity p
 - Queen ops don't enforce
 - Rate limiting blocks legitimate writes
 
+## Donor Extraction (from inspiration repos)
+
+- **L2-D1** (Smriti `FreshnessInfo`): Freshness check with commit-based baseline. Client provides `since_commit_id`, server returns `changed: bool`, `new_checkpoints_count`, list of new checkpoints. memd: "what changed since my last wake?"
+- **L2-D2** (Smriti `DivergenceSummary`): Multi-branch divergence detection. Normalize text, diff decisions between branches. Surface in hive board: `main_only_decisions` vs `branch_only_decisions`. Cap at 2 branches, 3 decisions per side.
+- **L2-D3** (Omegon `sqlite.rs` — **DIRECT RUST LIFT**): SQLITE_BUSY retry. `PRAGMA busy_timeout = 5000`. WAL mode. Handles concurrent access without custom retry. Fix for backlog #75.
+- **L2-D4** (Omegon `sqlite.rs` — **DIRECT RUST LIFT**): Lamport versioning for conflict resolution. `version: u64` on every fact, incremented on every mutation. On import: `incoming.version <= stored.version → skip`. Deterministic, no timestamp dependency.
+
+See: `docs/theory/2026-04-14-donor-extraction-to-v2-phases.md` for full details.
+
 ## Rollback
 
 - Revert enforcement if it breaks single-agent workflows

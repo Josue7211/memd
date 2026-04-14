@@ -2600,6 +2600,7 @@ mod tests {
             handoff_state: Some("none".to_string()),
             confidence: Some("high".to_string()),
             risk: Some("low".to_string()),
+            last_wake_at: None,
             last_seen: Utc::now(),
         };
 

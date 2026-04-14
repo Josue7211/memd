@@ -52,6 +52,8 @@ pub(crate) enum Commands {
     Rag(RagArgs),
     Multimodal(MultimodalArgs),
     Ingest(IngestArgs),
+    #[command(name = "ingest-sources")]
+    IngestSources(IngestSourcesArgs),
     Inspiration(InspirationArgs),
     Skills(SkillsArgs),
     Packs(PacksArgs),
@@ -1157,6 +1159,39 @@ pub(crate) struct IngestArgs {
 
     #[arg(long)]
     pub(crate) intent: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct IngestSourcesArgs {
+    /// Directory containing markdown files to ingest (e.g. .memd/lanes/architecture)
+    #[arg(long)]
+    pub(crate) dir: PathBuf,
+
+    /// Lane tag applied to all ingested items (e.g. "architecture", "inspiration")
+    #[arg(long)]
+    pub(crate) lane: String,
+
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Memory kind for ingested items (default: fact)
+    #[arg(long, default_value = "fact")]
+    pub(crate) kind: String,
+
+    /// Memory scope for ingested items (default: project)
+    #[arg(long, default_value = "project")]
+    pub(crate) scope: String,
+
+    /// Extra tags applied to all items
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) tag: Vec<String>,
+
+    /// Actually write to the DB (dry-run without this)
+    #[arg(long)]
+    pub(crate) apply: bool,
 }
 
 #[derive(Debug, Clone, Args)]

@@ -42,6 +42,15 @@ Source files compiled into DB memory items. Read once, store forever.
 - Lane queries still grep files
 - Re-ingest on unchanged files (wasted work)
 
+## Donor Extraction (from inspiration repos)
+
+- **F2-D1** (mempalace `palace.py`): Hash manifest for idempotent re-ingestion. Store content hash + mtime per source file. Changed → re-ingest. Unchanged → skip. Deleted → mark stale.
+- **F2-D2** (mempalace extractors): Type-specific extraction rules. `fact` (declarative), `decision` (choice+rationale), `procedure` (how-to+steps), `status` (current state, gets TTL). Map to memd MemoryKind enum.
+- **F2-D3** (Omegon `types.rs` — **DIRECT RUST LIFT**): Content-hash dedup on ingest. `normalize_for_hash()` → SHA256 → first 16 hex chars. On ingest: hash exists = reinforce, new = insert.
+- **F2-D4** (Omegon `omegon-codescan` crate — **DIRECT RUST LIFT**): Tree-sitter AST chunking for code files. Named boundary chunking (functions, structs, impl blocks). SHA256 change detection. Incremental indexing (skip if git HEAD unchanged).
+
+See: `docs/theory/2026-04-14-donor-extraction-to-v2-phases.md` for full details.
+
 ## Rollback
 
 - Revert if ingestion corrupts existing memory items

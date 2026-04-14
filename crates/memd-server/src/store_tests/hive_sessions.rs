@@ -52,6 +52,7 @@ fn hive_sessions_keep_same_named_sessions_separate_across_agents() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert codex session");
@@ -102,6 +103,7 @@ fn hive_sessions_keep_same_named_sessions_separate_across_agents() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert claude session");
@@ -197,6 +199,7 @@ fn hive_sessions_keep_same_named_sessions_separate_across_branches() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert branch a session");
@@ -247,6 +250,7 @@ fn hive_sessions_keep_same_named_sessions_separate_across_branches() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert branch b session");
@@ -343,6 +347,7 @@ fn hive_sessions_preserve_service_hive_metadata() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert service hive");
@@ -429,6 +434,7 @@ fn retire_hive_session_removes_scope_sibling_rows_for_same_session() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert codex session");
@@ -479,6 +485,7 @@ fn retire_hive_session_removes_scope_sibling_rows_for_same_session() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert claude session");
@@ -529,6 +536,7 @@ fn retire_hive_session_removes_scope_sibling_rows_for_same_session() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert other workspace session");
@@ -662,6 +670,7 @@ fn hive_coordination_auto_retires_stale_session_without_owned_work() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("active".to_string()),
         })
         .expect("insert stale session");
@@ -813,6 +822,7 @@ fn hive_sessions_filter_by_hive_identity() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert codex runtime shell session");
@@ -864,6 +874,7 @@ fn hive_sessions_filter_by_hive_identity() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert codex orchestrator session");
@@ -915,6 +926,7 @@ fn hive_sessions_filter_by_hive_identity() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert claude runtime shell session");
@@ -1072,6 +1084,7 @@ fn hive_sessions_collapse_duplicate_rows_per_session_and_preserve_richer_identit
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert richer session row");
@@ -1123,6 +1136,7 @@ fn hive_sessions_collapse_duplicate_rows_per_session_and_preserve_richer_identit
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert newer sparse session row");
@@ -1213,6 +1227,7 @@ fn hive_sessions_collapse_duplicate_rows_prefers_stronger_newer_worker_identity(
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert older generic identity row");
@@ -1264,6 +1279,7 @@ fn hive_sessions_collapse_duplicate_rows_prefers_stronger_newer_worker_identity(
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert newer human identity row");
@@ -1347,6 +1363,7 @@ fn hive_sessions_collapse_does_not_backfill_generic_display_for_named_worker() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert older generic row");
@@ -1398,6 +1415,7 @@ fn hive_sessions_collapse_does_not_backfill_generic_display_for_named_worker() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert newer named row");

@@ -53,6 +53,7 @@ fn hive_board_ignores_handoff_scope_receipts_in_overlap_risks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert session");
@@ -155,6 +156,7 @@ fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert low signal sender");
@@ -206,6 +208,7 @@ fn hive_board_hides_low_signal_sender_sessions_without_active_tasks() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert worker");
@@ -287,6 +290,7 @@ fn hive_sessions_mark_proof_bees_stale_on_shorter_window() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert proof bee");
@@ -426,6 +430,7 @@ fn hive_board_hides_sender_sessions_with_only_lane_path_and_no_task_signal() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert lane-only sender");
@@ -507,6 +512,7 @@ fn hive_board_hides_historical_lane_fault_noise_for_inactive_sessions() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert worker");
@@ -625,6 +631,7 @@ fn hive_board_hides_lane_faults_when_only_actor_session_is_active() {
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
             status: Some("live".to_string()),
         })
         .expect("insert active worker");

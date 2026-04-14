@@ -757,6 +757,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Ingest(args) => {
             run_ingest_command(&client, &args).await?;
         }
+        Commands::IngestSources(args) => {
+            run_ingest_sources_command(&client, &args).await?;
+        }
         Commands::Store(input) => {
             run_store_command(&client, &input).await?;
         }

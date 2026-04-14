@@ -42,6 +42,14 @@ backlog_items: [38, 40]
 - Auto-detection fires on wrong lane
 - Boosting drowns non-lane items
 
+## Donor Extraction (from inspiration repos)
+
+- **G2-D1** (mempalace `miner.py`): 4-priority room routing — path component → filename → content keywords (2KB window) → fallback "general". 94-entry folder map → 13 canonical rooms. Zero LLM dependency.
+- **G2-D2** (Omegon `minds` table): Layered memory inheritance. Minds have `parent` field. Facts have `layer` field: "project" | "persona" | "working". Query scoped to layer. Maps to memd scope precedence.
+- **G2-D3** (Omegon `types.rs`): Section-based fact organization — Architecture, Decisions, Constraints, KnownIssues, PatternsConventions, Specs, RecentWork. Used for context rendering grouping.
+
+See: `docs/theory/2026-04-14-donor-extraction-to-v2-phases.md` for full details.
+
 ## Rollback
 
 - Revert migration if data loss

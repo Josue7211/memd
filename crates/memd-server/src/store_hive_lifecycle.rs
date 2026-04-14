@@ -220,6 +220,7 @@ mod tests {
                 handoff_state: None,
                 confidence: None,
                 risk: None,
+                last_wake_at: None,
                 status: Some("live".to_string()),
             })
             .expect("insert proof worker");
@@ -290,6 +291,7 @@ mod tests {
                 handoff_state: None,
                 confidence: None,
                 risk: None,
+                last_wake_at: None,
                 status: Some("live".to_string()),
             })
             .expect("insert stale session");

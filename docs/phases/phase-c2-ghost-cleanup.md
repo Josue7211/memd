@@ -43,6 +43,13 @@ Continuity fields reference only live, valid items. DB has no accumulated dead w
 - GC removes active items
 - Concurrent writes still deadlock
 
+## Donor Extraction (from inspiration repos)
+
+- **C2-D1** (Omegon `sqlite.rs`): Lifecycle-driven expiration — TTL check on every access, not separate GC pass. `created_at + ttl_seconds <= now → Expired`.
+- **C2-D2** (Smriti `TurnEvent.sequence_number`): Monotonic sequence isolation. Capture `history_base_seq` on resume, filter to `seq > base`. Prevents pre-mount data contaminating current context. Eliminates ghost refs by construction.
+
+See: `docs/theory/2026-04-14-donor-extraction-to-v2-phases.md` for full details.
+
 ## Rollback
 
 - Revert GC if it removes active items

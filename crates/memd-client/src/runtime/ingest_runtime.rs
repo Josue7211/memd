@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::append_raw_spine_record;
 use crate::runtime::retrieval_runtime::{resolve_default_bundle_root, resolve_rag_url};
 use crate::{
-    IngestArgs, RagSyncArgs, parse_memory_kind_value, parse_memory_scope_value,
+    IngestArgs, IngestSourcesArgs, RagSyncArgs, parse_memory_kind_value, parse_memory_scope_value,
     parse_memory_visibility_value, parse_source_quality_value, parse_uuid_list,
 };
 use memd_client::MemdClient;
@@ -20,7 +20,7 @@ use memd_multimodal::{
 use memd_rag::{RagClient, RagIngestRequest, RagRetrieveMode};
 use memd_schema::{
     CandidateMemoryRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus, RetrievalIntent,
-    RetrievalRoute, SearchMemoryRequest,
+    RetrievalRoute, SearchMemoryRequest, StoreMemoryRequest,
 };
 use memd_sidecar::{SidecarClient, SidecarIngestRequest, SidecarIngestResponse};
 
@@ -144,13 +144,18 @@ pub(crate) async fn ingest_auto_route(
     client: &MemdClient,
     args: &IngestArgs,
 ) -> anyhow::Result<IngestAutoRouteResult> {
+    let force_text = args
+        .route
+        .as_deref()
+        .is_some_and(|r| matches!(r, "memory" | "text"));
+
     if let Some(content) = &args.content {
         return ingest_text_memory(client, args, content.clone()).await;
     }
 
     if args.input.is_some() || args.stdin {
         let raw = read_ingest_payload(args)?;
-        if looks_like_multimodal(&raw) {
+        if !force_text && looks_like_multimodal(&raw) {
             return ingest_multimodal_payload(args, &raw).await;
         }
         return ingest_text_memory(client, args, raw).await;
@@ -403,4 +408,138 @@ pub(crate) async fn ingest_multimodal_preview(
         responses.push(sidecar.ingest(request).await?);
     }
     Ok(responses)
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct IngestSourcesResult {
+    pub(crate) dir: String,
+    pub(crate) lane: String,
+    pub(crate) files_found: usize,
+    pub(crate) ingested: usize,
+    pub(crate) skipped: usize,
+    pub(crate) dry_run: bool,
+    pub(crate) items: Vec<IngestSourcesFileResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct IngestSourcesFileResult {
+    pub(crate) path: String,
+    pub(crate) chars: usize,
+    pub(crate) status: String,
+    pub(crate) id: Option<String>,
+}
+
+pub(crate) async fn ingest_sources(
+    client: &MemdClient,
+    args: &IngestSourcesArgs,
+) -> anyhow::Result<IngestSourcesResult> {
+    let dir = &args.dir;
+    anyhow::ensure!(dir.is_dir(), "{} is not a directory", dir.display());
+
+    let kind = parse_memory_kind_value(&args.kind)?;
+    let scope = parse_memory_scope_value(&args.scope)?;
+
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .with_context(|| format!("read directory {}", dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "md" || ext == "txt")
+        })
+        .collect();
+    entries.sort();
+
+    let mut tags = vec![
+        format!("lane:{}", args.lane),
+        "research".to_string(),
+        "ingested-source".to_string(),
+    ];
+    tags.extend(args.tag.iter().cloned());
+
+    let mut items = Vec::with_capacity(entries.len());
+    let mut ingested = 0usize;
+    let mut skipped = 0usize;
+
+    for path in &entries {
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("warn: skip {}: {e}", path.display());
+                skipped += 1;
+                items.push(IngestSourcesFileResult {
+                    path: path.display().to_string(),
+                    chars: 0,
+                    status: format!("error: {e}"),
+                    id: None,
+                });
+                continue;
+            }
+        };
+
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            skipped += 1;
+            items.push(IngestSourcesFileResult {
+                path: path.display().to_string(),
+                chars: 0,
+                status: "skipped: empty".to_string(),
+                id: None,
+            });
+            continue;
+        }
+
+        let source_path = path.display().to_string();
+
+        if args.apply {
+            let req = StoreMemoryRequest {
+                content: trimmed.to_string(),
+                kind,
+                scope,
+                project: args.project.clone(),
+                namespace: args.namespace.clone(),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("ingest-sources".to_string()),
+                source_system: Some("lane-ingest".to_string()),
+                source_path: Some(source_path.clone()),
+                source_quality: None,
+                confidence: Some(0.85),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: tags.clone(),
+                status: Some(MemoryStatus::Active),
+            };
+            let resp = client.store(&req).await.with_context(|| {
+                format!("store canonical item for {}", path.display())
+            })?;
+            items.push(IngestSourcesFileResult {
+                path: source_path,
+                chars: trimmed.len(),
+                status: "ingested".to_string(),
+                id: Some(resp.item.id.to_string()),
+            });
+            ingested += 1;
+        } else {
+            items.push(IngestSourcesFileResult {
+                path: source_path,
+                chars: trimmed.len(),
+                status: "dry-run".to_string(),
+                id: None,
+            });
+            ingested += 1;
+        }
+    }
+
+    Ok(IngestSourcesResult {
+        dir: dir.display().to_string(),
+        lane: args.lane.clone(),
+        files_found: entries.len(),
+        ingested,
+        skipped,
+        dry_run: !args.apply,
+        items,
+    })
 }

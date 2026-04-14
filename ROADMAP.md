@@ -200,15 +200,31 @@ critical path. Load only after the core hardening sequence is stable.
 
 ### A3 Promotions
 
-Mining output already maps to named implementation surfaces in the hardening roadmap:
+Mining output maps to named implementation surfaces in the hardening roadmap.
+Full donor-to-phase mapping: [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
 
-| Promoted target | Donor | Lands in |
-| --- | --- | --- |
-| conversation mining + dedup discipline | `mempalace` | `F2` Ingestion Pipeline |
-| atlas graph productization | `mempalace` + `supermemory` | `E2` Atlas Activation |
-| runtime compiler + canonical `memd state` surface | `Omegon` | `K2` Observability |
-| claims, freshness, and divergence signal | `Smriti` | `L2` Hive Hardening |
-| thin harness adapter SDKs | `supermemory` | `N2` Integrations Polish |
+| Promoted target | Donor | Lands in | Lift type |
+| --- | --- | --- | --- |
+| content hash dedup + decay profiles | `Omegon` (Rust) | `B2` Signal vs Noise | **direct Rust lift** |
+| priority retrieval dedup | `supermemory` | `B2` Signal vs Noise | pattern port |
+| sequence-based isolation | `Smriti` | `C2` Ghost Cleanup | pattern port |
+| Lamport versioning + supersede | `Omegon` (Rust) | `D2` Correction Flow | **direct Rust lift** |
+| temporal fact invalidation | `mempalace` | `D2` Correction Flow | pattern port |
+| edge reinforcement + entity aliasing | `Omegon` (Rust) | `E2` Atlas Activation | **direct Rust lift** |
+| hash manifest + type extraction | `mempalace` | `F2` Ingestion Pipeline | pattern port |
+| AST chunking (tree-sitter) | `Omegon` (Rust) | `F2` Ingestion Pipeline | **direct Rust lift** |
+| 4-priority room routing | `mempalace` | `G2` Lane Architecture | pattern port |
+| layered minds + sections | `Omegon` (Rust) | `G2` Lane Architecture | **direct Rust lift** |
+| RRF hybrid search + FTS5 | `Omegon` (Rust) | `H2` Recall Proof | **direct Rust lift** |
+| data-driven graph component | `supermemory` | `I2` Human Dashboard | pattern port |
+| worktree-first parallel execution | `Omegon` (Rust) | `J2` Isolation + Trust | **direct Rust lift** |
+| advisory claims + TTL | `Smriti` | `J2` Isolation + Trust | pattern port |
+| compiled state surface + error types | `Omegon` (Rust) | `K2` Observability | **direct Rust lift** |
+| freshness checks + divergence | `Smriti` | `L2` Hive Hardening | pattern port |
+| SQLITE_BUSY retry + Lamport import | `Omegon` (Rust) | `L2` Hive Hardening | **direct Rust lift** |
+| reinforcement decay + episodes | `Omegon` (Rust) | `M2` Overnight Evolution | **direct Rust lift** |
+| thin harness adapters + turn cache | `supermemory` | `N2` Integrations Polish | pattern port |
+| MCP multi-transport + skill packs | `Omegon` (Rust) + `Smriti` | `N2` Integrations Polish | **direct Rust lift** + pattern |
 
 ## Benchmark Cadence
 
@@ -551,6 +567,12 @@ All audit tail items resolved:
 
 81. [[docs/backlog/2026-04-14-incomplete-transaction-rollback.md|incomplete-transaction-rollback]] — `open`, `2026-04-14`.
     Partial failures in checkpoint pipeline leave inconsistent DB state.
+
+82. [[docs/backlog/2026-04-14-memory-lifecycle-not-auto-managed.md|memory-lifecycle-not-auto-managed]] — `open`, `2026-04-14`.
+    CRITICAL: TTL never enforced, no staleness detection, live truth not live, research items invisible in wake. Cross-cuts B2+C2+F2.
+
+83. [[docs/backlog/2026-04-14-research-not-stored-as-shared-memory.md|research-not-stored-as-shared-memory]] — `fixed`, `2026-04-14`.
+    Deep research not stored as shared memory. Fixed: `--route memory` override + `ingest-sources` CLI.
 
 ## Recently Closed (V1)
 

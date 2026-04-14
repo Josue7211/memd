@@ -42,6 +42,14 @@ Humans can browse, correct, and navigate memory through a web UI.
 - Corrections don't persist
 - Graph is empty or unnavigable
 
+## Donor Extraction (from inspiration repos)
+
+- **I2-D1** (supermemory `memory-graph/`): Data-driven graph component. React component receives pre-fetched `GraphApiDocument[]` — no API calls from graph itself. App provides `onLoadMore` callback.
+- **I2-D2** (supermemory `shared/types.ts`): Stable vs recent profile projection. Split memory into `static` (canonical facts) and `dynamic` (working context) for display. Canonical pinned at top.
+- **I2-D3** (Smriti CLI): Compact state brief. `--compact` flag omits artifact content, preserves labels + recovery commands. Full details via `memd explain <id>`.
+
+See: `docs/theory/2026-04-14-donor-extraction-to-v2-phases.md` for full details.
+
 ## Rollback
 
 - Revert UI changes that break API

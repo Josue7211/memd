@@ -103,6 +103,7 @@ fn seed_hive_route_state(state: &AppState) {
             handoff_state: None,
             confidence: Some("0.95".to_string()),
             risk: None,
+            last_wake_at: None,
             status: Some("active".to_string()),
         })
         .expect("insert queen session");
@@ -158,6 +159,7 @@ fn seed_hive_route_state(state: &AppState) {
             handoff_state: None,
             confidence: Some("0.9".to_string()),
             risk: None,
+            last_wake_at: None,
             status: Some("active".to_string()),
         })
         .expect("insert bee session");
@@ -330,6 +332,7 @@ async fn hive_follow_route_returns_messages_receipts_and_confirmed_overlap() {
             handoff_state: None,
             confidence: Some("0.82".to_string()),
             risk: None,
+            last_wake_at: None,
             status: Some("active".to_string()),
         })
         .expect("insert second bee");
@@ -431,6 +434,7 @@ async fn hive_board_route_auto_retires_stale_sessions() {
             handoff_state: None,
             confidence: Some("0.6".to_string()),
             risk: None,
+            last_wake_at: None,
             status: Some("active".to_string()),
         })
         .expect("insert stale bee");

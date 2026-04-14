@@ -138,6 +138,15 @@ pub(crate) async fn run_ingest_command(
     Ok(())
 }
 
+pub(crate) async fn run_ingest_sources_command(
+    client: &MemdClient,
+    args: &IngestSourcesArgs,
+) -> anyhow::Result<()> {
+    let result = ingest_sources(client, args).await?;
+    print_json(&result)?;
+    Ok(())
+}
+
 pub(crate) async fn run_store_command(
     client: &MemdClient,
     input: &RequestInput,
