@@ -157,7 +157,13 @@ pub(crate) fn filter_items(
         .filter(|entry| req.scopes.is_empty() || req.scopes.contains(&entry.item.scope))
         .filter(|entry| plan.allows(entry.item.scope))
         .filter(|entry| req.kinds.is_empty() || req.kinds.contains(&entry.item.kind))
-        .filter(|entry| req.statuses.is_empty() || req.statuses.contains(&entry.item.status))
+        .filter(|entry| {
+            if req.statuses.is_empty() {
+                entry.item.status != MemoryStatus::Expired
+            } else {
+                req.statuses.contains(&entry.item.status)
+            }
+        })
         .filter(|entry| req.stages.is_empty() || req.stages.contains(&entry.item.stage))
         .filter(|entry| matches_requested_project(&req.project, &entry.item))
         .filter(|entry| {

@@ -3950,3 +3950,69 @@ fn auto_link_creates_entity_links_on_store() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[tokio::test]
+async fn search_excludes_ttl_expired_items_by_default() {
+    let (dir, state) = temp_state("memd-ttl-search-filter");
+
+    // Store an item with a 1-second TTL, backdated so it's already expired.
+    let past = Utc::now() - chrono::Duration::seconds(10);
+    let mut expired_item = sample_memory_item(Some("core"));
+    expired_item.content = "ephemeral note that should expire".to_string();
+    expired_item.ttl_seconds = Some(1);
+    expired_item.created_at = past;
+    expired_item.updated_at = past;
+    expired_item.kind = MemoryKind::Status;
+    expired_item.tags = vec!["ttl-test".to_string()];
+    let ck = super::keys::canonical_key(&expired_item);
+    let rk = super::keys::redundancy_key(&expired_item);
+    state
+        .store
+        .insert_or_get_duplicate(&expired_item, &ck, &rk)
+        .expect("insert expired item");
+
+    // Store a normal item (no TTL) that should survive.
+    let mut alive_item = sample_memory_item(Some("core"));
+    alive_item.content = "durable fact that stays".to_string();
+    alive_item.kind = MemoryKind::Fact;
+    alive_item.tags = vec!["ttl-test".to_string()];
+    let ck = super::keys::canonical_key(&alive_item);
+    let rk = super::keys::redundancy_key(&alive_item);
+    state
+        .store
+        .insert_or_get_duplicate(&alive_item, &ck, &rk)
+        .expect("insert alive item");
+
+    let app = Router::new()
+        .route("/memory/search", post(search_memory))
+        .with_state(state);
+
+    // Search with empty statuses (the default) — expired item must be excluded.
+    let req_body = serde_json::json!({
+        "scopes": [],
+        "kinds": [],
+        "statuses": [],
+        "tags": ["ttl-test"],
+        "stages": [],
+        "limit": 10,
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/search")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .expect("build request"),
+        )
+        .await
+        .expect("run search");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SearchMemoryResponse = decode_json(response).await;
+
+    assert_eq!(body.items.len(), 1, "only the non-expired item should appear");
+    assert_eq!(body.items[0].id, alive_item.id);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
