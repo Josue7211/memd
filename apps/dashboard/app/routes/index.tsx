@@ -3,6 +3,7 @@ import { useHealth, useWorking, useInbox, useSessions } from "../lib/queries";
 import { MetricCard } from "../components/ui/metric-card";
 import { GlassPanel } from "../components/ui/glass-panel";
 import { EmptyState } from "../components/ui/empty-state";
+import { HarnessHealthPanel } from "../components/ui/harness-health";
 import type { WorkingRecord, EvictedRecord } from "../lib/types";
 
 export const Route = createFileRoute("/")({
@@ -72,6 +73,11 @@ function StatusDashboard() {
           color="text-status-current"
         />
       </div>
+
+      {/* Harness bootstrap health */}
+      {sessions.data?.sessions.length ? (
+        <HarnessHealthPanel sessions={sessions.data.sessions} />
+      ) : null}
 
       {/* Working memory */}
       {w && (

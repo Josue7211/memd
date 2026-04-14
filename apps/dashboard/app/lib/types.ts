@@ -215,6 +215,7 @@ export interface HiveSessionRecord {
   focus?: string | null;
   status: string;
   last_seen?: string | null;
+  last_wake_at?: string | null;
 }
 
 export interface HiveTaskRecord {

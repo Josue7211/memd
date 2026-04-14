@@ -450,6 +450,7 @@ pub(crate) async fn seed_materialized_fixture_sessions(
             handoff_state: None,
             confidence: None,
             risk: None,
+            last_wake_at: None,
         };
         client
             .upsert_hive_session(&request)

@@ -32,7 +32,7 @@ use crate::store_hive::{
 };
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
-    migrate_redundancy_key,
+    migrate_hive_sessions_last_wake_at, migrate_redundancy_key,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -284,6 +284,7 @@ impl SqliteStore {
               host TEXT,
               status TEXT NOT NULL,
               last_seen TEXT NOT NULL,
+              last_wake_at TEXT,
               payload_json TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_hive_sessions_session
@@ -384,6 +385,7 @@ impl SqliteStore {
 
         migrate_redundancy_key(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
+        migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
 
         Ok(Self {
@@ -2308,6 +2310,7 @@ impl SqliteStore {
                 .unwrap_or("live")
                 .to_string(),
             last_seen: now,
+            last_wake_at: request.last_wake_at,
         };
         let payload_json = serde_json::to_string(&record).context("serialize hive session")?;
         let session_key = hive_session_key(
@@ -2334,8 +2337,8 @@ impl SqliteStore {
         tx.execute(
             r#"
             INSERT INTO hive_sessions (
-              session_key, session, project, namespace, workspace, repo_root, worktree_root, branch, hive_system, hive_role, host, status, last_seen, payload_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+              session_key, session, project, namespace, workspace, repo_root, worktree_root, branch, hive_system, hive_role, host, status, last_seen, last_wake_at, payload_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(session_key) DO UPDATE SET
               session = excluded.session,
               project = excluded.project,
@@ -2349,6 +2352,7 @@ impl SqliteStore {
               host = excluded.host,
               status = excluded.status,
               last_seen = excluded.last_seen,
+              last_wake_at = excluded.last_wake_at,
               payload_json = excluded.payload_json
             "#,
             params![
@@ -2365,6 +2369,7 @@ impl SqliteStore {
                 &record.host,
                 record.status,
                 record.last_seen.to_rfc3339(),
+                record.last_wake_at.map(|dt| dt.to_rfc3339()),
                 payload_json,
             ],
         )

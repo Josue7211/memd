@@ -812,9 +812,11 @@ pub struct HiveSessionRecord {
     pub risk: Option<String>,
     pub status: String,
     pub last_seen: DateTime<Utc>,
+    #[serde(default)]
+    pub last_wake_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HiveSessionUpsertRequest {
     pub session: String,
     pub tab_id: Option<String>,
@@ -881,6 +883,8 @@ pub struct HiveSessionUpsertRequest {
     pub confidence: Option<String>,
     #[serde(default)]
     pub risk: Option<String>,
+    #[serde(default)]
+    pub last_wake_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -79,6 +79,7 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
     if args.write {
         write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
         auto_checkpoint_live_snapshot(&args.output, base_url, &snapshot, "wake").await?;
+        update_hive_session_wake_timestamp(&args.output, base_url).await?;
     }
     if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
         let _ = refresh_harness_pack_files_for_snapshot(
@@ -94,5 +95,30 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
     } else {
         println!("{wakeup}");
     }
+    Ok(())
+}
+
+async fn update_hive_session_wake_timestamp(output: &Path, base_url: &str) -> anyhow::Result<()> {
+    let Some(session) = read_bundle_runtime_config(output)?
+        .and_then(|config| config.session)
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(());
+    };
+
+    let url = resolve_bundle_command_base_url(base_url, None);
+    if url.is_empty() {
+        return Ok(());
+    }
+
+    let client = MemdClient::new(&url)?;
+    let mut request = memd_schema::HiveSessionUpsertRequest::default();
+    request.session = session.trim().to_string();
+    request.last_wake_at = Some(chrono::Utc::now());
+
+    let _ = client
+        .upsert_hive_session(&request)
+        .await
+        .context("update hive session wake timestamp");
     Ok(())
 }

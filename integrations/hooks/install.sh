@@ -11,6 +11,7 @@ install -m 0755 "$SCRIPT_DIR/memd-capture.sh" "$PREFIX/memd-capture"
 install -m 0755 "$SCRIPT_DIR/memd-spill.sh" "$PREFIX/memd-spill"
 install -m 0755 "$SCRIPT_DIR/memd-stop-save.sh" "$PREFIX/memd-stop-save"
 install -m 0755 "$SCRIPT_DIR/memd-precompact-save.sh" "$PREFIX/memd-precompact-save"
+install -m 0755 "$SCRIPT_DIR/memd-bootstrap.sh" "$PREFIX/memd-bootstrap"
 
 cat > "$PREFIX/memd-hook-context" <<EOF
 #!/usr/bin/env bash
@@ -41,6 +42,12 @@ cat > "$PREFIX/memd-hook-precompact-save" <<EOF
 exec "$PREFIX/memd-precompact-save" "\$@"
 EOF
 chmod +x "$PREFIX/memd-hook-precompact-save"
+
+cat > "$PREFIX/memd-hook-bootstrap" <<EOF
+#!/usr/bin/env bash
+exec "$PREFIX/memd-bootstrap" "\$@"
+EOF
+chmod +x "$PREFIX/memd-hook-bootstrap"
 
 echo "Installed memd hooks to $PREFIX"
 echo "Add $PREFIX to PATH if needed."

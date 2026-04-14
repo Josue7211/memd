@@ -132,6 +132,7 @@ pub(crate) fn project_awareness_entry_to_hive_session(
         risk: None,
         status: entry.presence.clone(),
         last_seen: entry.last_updated.unwrap_or_else(Utc::now),
+        last_wake_at: None,
     }
 }
 

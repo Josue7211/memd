@@ -1894,6 +1894,7 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
     write_native_agent_bridge_files(&output)?;
     write_bundle_command_catalog_files(&output)?;
     write_bundle_harness_bridge_registry(&output)?;
+    let bootstrap_hook_results = ensure_harness_bootstrap_hooks(&output);
 
     fs::write(
         output.join("README.md"),
@@ -2500,6 +2501,7 @@ pub(crate) async fn write_bundle_memory_files(
     write_wakeup_markdown_files(output, &wakeup)?;
     write_native_agent_bridge_files(output)?;
     write_bundle_harness_bridge_registry(output)?;
+    ensure_harness_bootstrap_hooks(output);
     write_bundle_resume_state(output, snapshot)?;
     write_bundle_heartbeat(output, Some(snapshot), false).await?;
     self::write_memd_bootstrap_marker(output, snapshot)?;
@@ -3823,4 +3825,113 @@ pub(crate) fn render_skill_policy_apply_markdown(receipt: &SkillPolicyApplyArtif
         }
     }
     markdown
+}
+
+/// Wire memd bootstrap hooks into every detected Claude-family harness settings.json.
+///
+/// For each harness root (e.g. `~/.claude`), ensures `settings.json` contains a
+/// `UserPromptSubmit` hook entry that runs `memd-hook-bootstrap`. This is the
+/// firmware-level enforcement: the hook fires before the model sees any message,
+/// so the agent cannot skip memd wake.
+pub(crate) fn ensure_harness_bootstrap_hooks(output: &Path) -> Vec<String> {
+    let home = match home_dir() {
+        Some(home) => home,
+        None => return vec!["skip: could not determine home directory".to_string()],
+    };
+
+    let roots = detect_claude_family_harness_roots(&home);
+    let mut results = Vec::new();
+
+    for harness_root in &roots {
+        match ensure_settings_bootstrap_hook(output, &harness_root.root) {
+            Ok(action) => results.push(format!("{}: {}", harness_root.harness, action)),
+            Err(err) => results.push(format!("{}: error: {}", harness_root.harness, err)),
+        }
+    }
+
+    results
+}
+
+fn ensure_settings_bootstrap_hook(
+    bundle_output: &Path,
+    harness_root: &Path,
+) -> anyhow::Result<String> {
+    let settings_path = harness_root.join("settings.json");
+    let hook_script = bundle_output.join("hooks").join("memd-bootstrap.sh");
+    let hook_command = format!("bash \"{}\"", hook_script.display());
+
+    let mut doc: serde_json::Value = if settings_path.is_file() {
+        let content = fs::read_to_string(&settings_path)
+            .with_context(|| format!("read {}", settings_path.display()))?;
+        serde_json::from_str(&content)
+            .with_context(|| format!("parse {}", settings_path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+
+    let hooks = doc
+        .as_object_mut()
+        .context("settings root is not an object")?
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let events = hooks
+        .as_object_mut()
+        .context("hooks is not an object")?
+        .entry("UserPromptSubmit")
+        .or_insert_with(|| serde_json::json!([]));
+
+    let event_array = events
+        .as_array_mut()
+        .context("UserPromptSubmit is not an array")?;
+
+    let already_wired = event_array.iter().any(|entry| {
+        entry
+            .get("hooks")
+            .and_then(|h| h.as_array())
+            .map(|hooks| {
+                hooks.iter().any(|hook| {
+                    hook.get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|c| {
+                            c.contains("memd-bootstrap") || c.contains("memd-hook-bootstrap")
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    });
+
+    if already_wired {
+        return Ok("already wired".to_string());
+    }
+
+    let hook_entry = serde_json::json!({
+        "hooks": [{
+            "type": "command",
+            "command": hook_command,
+            "timeout": 15
+        }]
+    });
+    event_array.push(hook_entry);
+
+    if let Some(parent) = settings_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let formatted = serde_json::to_string_pretty(&doc)?;
+    fs::write(&settings_path, format!("{formatted}\n"))
+        .with_context(|| format!("write {}", settings_path.display()))?;
+
+    Ok("wired".to_string())
+}
+
+pub(crate) fn render_bootstrap_hook_summary(results: &[String]) -> String {
+    if results.is_empty() {
+        return String::new();
+    }
+    let mut output = String::from("bootstrap hooks:\n");
+    for result in results {
+        output.push_str(&format!("  - {result}\n"));
+    }
+    output
 }

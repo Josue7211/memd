@@ -166,6 +166,20 @@ pub(crate) fn migrate_hive_sessions_identity_columns(conn: &mut Connection) -> a
     Ok(())
 }
 
+pub(crate) fn migrate_hive_sessions_last_wake_at(conn: &Connection) -> anyhow::Result<()> {
+    let columns = {
+        let mut stmt = conn.prepare("PRAGMA table_info(hive_sessions)")?;
+        stmt.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    if !columns.iter().any(|value| value == "last_wake_at") {
+        conn.execute_batch("ALTER TABLE hive_sessions ADD COLUMN last_wake_at TEXT;")?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"

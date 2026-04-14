@@ -178,6 +178,7 @@ pub(crate) fn copy_hook_assets(target: &Path) -> anyhow::Result<()> {
         "memd-stop-save.ps1",
         "memd-precompact-save.sh",
         "memd-precompact-save.ps1",
+        "memd-bootstrap.sh",
     ] {
         let src = source_dir.join(file);
         let dst = target.join(file);

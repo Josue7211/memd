@@ -84,6 +84,7 @@ fn merge_hive_session_record(target: &mut HiveSessionRecord, fallback: &HiveSess
     if fallback.last_seen > target.last_seen {
         target.last_seen = fallback.last_seen;
     }
+    merge_option_datetime(&mut target.last_wake_at, &fallback.last_wake_at);
 }
 
 fn hive_session_records_can_merge(left: &HiveSessionRecord, right: &HiveSessionRecord) -> bool {
@@ -139,6 +140,15 @@ fn hive_identity_field_value(value: Option<&str>) -> Option<&str> {
 fn merge_option_string(target: &mut Option<String>, fallback: &Option<String>) {
     if target.is_none() {
         *target = fallback.clone();
+    }
+}
+
+fn merge_option_datetime(
+    target: &mut Option<chrono::DateTime<chrono::Utc>>,
+    fallback: &Option<chrono::DateTime<chrono::Utc>>,
+) {
+    if fallback.is_some() {
+        *target = *fallback;
     }
 }
 

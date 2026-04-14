@@ -829,6 +829,7 @@ pub(crate) async fn publish_bundle_heartbeat(
         confidence: state.confidence.clone(),
         risk: state.risk.clone(),
         status: Some(state.status.clone()),
+        last_wake_at: None,
     };
     let _ = tokio::time::timeout(
         std::time::Duration::from_secs(2),
