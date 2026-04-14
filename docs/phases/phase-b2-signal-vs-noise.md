@@ -2,7 +2,7 @@
 phase: B2
 name: Signal vs Noise
 version: v2
-status: in_progress
+status: verified
 depends_on: [A2]
 backlog_items: [42, 49, 66, 77]
 branch: research/mining
@@ -10,7 +10,7 @@ branch: research/mining
 
 # Phase B2: Signal vs Noise
 
-Current status: `in_progress` — all 6 implementation tasks committed, pass gate verification pending.
+Current status: `verified` — all 6 tasks committed, pass gate verified 2026-04-14. eval=95, 0 status items, 100% noise reduction, E2E fact recall confirmed.
 
 ## Goal
 

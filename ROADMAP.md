@@ -6,15 +6,15 @@
 truth_date: 2026-04-14
 version: v2
 version_status: in_progress
-current_milestone: M0
+current_milestone: M1
 milestone_status: in_progress
-current_phase: phase_b2
-phase_status: in_progress
-next_milestone: M1
-next_step: benchmark_baseline (closes M0) + B2 pass gate verification
+current_phase: phase_c2
+phase_status: pending
+next_milestone: M2
+next_step: C2 (ghost cleanup) + F2 (ingestion pipeline)
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: B2 tasks 1-6 implemented on research/mining branch ahead of M1. M0 gate still needs benchmark numbers.
+note: M0 closed — baseline recorded, B2 verified. M1 active with C2 + F2 next.
 -->
 
 ## Status Snapshot
@@ -23,10 +23,12 @@ note: B2 tasks 1-6 implemented on research/mining branch ahead of M1. M0 gate st
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current phase: `Phase B2: Signal vs Noise` (tasks implemented, pass gate pending)
-- phase status: `in_progress`
-- completed: `Phase A2: Inspiration Extraction` (verified), B2 tasks 1-6 (all on `research/mining`)
-- next step: run benchmark baseline (closes M0 gate), then verify B2 pass gate (eval ≥ 65, E2E, composition)
+- current milestone: `M1: Core Loop` (active)
+- current phase: `Phase C2: Ghost Cleanup` (pending), `Phase F2: Ingestion Pipeline` (pending)
+- completed: `M0: Baseline + Research` (verified), `Phase A2` (verified), `Phase B2` (verified)
+- next step: C2 (ghost cleanup) + F2 (ingestion pipeline) — parallel M1 phases
+- M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
+- B2 pass gate: eval=95, 0 status items in working memory, 100% noise reduction, E2E fact recall confirmed
 
 ## V1 → V2 Decision
 
@@ -130,9 +132,10 @@ Establish the "before" number. Extract patterns from competitors.
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
 | A2 | Inspiration Extraction | `verified` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
-| — | Benchmark Baseline | `pending` | #45, #60 | Run LongMemEval/LoCoMo/MemBench with current memd |
+| — | Benchmark Baseline | `verified` | #45, #60 | LME 82.8%, LoCoMo 41.5%, MB 34.6%, CM 0.0% (retrieval-only) |
 
-**Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded (expect near-zero).
+**Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded. **PASSED 2026-04-14.**
+Retrieval baseline recorded. Full-eval (LLM-graded) deferred — requires OPENAI_API_KEY.
 
 ### M1: Core Loop (store → recall → right thing back)
 
@@ -140,7 +143,7 @@ Single highest-impact milestone. Fix the live loop. After M1, memd is usable.
 
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| B2 | Signal vs Noise | `in_progress` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
+| B2 | Signal vs Noise | `verified` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
 | C2 | Ghost Cleanup | `pending` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
 | F2 | Ingestion Pipeline | `pending` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
 
