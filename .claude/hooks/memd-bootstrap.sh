@@ -32,6 +32,14 @@ if [ -z "$BUNDLE_ROOT" ]; then
   exit 0
 fi
 
+# Helper: emit properly structured hookSpecificOutput JSON
+emit_context() {
+  local ctx="$1"
+  local escaped
+  escaped="$(printf '%s' "$ctx" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])")"
+  printf '%s' "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"${escaped}\"}}"
+}
+
 # Staleness check: skip if wake ran recently
 MARKER_FILE="$BUNDLE_ROOT/.last-wake"
 if [ -f "$MARKER_FILE" ]; then
@@ -42,7 +50,7 @@ if [ -f "$MARKER_FILE" ]; then
     # Still fresh — inject cached wake instead of re-running
     if [ -f "$BUNDLE_ROOT/wake.md" ]; then
       CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
-      printf '%s' "{\"additionalContext\":\"memd bootstrap (cached ${AGE}s ago):\\n$(echo "$CACHED" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])")\"}"
+      emit_context "memd bootstrap (cached ${AGE}s ago):\n${CACHED}"
     fi
     exit 0
   fi
@@ -54,12 +62,9 @@ WAKE_OUTPUT="$(memd wake --output "$BUNDLE_ROOT" --write 2>&1 || true)"
 if [ -n "$WAKE_OUTPUT" ]; then
   # Stamp the marker
   date +%s > "$MARKER_FILE"
-  # Inject wake output as additional context
-  ESCAPED="$(echo "$WAKE_OUTPUT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])")"
-  printf '%s' "{\"additionalContext\":\"memd bootstrap (live):\\n${ESCAPED}\"}"
+  emit_context "memd bootstrap (live):\n${WAKE_OUTPUT}"
 elif [ -f "$BUNDLE_ROOT/wake.md" ]; then
   # Backend down — serve stale cache with warning
   CACHED="$(cat "$BUNDLE_ROOT/wake.md")"
-  ESCAPED="$(echo "$CACHED" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])")"
-  printf '%s' "{\"additionalContext\":\"memd bootstrap (stale fallback — backend unreachable):\\n${ESCAPED}\"}"
+  emit_context "memd bootstrap (stale fallback — backend unreachable):\n${CACHED}"
 fi
