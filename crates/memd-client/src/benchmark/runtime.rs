@@ -1268,8 +1268,11 @@ pub(crate) async fn run_public_benchmark_command(
     );
     let started_at = Utc::now();
     let duration_started = Instant::now();
+    eprintln!("[bench] resolving dataset `{}`…", args.dataset);
     let resolved_dataset = resolve_public_benchmark_dataset(args).await?;
+    eprintln!("[bench] dataset resolved → {}", resolved_dataset.path.display());
     let dataset = load_public_benchmark_dataset(&args.dataset, &resolved_dataset.path)?;
+    eprintln!("[bench] loaded {} items from fixture", dataset.items.len());
     anyhow::ensure!(
         dataset.benchmark_id == args.dataset,
         "public benchmark fixture `{}` does not match requested dataset `{}`",
@@ -1346,7 +1349,9 @@ pub(crate) async fn run_public_benchmark_command(
     }
 
     let evaluation = if args.full_eval {
+        eprintln!("[bench] mode=full-eval, resolving generator config…");
         let generator_config = resolve_generator_config(args)?;
+        eprintln!("[bench] generator={} grader={}", generator_config.model, generator_config.grader_model);
         match args.dataset.as_str() {
             "longmemeval" => build_longmemeval_full_eval_report(
                 &selected_dataset,

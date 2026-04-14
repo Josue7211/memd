@@ -558,6 +558,7 @@ pub(crate) async fn download_public_benchmark_dataset(
     fs::create_dir_all(&entry_dir).with_context(|| format!("create {}", entry_dir.display()))?;
     let dataset_path =
         public_benchmark_dataset_cache_path(output, source.benchmark_id, source.default_filename);
+    eprintln!("[download] fetching {source_url}…");
     let response = reqwest::get(source_url)
         .await
         .with_context(|| format!("download dataset {source_url}"))?
@@ -567,6 +568,7 @@ pub(crate) async fn download_public_benchmark_dataset(
         .bytes()
         .await
         .with_context(|| format!("read dataset bytes {source_url}"))?;
+    eprintln!("[download] received {} bytes", bytes.len());
     fs::write(&dataset_path, &bytes)
         .with_context(|| format!("write {}", dataset_path.display()))?;
     let checksum = public_benchmark_fixture_checksum(&dataset_path)?;
@@ -994,10 +996,14 @@ pub(crate) async fn call_openai_yes_no_grader(
     prompt: &str,
 ) -> anyhow::Result<String> {
     let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .context("build openai grader client")?;
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    eprintln!("[grader] POST {url} model={grader_model}");
     let response = client
-        .post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
+        .post(&url)
         .bearer_auth(api_key)
         .json(&json!({
             "model": grader_model,
@@ -1009,6 +1015,7 @@ pub(crate) async fn call_openai_yes_no_grader(
         .send()
         .await
         .context("send openai grader request")?;
+    eprintln!("[grader] response status={}", response.status());
     if !response.status().is_success() {
         let status = response.status();
         let body = response
@@ -2073,7 +2080,9 @@ pub(crate) async fn build_longmemeval_full_eval_report(
     let mut total_prompt_tokens: u64 = 0;
     let mut total_completion_tokens: u64 = 0;
 
-    for item in &dataset.items {
+    let total_items = dataset.items.len();
+    eprintln!("[longmemeval] starting full-eval: {total_items} items, top_k={top_k}, mode={mode}");
+    for (item_index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
         let question_type = item
             .metadata
@@ -2081,6 +2090,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown");
         let abstention = item.question_id.contains("_abs");
+        eprintln!("[longmemeval] [{}/{}] {} type={question_type}", item_index + 1, total_items, item.question_id);
 
         // Step 1: Retrieve context
         let (session_corpus, session_corpus_ids, _) = build_longmemeval_session_corpus(item);
@@ -2099,9 +2109,11 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             .cloned()
             .collect::<Vec<_>>()
             .join("\n---\n");
+        eprintln!("[longmemeval]   retrieval done, context_len={}", context.len());
 
         // Step 2: Generate hypothesis
         let prompt = build_generation_prompt(&item.query, &context);
+        eprintln!("[longmemeval]   calling generator…");
         let gen_response = call_generator(
             &generator_config.base_url,
             &generator_config.api_key,
@@ -2111,6 +2123,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
+        eprintln!("[longmemeval]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
 
         // Step 3: Grade with GPT-4o judge
         let eval_prompt = build_longmemeval_eval_prompt(
@@ -2120,6 +2133,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             &gen_response.content,
             abstention,
         )?;
+        eprintln!("[longmemeval]   calling grader…");
         let grader_response = call_openai_yes_no_grader(
             &generator_config.base_url,
             &generator_config.api_key,
@@ -2128,6 +2142,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
         )
         .await?;
         let label = grader_response.to_ascii_lowercase().contains("yes");
+        eprintln!("[longmemeval]   grader={grader_response} → correct={label} ({:.0}ms)", item_started.elapsed().as_millis() as f64);
 
         if label {
             correct += 1;
@@ -2251,7 +2266,9 @@ pub(crate) async fn build_locomo_full_eval_report(
     let mut total_prompt_tokens: u64 = 0;
     let mut total_completion_tokens: u64 = 0;
 
-    for item in &dataset.items {
+    let total_items = dataset.items.len();
+    eprintln!("[locomo] starting full-eval: {total_items} items, top_k={top_k}");
+    for (item_index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
         let category = item
             .metadata
@@ -2259,6 +2276,7 @@ pub(crate) async fn build_locomo_full_eval_report(
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown")
             .to_string();
+        eprintln!("[locomo] [{}/{}] {} cat={category}", item_index + 1, total_items, item.question_id);
 
         // Step 1: Retrieve context
         let docs = locomo_retrieval_docs(item);
@@ -2279,9 +2297,11 @@ pub(crate) async fn build_locomo_full_eval_report(
             .map(|((_, text), _)| text.as_str())
             .collect::<Vec<_>>()
             .join("\n---\n");
+        eprintln!("[locomo]   retrieval done, context_len={}", context.len());
 
         // Step 2: Generate answer
         let prompt = build_generation_prompt(&item.query, &context);
+        eprintln!("[locomo]   calling generator…");
         let gen_response = call_generator(
             &generator_config.base_url,
             &generator_config.api_key,
@@ -2291,6 +2311,7 @@ pub(crate) async fn build_locomo_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
+        eprintln!("[locomo]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
 
         // Step 3: Score with F1 (or adversarial check)
         let f1 = if category == "Adversarial" {
@@ -2410,7 +2431,9 @@ pub(crate) async fn build_membench_full_eval_report(
     let mut total_prompt_tokens: u64 = 0;
     let mut total_completion_tokens: u64 = 0;
 
-    for item in &dataset.items {
+    let total_items = dataset.items.len();
+    eprintln!("[membench] starting full-eval: {total_items} items, top_k={top_k}");
+    for (item_index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
         let topic = item
             .metadata
@@ -2436,8 +2459,10 @@ pub(crate) async fn build_membench_full_eval_report(
             .unwrap_or_default();
 
         if ground_truth.is_empty() || choices.is_empty() {
+            eprintln!("[membench] [{}/{}] {} skipped (no ground_truth or choices)", item_index + 1, total_items, item.question_id);
             continue;
         }
+        eprintln!("[membench] [{}/{}] {} topic={topic}", item_index + 1, total_items, item.question_id);
 
         // Step 1: Retrieve context
         let docs = membench_retrieval_docs(item);
@@ -2458,9 +2483,11 @@ pub(crate) async fn build_membench_full_eval_report(
             .map(|((_, text), _)| text.as_str())
             .collect::<Vec<_>>()
             .join("\n---\n");
+        eprintln!("[membench]   retrieval done, context_len={}", context.len());
 
         // Step 2: Generate MC selection
         let prompt = build_mc_generation_prompt(&item.query, &context, &choices);
+        eprintln!("[membench]   calling generator…");
         let gen_response = call_generator(
             &generator_config.base_url,
             &generator_config.api_key,
@@ -2470,6 +2497,7 @@ pub(crate) async fn build_membench_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
+        eprintln!("[membench]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
 
         // Step 3: Score MC accuracy
         let is_correct = mc_accuracy(&gen_response.content, ground_truth);

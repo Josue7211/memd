@@ -1,6 +1,7 @@
 use super::*;
 use anyhow::Context;
 use serde_json::Value as JsonValue;
+use std::time::Duration;
 
 /// Build a generation prompt for LongMemEval / LoCoMo.
 pub(crate) fn build_generation_prompt(question: &str, retrieved_context: &str) -> String {
@@ -37,13 +38,14 @@ pub(crate) async fn call_generator(
     prompt: &str,
 ) -> anyhow::Result<GeneratorResponse> {
     let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(15))
         .build()
         .context("build generator client")?;
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    eprintln!("[generator] POST {url} model={model}");
     let response = client
-        .post(format!(
-            "{}/chat/completions",
-            base_url.trim_end_matches('/')
-        ))
+        .post(&url)
         .bearer_auth(api_key)
         .json(&json!({
             "model": model,
@@ -55,6 +57,7 @@ pub(crate) async fn call_generator(
         .send()
         .await
         .context("send generator request")?;
+    eprintln!("[generator] response status={}", response.status());
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
