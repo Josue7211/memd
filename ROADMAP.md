@@ -8,12 +8,13 @@ version: v2
 version_status: in_progress
 current_milestone: M0
 milestone_status: in_progress
-current_phase: phase_a2
+current_phase: phase_b2
 phase_status: in_progress
 next_milestone: M1
-next_step: extraction_from_inspiration_repos + benchmark_baseline (parallel)
+next_step: benchmark_baseline (closes M0) + B2 pass gate verification
 active_blockers: []
 v1_status: frozen_architecture_complete
+note: B2 tasks 1-6 implemented on research/mining branch ahead of M1. M0 gate still needs benchmark numbers.
 -->
 
 ## Status Snapshot
@@ -22,9 +23,10 @@ v1_status: frozen_architecture_complete
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current phase: `Phase A2: Inspiration Extraction`
+- current phase: `Phase B2: Signal vs Noise` (tasks implemented, pass gate pending)
 - phase status: `in_progress`
-- next step: deep-read inspiration targets and run baseline benchmarks
+- completed: `Phase A2: Inspiration Extraction` (verified), B2 tasks 1-6 (all on `research/mining`)
+- next step: run benchmark baseline (closes M0 gate), then verify B2 pass gate (eval ≥ 65, E2E, composition)
 
 ## V1 → V2 Decision
 
@@ -127,7 +129,7 @@ Establish the "before" number. Extract patterns from competitors.
 
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| A2 | Inspiration Extraction | `in_progress` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
+| A2 | Inspiration Extraction | `verified` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
 | — | Benchmark Baseline | `pending` | #45, #60 | Run LongMemEval/LoCoMo/MemBench with current memd |
 
 **Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded (expect near-zero).
@@ -138,7 +140,7 @@ Single highest-impact milestone. Fix the live loop. After M1, memd is usable.
 
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| B2 | Signal vs Noise | `pending` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
+| B2 | Signal vs Noise | `in_progress` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
 | C2 | Ghost Cleanup | `pending` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
 | F2 | Ingestion Pipeline | `pending` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
 
@@ -255,11 +257,12 @@ If any milestone gate shows regression from prior milestone, STOP and fix before
 
 ## Next Up
 
-1. `M0` — extract from inspiration repos and run benchmark baseline (parallel)
-2. `M1` — kill status noise, clean ghosts, build ingestion pipeline
-3. See [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md]] for extraction plan
-4. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
-5. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
+1. `M0` — run benchmark baseline (A2 extraction done, baseline numbers still needed to close M0 gate)
+2. `B2` — verify pass gate: `memd eval` ≥ 65, E2E fact-in-wake test, working memory composition, noise reduction measurement
+3. `M1` — after B2 gate passes: C2 (ghost cleanup) + F2 (ingestion pipeline)
+4. See [[docs/specs/2026-04-14-b2-signal-vs-noise-plan.md]] for B2 task details and pass gate checklist
+5. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
+6. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
 
 ## Operational Reality (2026-04-14 Audit — Zero Generosity)
 

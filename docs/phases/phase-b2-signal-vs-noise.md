@@ -2,12 +2,15 @@
 phase: B2
 name: Signal vs Noise
 version: v2
-status: planned
+status: in_progress
 depends_on: [A2]
 backlog_items: [42, 49, 66, 77]
+branch: research/mining
 ---
 
 # Phase B2: Signal vs Noise
+
+Current status: `in_progress` — all 6 implementation tasks committed, pass gate verification pending.
 
 ## Goal
 
