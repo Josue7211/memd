@@ -4,7 +4,7 @@ name: Signal vs Noise
 version: v2
 status: pending
 depends_on: [A2]
-backlog_items: [42, 43]
+backlog_items: [42, 49, 66, 77]
 ---
 
 # Phase B2: Signal vs Noise

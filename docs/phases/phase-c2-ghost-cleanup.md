@@ -4,7 +4,7 @@ name: Ghost Cleanup
 version: v2
 status: pending
 depends_on: [B2]
-backlog_items: [38, 39, 40, 41]
+backlog_items: [46, 50, 76]
 ---
 
 # Phase C2: Ghost Cleanup

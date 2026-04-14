@@ -4,7 +4,7 @@ name: Ingestion Pipeline
 version: v2
 status: pending
 depends_on: [B2]
-backlog_items: [50, 51, 52]
+backlog_items: [37, 39, 41]
 ---
 
 # Phase F2: Ingestion Pipeline

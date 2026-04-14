@@ -4,7 +4,7 @@ name: Isolation + Trust
 version: v2
 status: pending
 depends_on: [D2, G2]
-backlog_items: [65, 66, 67, 68]
+backlog_items: [47, 48, 68, 73]
 ---
 
 # Phase J2: Isolation + Trust

@@ -4,7 +4,7 @@ name: Observability
 version: v2
 status: pending
 depends_on: [D2, C2, J2]
-backlog_items: [69, 70, 71, 72, 73]
+backlog_items: [59, 72, 74]
 ---
 
 # Phase K2: Observability

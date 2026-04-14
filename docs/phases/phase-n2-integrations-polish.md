@@ -4,7 +4,7 @@ name: Integrations Polish
 version: v2
 status: pending
 depends_on: [F2, I2, M2]
-backlog_items: [82, 83, 84, 85]
+backlog_items: [54, 56, 64, 69, 79]
 ---
 
 # Phase N2: Integrations Polish

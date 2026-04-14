@@ -4,7 +4,7 @@ name: Hive Hardening
 version: v2
 status: pending
 depends_on: [C2, J2]
-backlog_items: [74, 75, 76, 77]
+backlog_items: [53, 67, 70, 71, 75, 81]
 ---
 
 # Phase L2: Hive Hardening

@@ -4,7 +4,7 @@ name: Human Dashboard
 version: v2
 status: pending
 depends_on: [D2, E2, G2]
-backlog_items: [61, 62, 63, 64]
+backlog_items: []
 ---
 
 # Phase I2: Human Dashboard

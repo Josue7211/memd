@@ -4,7 +4,7 @@ name: Correction Flow
 version: v2
 status: pending
 depends_on: [B2, C2]
-backlog_items: [44, 45, 46]
+backlog_items: [43, 57, 58, 78, 80]
 ---
 
 # Phase D2: Correction Flow

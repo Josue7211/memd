@@ -6,10 +6,12 @@
 truth_date: 2026-04-14
 version: v2
 version_status: in_progress
+current_milestone: M0
+milestone_status: pending
 current_phase: phase_a2
 phase_status: pending
-next_phase: phase_b2
-next_step: extraction_from_inspiration_repos
+next_milestone: M1
+next_step: extraction_from_inspiration_repos + benchmark_baseline (parallel)
 active_blockers: []
 v1_status: frozen_architecture_complete
 -->
@@ -46,7 +48,6 @@ None.
 
 ## Status Rules
 
-- `pending`: not started
 - `pending`: not started
 - `in_progress`: active build work
 - `blocked`: cannot move without external fix or decision
@@ -95,37 +96,120 @@ Fix operational gaps in V2 phases instead.
 | J | Hive Coordination | `pending` | deferred to V2 | — |
 | K | Overnight Evolution | `pending` | deferred to V2 | — |
 
-## V2 Phases (Hardening — Make It Real)
+## V1 → V2 Migration
+
+V1 phases are frozen. V2 phases fix what V1 left broken. This table shows
+which V2 work repairs which V1 promise.
+
+| V1 Phase | V1 Claim | Honest Status | Fixed By | Key Backlog |
+| --- | --- | --- | --- | --- |
+| A — Raw Truth Spine | event capture | works | L2 (spine integrity) | #53 |
+| B — Session Continuity | resume across sessions | broken — ghost refs, stale cache | C2, B2 | #46, #50, #76, #77 |
+| C — Typed Memory | 7 kinds stored | dedup incomplete | B2 | #49 |
+| D — Canonical Truth | corrections work | stub — no UX, no proof | D2 | #43, #57, #58, #78, #80 |
+| E — Wake Packet Compiler | right context on boot | broken — status noise drowns facts | B2 | #42, #66 |
+| F — Memory Atlas | navigable graph | dormant — 974 lines, never called | E2 | #44, #51, #52 |
+| G — Procedural Learning | learns patterns | never triggers in prod | F2, G2 | #37, #38, #40 |
+| H — Core Hardening | pipeline solid | partial — core loop still broken | B2, C2, D2 | spread |
+| I — Human Dashboard | web UI | scaffold only | I2 | product phase |
+
+## V2 Milestones (Hardening — Make It Real)
 
 Goal: 1.8/10 → 10/10. No new architecture. Make existing architecture work.
-Each phase follows Ralph rules: bounded goal, pass gate, evidence, rollback.
-Deep Ralph docs linked per phase — load one at a time.
 
-| Phase | Name | Status | Depends | Detail |
+4 milestones. Each contains parallel phases. Each phase has a Ralph doc
+(bounded goal, pass gate, evidence, rollback). Benchmarks re-run at every
+milestone gate — not just M0 and M3. Load one phase doc at a time.
+
+### M0: Baseline + Research (no code changes)
+
+Establish the "before" number. Extract patterns from competitors.
+
+| Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| A2 | Inspiration Extraction | `pending` | — | [[docs/phases/phase-a2-inspiration-extraction.md]] |
-| B2 | Signal vs Noise | `pending` | A2 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
-| C2 | Ghost Cleanup | `pending` | B2 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
-| D2 | Correction Flow | `pending` | B2, C2 | [[docs/phases/phase-d2-correction-flow.md]] |
-| E2 | Atlas Activation | `pending` | B2, C2 | [[docs/phases/phase-e2-atlas-activation.md]] |
-| F2 | Ingestion Pipeline | `pending` | B2 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
-| G2 | Lane Architecture | `pending` | A2, F2 | [[docs/phases/phase-g2-lane-architecture.md]] |
-| H2 | Recall Proof | `pending` | G2, D2 | [[docs/phases/phase-h2-recall-proof.md]] |
-| I2 | Human Dashboard | `pending` | D2, E2, G2 | [[docs/phases/phase-i2-human-dashboard.md]] |
-| J2 | Isolation + Trust | `pending` | D2, G2 | [[docs/phases/phase-j2-isolation-trust.md]] |
-| K2 | Observability | `pending` | D2, C2, J2 | [[docs/phases/phase-k2-observability.md]] |
-| L2 | Hive Hardening | `pending` | C2, J2 | [[docs/phases/phase-l2-hive-hardening.md]] |
-| M2 | Overnight Evolution | `pending` | F2, G2, K2 | [[docs/phases/phase-m2-overnight-evolution.md]] |
-| N2 | Integrations Polish | `pending` | F2, I2, M2 | [[docs/phases/phase-n2-integrations-polish.md]] |
+| A2 | Inspiration Extraction | `pending` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
+| — | Benchmark Baseline | `pending` | #45, #60 | Run LongMemEval/LoCoMo/MemBench with current memd |
+
+**Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded (expect near-zero).
+
+### M1: Core Loop (store → recall → right thing back)
+
+Single highest-impact milestone. Fix the live loop. After M1, memd is usable.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| B2 | Signal vs Noise | `pending` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
+| C2 | Ghost Cleanup | `pending` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
+| F2 | Ingestion Pipeline | `pending` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
+
+**Gate**: `memd eval --fail-below 65`. Store a fact → recall it next session.
+Working memory ≤ 2 status items. Zero ghost refs. Benchmark re-run shows improvement.
+**Fixes V1**: Phase B (continuity), Phase C (dedup), Phase E (wake), Phase G (procedural).
+
+### M2: Truth Layer (correction, navigation, lanes)
+
+Make memory trustworthy and navigable. After M2, users can correct and explore.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| D2 | Correction Flow | `pending` | #43, #57, #58, #78, #80 | [[docs/phases/phase-d2-correction-flow.md]] |
+| E2 | Atlas Activation | `pending` | #44, #51, #52 | [[docs/phases/phase-e2-atlas-activation.md]] |
+| G2 | Lane Architecture | `pending` | #38, #40 | [[docs/phases/phase-g2-lane-architecture.md]] |
+
+**Gate**: Correct a fact → next recall reflects correction. Atlas navigable in ≤ 4 hops.
+6 lanes functional with auto-activation. Benchmark re-run.
+**Fixes V1**: Phase D (canonical), Phase F (atlas).
+
+### M3: Proof + Surface (demo moment)
+
+Prove it works. Ship the human surface. This is the "show me" milestone.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| H2 | Recall Proof | `pending` | #45, #60, #61 | [[docs/phases/phase-h2-recall-proof.md]] |
+| I2 | Human Dashboard | `pending` | — | [[docs/phases/phase-i2-human-dashboard.md]] |
+
+**Gate**: LongMemEval ≥ 80%. Dashboard: browse, correct, navigate in browser. Zero console errors.
+**Demo**: "Store a fact. Correct it. Navigate it. Prove it. All in the UI."
+**Fixes V1**: Phase I (dashboard).
+
+### M4: Hardening (isolation, observability, evolution, polish)
+
+Everything that makes memd production-grade and self-improving.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| J2 | Isolation + Trust | `pending` | #47, #48, #68, #73 | [[docs/phases/phase-j2-isolation-trust.md]] |
+| K2 | Observability | `pending` | #59, #72, #74 | [[docs/phases/phase-k2-observability.md]] |
+| L2 | Hive Hardening | `pending` | #53, #67, #70, #71, #75, #81 | [[docs/phases/phase-l2-hive-hardening.md]] |
+| M2-evo | Overnight Evolution | `pending` | #62, #63, #65 | [[docs/phases/phase-m2-overnight-evolution.md]] |
+| N2 | Integrations Polish | `pending` | #54, #56, #64, #69, #79 | [[docs/phases/phase-n2-integrations-polish.md]] |
+
+**Gate**: Private items don't leak. Cross-harness continuity proven. Backup/restore works.
+Evolution proposes procedures. Obsidian two-way sync. Benchmark re-run ≥ 90%.
+**Fixes V1**: Phase A (spine integrity), Phase J (hive), Phase K (evolution).
+
+## Benchmark Cadence
+
+Benchmarks are not a phase — they're a continuous gate.
+
+| When | What | Minimum |
+| --- | --- | --- |
+| M0 | Baseline: LongMemEval, LoCoMo, MemBench | record number (expect near-zero) |
+| M1 gate | Re-run all | improvement over M0 |
+| M2 gate | Re-run all | ≥ 50% LongMemEval |
+| M3 gate | Full benchmark + A/B influence test | ≥ 80% LongMemEval |
+| M4 gate | Full benchmark + adversarial suite | ≥ 90% LongMemEval |
+
+If any milestone gate shows regression from prior milestone, STOP and fix before continuing.
 
 ## Next Up
 
-1. `Phase A2` — extract from mempalace + supermemory (patterns, not code)
-2. `Phase B2` — kill the status noise loop (single highest-impact fix)
-3. `Phase C2` — clean the ghost refs so continuity works
-4. See [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md]] for extraction plan
-5. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
-6. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
+1. `M0` — extract from mempalace + supermemory + run benchmark baseline (parallel)
+2. `M1` — kill status noise, clean ghosts, build ingestion pipeline
+3. See [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md]] for extraction plan
+4. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
+5. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
 
 ## Operational Reality (2026-04-14 Audit — Zero Generosity)
 

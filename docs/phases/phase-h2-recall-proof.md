@@ -4,7 +4,7 @@ name: Recall Proof
 version: v2
 status: pending
 depends_on: [G2, D2]
-backlog_items: [58, 59, 60]
+backlog_items: [45, 60, 61]
 ---
 
 # Phase H2: Recall Proof

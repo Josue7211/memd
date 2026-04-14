@@ -4,7 +4,7 @@ name: Overnight Evolution
 version: v2
 status: pending
 depends_on: [F2, G2, K2]
-backlog_items: [78, 79, 80, 81]
+backlog_items: [62, 63, 65]
 ---
 
 # Phase M2: Overnight Evolution
