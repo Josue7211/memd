@@ -4,6 +4,9 @@
 - found: `2026-04-13`
 - scope: memd-client, memd-server
 - severity: critical
+- extraction source:
+  - `mempalace/hooks_cli.py`
+  - A2 note: `.memd/lanes/architecture/A2-07-hooks-capture.md`
 
 ## Summary
 

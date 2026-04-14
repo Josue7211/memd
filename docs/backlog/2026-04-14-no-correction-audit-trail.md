@@ -5,6 +5,9 @@
 - phase: `V2-D2`
 - opened: `2026-04-14`
 - scope: memd-core
+- extraction source:
+  - `mempalace/repair.py`
+  - A2 note: `.memd/lanes/architecture/A2-06-correction-repair.md`
 
 ## Problem
 

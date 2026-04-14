@@ -96,6 +96,9 @@ Underneath them, `memd` should run a Hermes-style improvement loop:
 
 - [mempalace-theory-teardown.md](./theory/teardowns/2026-04-11-mempalace-theory-teardown.md)
 - [hermes-theory-teardown.md](./theory/teardowns/2026-04-11-hermes-theory-teardown.md)
+- [omegon-smriti-teardown.md](./theory/teardowns/2026-04-14-omegon-smriti-teardown.md)
+- [supermemory-teardown.md](./theory/teardowns/2026-04-14-supermemory-teardown.md)
+- [donor-map.md](./theory/2026-04-14-donor-map.md)
 
 ## Working Rule
 

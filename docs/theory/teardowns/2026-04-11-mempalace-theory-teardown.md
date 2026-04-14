@@ -1,5 +1,19 @@
 # mempalace Theory Teardown for memd
 
+## Pass-Gate Summary
+
+- strongest idea: raw-first retrieval plus tiny wake packet layers
+- wrong idea: treating palace metaphor or benchmark-tuned heuristics as full memory theory
+- memd overlap:
+  - wake packet compiler
+  - atlas as navigation layer
+  - truth-preserving raw source retention
+- direct lift targets:
+  - `F2` ingestion pipeline
+  - `E2` atlas activation
+  - `H2` recall proof
+- judgment: `steal now`
+
 ## Why This Exists
 
 We need to know what `mempalace` actually proves, what is benchmark theater, and what `memd` should steal or reject.

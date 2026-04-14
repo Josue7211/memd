@@ -33,6 +33,15 @@ Deep-read mempalace + supermemory, extract patterns that close memd gaps faster.
 - `.memd/lanes/architecture/` has multi-file structure like inspiration
 - Inspiration lane updated with deeper notes
 - Backlog items annotated with "extraction source: mempalace/supermemory"
+- Priority extraction targets covered:
+  - benchmark harness
+  - atlas entity graph
+  - ingestion pipeline
+  - dedup
+  - lane auto-activation
+  - correction repair flow
+  - hook capture shape
+  - plugin packaging + graph UI split
 
 ## Fail Conditions
 

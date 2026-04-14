@@ -24,7 +24,7 @@ v1_status: frozen_architecture_complete
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - current phase: `Phase A2: Inspiration Extraction`
 - phase status: `in_progress`
-- next step: deep-read mempalace + supermemory, extract patterns into architecture lane
+- next step: deep-read inspiration targets and run baseline benchmarks
 
 ## V1 → V2 Decision
 
@@ -127,7 +127,7 @@ Establish the "before" number. Extract patterns from competitors.
 
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| A2 | Inspiration Extraction | `pending` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
+| A2 | Inspiration Extraction | `in_progress` | #55 | [[docs/phases/phase-a2-inspiration-extraction.md]] |
 | — | Benchmark Baseline | `pending` | #45, #60 | Run LongMemEval/LoCoMo/MemBench with current memd |
 
 **Gate**: Extraction notes for 8+ targets. Benchmark numbers recorded (expect near-zero).
@@ -189,6 +189,27 @@ Everything that makes memd production-grade and self-improving.
 Evolution proposes procedures. Obsidian two-way sync. Benchmark re-run ≥ 90%.
 **Fixes V1**: Phase A (spine integrity), Phase J (hive), Phase K (evolution).
 
+## Later Standalone Phases
+
+These are valid roadmap phases, but not part of the current V2 hardening
+critical path. Load only after the core hardening sequence is stable.
+
+| Phase | Name | Status | Backlog | Detail |
+| --- | --- | --- | --- | --- |
+| A3 | Mining | `verified` | #55 | [[docs/phases/phase-a3-mining.md]] |
+
+### A3 Promotions
+
+Mining output already maps to named implementation surfaces in the hardening roadmap:
+
+| Promoted target | Donor | Lands in |
+| --- | --- | --- |
+| conversation mining + dedup discipline | `mempalace` | `F2` Ingestion Pipeline |
+| atlas graph productization | `mempalace` + `supermemory` | `E2` Atlas Activation |
+| runtime compiler + canonical `memd state` surface | `Omegon` | `K2` Observability |
+| claims, freshness, and divergence signal | `Smriti` | `L2` Hive Hardening |
+| thin harness adapter SDKs | `supermemory` | `N2` Integrations Polish |
+
 ## Benchmark Cadence
 
 Benchmarks are not a phase — they're a continuous gate.
@@ -218,7 +239,7 @@ If any milestone gate shows regression from prior milestone, STOP and fix before
 
 ## Next Up
 
-1. `M0` — extract from mempalace + supermemory + run benchmark baseline (parallel)
+1. `M0` — extract from inspiration repos and run benchmark baseline (parallel)
 2. `M1` — kill status noise, clean ghosts, build ingestion pipeline
 3. See [[docs/backlog/2026-04-14-steal-from-inspiration-repos.md]] for extraction plan
 4. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target

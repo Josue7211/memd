@@ -4,6 +4,11 @@ status: open
 severity: high
 phase: Phase I
 opened: 2026-04-14
+extraction source:
+- `mempalace/entity_detector.py`
+- `mempalace/knowledge_graph.py`
+- `supermemory/packages/memory-graph/*`
+- A2 notes: `.memd/lanes/architecture/A2-02-atlas-entity-graph.md`, `.memd/lanes/architecture/A2-08-plugin-packaging-and-graph-ui.md`
 
 ## Problem
 
