@@ -1,6 +1,12 @@
 use super::*;
 use anyhow::anyhow;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct LongMemEvalHypothesisEntry {
+    pub question_id: String,
+    pub hypothesis: String,
+}
+
 pub(crate) fn supported_public_benchmark_ids() -> &'static [&'static str] {
     &["longmemeval", "locomo", "convomem", "membench"]
 }
@@ -83,20 +89,27 @@ pub(crate) fn render_membench_message_list_text(value: &JsonValue) -> String {
         .flatten()
         .filter_map(JsonValue::as_array)
         .flat_map(|session| session.iter())
-        .filter_map(|turn| {
-            let user = turn.get("user_message").and_then(JsonValue::as_str);
-            let assistant = turn.get("assistant_message").and_then(JsonValue::as_str);
-            match (user, assistant) {
-                (Some(user), Some(assistant)) => {
-                    Some(format!("user: {user}\nassistant: {assistant}"))
-                }
-                (Some(user), None) => Some(format!("user: {user}")),
-                (None, Some(assistant)) => Some(format!("assistant: {assistant}")),
-                (None, None) => None,
-            }
-        })
+        .filter_map(render_membench_turn_text)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub(crate) fn render_membench_turn_text(turn: &JsonValue) -> Option<String> {
+    let user = turn
+        .get("user_message")
+        .and_then(JsonValue::as_str)
+        .or_else(|| turn.get("user").and_then(JsonValue::as_str));
+    let assistant = turn
+        .get("assistant_message")
+        .and_then(JsonValue::as_str)
+        .or_else(|| turn.get("assistant").and_then(JsonValue::as_str))
+        .or_else(|| turn.get("agent").and_then(JsonValue::as_str));
+    match (user, assistant) {
+        (Some(user), Some(assistant)) => Some(format!("user: {user}\nassistant: {assistant}")),
+        (Some(user), None) => Some(format!("user: {user}")),
+        (None, Some(assistant)) => Some(format!("assistant: {assistant}")),
+        (None, None) => None,
+    }
 }
 
 pub(crate) fn render_convomem_conversation_text(value: &JsonValue) -> String {
@@ -906,6 +919,365 @@ pub(crate) fn public_benchmark_string_vec(value: Option<&JsonValue>) -> Vec<Stri
         .collect()
 }
 
+pub(crate) fn build_longmemeval_eval_prompt(
+    task: &str,
+    question: &str,
+    answer: &str,
+    response: &str,
+    abstention: bool,
+) -> anyhow::Result<String> {
+    if abstention {
+        return Ok(format!(
+            "I will give you an unanswerable question, an explanation, and a response from a model. Please answer yes if the model correctly identifies the question as unanswerable. The model could say that the information is incomplete, or some other information is given but the asked information is not.\n\nQuestion: {question}\n\nExplanation: {answer}\n\nModel Response: {response}\n\nDoes the model correctly identify the question as unanswerable? Answer yes or no only."
+        ));
+    }
+    let prompt = match task {
+        "single-session-user" | "single-session-assistant" | "multi-session" => format!(
+            "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. \n\nQuestion: {question}\n\nCorrect Answer: {answer}\n\nModel Response: {response}\n\nIs the model response correct? Answer yes or no only."
+        ),
+        "temporal-reasoning" => format!(
+            "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no. In addition, do not penalize off-by-one errors for the number of days. If the question asks for the number of days/weeks/months, etc., and the model makes off-by-one errors (e.g., predicting 19 days when the answer is 18), the model's response is still correct. \n\nQuestion: {question}\n\nCorrect Answer: {answer}\n\nModel Response: {response}\n\nIs the model response correct? Answer yes or no only."
+        ),
+        "knowledge-update" => format!(
+            "I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response contains some previous information along with an updated answer, the response should be considered as correct as long as the updated answer is the required answer.\n\nQuestion: {question}\n\nCorrect Answer: {answer}\n\nModel Response: {response}\n\nIs the model response correct? Answer yes or no only."
+        ),
+        "single-session-preference" => format!(
+            "I will give you a question, a rubric for desired personalized response, and a response from a model. Please answer yes if the response satisfies the desired response. Otherwise, answer no. The model does not need to reflect all the points in the rubric. The response is correct as long as it recalls and utilizes the user's personal information correctly.\n\nQuestion: {question}\n\nRubric: {answer}\n\nModel Response: {response}\n\nIs the model response correct? Answer yes or no only."
+        ),
+        other => anyhow::bail!("unsupported LongMemEval question type `{other}`"),
+    };
+    Ok(prompt)
+}
+
+pub(crate) fn load_longmemeval_hypotheses(
+    path: &Path,
+) -> anyhow::Result<Vec<LongMemEvalHypothesisEntry>> {
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    if let Ok(entries) = serde_json::from_str::<Vec<LongMemEvalHypothesisEntry>>(&raw) {
+        return Ok(entries);
+    }
+    raw.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str::<LongMemEvalHypothesisEntry>(line)
+                .with_context(|| format!("parse jsonl hypothesis line in {}", path.display()))
+        })
+        .collect()
+}
+
+pub(crate) fn validate_public_benchmark_args(
+    args: &PublicBenchmarkArgs,
+) -> anyhow::Result<()> {
+    if !args.all && args.dataset.is_empty() {
+        anyhow::bail!("dataset is required unless --all is specified");
+    }
+    if args.full_eval && args.community_standard {
+        anyhow::bail!("--full-eval replaces --community-standard; use --full-eval instead");
+    }
+    if args.community_standard {
+        anyhow::ensure!(
+            args.dataset == "longmemeval",
+            "community-standard evaluation is currently only supported for longmemeval"
+        );
+        anyhow::ensure!(
+            args.hypotheses_file.is_some(),
+            "community-standard longmemeval requires --hypotheses-file"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn call_openai_yes_no_grader(
+    base_url: &str,
+    api_key: &str,
+    grader_model: &str,
+    prompt: &str,
+) -> anyhow::Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .build()
+        .context("build openai grader client")?;
+    let response = client
+        .post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
+        .bearer_auth(api_key)
+        .json(&json!({
+            "model": grader_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "n": 1,
+            "temperature": 0,
+            "max_tokens": 10
+        }))
+        .send()
+        .context("send openai grader request")?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "failed to read openai grader error body".to_string());
+        anyhow::bail!("openai grader request failed with {status}: {body}");
+    }
+    let body = response
+        .json::<JsonValue>()
+        .context("parse openai grader response json")?;
+    body.get("choices")
+        .and_then(JsonValue::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("openai grader response missing choices[0].message.content"))
+}
+
+pub(crate) fn public_benchmark_target_key(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::Null => None,
+        JsonValue::String(value) => Some(value.clone()),
+        JsonValue::Number(value) => Some(value.to_string()),
+        JsonValue::Bool(value) => Some(value.to_string()),
+        JsonValue::Array(_) | JsonValue::Object(_) => serde_json::to_string(value).ok(),
+    }
+}
+
+pub(crate) fn locomo_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)> {
+    let mut docs = Vec::new();
+    if let Some(conversation) = item.metadata.get("conversation").and_then(JsonValue::as_object) {
+        let mut session_indexes = conversation
+            .keys()
+            .filter_map(|key| key.strip_prefix("session_"))
+            .filter_map(|suffix| {
+                suffix
+                    .split_once('_')
+                    .map(|(index, _)| index)
+                    .or(Some(suffix))
+            })
+            .filter_map(|index| index.parse::<usize>().ok())
+            .collect::<BTreeSet<_>>();
+        if session_indexes.is_empty() {
+            session_indexes = (1..=35).collect();
+        }
+        for session_index in session_indexes {
+            let session_key = format!("session_{session_index}");
+            let session_date = conversation
+                .get(&format!("session_{session_index}_date_time"))
+                .and_then(JsonValue::as_str)
+                .unwrap_or("");
+            if let Some(dialogs) = conversation.get(&session_key).and_then(JsonValue::as_array) {
+                for dialog in dialogs {
+                    let dia_id = dialog
+                        .get("dia_id")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let speaker = dialog
+                        .get("speaker")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("unknown");
+                    let text = dialog.get("text").and_then(JsonValue::as_str).unwrap_or("");
+                    if !dia_id.is_empty() && !text.is_empty() {
+                        let rendered = if session_date.is_empty() {
+                            format!("{speaker}: {text}")
+                        } else {
+                            format!("({session_date}) {speaker}: {text}")
+                        };
+                        docs.push((dia_id, rendered));
+                    }
+                }
+            }
+        }
+    }
+    docs
+}
+
+pub(crate) fn membench_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)> {
+    item.metadata
+        .get("message_list")
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .flat_map(|(session_index, session)| {
+            session
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(move |turn| {
+                    let text = render_membench_turn_text(turn)?;
+                    let step = turn
+                        .get("mid")
+                        .cloned()
+                        .map(|mid| json!([mid, session_index]))
+                        .or_else(|| turn.get("sid").cloned().map(|sid| json!([sid, session_index])))
+                        .or_else(|| turn.get("step_id").cloned())
+                        .or_else(|| Some(json!([0, session_index])));
+                    Some((public_benchmark_target_key(&step?)?, text))
+                })
+        })
+        .collect()
+}
+
+pub(crate) fn build_context_retrieval_run_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    reranker_id: Option<&str>,
+    retrieval_docs: impl Fn(&PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)>,
+    expected_targets: impl Fn(&PublicBenchmarkDatasetFixtureItem) -> BTreeSet<String>,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut hits: usize = 0;
+
+    for (index, item) in dataset.items.iter().enumerate() {
+        let item_started = Instant::now();
+        let query_tokens = tokenize_public_benchmark_text(&item.query);
+        let docs = retrieval_docs(item);
+        let expected = expected_targets(item);
+        let mut ranked = docs
+            .iter()
+            .map(|(doc_id, text)| {
+                let score = query_tokens
+                    .intersection(&tokenize_public_benchmark_text(text))
+                    .count() as f64;
+                ((doc_id.clone(), text.clone()), score)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+
+        let retrieved_items = ranked
+            .iter()
+            .take(top_k)
+            .enumerate()
+            .map(|(rank, ((doc_id, text), score))| {
+                json!({
+                    "rank": rank + 1,
+                    "item_id": doc_id,
+                    "question_id": item.question_id,
+                    "text": text,
+                    "score": score,
+                })
+            })
+            .collect::<Vec<_>>();
+        let retrieved_ids = ranked
+            .iter()
+            .take(top_k)
+            .map(|((doc_id, _), _)| doc_id.clone())
+            .collect::<BTreeSet<_>>();
+        let hit = !expected.is_empty() && expected.iter().any(|target| retrieved_ids.contains(target));
+        if hit {
+            hits += 1;
+        } else {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "question_id": item.question_id,
+                "expected": item.gold_answer,
+                "expected_targets": expected.iter().cloned().collect::<Vec<_>>(),
+                "reason": "retrieval missed annotated benchmark evidence",
+            }));
+        }
+        let observed_answer = ranked.first().map(|((_, text), _)| text.clone());
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        let token_usage = if mode == "hybrid" {
+            Some(json!({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reranker_tokens": 0,
+            }))
+        } else {
+            None
+        };
+        let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: item.claim_class.clone(),
+            question: Some(item.query.clone()),
+            question_type: item
+                .metadata
+                .get("question_type")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string),
+            ranked_items: retrieved_items.clone(),
+            retrieved_items,
+            retrieval_scores: ranked.iter().take(top_k).map(|(_, score)| *score).collect(),
+            hit,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: observed_answer.clone(),
+            correctness: Some(json!({
+                "score": if hit { 1.0 } else { 0.0 },
+                "expected": item.gold_answer,
+                "observed": observed_answer,
+                "index": index,
+                "mode": mode,
+                "expected_targets": expected.iter().cloned().collect::<Vec<_>>(),
+            })),
+            latency_ms: item_latency_ms,
+            token_usage,
+            cost_estimate_usd,
+        });
+    }
+
+    let item_count = results.len();
+    let accuracy = if item_count == 0 {
+        0.0
+    } else {
+        hits as f64 / item_count as f64
+    };
+    let mean_latency_ms = if item_count == 0 {
+        0.0
+    } else {
+        total_latency_ms as f64 / item_count as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("hit_rate".to_string(), accuracy);
+    metrics.insert("recall_at_k".to_string(), accuracy);
+    metrics.insert("mean_latency_ms".to_string(), mean_latency_ms);
+    metrics.insert("item_count".to_string(), item_count as f64);
+
+    let _ = started;
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: mode.to_string(),
+            top_k,
+            reranker_id: reranker_id.map(str::to_string),
+            reranker_provider: if mode == "hybrid" {
+                Some("declared".to_string())
+            } else {
+                None
+            },
+            limit: Some(dataset.items.len()),
+            runtime_settings: JsonValue::Null,
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: if mode == "hybrid" {
+                Some(json!({"prompt_tokens": 0, "completion_tokens": 0, "reranker_tokens": 0}))
+            } else {
+                None
+            },
+            cost_estimate_usd: if mode == "hybrid" { Some(0.0) } else { None },
+        },
+        metrics,
+        item_count: dataset.items.len(),
+        failures,
+        items: results,
+    })
+}
+
 pub(crate) fn build_longmemeval_session_corpus(
     item: &PublicBenchmarkDatasetFixtureItem,
 ) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -1508,122 +1880,109 @@ pub(crate) fn build_longmemeval_run_report(
     })
 }
 
-pub(crate) fn build_public_benchmark_item_results(
+pub(crate) fn build_longmemeval_community_standard_run_report(
     dataset: &PublicBenchmarkDatasetFixture,
-    top_k: usize,
+    hypotheses_path: &Path,
+    grader_model: &str,
     mode: &str,
-    reranker_id: Option<&str>,
-    retrieval_config: &PublicBenchmarkRetrievalConfig,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
-    if dataset.benchmark_id == "longmemeval" {
-        return build_longmemeval_run_report(dataset, top_k, mode, reranker_id, retrieval_config);
-    }
+    anyhow::ensure!(
+        dataset.benchmark_id == "longmemeval",
+        "community-standard evaluation only supports longmemeval"
+    );
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .context("community-standard longmemeval requires OPENAI_API_KEY")?;
+    let base_url =
+        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+    let hypothesis_map = load_longmemeval_hypotheses(hypotheses_path)?
+        .into_iter()
+        .map(|entry| (entry.question_id, entry.hypothesis))
+        .collect::<BTreeMap<_, _>>();
+
     let started = Instant::now();
     let mut results = Vec::new();
     let mut failures = Vec::new();
     let mut total_latency_ms: u128 = 0;
-    let mut hits: usize = 0;
-    let candidate_tokens = dataset
-        .items
-        .iter()
-        .map(|candidate| {
-            let mut candidate_text = String::new();
-            candidate_text.push_str(&candidate.query);
-            candidate_text.push(' ');
-            candidate_text.push_str(&candidate.gold_answer);
-            candidate_text.push(' ');
-            candidate_text.push_str(&flatten_public_benchmark_metadata(&candidate.metadata));
-            (candidate, tokenize_public_benchmark_text(&candidate_text))
-        })
-        .collect::<Vec<_>>();
+    let mut correct = 0usize;
+    let mut abstention_total = 0usize;
+    let mut abstention_correct = 0usize;
+    let mut per_type_correct = BTreeMap::<String, usize>::new();
+    let mut per_type_total = BTreeMap::<String, usize>::new();
 
     for (index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
-        let query_tokens = tokenize_public_benchmark_text(&item.query);
-        let mut ranked = candidate_tokens
-            .iter()
-            .map(|(candidate, tokens)| {
-                let overlap = query_tokens.intersection(tokens).count() as f64;
-                let mut score = overlap;
-                if candidate.item_id == item.item_id {
-                    score += 10.0;
-                }
-                if candidate.claim_class == "hybrid" {
-                    score += 0.5;
-                }
-                (*candidate, score)
-            })
-            .collect::<Vec<_>>();
-        ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
-        let retrieved_items = ranked
-            .iter()
-            .take(top_k)
-            .enumerate()
-            .map(|(rank, (candidate, score))| {
-                json!({
-                    "rank": rank + 1,
-                    "item_id": candidate.item_id,
-                    "question_id": candidate.question_id,
-                    "text": candidate.gold_answer,
-                    "score": score,
-                })
-            })
-            .collect::<Vec<_>>();
-        let top_hit = ranked
-            .first()
-            .map(|(candidate, _)| candidate.item_id == item.item_id)
-            .unwrap_or(false);
-        if top_hit {
-            hits += 1;
+        let hypothesis = hypothesis_map.get(&item.question_id).cloned();
+        let question_type = item
+            .metadata
+            .get("question_type")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown");
+        let abstention = item.question_id.contains("_abs");
+        let (label, grader_response) = if let Some(hypothesis_text) = hypothesis.as_deref() {
+            let prompt = build_longmemeval_eval_prompt(
+                question_type,
+                &item.query,
+                &item.gold_answer,
+                hypothesis_text,
+                abstention,
+            )?;
+            let grader_response =
+                call_openai_yes_no_grader(&base_url, &api_key, grader_model, &prompt)?;
+            (grader_response.to_ascii_lowercase().contains("yes"), Some(grader_response))
+        } else {
+            (false, None)
+        };
+        if label {
+            correct += 1;
         } else {
             failures.push(json!({
                 "item_id": item.item_id,
                 "question_id": item.question_id,
-                "expected": item.gold_answer,
-                "reason": "top retrieval missed the gold item",
+                "question_type": question_type,
+                "reason": if hypothesis.is_none() {
+                    "missing hypothesis for community-standard evaluation"
+                } else {
+                    "official_qa_eval = false"
+                },
             }));
         }
-        let answer = ranked
-            .first()
-            .map(|(candidate, _)| candidate.gold_answer.clone());
+        *per_type_total.entry(question_type.to_string()).or_insert(0) += 1;
+        if label {
+            *per_type_correct.entry(question_type.to_string()).or_insert(0) += 1;
+        }
+        if abstention {
+            abstention_total += 1;
+            if label {
+                abstention_correct += 1;
+            }
+        }
         let item_latency_ms = item_started.elapsed().as_millis().max(1);
         total_latency_ms += item_latency_ms;
-        let token_usage = if mode == "hybrid" {
-            Some(json!({
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "reranker_tokens": 0,
-            }))
-        } else {
-            None
-        };
-        let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
         results.push(PublicBenchmarkItemResult {
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: item.claim_class.clone(),
             question: Some(item.query.clone()),
-            question_type: item
-                .metadata
-                .get("question_type")
-                .and_then(JsonValue::as_str)
-                .map(str::to_string),
-            ranked_items: retrieved_items.clone(),
-            retrieved_items,
-            retrieval_scores: ranked.iter().take(top_k).map(|(_, score)| *score).collect(),
-            hit: top_hit,
+            question_type: Some(question_type.to_string()),
+            ranked_items: Vec::new(),
+            retrieved_items: Vec::new(),
+            retrieval_scores: Vec::new(),
+            hit: label,
             answer: Some(item.gold_answer.clone()),
-            observed_answer: answer.clone(),
+            observed_answer: hypothesis.clone(),
             correctness: Some(json!({
-                "score": if top_hit { 1.0 } else { 0.0 },
+                "score": if label { 1.0 } else { 0.0 },
                 "expected": item.gold_answer,
-                "observed": answer,
+                "observed": hypothesis,
                 "index": index,
                 "mode": mode,
+                "evaluation_protocol": "longmemeval-community-standard",
+                "grader_model": grader_model,
+                "grader_response": grader_response,
             })),
             latency_ms: item_latency_ms,
-            token_usage,
-            cost_estimate_usd,
+            token_usage: None,
+            cost_estimate_usd: None,
         });
     }
 
@@ -1631,19 +1990,36 @@ pub(crate) fn build_public_benchmark_item_results(
     let accuracy = if item_count == 0 {
         0.0
     } else {
-        hits as f64 / item_count as f64
+        correct as f64 / item_count as f64
     };
     let mean_latency_ms = if item_count == 0 {
         0.0
     } else {
         total_latency_ms as f64 / item_count as f64
     };
+    let abstention_accuracy = if abstention_total == 0 {
+        0.0
+    } else {
+        abstention_correct as f64 / abstention_total as f64
+    };
     let mut metrics = BTreeMap::new();
     metrics.insert("accuracy".to_string(), accuracy);
-    metrics.insert("hit_rate".to_string(), accuracy);
-    metrics.insert("recall_at_k".to_string(), accuracy);
+    metrics.insert("qa_accuracy".to_string(), accuracy);
+    metrics.insert("overall_accuracy".to_string(), accuracy);
+    metrics.insert("abstention_accuracy".to_string(), abstention_accuracy);
     metrics.insert("mean_latency_ms".to_string(), mean_latency_ms);
     metrics.insert("item_count".to_string(), item_count as f64);
+    for (question_type, total) in per_type_total {
+        let correct = per_type_correct.get(&question_type).copied().unwrap_or(0);
+        metrics.insert(
+            format!("per_type::{question_type}::qa_accuracy"),
+            if total == 0 {
+                0.0
+            } else {
+                correct as f64 / total as f64
+            },
+        );
+    }
 
     let _ = started;
 
@@ -1660,29 +2036,624 @@ pub(crate) fn build_public_benchmark_item_results(
             dirty_worktree: false,
             run_timestamp: Utc::now(),
             mode: mode.to_string(),
-            top_k,
-            reranker_id: reranker_id.map(str::to_string),
-            reranker_provider: if mode == "hybrid" {
-                Some("declared".to_string())
-            } else {
-                None
-            },
+            top_k: 0,
+            reranker_id: Some(grader_model.to_string()),
+            reranker_provider: Some("openai-eval".to_string()),
             limit: Some(item_count),
             runtime_settings: JsonValue::Null,
             hardware_summary: String::new(),
-            duration_ms: 0,
-            token_usage: if mode == "hybrid" {
-                Some(json!({"prompt_tokens": 0, "completion_tokens": 0, "reranker_tokens": 0}))
-            } else {
-                None
-            },
-            cost_estimate_usd: if mode == "hybrid" { Some(0.0) } else { None },
+            duration_ms: total_latency_ms,
+            token_usage: None,
+            cost_estimate_usd: None,
         },
         metrics,
         item_count,
         failures,
         items: results,
     })
+}
+
+pub(crate) fn build_longmemeval_full_eval_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+    generator_config: &GeneratorConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut correct = 0usize;
+    let mut per_type_correct = BTreeMap::<String, usize>::new();
+    let mut per_type_total = BTreeMap::<String, usize>::new();
+    let mut total_prompt_tokens: u64 = 0;
+    let mut total_completion_tokens: u64 = 0;
+
+    for item in &dataset.items {
+        let item_started = Instant::now();
+        let question_type = item
+            .metadata
+            .get("question_type")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown");
+        let abstention = item.question_id.contains("_abs");
+
+        // Step 1: Retrieve context
+        let (session_corpus, session_corpus_ids, _) = build_longmemeval_session_corpus(item);
+        let session_ranked = rank_longmemeval_corpus(
+            &item.query,
+            &session_corpus,
+            &session_corpus_ids,
+            mode,
+            retrieval_config,
+            &format!("{}-session", item.question_id),
+        )?;
+        let context = session_ranked
+            .iter()
+            .take(top_k)
+            .filter_map(|(index, _)| session_corpus.get(*index))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        // Step 2: Generate hypothesis
+        let prompt = build_generation_prompt(&item.query, &context);
+        let gen_response = call_generator(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.model,
+            &prompt,
+        )?;
+        total_prompt_tokens += gen_response.prompt_tokens;
+        total_completion_tokens += gen_response.completion_tokens;
+
+        // Step 3: Grade with GPT-4o judge
+        let eval_prompt = build_longmemeval_eval_prompt(
+            question_type,
+            &item.query,
+            &item.gold_answer,
+            &gen_response.content,
+            abstention,
+        )?;
+        let grader_response = call_openai_yes_no_grader(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.grader_model,
+            &eval_prompt,
+        )?;
+        let label = grader_response.to_ascii_lowercase().contains("yes");
+
+        if label {
+            correct += 1;
+            *per_type_correct
+                .entry(question_type.to_string())
+                .or_insert(0) += 1;
+        } else {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "question_type": question_type,
+                "reason": "grader judged incorrect",
+                "hypothesis": gen_response.content,
+                "grader_response": grader_response,
+            }));
+        }
+        *per_type_total
+            .entry(question_type.to_string())
+            .or_insert(0) += 1;
+
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: "full-eval".to_string(),
+            question: Some(item.query.clone()),
+            question_type: Some(question_type.to_string()),
+            ranked_items: Vec::new(),
+            retrieved_items: Vec::new(),
+            retrieval_scores: Vec::new(),
+            hit: label,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: Some(gen_response.content),
+            correctness: Some(json!({
+                "score": if label { 1.0 } else { 0.0 },
+                "grader_response": grader_response,
+                "evaluation_protocol": "longmemeval-full-eval",
+            })),
+            latency_ms: item_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": gen_response.prompt_tokens,
+                "completion_tokens": gen_response.completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        });
+    }
+
+    let item_count = results.len();
+    let accuracy = if item_count == 0 {
+        0.0
+    } else {
+        correct as f64 / item_count as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("item_count".to_string(), item_count as f64);
+    for (qt, total) in &per_type_total {
+        let c = per_type_correct.get(qt).copied().unwrap_or(0);
+        metrics.insert(
+            format!("per_type::{qt}::accuracy"),
+            if *total == 0 {
+                0.0
+            } else {
+                c as f64 / *total as f64
+            },
+        );
+    }
+
+    let latencies: Vec<u128> = results.iter().map(|r| r.latency_ms).collect();
+    let (p50, p95) = compute_latency_percentiles(&latencies);
+    metrics.insert("latency_p50_ms".to_string(), p50);
+    metrics.insert("latency_p95_ms".to_string(), p95);
+    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "full-eval".to_string(),
+            top_k,
+            reranker_id: Some(generator_config.grader_model.clone()),
+            reranker_provider: Some("openai-eval".to_string()),
+            limit: Some(item_count),
+            runtime_settings: json!({"full_eval": true, "generator_model": generator_config.model}),
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        },
+        metrics,
+        item_count,
+        failures,
+        items: results,
+    })
+}
+
+pub(crate) fn build_locomo_full_eval_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    _mode: &str,
+    _retrieval_config: &PublicBenchmarkRetrievalConfig,
+    generator_config: &GeneratorConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut f1_scores = Vec::new();
+    let mut per_category_f1: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut total_prompt_tokens: u64 = 0;
+    let mut total_completion_tokens: u64 = 0;
+
+    for item in &dataset.items {
+        let item_started = Instant::now();
+        let category = item
+            .metadata
+            .get("category_name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Step 1: Retrieve context
+        let docs = locomo_retrieval_docs(item);
+        let query_tokens = tokenize_public_benchmark_text(&item.query);
+        let mut ranked = docs
+            .iter()
+            .map(|(doc_id, text)| {
+                let score = query_tokens
+                    .intersection(&tokenize_public_benchmark_text(text))
+                    .count() as f64;
+                ((doc_id.clone(), text.clone()), score)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let context = ranked
+            .iter()
+            .take(top_k)
+            .map(|((_, text), _)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        // Step 2: Generate answer
+        let prompt = build_generation_prompt(&item.query, &context);
+        let gen_response = call_generator(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.model,
+            &prompt,
+        )?;
+        total_prompt_tokens += gen_response.prompt_tokens;
+        total_completion_tokens += gen_response.completion_tokens;
+
+        // Step 3: Score with F1 (or adversarial check)
+        let f1 = if category == "Adversarial" {
+            if locomo_adversarial_check(&gen_response.content) {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            token_f1(&gen_response.content, &item.gold_answer)
+        };
+        f1_scores.push(f1);
+        per_category_f1.entry(category.clone()).or_default().push(f1);
+
+        if f1 < 0.5 {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "category": category,
+                "f1": f1,
+                "prediction": gen_response.content,
+                "gold": item.gold_answer,
+            }));
+        }
+
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: "full-eval".to_string(),
+            question: Some(item.query.clone()),
+            question_type: Some(category),
+            ranked_items: Vec::new(),
+            retrieved_items: Vec::new(),
+            retrieval_scores: Vec::new(),
+            hit: f1 >= 0.5,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: Some(gen_response.content),
+            correctness: Some(json!({"f1": f1, "evaluation_protocol": "locomo-full-eval"})),
+            latency_ms: item_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": gen_response.prompt_tokens,
+                "completion_tokens": gen_response.completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        });
+    }
+
+    let item_count = results.len();
+    let mean_f1 = if f1_scores.is_empty() {
+        0.0
+    } else {
+        f1_scores.iter().sum::<f64>() / f1_scores.len() as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), mean_f1);
+    metrics.insert("f1".to_string(), mean_f1);
+    metrics.insert("item_count".to_string(), item_count as f64);
+    for (cat, scores) in &per_category_f1 {
+        let avg = scores.iter().sum::<f64>() / scores.len() as f64;
+        metrics.insert(format!("per_category::{cat}::f1"), avg);
+    }
+
+    let latencies: Vec<u128> = results.iter().map(|r| r.latency_ms).collect();
+    let (p50, p95) = compute_latency_percentiles(&latencies);
+    metrics.insert("latency_p50_ms".to_string(), p50);
+    metrics.insert("latency_p95_ms".to_string(), p95);
+    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "full-eval".to_string(),
+            top_k,
+            reranker_id: None,
+            reranker_provider: None,
+            limit: Some(item_count),
+            runtime_settings: json!({"full_eval": true, "generator_model": generator_config.model}),
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        },
+        metrics,
+        item_count,
+        failures,
+        items: results,
+    })
+}
+
+pub(crate) fn build_membench_full_eval_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    _mode: &str,
+    _retrieval_config: &PublicBenchmarkRetrievalConfig,
+    generator_config: &GeneratorConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut correct = 0usize;
+    let mut per_category_correct = BTreeMap::<String, usize>::new();
+    let mut per_category_total = BTreeMap::<String, usize>::new();
+    let mut total_prompt_tokens: u64 = 0;
+    let mut total_completion_tokens: u64 = 0;
+
+    for item in &dataset.items {
+        let item_started = Instant::now();
+        let topic = item
+            .metadata
+            .get("topic")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let ground_truth = item
+            .metadata
+            .get("ground_truth")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("");
+        let choices = item
+            .metadata
+            .get("choices")
+            .and_then(JsonValue::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(JsonValue::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if ground_truth.is_empty() || choices.is_empty() {
+            continue;
+        }
+
+        // Step 1: Retrieve context
+        let docs = membench_retrieval_docs(item);
+        let query_tokens = tokenize_public_benchmark_text(&item.query);
+        let mut ranked = docs
+            .iter()
+            .map(|(doc_id, text)| {
+                let score = query_tokens
+                    .intersection(&tokenize_public_benchmark_text(text))
+                    .count() as f64;
+                ((doc_id.clone(), text.clone()), score)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let context = ranked
+            .iter()
+            .take(top_k)
+            .map(|((_, text), _)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        // Step 2: Generate MC selection
+        let prompt = build_mc_generation_prompt(&item.query, &context, &choices);
+        let gen_response = call_generator(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.model,
+            &prompt,
+        )?;
+        total_prompt_tokens += gen_response.prompt_tokens;
+        total_completion_tokens += gen_response.completion_tokens;
+
+        // Step 3: Score MC accuracy
+        let is_correct = mc_accuracy(&gen_response.content, ground_truth);
+        if is_correct {
+            correct += 1;
+            *per_category_correct.entry(topic.clone()).or_insert(0) += 1;
+        } else {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "topic": topic,
+                "predicted": gen_response.content,
+                "ground_truth": ground_truth,
+            }));
+        }
+        *per_category_total.entry(topic.clone()).or_insert(0) += 1;
+
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: "full-eval".to_string(),
+            question: Some(item.query.clone()),
+            question_type: Some(topic),
+            ranked_items: Vec::new(),
+            retrieved_items: Vec::new(),
+            retrieval_scores: Vec::new(),
+            hit: is_correct,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: Some(gen_response.content),
+            correctness: Some(json!({
+                "score": if is_correct { 1.0 } else { 0.0 },
+                "ground_truth": ground_truth,
+                "evaluation_protocol": "membench-full-eval",
+            })),
+            latency_ms: item_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": gen_response.prompt_tokens,
+                "completion_tokens": gen_response.completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        });
+    }
+
+    let item_count = results.len();
+    let accuracy = if item_count == 0 {
+        0.0
+    } else {
+        correct as f64 / item_count as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("mc_accuracy".to_string(), accuracy);
+    metrics.insert("item_count".to_string(), item_count as f64);
+    for (cat, total) in &per_category_total {
+        let c = per_category_correct.get(cat).copied().unwrap_or(0);
+        metrics.insert(
+            format!("per_category::{cat}::accuracy"),
+            if *total == 0 {
+                0.0
+            } else {
+                c as f64 / *total as f64
+            },
+        );
+    }
+
+    let latencies: Vec<u128> = results.iter().map(|r| r.latency_ms).collect();
+    let (p50, p95) = compute_latency_percentiles(&latencies);
+    metrics.insert("latency_p50_ms".to_string(), p50);
+    metrics.insert("latency_p95_ms".to_string(), p95);
+    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "full-eval".to_string(),
+            top_k,
+            reranker_id: None,
+            reranker_provider: None,
+            limit: Some(item_count),
+            runtime_settings: json!({"full_eval": true, "generator_model": generator_config.model}),
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        },
+        metrics,
+        item_count,
+        failures,
+        items: results,
+    })
+}
+
+pub(crate) fn compute_latency_percentiles(latencies: &[u128]) -> (f64, f64) {
+    if latencies.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut sorted = latencies.to_vec();
+    sorted.sort();
+    let p50_index = (sorted.len() as f64 * 0.5) as usize;
+    let p95_index = (sorted.len() as f64 * 0.95) as usize;
+    (
+        sorted[p50_index.min(sorted.len() - 1)] as f64,
+        sorted[p95_index.min(sorted.len() - 1)] as f64,
+    )
+}
+
+pub(crate) fn build_public_benchmark_item_results(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    reranker_id: Option<&str>,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    if dataset.benchmark_id == "longmemeval" {
+        return build_longmemeval_run_report(dataset, top_k, mode, reranker_id, retrieval_config);
+    }
+    if dataset.benchmark_id == "locomo" {
+        return build_context_retrieval_run_report(
+            dataset,
+            top_k,
+            mode,
+            reranker_id,
+            locomo_retrieval_docs,
+            |item| {
+                public_benchmark_string_vec(item.metadata.get("evidence"))
+                    .into_iter()
+                    .collect()
+            },
+        );
+    }
+    if dataset.benchmark_id == "membench" {
+        return build_context_retrieval_run_report(
+            dataset,
+            top_k,
+            mode,
+            reranker_id,
+            membench_retrieval_docs,
+            |item| {
+                item.metadata
+                    .get("target_step_id")
+                    .and_then(JsonValue::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(public_benchmark_target_key)
+                    .collect()
+            },
+        );
+    }
+    if dataset.benchmark_id == "convomem" {
+        return build_context_retrieval_run_report(
+            dataset,
+            top_k,
+            mode,
+            reranker_id,
+            |item| {
+                // Use conversation text segments as retrieval documents
+                let conv_text = item
+                    .metadata
+                    .get("conversation_text")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("");
+                conv_text
+                    .split("\n---\n")
+                    .enumerate()
+                    .map(|(i, segment)| (format!("conv-{i}"), segment.to_string()))
+                    .collect()
+            },
+            |item| {
+                public_benchmark_string_vec(item.metadata.get("message_evidences"))
+                    .into_iter()
+                    .collect()
+            },
+        );
+    }
+    anyhow::bail!(
+        "no retrieval-only benchmark path for dataset `{}`; use --full-eval or a supported dataset (longmemeval, locomo, membench, convomem)",
+        dataset.benchmark_id
+    );
 }
 
 pub(crate) fn build_public_benchmark_manifest(
@@ -1732,6 +2703,9 @@ pub(crate) fn build_public_benchmark_manifest(
             "dataset_fixture": resolved_dataset.path.display().to_string(),
             "dataset_items": dataset.items.len(),
             "mode": mode,
+            "community_standard": args.community_standard,
+            "hypotheses_file": args.hypotheses_file.as_ref().map(|path| path.display().to_string()),
+            "grader_model": args.grader_model,
             "retrieval_backend": match retrieval_config.longmemeval_backend {
                 LongMemEvalRetrievalBackend::Lexical => "lexical",
                 LongMemEvalRetrievalBackend::Sidecar => "sidecar",
@@ -1780,6 +2754,8 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
         rows: reports
             .iter()
             .map(|report| {
+                let (primary_metric_label, primary_metric_value) =
+                    public_benchmark_primary_metric(report);
                 let mut item_claim_classes = report
                     .items
                     .iter()
@@ -1803,10 +2779,11 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                     } else {
                         "partial / not full parity".to_string()
                     },
-                    accuracy: report.metrics.get("accuracy").copied().unwrap_or(0.0),
+                    accuracy: primary_metric_value,
                     item_count: report.item_count,
                     notes: {
                         let mut notes = vec![
+                            format!("primary_metric={primary_metric_label}"),
                             format!("dataset={}", report.manifest.dataset_local_path),
                             format!("checksum={}", report.manifest.dataset_checksum),
                             format!("source={}", report.manifest.dataset_source_url),
@@ -1832,6 +2809,103 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
             })
             .collect(),
     }
+}
+
+pub(crate) fn public_benchmark_primary_metric(
+    report: &PublicBenchmarkRunReport,
+) -> (&'static str, f64) {
+    let is_full_eval = report
+        .manifest
+        .runtime_settings
+        .get("full_eval")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+
+    match (report.manifest.benchmark_id.as_str(), is_full_eval) {
+        ("longmemeval", true) => (
+            "accuracy (LLM-judge, industry standard)",
+            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        ),
+        ("locomo", true) => (
+            "F1 (token-level, industry standard)",
+            report.metrics.get("f1").copied().unwrap_or(0.0),
+        ),
+        ("membench", true) => (
+            "MC accuracy (industry standard)",
+            report.metrics.get("mc_accuracy").copied().unwrap_or(0.0),
+        ),
+        ("longmemeval", false) => {
+            let is_community = report
+                .manifest
+                .runtime_settings
+                .get("community_standard")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false);
+            if is_community {
+                (
+                    "official_qa_accuracy (community standard)",
+                    report
+                        .metrics
+                        .get("qa_accuracy")
+                        .copied()
+                        .or_else(|| report.metrics.get("accuracy").copied())
+                        .unwrap_or(0.0),
+                )
+            } else {
+                (
+                    "session_recall_any@5 (retrieval diagnostic)",
+                    report
+                        .metrics
+                        .get("session_recall_any@5")
+                        .copied()
+                        .or_else(|| report.metrics.get("accuracy").copied())
+                        .unwrap_or(0.0),
+                )
+            }
+        }
+        ("locomo", false) => (
+            "evidence_hit_rate@5 (retrieval diagnostic)",
+            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        ),
+        ("membench", false) => (
+            "target_hit_rate@5 (retrieval diagnostic)",
+            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        ),
+        _ => (
+            "accuracy (retrieval diagnostic)",
+            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        ),
+    }
+}
+
+pub(crate) fn check_benchmark_threshold(
+    benchmark_id: &str,
+    mode: &str,
+    metrics: &BTreeMap<String, f64>,
+    thresholds_path: &Path,
+) -> anyhow::Result<bool> {
+    if !thresholds_path.exists() {
+        return Ok(true);
+    }
+    let raw = fs::read_to_string(thresholds_path)?;
+    let thresholds: JsonValue = serde_json::from_str(&raw)?;
+    let bench_thresholds = thresholds
+        .get(benchmark_id)
+        .and_then(|b| b.get(mode))
+        .and_then(JsonValue::as_object);
+    if let Some(checks) = bench_thresholds {
+        for (metric_name, min_value) in checks {
+            let min = min_value.as_f64().unwrap_or(0.0);
+            let actual = metrics.get(metric_name).copied().unwrap_or(0.0);
+            if actual < min {
+                eprintln!(
+                    "REGRESSION: {benchmark_id} {metric_name} = {actual:.3} < threshold {min:.3}"
+                );
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) fn feature_benchmark_reports_dir(output: &Path) -> PathBuf {

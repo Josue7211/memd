@@ -6,6 +6,11 @@
 - found: `2026-04-13`
 - scope: memd-server, memd-client
 - severity: high
+- extraction source:
+  - `mempalace/entity_detector.py`
+  - `mempalace/knowledge_graph.py`
+  - `supermemory/packages/memory-graph/*`
+  - A2 notes: `.memd/lanes/architecture/A2-02-atlas-entity-graph.md`, `.memd/lanes/architecture/A2-08-plugin-packaging-and-graph-ui.md`
 
 ## Summary
 

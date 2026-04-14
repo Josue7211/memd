@@ -94,6 +94,48 @@ pub(crate) async fn run_benchmark_command(
                     write_public_benchmark_docs(&repo_root, &public_args.out, &response)?;
                 }
             }
+            // Threshold gate
+            let thresholds_path = public_args.out.join("benchmarks").join("thresholds.json");
+            let mode = if response
+                .manifest
+                .runtime_settings
+                .get("full_eval")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
+                "full_eval"
+            } else {
+                "retrieval"
+            };
+            if !check_benchmark_threshold(
+                &response.manifest.benchmark_id,
+                mode,
+                &response.metrics,
+                &thresholds_path,
+            )? {
+                eprintln!(
+                    "WARNING: {} {} below threshold (see {})",
+                    response.manifest.benchmark_id,
+                    mode,
+                    thresholds_path.display()
+                );
+            }
+            // Comparison table (full-eval only)
+            if public_args.full_eval {
+                let baselines_path = default_baselines_path(&public_args.out);
+                if baselines_path.exists() {
+                    if let Ok(baselines) = load_published_baselines(&baselines_path) {
+                        let (primary_label, primary_value) =
+                            public_benchmark_primary_metric(&response);
+                        let mut memd_scores = std::collections::BTreeMap::new();
+                        memd_scores
+                            .insert(response.manifest.benchmark_id.clone(), primary_value);
+                        let table = render_comparison_table(&memd_scores, &baselines);
+                        eprintln!("\n{table}");
+                        let _ = primary_label;
+                    }
+                }
+            }
             if public_args.json {
                 print_json(&response)?;
             } else if args.summary {

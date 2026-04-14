@@ -5,6 +5,10 @@ severity: high
 phase: Phase I
 opened: 2026-04-14
 
+extraction source:
+- `mempalace/mempalace/repair.py`
+- A2 note: `.memd/lanes/architecture/A2-06-correction-repair.md`
+
 ## Problem
 
 Theory says correction is first-class: user says "wrong" → supersede →

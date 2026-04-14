@@ -2348,6 +2348,7 @@ pub(crate) enum BenchmarkSubcommand {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct PublicBenchmarkArgs {
+    #[arg(default_value = "")]
     pub(crate) dataset: String,
 
     #[arg(long, value_parser = ["raw", "hybrid"])]
@@ -2376,6 +2377,30 @@ pub(crate) struct PublicBenchmarkArgs {
 
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) community_standard: bool,
+
+    #[arg(long)]
+    pub(crate) hypotheses_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub(crate) grader_model: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) full_eval: bool,
+
+    #[arg(long)]
+    pub(crate) generator_model: Option<String>,
+
+    #[arg(long)]
+    pub(crate) sample: Option<usize>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) dry_run: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) all: bool,
 
     #[arg(long, alias = "output", default_value_os_t = default_bundle_root_path())]
     pub(crate) out: PathBuf,

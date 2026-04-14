@@ -1099,17 +1099,19 @@ pub(crate) fn render_public_benchmark_markdown(reports: &[PublicBenchmarkRunRepo
     lines.push(String::new());
     lines.push("## Latest Runs".to_string());
     lines.push(
-        "| Benchmark | Version | Mode | Accuracy | Items | Dataset | Checksum | Artifacts |"
+        "| Benchmark | Version | Mode | Primary Metric | Value | Items | Dataset | Checksum | Artifacts |"
             .to_string(),
     );
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
     for report in reports {
+        let (metric_label, metric_value) = public_benchmark_primary_metric(report);
         lines.push(format!(
-            "| {} | {} | {} | {:.3} | {} | {} | {} | `.memd/benchmarks/public/{}/latest/` |",
+            "| {} | {} | {} | {} | {:.3} | {} | {} | {} | `.memd/benchmarks/public/{}/latest/` |",
             report.manifest.dataset_name,
             report.manifest.benchmark_version,
             report.manifest.mode,
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+            metric_label,
+            metric_value,
             report.item_count,
             report.manifest.dataset_local_path,
             report.manifest.dataset_checksum,
@@ -1165,19 +1167,23 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
     }
     lines.push(String::new());
     lines.push(
-        "| Benchmark | Version | Run mode | Item claim classes | Coverage | Parity claim | Accuracy | Items | Notes |"
+        "| Benchmark | Version | Run mode | Item claim classes | Coverage | Parity claim | Primary Metric | Value | Items | Notes |"
             .to_string(),
     );
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
     for row in &report.rows {
         lines.push(format!(
-            "| {} | {} | {} | {} | {} | {} | {:.3} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} |",
             row.benchmark_name,
             row.benchmark_version,
             row.run_mode,
             row.item_claim_classes.join(", "),
             row.coverage_status,
             row.parity_status,
+            row.notes
+                .iter()
+                .find_map(|note| note.strip_prefix("primary_metric="))
+                .unwrap_or("retrieval-local proxy"),
             row.accuracy,
             row.item_count,
             row.notes.join("; "),
@@ -1187,12 +1193,14 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
 }
 
 pub(crate) fn render_public_benchmark_summary(report: &PublicBenchmarkRunReport) -> String {
+    let (metric_label, metric_value) = public_benchmark_primary_metric(report);
     format!(
-        "public benchmark {} mode={} items={} accuracy={:.3} artifacts=.memd/benchmarks/public/{}/latest",
+        "public benchmark {} mode={} items={} primary_metric={} value={:.3} artifacts=.memd/benchmarks/public/{}/latest",
         report.manifest.benchmark_id,
         report.manifest.mode,
         report.item_count,
-        report.metrics.get("accuracy").copied().unwrap_or(0.0),
+        metric_label,
+        metric_value,
         report.manifest.benchmark_id,
     )
 }
@@ -1230,6 +1238,27 @@ pub(crate) fn write_public_benchmark_docs(
 pub(crate) async fn run_public_benchmark_command(
     args: &PublicBenchmarkArgs,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
+    validate_public_benchmark_args(args)?;
+
+    // --all: run all implemented benchmarks sequentially, return the last report
+    if args.all {
+        let mut last_report = None;
+        for dataset_id in implemented_public_benchmark_ids() {
+            let mut sub_args = args.clone();
+            sub_args.dataset = dataset_id.to_string();
+            sub_args.all = false;
+            match Box::pin(run_public_benchmark_command(&sub_args)).await {
+                Ok(report) => {
+                    last_report = Some(report);
+                }
+                Err(err) => {
+                    eprintln!("warning: {dataset_id} benchmark failed: {err}");
+                }
+            }
+        }
+        return last_report.ok_or_else(|| anyhow!("no benchmarks completed"));
+    }
+
     let supported_targets = supported_public_benchmark_ids();
     anyhow::ensure!(
         supported_targets.contains(&args.dataset.as_str()),
@@ -1252,7 +1281,8 @@ pub(crate) async fn run_public_benchmark_command(
     let retrieval_config = build_public_benchmark_retrieval_config(args)?;
     let top_k = args.top_k.unwrap_or(5).max(1);
     let item_count = args
-        .limit
+        .sample
+        .or(args.limit)
         .unwrap_or(dataset.items.len())
         .max(1)
         .min(dataset.items.len());
@@ -1271,13 +1301,95 @@ pub(crate) async fn run_public_benchmark_command(
         items: selected_items,
         ..dataset.clone()
     };
-    let evaluation = build_public_benchmark_item_results(
-        &selected_dataset,
-        top_k,
-        mode,
-        reranker_id,
-        &retrieval_config,
-    )?;
+    // Dry-run: estimate cost without running
+    if args.dry_run && args.full_eval {
+        let est_calls =
+            item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
+        let est_tokens = est_calls as f64 * 2200.0;
+        let est_cost_4o_mini = est_tokens * 0.00000015;
+        let est_cost_4o = est_tokens * 0.0000025;
+        eprintln!(
+            "Dry run: {item_count} items, ~{est_calls} API calls"
+        );
+        eprintln!(
+            "Estimated cost: ${:.2} (gpt-4o-mini) / ${:.2} (gpt-4o)",
+            est_cost_4o_mini, est_cost_4o
+        );
+        let mut dry_manifest = build_public_benchmark_manifest(
+            args,
+            &dataset,
+            &resolved_dataset,
+            mode,
+            top_k,
+            item_count,
+            started_at,
+            duration_started.elapsed().as_millis(),
+            reranker_id,
+            &retrieval_config,
+            None,
+            None,
+        )?;
+        if let Some(obj) = dry_manifest.runtime_settings.as_object_mut() {
+            obj.insert("full_eval".to_string(), json!(true));
+            obj.insert(
+                "generator_model".to_string(),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-4o-mini")),
+            );
+        }
+        return Ok(PublicBenchmarkRunReport {
+            manifest: dry_manifest,
+            metrics: BTreeMap::new(),
+            item_count: 0,
+            failures: Vec::new(),
+            items: Vec::new(),
+        });
+    }
+
+    let evaluation = if args.full_eval {
+        let generator_config = resolve_generator_config(args)?;
+        match args.dataset.as_str() {
+            "longmemeval" => build_longmemeval_full_eval_report(
+                &selected_dataset,
+                top_k,
+                mode,
+                &retrieval_config,
+                &generator_config,
+            )?,
+            "locomo" => build_locomo_full_eval_report(
+                &selected_dataset,
+                top_k,
+                mode,
+                &retrieval_config,
+                &generator_config,
+            )?,
+            "membench" => build_membench_full_eval_report(
+                &selected_dataset,
+                top_k,
+                mode,
+                &retrieval_config,
+                &generator_config,
+            )?,
+            other => anyhow::bail!("--full-eval not yet supported for {other}"),
+        }
+    } else if args.community_standard {
+        let grader_model = args.grader_model.as_deref().unwrap_or("gpt-4o");
+        build_longmemeval_community_standard_run_report(
+            &selected_dataset,
+            args.hypotheses_file
+                .as_deref()
+                .context("community-standard longmemeval requires --hypotheses-file")?,
+            grader_model,
+            mode,
+        )?
+    } else {
+        build_public_benchmark_item_results(
+            &selected_dataset,
+            top_k,
+            mode,
+            reranker_id,
+            &retrieval_config,
+        )?
+    };
     let token_usage = if mode == "hybrid" {
         Some(json!({
             "prompt_tokens": 0,
@@ -1288,7 +1400,7 @@ pub(crate) async fn run_public_benchmark_command(
         None
     };
     let cost_estimate_usd = if mode == "hybrid" { Some(0.0) } else { None };
-    let manifest = build_public_benchmark_manifest(
+    let mut manifest = build_public_benchmark_manifest(
         args,
         &dataset,
         &resolved_dataset,
@@ -1302,6 +1414,15 @@ pub(crate) async fn run_public_benchmark_command(
         token_usage.clone(),
         cost_estimate_usd,
     )?;
+    if args.full_eval {
+        if let Some(obj) = manifest.runtime_settings.as_object_mut() {
+            obj.insert("full_eval".to_string(), json!(true));
+            obj.insert(
+                "generator_model".to_string(),
+                json!(args.generator_model.as_deref().unwrap_or("gpt-4o-mini")),
+            );
+        }
+    }
     Ok(PublicBenchmarkRunReport {
         manifest,
         metrics: evaluation.metrics,

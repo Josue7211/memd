@@ -5,6 +5,10 @@ severity: critical
 phase: Phase I
 opened: 2026-04-14
 
+extraction source:
+- `mempalace/mempalace/hooks_cli.py`
+- A2 note: `.memd/lanes/architecture/A2-07-hooks-capture.md`
+
 ## Problem
 
 Auto-checkpoint fires 15+ triggers per session. Each creates a kind=Status

@@ -7,9 +7,9 @@ truth_date: 2026-04-14
 version: v2
 version_status: in_progress
 current_milestone: M0
-milestone_status: pending
+milestone_status: in_progress
 current_phase: phase_a2
-phase_status: pending
+phase_status: in_progress
 next_milestone: M1
 next_step: extraction_from_inspiration_repos + benchmark_baseline (parallel)
 active_blockers: []
@@ -23,7 +23,7 @@ v1_status: frozen_architecture_complete
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - current phase: `Phase A2: Inspiration Extraction`
-- phase status: `pending`
+- phase status: `in_progress`
 - next step: deep-read mempalace + supermemory, extract patterns into architecture lane
 
 ## V1 → V2 Decision
@@ -192,14 +192,27 @@ Evolution proposes procedures. Obsidian two-way sync. Benchmark re-run ≥ 90%.
 ## Benchmark Cadence
 
 Benchmarks are not a phase — they're a continuous gate.
+Metrics are **industry-standard end-to-end accuracy** (not retrieval recall@k).
+See [[docs/specs/2026-04-14-industry-standard-benchmarks-design.md]] for protocol.
+See [[docs/specs/2026-04-14-industry-standard-benchmarks-plan.md]] for implementation plan.
+
+**Protocol per benchmark:**
+- LongMemEval: retrieve → generate → GPT-4o judge accuracy (ICLR 2025 protocol)
+- LoCoMo: retrieve → generate → token-level F1 (ACL 2024 protocol)
+- MemBench: retrieve → generate → multiple-choice accuracy
+
+**Competitive baselines:**
+- SuperMem: 81.6% LongMemEval accuracy
+- Mem0: 66.9% LoCoMo accuracy
+- Letta: 74.0% LoCoMo accuracy
 
 | When | What | Minimum |
 | --- | --- | --- |
-| M0 | Baseline: LongMemEval, LoCoMo, MemBench | record number (expect near-zero) |
+| M0 | Baseline: `--full-eval` all 3 benchmarks | record number (honest baseline) |
 | M1 gate | Re-run all | improvement over M0 |
-| M2 gate | Re-run all | ≥ 50% LongMemEval |
-| M3 gate | Full benchmark + A/B influence test | ≥ 80% LongMemEval |
-| M4 gate | Full benchmark + adversarial suite | ≥ 90% LongMemEval |
+| M2 gate | Re-run all | ≥ 50% LongMemEval accuracy |
+| M3 gate | Full benchmark + A/B influence test | ≥ 80% LongMemEval accuracy |
+| M4 gate | Full benchmark + adversarial suite | ≥ 90% LongMemEval accuracy |
 
 If any milestone gate shows regression from prior milestone, STOP and fix before continuing.
 

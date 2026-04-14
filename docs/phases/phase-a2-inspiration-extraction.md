@@ -2,12 +2,14 @@
 phase: A2
 name: Inspiration Extraction
 version: v2
-status: pending
+status: in_progress
 depends_on: []
 backlog_items: [55]
 ---
 
 # Phase A2: Inspiration Extraction
+
+Current status: `in_progress`
 
 ## Goal
 

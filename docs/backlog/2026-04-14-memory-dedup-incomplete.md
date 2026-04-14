@@ -5,6 +5,10 @@ severity: medium
 phase: Phase I
 opened: 2026-04-14
 
+extraction source:
+- `mempalace/mempalace/dedup.py`
+- A2 note: `.memd/lanes/architecture/A2-04-dedup.md`
+
 ## Problem
 
 Doctrine: "one concept, one memory object." Dual-key dedup (canonical +

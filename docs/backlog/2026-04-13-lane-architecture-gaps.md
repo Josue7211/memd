@@ -5,6 +5,10 @@
 - reason: Lane architecture requires schema migration (lane field on memory_items), auto-detection from working context, and retrieval boosting. Product-level work, not hardening.
 - found: `2026-04-13`
 - scope: memd-client, memd-server, memd-schema
+- extraction source:
+  - `mempalace/room_detector_local.py`
+  - `mempalace/convo_miner.py`
+  - A2 notes: `.memd/lanes/architecture/A2-03-ingestion-pipeline.md`, `.memd/lanes/architecture/A2-05-lane-auto-activation.md`
 
 ## Summary
 

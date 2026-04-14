@@ -430,6 +430,14 @@ async fn run_public_locomo_command_writes_artifacts() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -470,6 +478,14 @@ async fn run_public_convomem_command_writes_artifacts() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -510,6 +526,14 @@ async fn run_public_membench_command_writes_artifacts() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await

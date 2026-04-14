@@ -305,6 +305,37 @@ fn cli_parses_public_longmemeval_sidecar_backend() {
 }
 
 #[test]
+fn cli_parses_public_longmemeval_community_standard_command() {
+    let cli = Cli::try_parse_from([
+        "memd",
+        "benchmark",
+        "public",
+        "--community-standard",
+        "--hypotheses-file",
+        "hyp.jsonl",
+        "--grader-model",
+        "gpt-4o",
+        "--output",
+        ".memd",
+        "longmemeval",
+    ])
+    .expect("community-standard benchmark command should parse");
+
+    match cli.command {
+        Commands::Benchmark(args) => match args.subcommand {
+            Some(BenchmarkSubcommand::Public(public_args)) => {
+                assert_eq!(public_args.dataset, "longmemeval");
+                assert!(public_args.community_standard);
+                assert_eq!(public_args.hypotheses_file, Some(PathBuf::from("hyp.jsonl")));
+                assert_eq!(public_args.grader_model.as_deref(), Some("gpt-4o"));
+            }
+            other => panic!("expected public benchmark subcommand, got {other:?}"),
+        },
+        other => panic!("expected benchmark command, got {other:?}"),
+    }
+}
+
+#[test]
 fn public_benchmark_paths_default_under_memd_benchmarks() {
     let output = PathBuf::from(".memd");
     assert_eq!(
@@ -421,6 +452,14 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -432,6 +471,100 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup manual-required dir");
+}
+
+#[tokio::test]
+async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-public-benchmark-longmemeval-community-standard-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = dir.join(".memd");
+    fs::create_dir_all(&output).expect("create output dir");
+
+    let fixture = public_benchmark_fixture_path("longmemeval");
+    let error = run_public_benchmark_command(&PublicBenchmarkArgs {
+        dataset: "longmemeval".to_string(),
+        mode: Some("raw".to_string()),
+        retrieval_backend: None,
+        rag_url: None,
+        top_k: Some(5),
+        limit: Some(2),
+        dataset_root: Some(fixture),
+        reranker: None,
+        write: false,
+        json: false,
+        out: output,
+        community_standard: true,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
+    })
+    .await
+    .expect_err("community-standard longmemeval should require hypotheses");
+
+    assert!(error
+        .to_string()
+        .contains("community-standard longmemeval requires --hypotheses-file"));
+
+    fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn validate_rejects_empty_dataset_without_all_flag() {
+    let args = PublicBenchmarkArgs {
+        dataset: String::new(),
+        mode: None,
+        retrieval_backend: None,
+        rag_url: None,
+        top_k: None,
+        limit: None,
+        dataset_root: None,
+        reranker: None,
+        write: false,
+        json: false,
+        out: PathBuf::from("/tmp"),
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
+    };
+    let err = validate_public_benchmark_args(&args).expect_err("should reject empty dataset");
+    assert!(err.to_string().contains("dataset is required"));
+}
+
+#[test]
+fn validate_accepts_empty_dataset_with_all_flag() {
+    let args = PublicBenchmarkArgs {
+        dataset: String::new(),
+        mode: None,
+        retrieval_backend: None,
+        rag_url: None,
+        top_k: None,
+        limit: None,
+        dataset_root: None,
+        reranker: None,
+        write: false,
+        json: false,
+        out: PathBuf::from("/tmp"),
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: true,
+    };
+    validate_public_benchmark_args(&args).expect("--all should accept empty dataset");
 }
 
 #[test]
@@ -909,6 +1042,113 @@ fn build_longmemeval_run_report_supports_sidecar_backend_ordering() {
 }
 
 #[test]
+fn build_public_benchmark_item_results_locomo_requires_evidence_hit() {
+    let dataset = PublicBenchmarkDatasetFixture {
+        benchmark_id: "locomo".to_string(),
+        benchmark_name: "LoCoMo".to_string(),
+        version: "upstream".to_string(),
+        split: "synthetic".to_string(),
+        description: "synthetic locomo".to_string(),
+        items: vec![PublicBenchmarkDatasetFixtureItem {
+            item_id: "sample-1::0".to_string(),
+            question_id: "sample-1::0".to_string(),
+            query: "When did Caroline go to the LGBTQ support group?".to_string(),
+            claim_class: "raw".to_string(),
+            gold_answer: "7 May 2023".to_string(),
+            metadata: json!({
+                "sample_id": "sample-1",
+                "category_id": 2,
+                "category_name": "Temporal",
+                "evidence": ["D1:1"],
+                "conversation": {
+                    "speaker_a": "Caroline",
+                    "speaker_b": "Mel",
+                    "session_1_date_time": "2023-05-07",
+                    "session_1": [
+                        {"speaker": "Caroline", "dia_id": "D9:9", "text": "We baked cookies yesterday."},
+                        {"speaker": "Mel", "dia_id": "D9:10", "text": "That sounds fun."}
+                    ]
+                },
+                "conversation_text": "Caroline: We baked cookies yesterday.\nMel: That sounds fun.",
+                "session_summary": {
+                    "session_1_summary": "Caroline and Mel discussed baking cookies."
+                }
+            }),
+        }],
+    };
+
+    let report = build_public_benchmark_item_results(
+        &dataset,
+        5,
+        "raw",
+        None,
+        &PublicBenchmarkRetrievalConfig {
+            longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
+            sidecar_base_url: None,
+        },
+    )
+    .expect("locomo report");
+
+    assert_eq!(report.metrics.get("accuracy").copied(), Some(0.0));
+}
+
+#[test]
+fn build_public_benchmark_item_results_membench_requires_target_step_hit() {
+    let dataset = PublicBenchmarkDatasetFixture {
+        benchmark_id: "membench".to_string(),
+        benchmark_name: "MemBench".to_string(),
+        version: "upstream".to_string(),
+        split: "synthetic".to_string(),
+        description: "synthetic membench".to_string(),
+        items: vec![PublicBenchmarkDatasetFixtureItem {
+            item_id: "movie::0::0".to_string(),
+            question_id: "movie::0::0".to_string(),
+            query: "What books have you recommended to me before?".to_string(),
+            claim_class: "raw".to_string(),
+            gold_answer: "8 Weeks to Optimum Health, Prescription for Nutritional Healing".to_string(),
+            metadata: json!({
+                "topic": "movie",
+                "tid": 0,
+                "qid": 0,
+                "target_step_id": [[9, 9]],
+                "choices": {
+                    "A": ["8 Weeks to Optimum Health", "Prescription for Nutritional Healing"],
+                    "B": ["Prescription for Nutritional Healing"],
+                    "C": ["Make the Connection"],
+                    "D": ["None"]
+                },
+                "ground_truth": "A",
+                "time": "'2024-10-01 16:48' Tuesday",
+                "message_list": [[
+                    {
+                        "mid": 0,
+                        "user_message": "I enjoyed reading travel memoirs.",
+                        "assistant_message": "Travel memoirs can be vivid.",
+                        "time": "'2024-10-01 08:00' Tuesday",
+                        "place": "New York, NY"
+                    }
+                ]],
+                "conversation_text": "user: I enjoyed reading travel memoirs.\nassistant: Travel memoirs can be vivid."
+            }),
+        }],
+    };
+
+    let report = build_public_benchmark_item_results(
+        &dataset,
+        5,
+        "raw",
+        None,
+        &PublicBenchmarkRetrievalConfig {
+            longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
+            sidecar_base_url: None,
+        },
+    )
+    .expect("membench report");
+
+    assert_eq!(report.metrics.get("accuracy").copied(), Some(0.0));
+}
+
+#[test]
 fn write_public_benchmark_manifest_roundtrips_json() {
     let dir = std::env::temp_dir().join(format!(
         "memd-public-benchmark-manifest-{}",
@@ -1207,6 +1447,14 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -1268,6 +1516,14 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         reranker: Some("test-reranker".to_string()),
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -1316,6 +1572,14 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         reranker: None,
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -1332,7 +1596,7 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
     assert!(
         markdown.contains("implemented mini adapters: longmemeval, locomo, convomem, membench")
     );
-    assert!(markdown.contains("| LongMemEval | upstream | raw | raw |"));
+    assert!(markdown.contains("session_recall_any@5 (retrieval diagnostic)"));
     assert!(markdown.contains("declared parity targets: longmemeval, locomo, convomem, membench"));
 
     fs::remove_dir_all(dir).expect("cleanup public leaderboard dir");
@@ -1361,6 +1625,14 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             reranker: None,
             write: false,
             json: false,
+            community_standard: false,
+            hypotheses_file: None,
+            grader_model: None,
+            full_eval: false,
+            generator_model: None,
+            sample: None,
+            dry_run: false,
+            all: false,
             out: output.clone(),
         })
         .await
@@ -1379,6 +1651,14 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         reranker: Some("test-reranker".to_string()),
         write: false,
         json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: false,
+        all: false,
         out: output.clone(),
     })
     .await
@@ -1405,4 +1685,55 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
     assert!(leaderboard.contains("| MemBench |"));
 
     fs::remove_dir_all(dir).expect("cleanup public benchmark suite docs dir");
+}
+
+#[test]
+fn primary_metric_returns_full_eval_labels_when_runtime_settings_has_full_eval() {
+    let make_report = |benchmark_id: &str, full_eval: bool, metric_key: &str| {
+        let mut metrics = BTreeMap::new();
+        metrics.insert(metric_key.to_string(), 0.75);
+        PublicBenchmarkRunReport {
+            manifest: PublicBenchmarkManifest {
+                benchmark_id: benchmark_id.to_string(),
+                benchmark_version: "upstream".to_string(),
+                dataset_name: benchmark_id.to_string(),
+                dataset_source_url: String::new(),
+                dataset_local_path: String::new(),
+                dataset_checksum: String::new(),
+                dataset_split: String::new(),
+                git_sha: None,
+                dirty_worktree: false,
+                run_timestamp: Utc::now(),
+                mode: "raw".to_string(),
+                top_k: 5,
+                reranker_id: None,
+                reranker_provider: None,
+                limit: Some(10),
+                runtime_settings: json!({"full_eval": full_eval}),
+                hardware_summary: String::new(),
+                duration_ms: 0,
+                token_usage: None,
+                cost_estimate_usd: None,
+            },
+            metrics,
+            item_count: 10,
+            failures: Vec::new(),
+            items: Vec::new(),
+        }
+    };
+
+    // full_eval=true should yield industry-standard labels
+    let (label, val) = public_benchmark_primary_metric(&make_report("longmemeval", true, "accuracy"));
+    assert!(label.contains("LLM-judge"), "longmemeval full_eval label: {label}");
+    assert!((val - 0.75).abs() < 0.001);
+
+    let (label, _) = public_benchmark_primary_metric(&make_report("locomo", true, "f1"));
+    assert!(label.contains("token-level"), "locomo full_eval label: {label}");
+
+    let (label, _) = public_benchmark_primary_metric(&make_report("membench", true, "mc_accuracy"));
+    assert!(label.contains("MC accuracy"), "membench full_eval label: {label}");
+
+    // full_eval=false should yield retrieval diagnostic labels
+    let (label, _) = public_benchmark_primary_metric(&make_report("longmemeval", false, "session_recall_any@5"));
+    assert!(label.contains("retrieval diagnostic"), "longmemeval retrieval label: {label}");
 }

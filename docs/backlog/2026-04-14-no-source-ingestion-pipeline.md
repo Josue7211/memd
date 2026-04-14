@@ -5,6 +5,11 @@ severity: critical
 phase: Phase I
 opened: 2026-04-14
 
+extraction source:
+- `mempalace/mempalace/convo_miner.py`
+- `mempalace/mempalace/general_extractor.py`
+- A2 note: `.memd/lanes/architecture/A2-03-ingestion-pipeline.md`
+
 ## Problem
 
 Doctrine says: "Read raw source once. Compile into visible memory objects."

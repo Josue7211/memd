@@ -5,6 +5,11 @@ severity: critical
 phase: Phase I
 opened: 2026-04-14
 
+extraction source:
+- `mempalace/benchmarks/README.md`
+- `mempalace/benchmarks/longmemeval_bench.py`
+- A2 note: `.memd/lanes/architecture/A2-01-benchmark-harness.md`
+
 ## Problem
 
 memd can store memory. There is no proof it changes agent behavior.
