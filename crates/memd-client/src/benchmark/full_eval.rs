@@ -30,13 +30,13 @@ pub(crate) fn build_mc_generation_prompt(
 }
 
 /// Call an OpenAI-compatible API to generate a response.
-pub(crate) fn call_generator(
+pub(crate) async fn call_generator(
     base_url: &str,
     api_key: &str,
     model: &str,
     prompt: &str,
 ) -> anyhow::Result<GeneratorResponse> {
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .build()
         .context("build generator client")?;
     let response = client
@@ -53,14 +53,16 @@ pub(crate) fn call_generator(
             "max_tokens": 512
         }))
         .send()
+        .await
         .context("send generator request")?;
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
         anyhow::bail!("generator request failed with {status}: {body}");
     }
     let body = response
         .json::<JsonValue>()
+        .await
         .context("parse generator response")?;
     let content = body
         .get("choices")

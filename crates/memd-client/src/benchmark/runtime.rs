@@ -1354,21 +1354,24 @@ pub(crate) async fn run_public_benchmark_command(
                 mode,
                 &retrieval_config,
                 &generator_config,
-            )?,
+            )
+            .await?,
             "locomo" => build_locomo_full_eval_report(
                 &selected_dataset,
                 top_k,
                 mode,
                 &retrieval_config,
                 &generator_config,
-            )?,
+            )
+            .await?,
             "membench" => build_membench_full_eval_report(
                 &selected_dataset,
                 top_k,
                 mode,
                 &retrieval_config,
                 &generator_config,
-            )?,
+            )
+            .await?,
             other => anyhow::bail!("--full-eval not yet supported for {other}"),
         }
     } else if args.community_standard {
@@ -1380,7 +1383,8 @@ pub(crate) async fn run_public_benchmark_command(
                 .context("community-standard longmemeval requires --hypotheses-file")?,
             grader_model,
             mode,
-        )?
+        )
+        .await?
     } else {
         build_public_benchmark_item_results(
             &selected_dataset,

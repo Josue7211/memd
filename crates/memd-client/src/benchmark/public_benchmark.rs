@@ -987,13 +987,13 @@ pub(crate) fn validate_public_benchmark_args(
     Ok(())
 }
 
-pub(crate) fn call_openai_yes_no_grader(
+pub(crate) async fn call_openai_yes_no_grader(
     base_url: &str,
     api_key: &str,
     grader_model: &str,
     prompt: &str,
 ) -> anyhow::Result<String> {
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .build()
         .context("build openai grader client")?;
     let response = client
@@ -1007,16 +1007,19 @@ pub(crate) fn call_openai_yes_no_grader(
             "max_tokens": 10
         }))
         .send()
+        .await
         .context("send openai grader request")?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response
             .text()
+            .await
             .unwrap_or_else(|_| "failed to read openai grader error body".to_string());
         anyhow::bail!("openai grader request failed with {status}: {body}");
     }
     let body = response
         .json::<JsonValue>()
+        .await
         .context("parse openai grader response json")?;
     body.get("choices")
         .and_then(JsonValue::as_array)
@@ -1880,7 +1883,7 @@ pub(crate) fn build_longmemeval_run_report(
     })
 }
 
-pub(crate) fn build_longmemeval_community_standard_run_report(
+pub(crate) async fn build_longmemeval_community_standard_run_report(
     dataset: &PublicBenchmarkDatasetFixture,
     hypotheses_path: &Path,
     grader_model: &str,
@@ -1927,7 +1930,7 @@ pub(crate) fn build_longmemeval_community_standard_run_report(
                 abstention,
             )?;
             let grader_response =
-                call_openai_yes_no_grader(&base_url, &api_key, grader_model, &prompt)?;
+                call_openai_yes_no_grader(&base_url, &api_key, grader_model, &prompt).await?;
             (grader_response.to_ascii_lowercase().contains("yes"), Some(grader_response))
         } else {
             (false, None)
@@ -2053,7 +2056,7 @@ pub(crate) fn build_longmemeval_community_standard_run_report(
     })
 }
 
-pub(crate) fn build_longmemeval_full_eval_report(
+pub(crate) async fn build_longmemeval_full_eval_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
     mode: &str,
@@ -2104,7 +2107,8 @@ pub(crate) fn build_longmemeval_full_eval_report(
             &generator_config.api_key,
             &generator_config.model,
             &prompt,
-        )?;
+        )
+        .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
 
@@ -2121,7 +2125,8 @@ pub(crate) fn build_longmemeval_full_eval_report(
             &generator_config.api_key,
             &generator_config.grader_model,
             &eval_prompt,
-        )?;
+        )
+        .await?;
         let label = grader_response.to_ascii_lowercase().contains("yes");
 
         if label {
@@ -2230,7 +2235,7 @@ pub(crate) fn build_longmemeval_full_eval_report(
     })
 }
 
-pub(crate) fn build_locomo_full_eval_report(
+pub(crate) async fn build_locomo_full_eval_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
     _mode: &str,
@@ -2282,7 +2287,8 @@ pub(crate) fn build_locomo_full_eval_report(
             &generator_config.api_key,
             &generator_config.model,
             &prompt,
-        )?;
+        )
+        .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
 
@@ -2387,7 +2393,7 @@ pub(crate) fn build_locomo_full_eval_report(
     })
 }
 
-pub(crate) fn build_membench_full_eval_report(
+pub(crate) async fn build_membench_full_eval_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
     _mode: &str,
@@ -2460,7 +2466,8 @@ pub(crate) fn build_membench_full_eval_report(
             &generator_config.api_key,
             &generator_config.model,
             &prompt,
-        )?;
+        )
+        .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
 
