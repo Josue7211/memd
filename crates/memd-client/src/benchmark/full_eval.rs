@@ -143,7 +143,8 @@ mod tests {
 
     #[test]
     fn build_generation_prompt_includes_context_and_question() {
-        let prompt = build_generation_prompt("What color is the sky?", "User said: the sky is blue");
+        let prompt =
+            build_generation_prompt("What color is the sky?", "User said: the sky is blue");
         assert!(prompt.contains("What color is the sky?"));
         assert!(prompt.contains("the sky is blue"));
     }

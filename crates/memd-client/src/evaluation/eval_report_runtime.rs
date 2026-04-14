@@ -69,7 +69,9 @@ pub(crate) async fn eval_bundle_memory(
     let has_non_status = total_working > status_record_count;
     if total_working > 0 && !has_non_status {
         score -= 15;
-        findings.push("working memory contains only status records; no user facts/decisions".to_string());
+        findings.push(
+            "working memory contains only status records; no user facts/decisions".to_string(),
+        );
     }
     if total_working >= 4 && status_record_count * 2 > total_working {
         score -= 10;
@@ -236,12 +238,13 @@ pub(crate) fn eval_failure_reason(
     fail_on_regression: bool,
 ) -> Option<String> {
     if let Some(threshold) = fail_below
-        && response.score < threshold {
-            return Some(format!(
-                "bundle evaluation score {} fell below required threshold {}",
-                response.score, threshold
-            ));
-        }
+        && response.score < threshold
+    {
+        return Some(format!(
+            "bundle evaluation score {} fell below required threshold {}",
+            response.score, threshold
+        ));
+    }
 
     if fail_on_regression && response.score_delta.is_some_and(|delta| delta < 0) {
         let baseline = response

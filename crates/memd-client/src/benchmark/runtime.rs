@@ -1270,7 +1270,10 @@ pub(crate) async fn run_public_benchmark_command(
     let duration_started = Instant::now();
     eprintln!("[bench] resolving dataset `{}`…", args.dataset);
     let resolved_dataset = resolve_public_benchmark_dataset(args).await?;
-    eprintln!("[bench] dataset resolved → {}", resolved_dataset.path.display());
+    eprintln!(
+        "[bench] dataset resolved → {}",
+        resolved_dataset.path.display()
+    );
     let dataset = load_public_benchmark_dataset(&args.dataset, &resolved_dataset.path)?;
     eprintln!("[bench] loaded {} items from fixture", dataset.items.len());
     anyhow::ensure!(
@@ -1306,14 +1309,11 @@ pub(crate) async fn run_public_benchmark_command(
     };
     // Dry-run: estimate cost without running
     if args.dry_run && args.full_eval {
-        let est_calls =
-            item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
+        let est_calls = item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
         let est_tokens = est_calls as f64 * 2200.0;
         let est_cost_4o_mini = est_tokens * 0.00000015;
         let est_cost_4o = est_tokens * 0.0000025;
-        eprintln!(
-            "Dry run: {item_count} items, ~{est_calls} API calls"
-        );
+        eprintln!("Dry run: {item_count} items, ~{est_calls} API calls");
         eprintln!(
             "Estimated cost: ${:.2} (gpt-4o-mini) / ${:.2} (gpt-4o)",
             est_cost_4o_mini, est_cost_4o
@@ -1351,32 +1351,41 @@ pub(crate) async fn run_public_benchmark_command(
     let evaluation = if args.full_eval {
         eprintln!("[bench] mode=full-eval, resolving generator config…");
         let generator_config = resolve_generator_config(args)?;
-        eprintln!("[bench] generator={} grader={}", generator_config.model, generator_config.grader_model);
+        eprintln!(
+            "[bench] generator={} grader={}",
+            generator_config.model, generator_config.grader_model
+        );
         match args.dataset.as_str() {
-            "longmemeval" => build_longmemeval_full_eval_report(
-                &selected_dataset,
-                top_k,
-                mode,
-                &retrieval_config,
-                &generator_config,
-            )
-            .await?,
-            "locomo" => build_locomo_full_eval_report(
-                &selected_dataset,
-                top_k,
-                mode,
-                &retrieval_config,
-                &generator_config,
-            )
-            .await?,
-            "membench" => build_membench_full_eval_report(
-                &selected_dataset,
-                top_k,
-                mode,
-                &retrieval_config,
-                &generator_config,
-            )
-            .await?,
+            "longmemeval" => {
+                build_longmemeval_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            "locomo" => {
+                build_locomo_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
+            "membench" => {
+                build_membench_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
             other => anyhow::bail!("--full-eval not yet supported for {other}"),
         }
     } else if args.community_standard {

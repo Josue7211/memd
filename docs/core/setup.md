@@ -67,12 +67,28 @@ Resume the compact current-task lane:
 memd resume --output .memd --intent current_task
 ```
 
+Inspect the canonical operator state surface:
+
+```bash
+memd state --output .memd
+memd state --output .memd --json
+```
+
 Hive and claim summaries now show the live tab label too, so two Codex tabs can
 stay separate in the same project:
 
 ```bash
 memd hive --output .memd --summary
 memd claims --output .memd --summary
+```
+
+The donor-aligned claim wrapper exposes the same runtime through more direct
+verbs:
+
+```bash
+memd claim list --output .memd --summary
+memd claim create --output .memd --scope task:k2-l2-state --ttl-secs 1800
+memd claim close --output .memd --scope task:k2-l2-state
 ```
 
 Turn a repository into an opt-in project hive with:

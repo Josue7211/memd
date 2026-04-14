@@ -326,7 +326,10 @@ fn cli_parses_public_longmemeval_community_standard_command() {
             Some(BenchmarkSubcommand::Public(public_args)) => {
                 assert_eq!(public_args.dataset, "longmemeval");
                 assert!(public_args.community_standard);
-                assert_eq!(public_args.hypotheses_file, Some(PathBuf::from("hyp.jsonl")));
+                assert_eq!(
+                    public_args.hypotheses_file,
+                    Some(PathBuf::from("hyp.jsonl"))
+                );
                 assert_eq!(public_args.grader_model.as_deref(), Some("gpt-4o"));
             }
             other => panic!("expected public benchmark subcommand, got {other:?}"),
@@ -507,9 +510,11 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
     .await
     .expect_err("community-standard longmemeval should require hypotheses");
 
-    assert!(error
-        .to_string()
-        .contains("community-standard longmemeval requires --hypotheses-file"));
+    assert!(
+        error
+            .to_string()
+            .contains("community-standard longmemeval requires --hypotheses-file")
+    );
 
     fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
@@ -1105,7 +1110,8 @@ fn build_public_benchmark_item_results_membench_requires_target_step_hit() {
             question_id: "movie::0::0".to_string(),
             query: "What books have you recommended to me before?".to_string(),
             claim_class: "raw".to_string(),
-            gold_answer: "8 Weeks to Optimum Health, Prescription for Nutritional Healing".to_string(),
+            gold_answer: "8 Weeks to Optimum Health, Prescription for Nutritional Healing"
+                .to_string(),
             metadata: json!({
                 "topic": "movie",
                 "tid": 0,
@@ -1723,17 +1729,31 @@ fn primary_metric_returns_full_eval_labels_when_runtime_settings_has_full_eval()
     };
 
     // full_eval=true should yield industry-standard labels
-    let (label, val) = public_benchmark_primary_metric(&make_report("longmemeval", true, "accuracy"));
-    assert!(label.contains("LLM-judge"), "longmemeval full_eval label: {label}");
+    let (label, val) =
+        public_benchmark_primary_metric(&make_report("longmemeval", true, "accuracy"));
+    assert!(
+        label.contains("LLM-judge"),
+        "longmemeval full_eval label: {label}"
+    );
     assert!((val - 0.75).abs() < 0.001);
 
     let (label, _) = public_benchmark_primary_metric(&make_report("locomo", true, "f1"));
-    assert!(label.contains("token-level"), "locomo full_eval label: {label}");
+    assert!(
+        label.contains("token-level"),
+        "locomo full_eval label: {label}"
+    );
 
     let (label, _) = public_benchmark_primary_metric(&make_report("membench", true, "mc_accuracy"));
-    assert!(label.contains("MC accuracy"), "membench full_eval label: {label}");
+    assert!(
+        label.contains("MC accuracy"),
+        "membench full_eval label: {label}"
+    );
 
     // full_eval=false should yield retrieval diagnostic labels
-    let (label, _) = public_benchmark_primary_metric(&make_report("longmemeval", false, "session_recall_any@5"));
-    assert!(label.contains("retrieval diagnostic"), "longmemeval retrieval label: {label}");
+    let (label, _) =
+        public_benchmark_primary_metric(&make_report("longmemeval", false, "session_recall_any@5"));
+    assert!(
+        label.contains("retrieval diagnostic"),
+        "longmemeval retrieval label: {label}"
+    );
 }

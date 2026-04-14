@@ -8,10 +8,8 @@ use serde_json::Value as JsonValue;
 pub(crate) fn load_published_baselines(
     baselines_path: &Path,
 ) -> anyhow::Result<BTreeMap<String, BTreeMap<String, BaselineEntry>>> {
-    let raw = std::fs::read_to_string(baselines_path)
-        .context("read published baselines JSON")?;
-    let parsed: JsonValue = serde_json::from_str(&raw)
-        .context("parse published baselines JSON")?;
+    let raw = std::fs::read_to_string(baselines_path).context("read published baselines JSON")?;
+    let parsed: JsonValue = serde_json::from_str(&raw).context("parse published baselines JSON")?;
     let mut result = BTreeMap::new();
     if let Some(obj) = parsed.as_object() {
         for (benchmark_id, systems) in obj {

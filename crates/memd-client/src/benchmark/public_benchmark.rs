@@ -163,10 +163,7 @@ pub(crate) fn json_stringish_field(row: &JsonValue, key: &str) -> anyhow::Result
     }
 }
 
-pub(crate) fn json_stringish_or_array_field(
-    row: &JsonValue,
-    key: &str,
-) -> anyhow::Result<String> {
+pub(crate) fn json_stringish_or_array_field(row: &JsonValue, key: &str) -> anyhow::Result<String> {
     let value = row.get(key).ok_or_else(|| anyhow!("missing {key} field"))?;
     match value {
         JsonValue::Array(items) => Ok(items
@@ -967,9 +964,7 @@ pub(crate) fn load_longmemeval_hypotheses(
         .collect()
 }
 
-pub(crate) fn validate_public_benchmark_args(
-    args: &PublicBenchmarkArgs,
-) -> anyhow::Result<()> {
+pub(crate) fn validate_public_benchmark_args(args: &PublicBenchmarkArgs) -> anyhow::Result<()> {
     if !args.all && args.dataset.is_empty() {
         anyhow::bail!("dataset is required unless --all is specified");
     }
@@ -1049,9 +1044,15 @@ pub(crate) fn public_benchmark_target_key(value: &JsonValue) -> Option<String> {
     }
 }
 
-pub(crate) fn locomo_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)> {
+pub(crate) fn locomo_retrieval_docs(
+    item: &PublicBenchmarkDatasetFixtureItem,
+) -> Vec<(String, String)> {
     let mut docs = Vec::new();
-    if let Some(conversation) = item.metadata.get("conversation").and_then(JsonValue::as_object) {
+    if let Some(conversation) = item
+        .metadata
+        .get("conversation")
+        .and_then(JsonValue::as_object)
+    {
         let mut session_indexes = conversation
             .keys()
             .filter_map(|key| key.strip_prefix("session_"))
@@ -1099,7 +1100,9 @@ pub(crate) fn locomo_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) ->
     docs
 }
 
-pub(crate) fn membench_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)> {
+pub(crate) fn membench_retrieval_docs(
+    item: &PublicBenchmarkDatasetFixtureItem,
+) -> Vec<(String, String)> {
     item.metadata
         .get("message_list")
         .and_then(JsonValue::as_array)
@@ -1117,7 +1120,11 @@ pub(crate) fn membench_retrieval_docs(item: &PublicBenchmarkDatasetFixtureItem) 
                         .get("mid")
                         .cloned()
                         .map(|mid| json!([mid, session_index]))
-                        .or_else(|| turn.get("sid").cloned().map(|sid| json!([sid, session_index])))
+                        .or_else(|| {
+                            turn.get("sid")
+                                .cloned()
+                                .map(|sid| json!([sid, session_index]))
+                        })
                         .or_else(|| turn.get("step_id").cloned())
                         .or_else(|| Some(json!([0, session_index])));
                     Some((public_benchmark_target_key(&step?)?, text))
@@ -1175,7 +1182,8 @@ pub(crate) fn build_context_retrieval_run_report(
             .take(top_k)
             .map(|((doc_id, _), _)| doc_id.clone())
             .collect::<BTreeSet<_>>();
-        let hit = !expected.is_empty() && expected.iter().any(|target| retrieved_ids.contains(target));
+        let hit =
+            !expected.is_empty() && expected.iter().any(|target| retrieved_ids.contains(target));
         if hit {
             hits += 1;
         } else {
@@ -1902,8 +1910,8 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
     );
     let api_key = std::env::var("OPENAI_API_KEY")
         .context("community-standard longmemeval requires OPENAI_API_KEY")?;
-    let base_url =
-        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+    let base_url = std::env::var("OPENAI_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
     let hypothesis_map = load_longmemeval_hypotheses(hypotheses_path)?
         .into_iter()
         .map(|entry| (entry.question_id, entry.hypothesis))
@@ -1938,7 +1946,10 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
             )?;
             let grader_response =
                 call_openai_yes_no_grader(&base_url, &api_key, grader_model, &prompt).await?;
-            (grader_response.to_ascii_lowercase().contains("yes"), Some(grader_response))
+            (
+                grader_response.to_ascii_lowercase().contains("yes"),
+                Some(grader_response),
+            )
         } else {
             (false, None)
         };
@@ -1958,7 +1969,9 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
         }
         *per_type_total.entry(question_type.to_string()).or_insert(0) += 1;
         if label {
-            *per_type_correct.entry(question_type.to_string()).or_insert(0) += 1;
+            *per_type_correct
+                .entry(question_type.to_string())
+                .or_insert(0) += 1;
         }
         if abstention {
             abstention_total += 1;
@@ -2090,7 +2103,12 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown");
         let abstention = item.question_id.contains("_abs");
-        eprintln!("[longmemeval] [{}/{}] {} type={question_type}", item_index + 1, total_items, item.question_id);
+        eprintln!(
+            "[longmemeval] [{}/{}] {} type={question_type}",
+            item_index + 1,
+            total_items,
+            item.question_id
+        );
 
         // Step 1: Retrieve context
         let (session_corpus, session_corpus_ids, _) = build_longmemeval_session_corpus(item);
@@ -2109,7 +2127,10 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             .cloned()
             .collect::<Vec<_>>()
             .join("\n---\n");
-        eprintln!("[longmemeval]   retrieval done, context_len={}", context.len());
+        eprintln!(
+            "[longmemeval]   retrieval done, context_len={}",
+            context.len()
+        );
 
         // Step 2: Generate hypothesis
         let prompt = build_generation_prompt(&item.query, &context);
@@ -2123,7 +2144,10 @@ pub(crate) async fn build_longmemeval_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
-        eprintln!("[longmemeval]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
+        eprintln!(
+            "[longmemeval]   generator done, tokens={}/{}",
+            gen_response.prompt_tokens, gen_response.completion_tokens
+        );
 
         // Step 3: Grade with GPT-4o judge
         let eval_prompt = build_longmemeval_eval_prompt(
@@ -2142,7 +2166,10 @@ pub(crate) async fn build_longmemeval_full_eval_report(
         )
         .await?;
         let label = grader_response.to_ascii_lowercase().contains("yes");
-        eprintln!("[longmemeval]   grader={grader_response} → correct={label} ({:.0}ms)", item_started.elapsed().as_millis() as f64);
+        eprintln!(
+            "[longmemeval]   grader={grader_response} → correct={label} ({:.0}ms)",
+            item_started.elapsed().as_millis() as f64
+        );
 
         if label {
             correct += 1;
@@ -2158,9 +2185,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
                 "grader_response": grader_response,
             }));
         }
-        *per_type_total
-            .entry(question_type.to_string())
-            .or_insert(0) += 1;
+        *per_type_total.entry(question_type.to_string()).or_insert(0) += 1;
 
         let item_latency_ms = item_started.elapsed().as_millis().max(1);
         total_latency_ms += item_latency_ms;
@@ -2215,7 +2240,10 @@ pub(crate) async fn build_longmemeval_full_eval_report(
     let (p50, p95) = compute_latency_percentiles(&latencies);
     metrics.insert("latency_p50_ms".to_string(), p50);
     metrics.insert("latency_p95_ms".to_string(), p95);
-    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+    metrics.insert(
+        "wall_clock_ms".to_string(),
+        started.elapsed().as_millis() as f64,
+    );
 
     Ok(PublicBenchmarkRunReport {
         manifest: PublicBenchmarkManifest {
@@ -2276,7 +2304,12 @@ pub(crate) async fn build_locomo_full_eval_report(
             .and_then(JsonValue::as_str)
             .unwrap_or("unknown")
             .to_string();
-        eprintln!("[locomo] [{}/{}] {} cat={category}", item_index + 1, total_items, item.question_id);
+        eprintln!(
+            "[locomo] [{}/{}] {} cat={category}",
+            item_index + 1,
+            total_items,
+            item.question_id
+        );
 
         // Step 1: Retrieve context
         let docs = locomo_retrieval_docs(item);
@@ -2311,7 +2344,10 @@ pub(crate) async fn build_locomo_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
-        eprintln!("[locomo]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
+        eprintln!(
+            "[locomo]   generator done, tokens={}/{}",
+            gen_response.prompt_tokens, gen_response.completion_tokens
+        );
 
         // Step 3: Score with F1 (or adversarial check)
         let f1 = if category == "Adversarial" {
@@ -2324,7 +2360,10 @@ pub(crate) async fn build_locomo_full_eval_report(
             token_f1(&gen_response.content, &item.gold_answer)
         };
         f1_scores.push(f1);
-        per_category_f1.entry(category.clone()).or_default().push(f1);
+        per_category_f1
+            .entry(category.clone())
+            .or_default()
+            .push(f1);
 
         if f1 < 0.5 {
             failures.push(json!({
@@ -2379,7 +2418,10 @@ pub(crate) async fn build_locomo_full_eval_report(
     let (p50, p95) = compute_latency_percentiles(&latencies);
     metrics.insert("latency_p50_ms".to_string(), p50);
     metrics.insert("latency_p95_ms".to_string(), p95);
-    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+    metrics.insert(
+        "wall_clock_ms".to_string(),
+        started.elapsed().as_millis() as f64,
+    );
 
     Ok(PublicBenchmarkRunReport {
         manifest: PublicBenchmarkManifest {
@@ -2459,10 +2501,20 @@ pub(crate) async fn build_membench_full_eval_report(
             .unwrap_or_default();
 
         if ground_truth.is_empty() || choices.is_empty() {
-            eprintln!("[membench] [{}/{}] {} skipped (no ground_truth or choices)", item_index + 1, total_items, item.question_id);
+            eprintln!(
+                "[membench] [{}/{}] {} skipped (no ground_truth or choices)",
+                item_index + 1,
+                total_items,
+                item.question_id
+            );
             continue;
         }
-        eprintln!("[membench] [{}/{}] {} topic={topic}", item_index + 1, total_items, item.question_id);
+        eprintln!(
+            "[membench] [{}/{}] {} topic={topic}",
+            item_index + 1,
+            total_items,
+            item.question_id
+        );
 
         // Step 1: Retrieve context
         let docs = membench_retrieval_docs(item);
@@ -2497,7 +2549,10 @@ pub(crate) async fn build_membench_full_eval_report(
         .await?;
         total_prompt_tokens += gen_response.prompt_tokens;
         total_completion_tokens += gen_response.completion_tokens;
-        eprintln!("[membench]   generator done, tokens={}/{}", gen_response.prompt_tokens, gen_response.completion_tokens);
+        eprintln!(
+            "[membench]   generator done, tokens={}/{}",
+            gen_response.prompt_tokens, gen_response.completion_tokens
+        );
 
         // Step 3: Score MC accuracy
         let is_correct = mc_accuracy(&gen_response.content, ground_truth);
@@ -2568,7 +2623,10 @@ pub(crate) async fn build_membench_full_eval_report(
     let (p50, p95) = compute_latency_percentiles(&latencies);
     metrics.insert("latency_p50_ms".to_string(), p50);
     metrics.insert("latency_p95_ms".to_string(), p95);
-    metrics.insert("wall_clock_ms".to_string(), started.elapsed().as_millis() as f64);
+    metrics.insert(
+        "wall_clock_ms".to_string(),
+        started.elapsed().as_millis() as f64,
+    );
 
     Ok(PublicBenchmarkRunReport {
         manifest: PublicBenchmarkManifest {

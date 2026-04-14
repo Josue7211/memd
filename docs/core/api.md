@@ -210,8 +210,12 @@ Use `memd packs --root .memd --summary` to browse visible harness packs and
 Use `memd hive-project --output .memd --enable --summary` to opt a repository
 into project hive mode, `memd hive --summary` to publish the live session, and
 `memd hive-link` for the manual safe link between different projects.
-Use `memd hive --summary` and `memd claims --summary` to see session plus tab
-labels in the coordination surfaces when multiple Codex tabs are live.
+Use `memd state --output .memd` for the canonical operator brief and
+`memd state --output .memd --json` for structured adapters. Use
+`memd hive --summary` and `memd claims --summary` to see session plus tab
+labels in the coordination surfaces when multiple Codex tabs are live. The
+same claim runtime is also exposed as `memd claim list`, `memd claim create`,
+and `memd claim close`.
 
 Rules:
 
