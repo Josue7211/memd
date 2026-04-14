@@ -104,8 +104,10 @@ The storage fix worked. The surfacing and lifecycle fix did not.
 | Wake expansion | B2 Signal vs Noise | M1 |
 
 All 5 gaps map to M1 phases. This suggests M1 is the right place — not a
-new phase. But the lifecycle concern cross-cuts B2, C2, and F2. Consider
-a pre-M1 teardown that defines the lifecycle contract before implementing.
+new phase. But the lifecycle concern cross-cuts B2, C2, and F2.
+
+**Lifecycle contract defined:** `docs/specs/2026-04-14-memory-lifecycle-contract.md`
+B2, C2, and F2 implement against this contract. Each section maps to its owning phase.
 
 ## Related Backlog
 

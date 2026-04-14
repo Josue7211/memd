@@ -2,7 +2,7 @@
 phase: B2
 name: Signal vs Noise
 version: v2
-status: pending
+status: planned
 depends_on: [A2]
 backlog_items: [42, 49, 66, 77]
 ---
