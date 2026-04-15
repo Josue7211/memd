@@ -4,8 +4,58 @@ use crate::cli::skill_catalog::{
     build_skill_catalog, find_skill_catalog_matches, resolve_skill_catalog_root,
 };
 
-pub(crate) fn run_inspiration_command(args: InspirationArgs) -> anyhow::Result<()> {
+pub(crate) async fn run_inspiration_command(
+    args: InspirationArgs,
+    base_url: &str,
+) -> anyhow::Result<()> {
     let root = resolve_inspiration_root(args.root.as_deref())?;
+
+    // Try DB search first (lane-tagged items from ingestion pipeline).
+    if let Ok(client) = MemdClient::new(base_url) {
+        let db_results = client
+            .search(&memd_schema::SearchMemoryRequest {
+                query: Some(args.query.clone()),
+                route: Some(memd_schema::RetrievalRoute::All),
+                intent: Some(memd_schema::RetrievalIntent::General),
+                scopes: vec![
+                    memd_schema::MemoryScope::Project,
+                    memd_schema::MemoryScope::Global,
+                ],
+                kinds: vec![],
+                statuses: vec![memd_schema::MemoryStatus::Active],
+                project: None,
+                namespace: None,
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("ingestion-pipeline".to_string()),
+                tags: vec!["lane:inspiration".to_string()],
+                stages: vec![memd_schema::MemoryStage::Canonical],
+                limit: Some(args.limit),
+                max_chars_per_item: Some(500),
+            })
+            .await;
+        if let Ok(response) = db_results {
+            if !response.items.is_empty() {
+                // DB has ingested results — use them.
+                if args.summary {
+                    println!(
+                        "inspiration db_hits={} query=\"{}\"",
+                        response.items.len(),
+                        args.query
+                    );
+                } else {
+                    println!("## Inspiration: {}\n", args.query);
+                    for item in &response.items {
+                        println!("- {}", item.content.lines().next().unwrap_or("(empty)"));
+                    }
+                }
+                return Ok(());
+            }
+        }
+    }
+
+    // Fall back to file grep.
     let matches = search_inspiration_lane(&root, &args.query, args.limit)?;
     if args.summary {
         println!(

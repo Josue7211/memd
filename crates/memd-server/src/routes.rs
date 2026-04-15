@@ -1751,6 +1751,29 @@ pub(crate) async fn post_procedure_detect(
     Ok(Json(response))
 }
 
+pub(crate) async fn post_ingest_lanes(
+    State(state): State<AppState>,
+    Json(req): Json<IngestLanesRequest>,
+) -> Result<Json<IngestLanesResponse>, (StatusCode, String)> {
+    let root = std::path::Path::new(&req.root);
+    if !root.is_dir() {
+        return Err((StatusCode::BAD_REQUEST, format!("root is not a directory: {}", req.root)));
+    }
+    let summary = crate::store_ingestion::ingest_lane_files(
+        &state,
+        root,
+        req.project.as_deref(),
+        req.namespace.as_deref(),
+    )
+    .map_err(internal_error)?;
+    Ok(Json(IngestLanesResponse {
+        files_scanned: summary.files_scanned,
+        files_ingested: summary.files_ingested,
+        files_skipped: summary.files_skipped,
+        files_stale: summary.files_stale,
+    }))
+}
+
 #[derive(Clone)]
 pub(crate) struct MemoryViewItem {
     pub(crate) item: MemoryItem,

@@ -2506,6 +2506,23 @@ pub struct ContinuityJourneyReport {
     pub generated_at: Option<DateTime<Utc>>,
 }
 
+// ── Ingestion Pipeline (F2) ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestLanesRequest {
+    pub root: String,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestLanesResponse {
+    pub files_scanned: usize,
+    pub files_ingested: usize,
+    pub files_skipped: usize,
+    pub files_stale: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

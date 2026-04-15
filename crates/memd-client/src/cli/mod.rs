@@ -731,7 +731,7 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             run_multimodal_mode(args).await?;
         }
         Commands::Inspiration(args) => {
-            run_inspiration_command(args)?;
+            run_inspiration_command(args, &base_url).await?;
         }
         Commands::Skills(args) => {
             run_skill_catalog_command(args)?;

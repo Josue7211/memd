@@ -2,9 +2,10 @@
 phase: F2
 name: Ingestion Pipeline
 version: v2
-status: pending
+status: verified
 depends_on: [B2]
 backlog_items: [37, 39, 41]
+verified_at: 2026-04-14
 ---
 
 # Phase F2: Ingestion Pipeline
@@ -35,6 +36,14 @@ Source files compiled into DB memory items. Read once, store forever.
 - Before/after: `memd inspiration` query path (file vs DB)
 - Change detection test: modify file, run wake, verify re-ingest
 - No-change test: run wake twice, verify no re-ingest
+
+### Verification (2026-04-14)
+
+- **Gate 1** (setup → lane files as DB items): `files_scanned=2, files_ingested=2`. Both `lane:inspiration` (kind=fact) and `lane:architecture` (kind=topology) items created with correct project/namespace.
+- **Gate 2** (inspiration DB hit): `inspiration db_hits=1 query="caveman"` — DB search returned lane-tagged item, no file grep fallback.
+- **Gate 3** (modified file re-ingested): `files_ingested=1, files_skipped=1` — only the modified caveman-philosophy.md re-ingested; unchanged wake-vs-resume.md skipped via content hash match.
+- **Gate 4** (unchanged files skipped): `files_ingested=0, files_skipped=2` — second ingest with no changes: hash match on both files, 0 wasted work.
+- **Gate 5** (lookup returns architecture fact): `memd lookup --query "wake vs resume"` returned 1 match — topology item from `lane:architecture`. Required adding `Topology` and `LiveTruth` to `default_kinds_for_intent(General)`.
 
 ## Fail Conditions
 

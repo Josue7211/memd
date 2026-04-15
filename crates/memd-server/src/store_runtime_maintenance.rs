@@ -124,8 +124,17 @@ impl SqliteStore {
                 skipped
             ),
         ];
+        // GC pass: remove expired items past the grace period (1 hour).
+        let gc_removed = if request.apply {
+            self.gc_expired_items(3600).unwrap_or(0)
+        } else {
+            0
+        };
         if request.apply {
             findings.push("apply requested".to_string());
+        }
+        if gc_removed > 0 {
+            findings.push(format!("gc: removed {gc_removed} expired items"));
         }
         findings.extend(
             highlights
@@ -228,5 +237,27 @@ impl SqliteStore {
             }
         }
         Ok(count)
+    }
+
+    /// Delete expired memory items older than `grace_seconds` from the DB.
+    /// Returns the number of rows removed.
+    pub fn gc_expired_items(&self, grace_seconds: i64) -> anyhow::Result<usize> {
+        let conn = self.connect()?;
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(grace_seconds))
+            .to_rfc3339();
+        let deleted = conn
+            .execute(
+                r#"
+                DELETE FROM memory_items
+                WHERE status = ?1
+                  AND updated_at < ?2
+                "#,
+                params![
+                    serde_json::to_string(&MemoryStatus::Expired)?,
+                    cutoff,
+                ],
+            )
+            .context("gc expired memory items")?;
+        Ok(deleted)
     }
 }

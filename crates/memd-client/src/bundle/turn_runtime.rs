@@ -1,6 +1,31 @@
 use super::*;
+use memd_schema::IngestLanesRequest;
 
 pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> anyhow::Result<()> {
+    // F2: Re-ingest lane source files on every wake so modified files are picked up.
+    if let Some(project_root) = infer_bundle_project_root(&args.output) {
+        let runtime = read_bundle_runtime_config(&args.output).ok().flatten();
+        let resolved_url = resolve_bundle_command_base_url(
+            base_url,
+            runtime.as_ref().and_then(|c| c.base_url.as_deref()),
+        );
+        if let Ok(client) = MemdClient::new(&resolved_url) {
+            let _ = client
+                .ingest_lanes(&IngestLanesRequest {
+                    root: project_root.display().to_string(),
+                    project: args
+                        .project
+                        .clone()
+                        .or_else(|| runtime.as_ref().and_then(|c| c.project.clone())),
+                    namespace: args
+                        .namespace
+                        .clone()
+                        .or_else(|| runtime.as_ref().and_then(|c| c.namespace.clone())),
+                })
+                .await;
+        }
+    }
+
     if let Some(tab_id) = default_bundle_tab_id() {
         let existing_tab_id = read_bundle_runtime_config(&args.output)
             .ok()

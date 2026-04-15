@@ -1,10 +1,28 @@
 use super::*;
+use memd_schema::IngestLanesRequest;
 
 pub(crate) async fn run_bundle_setup_command(args: &SetupArgs) -> anyhow::Result<()> {
     let init_args = normalize_init_args(setup_args_to_init_args(args))?;
     let decision = resolve_bootstrap_authority(init_args).await?;
     let init_args = decision.init_args;
     write_init_bundle(&init_args)?;
+
+    // F2: Ingest lane source files into DB after setup.
+    if let Ok(memd) = MemdClient::new(&init_args.base_url) {
+        let root = init_args
+            .output
+            .parent()
+            .unwrap_or(&init_args.output)
+            .to_path_buf();
+        let _ = memd
+            .ingest_lanes(&IngestLanesRequest {
+                root: root.display().to_string(),
+                project: init_args.project.clone(),
+                namespace: init_args.namespace.clone(),
+            })
+            .await;
+    }
+
     if decision.fallback_activated {
         set_bundle_localhost_read_only_authority_state(
             &init_args.output,

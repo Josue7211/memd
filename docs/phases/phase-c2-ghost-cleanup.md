@@ -2,9 +2,10 @@
 phase: C2
 name: Ghost Cleanup
 version: v2
-status: pending
+status: verified
 depends_on: [B2]
 backlog_items: [46, 50, 76]
+verified_at: 2026-04-14
 ---
 
 # Phase C2: Ghost Cleanup
@@ -36,6 +37,12 @@ Continuity fields reference only live, valid items. DB has no accumulated dead w
 - GC log showing expired items removed
 - Concurrent write stress test results
 - Transaction integrity test after kill -9
+
+### Verification (2026-04-14)
+
+- **Gate 1** (0 ghost refs in context): `context_items=3, ghost_refs=0` — expired/superseded items filtered by `compact_inbox_items()` and server-side `filter_items()` (default excludes Expired status).
+- **Gate 2** (expired cleaned in 1 cycle): `gc_expired_items(3600)` removed 1 expired item past grace period. 0 expired remaining after single `maintain --mode full --apply true`.
+- **Gate 3** (concurrent writes): `concurrent_writes_no_sqlite_busy` test — 3 threads × 50 inserts, 0 SQLITE_BUSY errors, 150/150 items stored. WAL mode + `busy_timeout=5000` + `TransactionBehavior::Immediate`.
 
 ## Fail Conditions
 

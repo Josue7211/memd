@@ -4173,3 +4173,82 @@ fn duplicate_store_reinforces_existing_item() {
 
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn concurrent_writes_no_sqlite_busy() {
+    // C2 gate: 3 agents writing simultaneously, 0 SQLITE_BUSY errors.
+    let dir = std::env::temp_dir().join(format!(
+        "memd-concurrent-write-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let db_path = dir.join("memd.db");
+    let store = SqliteStore::open(&db_path).expect("open store");
+
+    let handles: Vec<_> = (0..3)
+        .map(|agent_idx| {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                let mut errors = Vec::new();
+                for i in 0..50 {
+                    let now = chrono::Utc::now();
+                    let item = MemoryItem {
+                        id: uuid::Uuid::new_v4(),
+                        content: format!("concurrent-stress-unique-{} content-payload", uuid::Uuid::new_v4()),
+                        redundancy_key: None,
+                        belief_branch: None,
+                        preferred: false,
+                        kind: MemoryKind::Fact,
+                        scope: MemoryScope::Project,
+                        project: Some("memd".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: None,
+                        visibility: MemoryVisibility::Private,
+                        source_agent: Some(format!("agent-{agent_idx}")),
+                        source_system: Some("stress-test".to_string()),
+                        source_path: None,
+                        source_quality: Some(SourceQuality::Canonical),
+                        confidence: 0.9,
+                        ttl_seconds: None,
+                        created_at: now,
+                        updated_at: now,
+                        last_verified_at: None,
+                        supersedes: vec![],
+                        tags: vec!["concurrent-test".to_string()],
+                        status: MemoryStatus::Active,
+                        stage: MemoryStage::Canonical,
+                    };
+                    let ck = super::keys::canonical_key(&item);
+                    let rk = super::keys::redundancy_key(&item);
+                    if let Err(e) = store.insert_or_get_duplicate(&item, &ck, &rk) {
+                        errors.push(format!("agent-{agent_idx} item {i}: {e}"));
+                    }
+                }
+                errors
+            })
+        })
+        .collect();
+
+    let mut all_errors = Vec::new();
+    for handle in handles {
+        all_errors.extend(handle.join().expect("thread panicked"));
+    }
+
+    assert!(
+        all_errors.is_empty(),
+        "concurrent writes produced errors: {all_errors:?}"
+    );
+
+    let items = store.list().expect("list items");
+    let test_items: Vec<_> = items
+        .iter()
+        .filter(|i| i.tags.contains(&"concurrent-test".to_string()))
+        .collect();
+    assert_eq!(
+        test_items.len(),
+        150,
+        "all 150 items (3 agents × 50) should be stored"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}

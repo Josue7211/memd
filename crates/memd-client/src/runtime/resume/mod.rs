@@ -1,5 +1,6 @@
 use super::*;
 use crate::harness::cache;
+use memd_schema::MemoryStatus;
 
 mod wakeup;
 
@@ -1443,12 +1444,29 @@ impl ResumeSnapshot {
             self.working
                 .rehydration_queue
                 .iter()
+                .filter(|item| {
+                    // Skip rehydration items whose source_path is a dead file ref.
+                    if let Some(source_path) = &item.source_path {
+                        let path = std::path::Path::new(source_path.trim());
+                        if !source_path.is_empty() && path.is_absolute() && !path.exists() {
+                            return false;
+                        }
+                    }
+                    true
+                })
                 .map(|item| item.summary.as_str()),
         )
     }
 
     pub(crate) fn compact_inbox_items(&self) -> Vec<String> {
         Self::compact_memory_values(self.inbox.items.iter().filter_map(|item| {
+            // Skip expired/superseded items — they are ghost refs.
+            if matches!(
+                item.item.status,
+                MemoryStatus::Expired | MemoryStatus::Superseded
+            ) {
+                return None;
+            }
             let content = item.item.content.as_str();
             // Skip items referencing deleted files (ghost refs from expired entries).
             if let Some(path) = content.strip_prefix("file_edited: ") {

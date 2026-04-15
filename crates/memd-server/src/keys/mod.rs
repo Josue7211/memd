@@ -1,5 +1,6 @@
 use chrono::{Duration, Utc};
 use memd_schema::{MemoryItem, MemoryKind, MemoryStatus};
+use sha2::{Digest, Sha256};
 
 /// Per-kind freshness windows from lifecycle contract §3.
 fn freshness_window_days(kind: MemoryKind) -> i64 {
@@ -170,6 +171,24 @@ fn normalized_tags(tags: &[String]) -> String {
     tags.sort();
     tags.dedup();
     tags.join(",")
+}
+
+/// Normalize content for hashing: trim, strip leading "- ", lowercase, collapse whitespace.
+pub fn normalize_for_hash(s: &str) -> String {
+    let s = s.trim();
+    let s = s.strip_prefix("- ").unwrap_or(s);
+    s.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// SHA-256 content hash, first 16 hex chars. Used for ingestion dedup.
+pub fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(normalize_for_hash(content).as_bytes());
+    let result = hasher.finalize();
+    hex::encode(&result[..8])
 }
 
 #[cfg(test)]

@@ -17,7 +17,8 @@ use memd_schema::{
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
-    InboxDismissResponse, MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
+    InboxDismissResponse, IngestLanesRequest, IngestLanesResponse,
+    MaintainReport, MaintainReportRequest, MemoryConsolidationRequest,
     MemoryConsolidationResponse, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
     MemoryDrainResponse, MemoryInboxRequest, MemoryInboxResponse, MemoryMaintenanceReportRequest,
     MemoryMaintenanceReportResponse, MemoryPolicyResponse, ProcedureDetectRequest,
@@ -514,6 +515,13 @@ impl MemdClient {
     ) -> anyhow::Result<HiveSessionAutoRetireResponse> {
         self.post_json("/coordination/sessions/auto-retire", req)
             .await
+    }
+
+    pub async fn ingest_lanes(
+        &self,
+        req: &IngestLanesRequest,
+    ) -> anyhow::Result<IngestLanesResponse> {
+        self.post_json("/ingest/lanes", req).await
     }
 
     async fn get_json<T>(&self, path: &str) -> anyhow::Result<T>

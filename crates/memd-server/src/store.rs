@@ -86,6 +86,7 @@ impl SqliteStore {
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
+            PRAGMA busy_timeout = 5000;
             PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS memory_items (
@@ -379,6 +380,21 @@ impl SqliteStore {
               ON procedures(status);
             CREATE INDEX IF NOT EXISTS idx_procedures_updated_at
               ON procedures(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS ingestion_manifest (
+              source_path TEXT PRIMARY KEY,
+              content_hash TEXT NOT NULL,
+              mtime_epoch INTEGER NOT NULL,
+              lane TEXT,
+              project TEXT,
+              namespace TEXT,
+              last_ingested_at TEXT NOT NULL,
+              memory_item_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ingestion_manifest_project
+              ON ingestion_manifest(project, namespace);
+            CREATE INDEX IF NOT EXISTS idx_ingestion_manifest_lane
+              ON ingestion_manifest(lane);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -399,6 +415,7 @@ impl SqliteStore {
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
+            PRAGMA busy_timeout = 5000;
             PRAGMA foreign_keys = ON;
             "#,
         )
@@ -2663,6 +2680,113 @@ impl SqliteStore {
         .context("insert memory event")?;
         Ok(())
     }
+
+    // ── Ingestion Manifest ──────────────────────────────────────────
+
+    /// Look up a manifest entry by source path.
+    pub fn ingestion_manifest_get(
+        &self,
+        source_path: &str,
+    ) -> anyhow::Result<Option<IngestionManifestEntry>> {
+        let conn = self.connect()?;
+        let row = conn.query_row(
+            "SELECT source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id FROM ingestion_manifest WHERE source_path = ?1",
+            [source_path],
+            |row| {
+                Ok(IngestionManifestEntry {
+                    source_path: row.get(0)?,
+                    content_hash: row.get(1)?,
+                    mtime_epoch: row.get(2)?,
+                    lane: row.get(3)?,
+                    project: row.get(4)?,
+                    namespace: row.get(5)?,
+                    last_ingested_at: row.get(6)?,
+                    memory_item_id: row.get(7)?,
+                })
+            },
+        );
+        match row {
+            Ok(entry) => Ok(Some(entry)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err).context("lookup ingestion manifest entry"),
+        }
+    }
+
+    /// Upsert a manifest entry after ingesting a file.
+    pub fn ingestion_manifest_upsert(&self, entry: &IngestionManifestEntry) -> anyhow::Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO ingestion_manifest (
+              source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(source_path) DO UPDATE SET
+              content_hash = excluded.content_hash,
+              mtime_epoch = excluded.mtime_epoch,
+              lane = excluded.lane,
+              last_ingested_at = excluded.last_ingested_at,
+              memory_item_id = excluded.memory_item_id
+            "#,
+            params![
+                entry.source_path,
+                entry.content_hash,
+                entry.mtime_epoch,
+                entry.lane,
+                entry.project,
+                entry.namespace,
+                entry.last_ingested_at,
+                entry.memory_item_id,
+            ],
+        )
+        .context("upsert ingestion manifest entry")?;
+        Ok(())
+    }
+
+    /// List all manifest entries for a project/namespace.
+    pub fn ingestion_manifest_list(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<IngestionManifestEntry>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT source_path, content_hash, mtime_epoch, lane, project, namespace, last_ingested_at, memory_item_id
+            FROM ingestion_manifest
+            WHERE (?1 IS NULL OR project = ?1)
+              AND (?2 IS NULL OR namespace = ?2)
+            ORDER BY last_ingested_at DESC
+            "#,
+        )?;
+        let entries = stmt
+            .query_map(params![project, namespace], |row| {
+                Ok(IngestionManifestEntry {
+                    source_path: row.get(0)?,
+                    content_hash: row.get(1)?,
+                    mtime_epoch: row.get(2)?,
+                    lane: row.get(3)?,
+                    project: row.get(4)?,
+                    namespace: row.get(5)?,
+                    last_ingested_at: row.get(6)?,
+                    memory_item_id: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .context("list ingestion manifest")?;
+        Ok(entries)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IngestionManifestEntry {
+    pub source_path: String,
+    pub content_hash: String,
+    pub mtime_epoch: i64,
+    pub lane: Option<String>,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub last_ingested_at: String,
+    pub memory_item_id: Option<String>,
 }
 
 #[cfg(test)]

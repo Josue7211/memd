@@ -337,6 +337,8 @@ pub(crate) fn default_kinds_for_intent(intent: RetrievalIntent) -> Vec<MemoryKin
             MemoryKind::Procedural,
             MemoryKind::Status,
             MemoryKind::Pattern,
+            MemoryKind::Topology,
+            MemoryKind::LiveTruth,
         ],
     }
 }

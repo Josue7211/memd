@@ -10,6 +10,7 @@ mod store;
 mod store_entities;
 mod store_hive;
 mod store_hive_lifecycle;
+mod store_ingestion;
 mod store_migrations;
 mod store_runtime_maintenance;
 mod store_skill_policy;
@@ -56,7 +57,8 @@ use memd_schema::{
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
-    InboxDismissResponse, InboxMemoryItem, MaintainReport, MaintainReportRequest,
+    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
+    MaintainReport, MaintainReportRequest,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
     MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
     MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
@@ -542,6 +544,7 @@ async fn main() {
         .route("/procedures/use", post(post_procedure_use))
         .route("/procedures/retire", post(post_procedure_retire))
         .route("/procedures/detect", post(post_procedure_detect))
+        .route("/ingest/lanes", post(post_ingest_lanes))
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
