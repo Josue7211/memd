@@ -906,6 +906,7 @@ pub fn build_attachment_request(
         last_verified_at: Some(Utc::now()),
         supersedes: Vec::new(),
         tags,
+        lane: None,
     }
 }
 

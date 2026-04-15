@@ -424,6 +424,7 @@ fn working_item_priority(
             }
         }
     };
+    let lane_score = if item.lane.is_some() { 0.06 } else { 0.0 };
     let trust_score = if source_trust_score < source_trust_floor * 0.6 {
         -0.18
     } else if source_trust_score < source_trust_floor * 0.83 {
@@ -466,6 +467,9 @@ fn working_item_priority(
     if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
         reasons.push("trusted_source".to_string());
     }
+    if item.lane.is_some() {
+        reasons.push(format!("lane={}", item.lane.as_deref().unwrap_or("?")));
+    }
     (
         (confidence * 0.48
             + kind_score
@@ -478,7 +482,8 @@ fn working_item_priority(
             + recent_use_score
             + rehearsal_score
             + trust_score
-            + contradiction_score)
+            + contradiction_score
+            + lane_score)
             .clamp(0.0, 1.0),
         reasons,
     )
@@ -540,6 +545,7 @@ mod tests {
             tags: vec![],
             status,
             stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
         }
     }
 

@@ -226,6 +226,7 @@ mod tests {
             tags: vec!["alpha".into(), "beta".into()],
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
+                    lane: None,
         }
     }
 

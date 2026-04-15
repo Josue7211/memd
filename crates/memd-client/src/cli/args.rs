@@ -69,6 +69,7 @@ pub(crate) enum Commands {
     #[command(name = "memory-verify")]
     MemoryVerify(RequestInput),
     Repair(RepairArgs),
+    Correct(CorrectArgs),
     Search(SearchArgs),
     Lookup(LookupArgs),
     Context(ContextArgs),
@@ -148,6 +149,24 @@ pub(crate) struct RepairArgs {
 
     #[arg(long)]
     pub(crate) follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CorrectArgs {
+    #[arg(long)]
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) content: String,
+
+    #[arg(long)]
+    pub(crate) reason: Option<String>,
+
+    #[arg(long, value_name = "TEXT")]
+    pub(crate) tag: Vec<String>,
+
+    #[arg(long)]
+    pub(crate) confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Args)]

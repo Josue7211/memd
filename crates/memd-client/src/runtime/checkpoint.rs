@@ -148,6 +148,7 @@ pub(crate) async fn remember_with_bundle_defaults(
             supersedes,
             tags: args.tag.clone(),
             status: Some(MemoryStatus::Active),
+            lane: None,
         })
         .await?;
 

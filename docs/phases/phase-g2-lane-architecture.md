@@ -2,7 +2,7 @@
 phase: G2
 name: Lane Architecture
 version: v2
-status: pending
+status: complete
 depends_on: [A2, F2]
 backlog_items: [38, 40]
 ---

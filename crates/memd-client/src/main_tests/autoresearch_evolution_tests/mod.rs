@@ -82,6 +82,7 @@ pub(super) fn test_autoresearch_snapshot(
                     created_at: chrono::Utc::now(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
@@ -116,6 +117,7 @@ pub(super) fn test_autoresearch_snapshot(
         change_summary,
         resume_state_age_minutes: Some(1),
         refresh_recommended,
+        atlas_region_hints: Vec::new(),
     }
 }
 
@@ -161,6 +163,7 @@ pub(super) fn test_autoresearch_pressure_snapshot(
                 created_at: chrono::Utc::now(),
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
                 last_verified_at: None,
                 supersedes: Vec::new(),
                 updated_at: chrono::Utc::now(),

@@ -236,6 +236,31 @@ pub(crate) async fn read_bundle_resume(
         || context.records.len() >= 6;
     let claims = read_bundle_claims(&args.output).unwrap_or_default();
 
+    // E2: Atlas region hints for wake packet
+    let atlas_region_hints = client
+        .atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: project.clone(),
+            namespace: namespace.clone(),
+            lane: None,
+            limit: Some(5),
+        })
+        .await
+        .ok()
+        .map(|response| {
+            response
+                .regions
+                .iter()
+                .map(|r| {
+                    format!(
+                        "{} ({})",
+                        r.name,
+                        r.node_count
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -258,6 +283,7 @@ pub(crate) async fn read_bundle_resume(
         change_summary,
         resume_state_age_minutes,
         refresh_recommended,
+        atlas_region_hints,
     };
 
     sync_resume_state_record(
@@ -1008,6 +1034,7 @@ mod tests {
             ],
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1105,6 +1132,7 @@ mod tests {
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1187,6 +1215,7 @@ mod tests {
             change_summary: vec!["changed focus".to_string()],
             resume_state_age_minutes: None,
             refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
         };
 
         assert_eq!(
@@ -1228,6 +1257,8 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) change_summary: Vec<String>,
     pub(crate) resume_state_age_minutes: Option<i64>,
     pub(crate) refresh_recommended: bool,
+    #[serde(default)]
+    pub(crate) atlas_region_hints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

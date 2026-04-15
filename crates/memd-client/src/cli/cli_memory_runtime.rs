@@ -239,6 +239,26 @@ pub(crate) async fn run_repair_command(
     Ok(())
 }
 
+pub(crate) async fn run_correct_command(
+    client: &MemdClient,
+    args: CorrectArgs,
+) -> anyhow::Result<()> {
+    let req = CorrectMemoryRequest {
+        id: args.id.parse()?,
+        content: args.content.clone(),
+        reason: args.reason.clone(),
+        tags: if args.tag.is_empty() {
+            None
+        } else {
+            Some(args.tag.clone())
+        },
+        confidence: args.confidence,
+    };
+    let response = client.correct(&req).await?;
+    print_json(&response)?;
+    Ok(())
+}
+
 pub(crate) async fn run_search_command(
     client: &MemdClient,
     args: SearchArgs,

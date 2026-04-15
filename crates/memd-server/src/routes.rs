@@ -95,6 +95,7 @@ pub(crate) async fn store_candidate(
         supersedes: req.supersedes,
         tags: req.tags,
         status: Some(MemoryStatus::Active),
+        lane: req.lane,
     };
 
     let (item, duplicate) = state
@@ -138,6 +139,14 @@ pub(crate) async fn repair_memory(
     Json(req): Json<RepairMemoryRequest>,
 ) -> Result<Json<RepairMemoryResponse>, (StatusCode, String)> {
     let response = repair::repair_item(&state, req)?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn correct_memory(
+    State(state): State<AppState>,
+    Json(req): Json<CorrectMemoryRequest>,
+) -> Result<Json<CorrectMemoryResponse>, (StatusCode, String)> {
+    let response = repair::correct_item(&state, req)?;
     Ok(Json(response))
 }
 
@@ -1364,6 +1373,7 @@ impl AppState {
                     supersedes: Vec::new(),
                     tags,
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )?;

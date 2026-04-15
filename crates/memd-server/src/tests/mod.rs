@@ -33,6 +33,7 @@ fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         tags: vec!["workspace".to_string()],
         status: MemoryStatus::Active,
         stage: MemoryStage::Canonical,
+        lane: None,
     }
 }
 
@@ -752,6 +753,7 @@ fn live_truth_precedes_project_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["live_truth".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -778,6 +780,7 @@ fn live_truth_precedes_project_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["fact".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -841,6 +844,7 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
                 supersedes: Vec::new(),
                 tags: vec!["project_fact".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -868,6 +872,7 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
                     supersedes: Vec::new(),
                     tags: vec!["resume_state".to_string(), "session_state".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -928,6 +933,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
                 supersedes: Vec::new(),
                 tags: vec!["handoff".to_string(), "workspace".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -955,6 +961,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
                     supersedes: Vec::new(),
                     tags: vec!["resume_state".to_string(), "session_state".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -1019,6 +1026,7 @@ fn superseded_memory_drops_out_after_manual_correction_loop() {
                 supersedes: Vec::new(),
                 tags: vec!["fact".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1066,6 +1074,7 @@ fn superseded_memory_drops_out_after_manual_correction_loop() {
                 supersedes: vec![old_item.id],
                 tags: vec!["correction".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1126,6 +1135,7 @@ fn explicit_store_revives_superseded_canonical_duplicate() {
                 supersedes: Vec::new(),
                 tags: vec!["correction".to_string()],
                 status: Some(MemoryStatus::Superseded),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1154,6 +1164,7 @@ fn explicit_store_revives_superseded_canonical_duplicate() {
                 supersedes: vec![uuid::Uuid::new_v4()],
                 tags: vec!["correction".to_string(), "product-direction".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1193,6 +1204,7 @@ fn store_item_records_source_linked_event_for_canonical_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["raw-spine".to_string(), "correction".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1257,6 +1269,7 @@ fn store_item_records_source_linked_event_for_candidate_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["checkpoint".to_string(), "raw-spine".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -1321,6 +1334,7 @@ async fn source_memory_route_returns_provenance_aggregates_for_filtered_source()
                 supersedes: Vec::new(),
                 tags: vec!["raw-spine".to_string(), "correction".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1347,6 +1361,7 @@ async fn source_memory_route_returns_provenance_aggregates_for_filtered_source()
                 supersedes: Vec::new(),
                 tags: vec!["checkpoint".to_string()],
                 status: Some(MemoryStatus::Active),
+                    lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -1484,6 +1499,7 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1544,6 +1560,7 @@ async fn atlas_explore_returns_nodes_for_region() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         let (item, _) = state
             .store_item(req, MemoryStage::Canonical)
@@ -1615,6 +1632,7 @@ async fn atlas_explore_single_node_returns_that_item() {
         supersedes: Vec::new(),
         tags: Vec::new(),
         status: None,
+        lane: None,
     };
     let (item, _) = state
         .store_item(req, MemoryStage::Canonical)
@@ -1677,6 +1695,7 @@ async fn atlas_pivot_filters_by_min_trust() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1748,6 +1767,7 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1834,6 +1854,7 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1941,6 +1962,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
             supersedes: Vec::new(),
             tags: vec!["lane:design".to_string()],
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1967,6 +1989,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
+                    lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -2020,6 +2043,7 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
         supersedes: Vec::new(),
         tags: Vec::new(),
         status: None,
+        lane: None,
     };
     let (item, _) = state
         .store_item(req, MemoryStage::Canonical)
@@ -2072,6 +2096,7 @@ async fn atlas_nodes_include_evidence_count() {
         supersedes: Vec::new(),
         tags: Vec::new(),
         status: None,
+        lane: None,
     };
     let (item, _) = state
         .store_item(req, MemoryStage::Canonical)
@@ -2141,6 +2166,7 @@ async fn atlas_rename_region_persists_new_name() {
                     supersedes: Vec::new(),
                     tags: Vec::new(),
                     status: None,
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2217,6 +2243,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["auth".to_string(), "security".to_string()],
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2244,6 +2271,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["auth".to_string(), "migration".to_string()],
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2271,6 +2299,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["unrelated".to_string()],
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2350,6 +2379,7 @@ async fn atlas_explore_with_evidence_returns_events() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2417,6 +2447,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2443,6 +2474,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2516,6 +2548,7 @@ async fn atlas_from_working_seeds_from_working_memory() {
                     supersedes: Vec::new(),
                     tags: Vec::new(),
                     status: None,
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2544,6 +2577,7 @@ async fn atlas_from_working_seeds_from_working_memory() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2612,6 +2646,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2639,6 +2674,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
                 supersedes: vec![old_item.id],
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2716,6 +2752,7 @@ async fn atlas_persisted_links_survive_reload() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2742,6 +2779,7 @@ async fn atlas_persisted_links_survive_reload() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2839,6 +2877,7 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
                     supersedes: Vec::new(),
                     tags: Vec::new(),
                     status: None,
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -3021,6 +3060,7 @@ fn store_test_item(state: &AppState) -> MemoryItem {
                 tags: item.tags.clone(),
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3623,6 +3663,7 @@ async fn dismiss_inbox_expires_items() {
                 tags: item.tags.clone(),
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -3685,6 +3726,7 @@ fn dogfood_store_fact_survives_context_retrieval() {
                 tags: vec!["user_pref".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3712,6 +3754,7 @@ fn dogfood_store_fact_survives_context_retrieval() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -3802,6 +3845,7 @@ fn dogfood_decision_surfaces_over_status_noise() {
             tags: vec!["architecture".to_string()],
             belief_branch: None,
             status: None,
+                    lane: None,
         },
         MemoryStage::Canonical,
     );
@@ -3827,6 +3871,7 @@ fn dogfood_decision_surfaces_over_status_noise() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -3897,6 +3942,7 @@ fn auto_link_creates_entity_links_on_store() {
                 tags: vec!["arch".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3923,6 +3969,7 @@ fn auto_link_creates_entity_links_on_store() {
                 tags: vec!["db".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4043,6 +4090,7 @@ fn status_cap_eviction_tracked_in_working_memory() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -4070,6 +4118,7 @@ fn status_cap_eviction_tracked_in_working_memory() {
                 tags: vec!["infra".to_string()],
                 belief_branch: None,
                 status: None,
+                    lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -4141,6 +4190,7 @@ fn duplicate_store_reinforces_existing_item() {
         tags: vec!["infra".to_string()],
         belief_branch: None,
         status: None,
+        lane: None,
     };
 
     let (first, dup1) = state
@@ -4217,6 +4267,7 @@ fn concurrent_writes_no_sqlite_busy() {
                         tags: vec!["concurrent-test".to_string()],
                         status: MemoryStatus::Active,
                         stage: MemoryStage::Canonical,
+                    lane: None,
                     };
                     let ck = super::keys::canonical_key(&item);
                     let rk = super::keys::redundancy_key(&item);
@@ -4251,4 +4302,694 @@ fn concurrent_writes_no_sqlite_busy() {
     );
 
     std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+// ── D2 Correction Flow tests ──
+
+#[test]
+fn correct_item_supersedes_old_and_creates_new() {
+    let (dir, state) = temp_state("memd-correct-basic");
+
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "the capital of France is Berlin".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec!["geography".to_string()],
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "the capital of France is Paris".to_string(),
+            reason: Some("Berlin is Germany's capital, not France's".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item");
+
+    assert_eq!(response.old_item.status, MemoryStatus::Superseded);
+    assert_eq!(response.old_item.id, original.id);
+
+    assert_eq!(response.new_item.status, MemoryStatus::Active);
+    assert_eq!(response.new_item.content, "the capital of France is Paris");
+    assert!(response.new_item.supersedes.contains(&original.id));
+    assert!(response.new_item.tags.contains(&"correction".to_string()));
+    assert!(response.new_item.tags.contains(&"geography".to_string()));
+
+    let old_from_store = state.store.get(original.id).unwrap().unwrap();
+    assert_eq!(old_from_store.status, MemoryStatus::Superseded);
+    let new_from_store = state.store.get(response.new_item.id).unwrap().unwrap();
+    assert_eq!(new_from_store.status, MemoryStatus::Active);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn correct_item_rejects_empty_content() {
+    let (dir, state) = temp_state("memd-correct-empty");
+
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "some fact".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let result = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "   ".to_string(),
+            reason: None,
+            tags: None,
+            confidence: None,
+        },
+    );
+
+    assert!(result.is_err());
+    let (status, _msg) = result.unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let from_store = state.store.get(original.id).unwrap().unwrap();
+    assert_eq!(from_store.status, MemoryStatus::Active);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn correct_item_not_found_returns_404() {
+    let (dir, state) = temp_state("memd-correct-404");
+
+    let result = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: uuid::Uuid::new_v4(),
+            content: "corrected".to_string(),
+            reason: None,
+            tags: None,
+            confidence: None,
+        },
+    );
+
+    assert!(result.is_err());
+    let (status, _msg) = result.unwrap_err();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn correct_item_preserves_metadata_from_original() {
+    let (dir, state) = temp_state("memd-correct-metadata");
+
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "old content".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Synced,
+                project: Some("myproject".to_string()),
+                namespace: Some("dev".to_string()),
+                workspace: Some("ws-1".to_string()),
+                visibility: Some(MemoryVisibility::Private),
+                belief_branch: Some("branch-a".to_string()),
+                source_agent: Some("agent-x".to_string()),
+                source_system: Some("system-y".to_string()),
+                source_path: Some("/path/to/file".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.95),
+                ttl_seconds: Some(3600),
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec!["important".to_string()],
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "new content".to_string(),
+            reason: Some("updated decision".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item");
+
+    let new = &response.new_item;
+    assert_eq!(new.kind, MemoryKind::Decision);
+    assert_eq!(new.scope, MemoryScope::Synced);
+    assert_eq!(new.project.as_deref(), Some("myproject"));
+    assert_eq!(new.namespace.as_deref(), Some("dev"));
+    assert_eq!(new.workspace.as_deref(), Some("ws-1"));
+    assert_eq!(new.visibility, MemoryVisibility::Private);
+    assert_eq!(new.belief_branch.as_deref(), Some("branch-a"));
+    assert_eq!(new.source_agent.as_deref(), Some("agent-x"));
+    assert_eq!(new.source_system.as_deref(), Some("system-y"));
+    assert_eq!(new.source_path.as_deref(), Some("/path/to/file"));
+    assert_eq!(new.ttl_seconds, Some(3600));
+    assert!(new.tags.contains(&"important".to_string()));
+    assert!(new.tags.contains(&"correction".to_string()));
+    assert_eq!(new.content, "new content");
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn explain_shows_correction_events() {
+    let (dir, state) = temp_state("memd-correct-explain");
+
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "wrong answer".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "right answer".to_string(),
+            reason: Some("was wrong".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item");
+
+    let explain_old = inspection::explain_memory(
+        &state,
+        ExplainMemoryRequest {
+            id: original.id,
+            belief_branch: None,
+            route: None,
+            intent: None,
+        },
+    )
+    .expect("explain old item");
+    assert!(
+        explain_old
+            .events
+            .iter()
+            .any(|e| e.event_type == "superseded_by_correction"),
+        "old item should have superseded_by_correction event"
+    );
+
+    let explain_new = inspection::explain_memory(
+        &state,
+        ExplainMemoryRequest {
+            id: response.new_item.id,
+            belief_branch: None,
+            route: None,
+            intent: None,
+        },
+    )
+    .expect("explain new item");
+    assert!(
+        explain_new
+            .events
+            .iter()
+            .any(|e| e.event_type == "correction_created"
+                || e.event_type == "stored_canonical"),
+        "new item should have correction_created or stored_canonical event"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn selective_reset_corrects_one_item_without_affecting_others() {
+    let (dir, state) = temp_state("memd-correct-selective");
+
+    let make_item = |content: &str| {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: content.to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: Some("test".to_string()),
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: None,
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: vec![],
+                    tags: vec![],
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store item")
+    };
+
+    let (item_a, _) = make_item("fact A is correct");
+    let (item_b, _) = make_item("fact B is correct");
+    let (item_c, _) = make_item("fact C is correct");
+
+    // Correct only item_b — items A and C should be untouched
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: item_b.id,
+            content: "fact B was wrong, now fixed".to_string(),
+            reason: Some("selective fix".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item B");
+
+    // B is superseded
+    let b_store = state.store.get(item_b.id).unwrap().unwrap();
+    assert_eq!(b_store.status, MemoryStatus::Superseded);
+
+    // New B replacement exists
+    assert_eq!(response.new_item.status, MemoryStatus::Active);
+    assert_eq!(response.new_item.content, "fact B was wrong, now fixed");
+
+    // A and C are completely untouched
+    let a_store = state.store.get(item_a.id).unwrap().unwrap();
+    assert_eq!(a_store.status, MemoryStatus::Active);
+    assert_eq!(a_store.content, "fact A is correct");
+    assert_eq!(a_store.updated_at, item_a.updated_at);
+
+    let c_store = state.store.get(item_c.id).unwrap().unwrap();
+    assert_eq!(c_store.status, MemoryStatus::Active);
+    assert_eq!(c_store.content, "fact C is correct");
+    assert_eq!(c_store.updated_at, item_c.updated_at);
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+// ── E2 Atlas Activation tests ──
+
+#[test]
+fn parse_wiki_links_extracts_bracketed_refs() {
+    let content = "see [[Rust]] and [[memd server]] for details, also [[Rust]] again";
+    let links = helpers::parse_wiki_links(content);
+    assert_eq!(links, vec!["Rust", "memd server"]);
+}
+
+#[test]
+fn parse_wiki_links_handles_empty_and_unclosed() {
+    assert!(helpers::parse_wiki_links("no links here").is_empty());
+    assert!(helpers::parse_wiki_links("[[]]").is_empty());
+    assert!(helpers::parse_wiki_links("[[unclosed").is_empty());
+    assert_eq!(
+        helpers::parse_wiki_links("[[valid]] then [[unclosed"),
+        vec!["valid"]
+    );
+}
+
+#[test]
+fn wiki_link_creates_entity_link_on_store() {
+    let (dir, state) = temp_state("memd-wiki-link");
+
+    // First item in project "alpha-svc" creates an entity with alias "alpha-svc"
+    let (fact_a, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "alpha-svc uses event sourcing".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("alpha-svc".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["arch".to_string()],
+                belief_branch: None,
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact A");
+
+    // Second item in different project, uses wiki link [[alpha-svc]] matching first entity's alias
+    let (fact_b, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "migration plan references [[alpha-svc]] decisions".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("beta-svc".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: Some("codex".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["plan".to_string()],
+                belief_branch: None,
+                status: None,
+                    lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store fact B with wiki link");
+
+    let entity_a = state.store.entity_for_item(fact_a.id).unwrap();
+    let entity_b = state.store.entity_for_item(fact_b.id).unwrap();
+
+    if let (Some(ea), Some(eb)) = (&entity_a, &entity_b) {
+        let links = state
+            .store
+            .links_for_entity(&memd_schema::EntityLinksRequest { entity_id: eb.id })
+            .unwrap();
+        let has_wiki_link = links.iter().any(|link| {
+            link.tags.contains(&"wiki-link".to_string())
+                && (link.from_entity_id == ea.id || link.to_entity_id == ea.id)
+        });
+        assert!(
+            has_wiki_link,
+            "wiki link [[alpha-svc]] should create entity link to fact A's entity"
+        );
+    }
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn atlas_regions_generated_for_project_with_items() {
+    let (dir, state) = temp_state("memd-atlas-regions");
+
+    for i in 0..12 {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("fact number {i} about the project"),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("atlas-test".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("test".to_string()),
+                    source_path: None,
+                    source_quality: None,
+                    confidence: None,
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: Vec::new(),
+                    tags: vec!["batch".to_string()],
+                    belief_branch: None,
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store batch item");
+    }
+
+    let regions = state
+        .store
+        .generate_regions_for_project(Some("atlas-test"), Some("main"), None)
+        .expect("generate regions");
+
+    assert!(
+        !regions.is_empty(),
+        "atlas should generate non-empty regions for 12 items"
+    );
+
+    let list = state
+        .store
+        .list_atlas_regions(&memd_schema::AtlasRegionsRequest {
+            project: Some("atlas-test".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            limit: Some(5),
+        })
+        .expect("list atlas regions");
+
+    assert!(
+        !list.regions.is_empty(),
+        "listed atlas regions should be non-empty after generation"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+// ── G2 Lane Architecture tests ──
+
+#[test]
+fn lane_auto_detection_from_content_keywords() {
+    assert_eq!(
+        helpers::detect_content_lane("system architecture uses event sourcing", None, &[]),
+        Some("architecture".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane("we decided to use sqlite over postgres", None, &[]),
+        Some("decisions".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane("constraint: must not exceed 100ms latency", None, &[]),
+        Some("constraints".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane("deploy pipeline runs on every push", None, &[]),
+        Some("operations".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane("just a regular note about nothing special", None, &[]),
+        None,
+    );
+}
+
+#[test]
+fn lane_auto_detection_from_tags() {
+    assert_eq!(
+        helpers::detect_content_lane("some content", None, &["lane:design".to_string()]),
+        Some("design".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane(
+            "architecture note",
+            None,
+            &["lane:operations".to_string()]
+        ),
+        Some("operations".to_string())
+    );
+}
+
+#[test]
+fn lane_auto_detection_from_source_path() {
+    assert_eq!(
+        helpers::detect_content_lane("some code", Some("src/components/Button.tsx"), &[]),
+        Some("design".to_string())
+    );
+    assert_eq!(
+        helpers::detect_content_lane("notes", Some("docs/architecture/overview.md"), &[]),
+        Some("architecture".to_string())
+    );
+}
+
+#[test]
+fn lane_persisted_on_store_item() {
+    let (dir, state) = temp_state("memd-lane-persist");
+
+    let (item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "system architecture uses event sourcing pattern".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item with auto-detected lane");
+
+    assert_eq!(
+        item.lane.as_deref(),
+        Some("architecture"),
+        "lane should be auto-detected from content keywords"
+    );
+
+    let stored = state.store.get(item.id).unwrap().unwrap();
+    assert_eq!(stored.lane.as_deref(), Some("architecture"));
+
+    std::fs::remove_dir_all(dir).expect("cleanup g2-persist");
+}
+
+#[test]
+fn explicit_lane_overrides_auto_detection() {
+    let (dir, state) = temp_state("memd-lane-explicit");
+
+    let (item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "system architecture uses event sourcing".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: Vec::new(),
+                belief_branch: None,
+                status: None,
+                lane: Some("design".to_string()),
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item with explicit lane");
+
+    assert_eq!(
+        item.lane.as_deref(),
+        Some("design"),
+        "explicit lane should override auto-detection"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup g2-explicit");
+}
+
+#[test]
+fn lane_tag_triggers_auto_detection() {
+    let (dir, state) = temp_state("memd-lane-tag");
+
+    let (item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "test lane migration".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                source_agent: None,
+                source_system: None,
+                source_path: None,
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["lane:patterns".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item with lane tag");
+
+    assert_eq!(item.lane.as_deref(), Some("patterns"));
+    let stored = state.store.get(item.id).unwrap().unwrap();
+    assert_eq!(stored.lane.as_deref(), Some("patterns"));
+
+    std::fs::remove_dir_all(dir).expect("cleanup g2-tag");
 }

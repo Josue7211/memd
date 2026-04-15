@@ -515,7 +515,7 @@
             recent_repo_changes: vec!["changed file".to_string()],
             change_summary: vec!["summary".to_string()],
             resume_state_age_minutes: Some(1),
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         };
         cache::write_resume_snapshot_cache(&output, &cache_key, &snapshot)
             .expect("write resume cache");
@@ -657,7 +657,7 @@
             recent_repo_changes: vec!["changed file".to_string()],
             change_summary: vec!["summary".to_string()],
             resume_state_age_minutes: Some(1),
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         };
         let handoff = HandoffSnapshot {
             generated_at: Utc::now(),

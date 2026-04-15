@@ -7,14 +7,14 @@ truth_date: 2026-04-15
 version: v2
 version_status: in_progress
 current_milestone: M2
-milestone_status: pending
-current_phase: phase_d2
-phase_status: pending
+milestone_status: complete
+current_phase: phase_g2
+phase_status: complete
 next_milestone: M3
-next_step: begin M2 — D2 Correction Flow, E2 Atlas Activation, G2 Lane Architecture
+next_step: M2 gate verification — then M3 Proof + Surface
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M1 closed 2026-04-15. All gates passed. M2 begins.
+note: M2 complete 2026-04-15. D2+E2+G2 all implemented and tested. M3 next.
 -->
 
 ## Status Snapshot
@@ -23,10 +23,10 @@ note: M1 closed 2026-04-15. All gates passed. M2 begins.
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M2: Truth Layer` (next)
-- current phase: `D2 Correction Flow` (pending)
-- completed: `M0` (verified), `M1` (verified — all gates passed 2026-04-15), `Phase A2` (verified), `Phase B2` (verified), `Phase C2` (verified), `Phase F2` (verified)
-- next step: begin M2 — D2 Correction Flow, E2 Atlas Activation, G2 Lane Architecture
+- current milestone: `M2: Truth Layer` (complete)
+- current phase: all M2 phases complete
+- completed: `M0` (verified), `M1` (verified — all gates passed 2026-04-15), `Phase A2` (verified), `Phase B2` (verified), `Phase C2` (verified), `Phase F2` (verified), `Phase D2` (verified), `Phase E2` (verified), `Phase G2` (verified)
+- next step: M2 gate verification, then M3 Proof + Surface
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - M1 benchmark re-run: LongMemEval 96.0% (+13.2%), LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - B2 pass gate: eval=95, 0 status items in working memory, 100% noise reduction, E2E fact recall confirmed
@@ -159,9 +159,9 @@ Make memory trustworthy and navigable. After M2, users can correct and explore.
 
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
-| D2 | Correction Flow | `pending` | #43, #57, #58, #78, #80 | [[docs/phases/phase-d2-correction-flow.md]] |
-| E2 | Atlas Activation | `pending` | #44, #51, #52 | [[docs/phases/phase-e2-atlas-activation.md]] |
-| G2 | Lane Architecture | `pending` | #38, #40 | [[docs/phases/phase-g2-lane-architecture.md]] |
+| D2 | Correction Flow | `complete` | #43, #57, #58, #78, #80 | [[docs/phases/phase-d2-correction-flow.md]] |
+| E2 | Atlas Activation | `complete` | #44, #51, #52 | [[docs/phases/phase-e2-atlas-activation.md]] |
+| G2 | Lane Architecture | `complete` | #38, #40 | [[docs/phases/phase-g2-lane-architecture.md]] |
 
 **Gate**: Correct a fact → next recall reflects correction. Atlas navigable in ≤ 4 hops.
 6 lanes functional with auto-activation. Benchmark re-run.

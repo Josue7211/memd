@@ -205,6 +205,7 @@ pub(crate) fn build_fixture_resume_snapshot(
                     supersedes: Vec::new(),
                     updated_at: Utc::now(),
                     tags: vec!["continuity".to_string()],
+                    lane: None,
                 },
                 reasons: vec!["fixture".to_string()],
             }],
@@ -235,6 +236,7 @@ pub(crate) fn build_fixture_resume_snapshot(
         change_summary: vec!["fixture continuity seeded".to_string()],
         resume_state_age_minutes: Some(1),
         refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
     }
 }
 

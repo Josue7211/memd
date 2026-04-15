@@ -2,7 +2,7 @@
 phase: E2
 name: Atlas Activation
 version: v2
-status: pending
+status: complete
 depends_on: [B2, C2]
 backlog_items: [44, 51, 52]
 ---

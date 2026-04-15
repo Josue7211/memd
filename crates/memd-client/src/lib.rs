@@ -4,7 +4,7 @@ use memd_schema::{
     AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest,
     AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse, CandidateMemoryRequest,
     CandidateMemoryResponse, CompactContextResponse, ContextRequest, ContextResponse,
-    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
+    CorrectMemoryRequest, CorrectMemoryResponse, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
     EntityMemoryRequest, EntityMemoryResponse, EntitySearchRequest, EntitySearchResponse,
     ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest, ExplainMemoryResponse,
     HealthResponse, HiveBoardRequest, HiveBoardResponse, HiveClaimAcquireRequest,
@@ -97,6 +97,13 @@ impl MemdClient {
 
     pub async fn repair(&self, req: &RepairMemoryRequest) -> anyhow::Result<RepairMemoryResponse> {
         self.post_json("/memory/repair", req).await
+    }
+
+    pub async fn correct(
+        &self,
+        req: &CorrectMemoryRequest,
+    ) -> anyhow::Result<CorrectMemoryResponse> {
+        self.post_json("/memory/correct", req).await
     }
 
     pub async fn search(&self, req: &SearchMemoryRequest) -> anyhow::Result<SearchMemoryResponse> {

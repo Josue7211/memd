@@ -1931,6 +1931,7 @@ pub(crate) fn test_insert_visible_item(
         supersedes: Vec::new(),
         tags: vec!["visible-memory".to_string()],
         status: Some(MemoryStatus::Active),
+        lane: None,
     };
     let (mut item, _) = state.store_item(req, MemoryStage::Canonical)?;
     item.preferred = preferred;
@@ -2167,6 +2168,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2214,6 +2216,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2240,6 +2243,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )
@@ -2282,6 +2286,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Active),
+                    lane: None,
                 },
                 MemoryStage::Candidate,
             )?
@@ -2315,6 +2320,7 @@ mod tests {
                     supersedes: Vec::new(),
                     tags: vec!["visible-memory".to_string()],
                     status: Some(MemoryStatus::Stale),
+                    lane: None,
                 },
                 MemoryStage::Canonical,
             )?

@@ -32,7 +32,7 @@ use crate::store_hive::{
 };
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
-    migrate_hive_sessions_last_wake_at, migrate_redundancy_key,
+    migrate_hive_sessions_last_wake_at, migrate_lane_column, migrate_redundancy_key,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -400,6 +400,7 @@ impl SqliteStore {
         .context("initialize sqlite schema")?;
 
         migrate_redundancy_key(&conn)?;
+        migrate_lane_column(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -440,8 +441,8 @@ impl SqliteStore {
             conn.execute(
                 r#"
                 INSERT INTO memory_items (
-                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                 "#,
                 params![
                     item.id.to_string(),
@@ -457,6 +458,7 @@ impl SqliteStore {
                     canonical_key,
                     item.updated_at.to_rfc3339(),
                     payload_json,
+                    item.lane,
                 ],
             )
         };
@@ -502,7 +504,8 @@ impl SqliteStore {
                 confidence = ?10,
                 canonical_key = ?11,
                 updated_at = ?12,
-                payload_json = ?13
+                payload_json = ?13,
+                lane = ?14
             WHERE id = ?1
             "#,
             params![
@@ -519,6 +522,7 @@ impl SqliteStore {
                 canonical_key,
                 item.updated_at.to_rfc3339(),
                 &payload_json,
+                item.lane,
             ],
         );
 

@@ -778,6 +778,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Repair(args) => {
             run_repair_command(&client, args).await?;
         }
+        Commands::Correct(args) => {
+            run_correct_command(&client, args).await?;
+        }
         Commands::Search(args) => {
             run_search_command(&client, args).await?;
         }

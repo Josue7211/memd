@@ -814,6 +814,7 @@ mod tests {
                     tags: vec!["resume_state".to_string()],
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
+                    lane: None,
                 },
                 memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
@@ -840,6 +841,7 @@ mod tests {
                     tags: vec!["roadmap".to_string(), "phase-e".to_string(), "ralph".to_string()],
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
+                    lane: None,
                 },
             ],
         };

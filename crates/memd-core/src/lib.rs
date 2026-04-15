@@ -466,6 +466,7 @@ fn push_session_item(
         last_verified_at: None,
         supersedes: Vec::new(),
         tags: tags_out,
+        lane: None,
     });
 }
 

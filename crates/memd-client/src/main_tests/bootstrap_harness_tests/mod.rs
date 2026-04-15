@@ -2740,6 +2740,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
                     created_at: chrono::Utc::now(),
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),
@@ -2773,7 +2774,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
         recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
         change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
         resume_state_age_minutes: None,
-        refresh_recommended: false,
+        refresh_recommended: false, atlas_region_hints: Vec::new(),
     };
 
     let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);

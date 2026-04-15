@@ -561,6 +561,7 @@ pub(crate) fn build_resume_state_store_request(
         supersedes: Vec::new(),
         tags: vec!["resume_state".to_string(), "session_state".to_string()],
         status: Some(MemoryStatus::Active),
+        lane: None,
     })
 }
 
@@ -652,7 +653,7 @@ mod tests {
             recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         }
     }
 

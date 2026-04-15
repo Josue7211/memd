@@ -1,8 +1,9 @@
 use axum::http::StatusCode;
 use chrono::Utc;
 use memd_schema::{
-    ExpireMemoryRequest, MemoryItem, MemoryRepairMode, MemoryStatus, RepairMemoryRequest,
-    RepairMemoryResponse, VerifyMemoryRequest,
+    CorrectMemoryRequest, CorrectMemoryResponse, ExpireMemoryRequest, MemoryItem,
+    MemoryRepairMode, MemoryStage, MemoryStatus, RepairMemoryRequest, RepairMemoryResponse,
+    StoreMemoryRequest, VerifyMemoryRequest,
 };
 
 use crate::{AppState, RecordEventArgs, canonical_key, internal_error, redundancy_key};
@@ -58,6 +59,132 @@ pub(crate) fn verify_item(
         },
     )
     .map(|response| response.item)
+}
+
+pub(crate) fn correct_item(
+    state: &AppState,
+    req: CorrectMemoryRequest,
+) -> Result<CorrectMemoryResponse, (StatusCode, String)> {
+    if req.content.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "correction content cannot be empty".to_string(),
+        ));
+    }
+    let old_item = state
+        .store
+        .get(req.id)
+        .map_err(internal_error)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+
+    // 1. Mark old item Superseded
+    let mut superseded = old_item.clone();
+    superseded.status = MemoryStatus::Superseded;
+    superseded.updated_at = Utc::now();
+    let old_canonical = canonical_key(&superseded);
+    let old_redundancy = redundancy_key(&superseded);
+    let superseded = MemoryItem {
+        redundancy_key: Some(old_redundancy.clone()),
+        ..superseded
+    };
+    state
+        .store
+        .update(&superseded, &old_canonical, &old_redundancy)
+        .map_err(internal_error)?;
+    if let Err(e) = record_lifecycle_event(
+        state,
+        &superseded,
+        "superseded_by_correction",
+        &format!("memory item superseded by correction"),
+    ) {
+        eprintln!("warn: record_lifecycle_event (superseded_by_correction): {e:#}");
+    }
+
+    // 2. Create new item with corrected content
+    let mut new_tags = req.tags.unwrap_or_else(|| old_item.tags.clone());
+    if !new_tags.contains(&"correction".to_string()) {
+        new_tags.push("correction".to_string());
+    }
+    let store_req = StoreMemoryRequest {
+        content: req.content.trim().to_string(),
+        kind: old_item.kind,
+        scope: old_item.scope,
+        project: old_item.project.clone(),
+        namespace: old_item.namespace.clone(),
+        workspace: old_item.workspace.clone(),
+        visibility: Some(old_item.visibility),
+        belief_branch: old_item.belief_branch.clone(),
+        source_agent: old_item.source_agent.clone(),
+        source_system: old_item.source_system.clone(),
+        source_path: old_item.source_path.clone(),
+        source_quality: old_item.source_quality,
+        confidence: Some(req.confidence.unwrap_or(old_item.confidence).clamp(0.0, 1.0)),
+        ttl_seconds: old_item.ttl_seconds,
+        last_verified_at: Some(Utc::now()),
+        supersedes: vec![old_item.id],
+        tags: new_tags,
+        status: Some(MemoryStatus::Active),
+        lane: old_item.lane.clone(),
+    };
+    let (new_item, _duplicate) = state
+        .store_item(store_req, MemoryStage::Canonical)
+        .map_err(internal_error)?;
+
+    if let Err(e) = record_lifecycle_event(
+        state,
+        &new_item,
+        "correction_created",
+        &format!(
+            "correction of item {} — {}",
+            old_item.id,
+            req.reason.as_deref().unwrap_or("content corrected")
+        ),
+    ) {
+        eprintln!("warn: record_lifecycle_event (correction_created): {e:#}");
+    }
+
+    // 3. Contradiction detection: check for active items with same redundancy_key
+    let new_redundancy = new_item
+        .redundancy_key
+        .as_deref()
+        .unwrap_or("")
+        .to_string();
+    let mut contested = Vec::new();
+    if !new_redundancy.is_empty() {
+        let all_items = state.snapshot().map_err(internal_error)?;
+        for mut sibling in all_items {
+            if sibling.id == new_item.id || sibling.id == old_item.id {
+                continue;
+            }
+            if sibling.status != MemoryStatus::Active {
+                continue;
+            }
+            if sibling.redundancy_key.as_deref() != Some(new_redundancy.as_str()) {
+                continue;
+            }
+            if sibling.content != new_item.content {
+                sibling.status = MemoryStatus::Contested;
+                sibling.updated_at = Utc::now();
+                let sib_canonical = canonical_key(&sibling);
+                let sib_redundancy = redundancy_key(&sibling);
+                let sibling = MemoryItem {
+                    redundancy_key: Some(sib_redundancy.clone()),
+                    ..sibling
+                };
+                state
+                    .store
+                    .update(&sibling, &sib_canonical, &sib_redundancy)
+                    .map_err(internal_error)?;
+                contested.push(sibling.id);
+            }
+        }
+    }
+
+    Ok(CorrectMemoryResponse {
+        old_item: superseded,
+        new_item,
+        contested,
+    })
 }
 
 pub(crate) fn repair_item(

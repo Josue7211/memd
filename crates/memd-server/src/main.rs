@@ -44,6 +44,7 @@ use memd_schema::{
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
+    CorrectMemoryRequest, CorrectMemoryResponse,
     EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
     EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
     EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
@@ -95,6 +96,7 @@ impl AppState {
     ) -> anyhow::Result<(MemoryItem, Option<DuplicateMatch>)> {
         validate_source_quality(req.source_quality)?;
         let now = Utc::now();
+        let lane = req.lane.or_else(|| detect_content_lane(&req.content, req.source_path.as_deref(), &req.tags));
         let item = MemoryItem {
             id: Uuid::new_v4(),
             content: req.content.trim().to_string(),
@@ -120,6 +122,7 @@ impl AppState {
             status: req.status.unwrap_or(MemoryStatus::Active),
             source_quality: req.source_quality.or(Some(SourceQuality::Canonical)),
             stage,
+            lane,
         };
 
         let canonical_key = canonical_key(&item);
@@ -196,6 +199,11 @@ impl AppState {
                 if let Err(e) = self.auto_link_entity(&entity.record, &item) {
                     eprintln!("warn: auto_link_entity: {e:#}");
                 }
+            }
+
+            // E2: Parse [[wiki links]] in content and create entity links
+            if let Err(e) = self.create_wiki_links(&entity.record, &item) {
+                eprintln!("warn: create_wiki_links: {e:#}");
             }
         }
         Ok((item, duplicate))
@@ -285,6 +293,55 @@ impl AppState {
                 tags: vec!["auto".to_string()],
             };
             self.store.upsert_entity_link(&link)?;
+        }
+        Ok(())
+    }
+
+    fn create_wiki_links(
+        &self,
+        source_entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+    ) -> anyhow::Result<()> {
+        let wiki_refs = parse_wiki_links(&item.content);
+        if wiki_refs.is_empty() {
+            return Ok(());
+        }
+        let entities = self.store.list_entities()?;
+        for wiki_ref in wiki_refs {
+            let wiki_lower = wiki_ref.to_ascii_lowercase();
+            let target = entities.iter().find(|e| {
+                e.aliases
+                    .iter()
+                    .any(|a| a.to_ascii_lowercase().contains(&wiki_lower))
+                    || e.entity_type.to_ascii_lowercase().contains(&wiki_lower)
+            });
+            if let Some(target_entity) = target {
+                if target_entity.id == source_entity.id {
+                    continue;
+                }
+                let existing = self.store.links_for_entity(&EntityLinksRequest {
+                    entity_id: source_entity.id,
+                })?;
+                let already_linked = existing.iter().any(|link| {
+                    link.from_entity_id == target_entity.id
+                        || link.to_entity_id == target_entity.id
+                });
+                if already_linked {
+                    continue;
+                }
+                let link = MemoryEntityLinkRecord {
+                    id: Uuid::new_v4(),
+                    from_entity_id: source_entity.id,
+                    to_entity_id: target_entity.id,
+                    relation_kind: memd_schema::EntityRelationKind::Related,
+                    confidence: 0.7,
+                    created_at: Utc::now(),
+                    note: Some(format!("wiki link: [[{}]]", wiki_ref)),
+                    context: None,
+                    tags: vec!["wiki-link".to_string(), "auto".to_string()],
+                };
+                self.store.upsert_entity_link(&link)?;
+            }
         }
         Ok(())
     }
@@ -446,6 +503,7 @@ async fn main() {
         .route("/memory/expire", post(expire_memory))
         .route("/memory/verify", post(verify_memory))
         .route("/memory/repair", post(repair_memory))
+        .route("/memory/correct", post(correct_memory))
         .route("/memory/search", post(search_memory))
         .route("/memory/context", get(get_context))
         .route("/memory/context/compact", get(get_compact_context))

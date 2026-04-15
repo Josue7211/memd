@@ -545,6 +545,7 @@ pub(crate) async fn store_live_truth_record(
         supersedes: Vec::new(),
         tags: tags.clone(),
         status: Some(MemoryStatus::Active),
+        lane: None,
     };
 
     match client.store(&request).await {

@@ -176,6 +176,15 @@ pub(crate) fn render_bundle_wakeup_markdown(
     }
     prefix.push('\n');
 
+    // E2: Atlas region hints in wake packet
+    if !snapshot.atlas_region_hints.is_empty() && !claude_strict {
+        prefix.push_str("## Atlas\n\n");
+        for hint in snapshot.atlas_region_hints.iter().take(3) {
+            prefix.push_str(&format!("- {}\n", compact_inline(hint, 80)));
+        }
+        prefix.push('\n');
+    }
+
     let continuity = snapshot.continuity_capsule();
     if continuity.current_task.is_some()
         || continuity.resume_point.is_some()
@@ -438,7 +447,7 @@ mod tests {
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         }
     }
 
@@ -536,6 +545,7 @@ mod tests {
                             created_at: Utc::now(),
                             status: memd_schema::MemoryStatus::Active,
                             stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
                             last_verified_at: None,
                             supersedes: Vec::new(),
                             updated_at: Utc::now(),
@@ -587,7 +597,7 @@ mod tests {
                 "next=refresh from bundle".to_string(),
             ],
             resume_state_age_minutes: Some(25),
-            refresh_recommended: true,
+            refresh_recommended: true, atlas_region_hints: Vec::new(),
         }
     }
 

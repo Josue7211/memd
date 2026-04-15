@@ -362,6 +362,7 @@ pub fn build_note_request(
         last_verified_at: Some(Utc::now()),
         supersedes: supersedes_item_id.into_iter().collect(),
         tags,
+        lane: None,
     }
 }
 
@@ -1023,6 +1024,7 @@ mod tests {
                 tags: vec!["bundle".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
             },
             canonical_key: "fact:bundle-first".to_string(),
             redundancy_key: "fact:bundle-first".to_string(),
@@ -1142,7 +1144,7 @@ items: 7
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -1229,7 +1231,7 @@ items: 7
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false,
+            refresh_recommended: false, atlas_region_hints: Vec::new(),
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {

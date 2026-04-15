@@ -242,6 +242,8 @@ pub struct MemoryItem {
     pub tags: Vec<String>,
     pub status: MemoryStatus,
     pub stage: MemoryStage,
+    #[serde(default)]
+    pub lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +266,8 @@ pub struct StoreMemoryRequest {
     pub supersedes: Vec<Uuid>,
     pub tags: Vec<String>,
     pub status: Option<MemoryStatus>,
+    #[serde(default)]
+    pub lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +294,8 @@ pub struct CandidateMemoryRequest {
     pub last_verified_at: Option<DateTime<Utc>>,
     pub supersedes: Vec<Uuid>,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,6 +381,25 @@ pub struct RepairMemoryResponse {
     pub item: MemoryItem,
     pub mode: MemoryRepairMode,
     pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectMemoryRequest {
+    pub id: Uuid,
+    pub content: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectMemoryResponse {
+    pub old_item: MemoryItem,
+    pub new_item: MemoryItem,
+    pub contested: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -3155,6 +3180,7 @@ mod tests {
                 tags: vec!["decision".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
+                    lane: None,
             },
             canonical_key: "decision:bundle-first".to_string(),
             redundancy_key: "decision:bundle-first".to_string(),
@@ -3607,6 +3633,7 @@ mod tests {
                 tags: vec!["repair".to_string(), "audit".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
+                    lane: None,
             },
             mode: request.mode,
             reasons: vec![

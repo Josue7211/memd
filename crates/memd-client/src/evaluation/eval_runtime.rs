@@ -283,6 +283,7 @@ pub(crate) async fn read_bundle_resume(
         change_summary,
         resume_state_age_minutes,
         refresh_recommended,
+        atlas_region_hints: Vec::new(),
     };
 
     sync_resume_state_record(

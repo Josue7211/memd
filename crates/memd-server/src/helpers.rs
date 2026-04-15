@@ -259,6 +259,92 @@ pub(crate) fn compact_content(content: &str, max_chars: usize) -> String {
     compact
 }
 
+pub(crate) fn parse_wiki_links(content: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let mut remaining = content;
+    while let Some(start) = remaining.find("[[") {
+        let after_open = &remaining[start + 2..];
+        if let Some(end) = after_open.find("]]") {
+            let link = after_open[..end].trim().to_string();
+            if !link.is_empty() && !links.contains(&link) {
+                links.push(link);
+            }
+            remaining = &after_open[end + 2..];
+        } else {
+            break;
+        }
+    }
+    links
+}
+
+/// 6 content lanes for G2 lane architecture.
+pub(crate) const KNOWN_LANES: &[&str] = &[
+    "architecture",
+    "decisions",
+    "constraints",
+    "patterns",
+    "design",
+    "operations",
+];
+
+/// Auto-detect a content lane from content text, source path, and tags.
+/// Uses a priority cascade: explicit lane tag → path component → content keywords → None.
+pub(crate) fn detect_content_lane(
+    content: &str,
+    source_path: Option<&str>,
+    tags: &[String],
+) -> Option<String> {
+    // 1. Explicit lane tag (e.g. "lane:design")
+    for tag in tags {
+        if let Some(lane) = tag.strip_prefix("lane:") {
+            let lane = lane.trim().to_ascii_lowercase();
+            if KNOWN_LANES.contains(&lane.as_str()) {
+                return Some(lane);
+            }
+        }
+    }
+
+    // 2. Source path component match
+    if let Some(path) = source_path {
+        let path_lower = path.to_ascii_lowercase();
+        for &lane in KNOWN_LANES {
+            if path_lower.contains(lane) {
+                return Some(lane.to_string());
+            }
+        }
+        // Design lane from frontend file extensions
+        if path_lower.ends_with(".tsx")
+            || path_lower.ends_with(".vue")
+            || path_lower.ends_with(".svelte")
+            || path_lower.ends_with(".css")
+            || path_lower.ends_with(".scss")
+        {
+            return Some("design".to_string());
+        }
+    }
+
+    // 3. Content keyword scan (first 2KB)
+    let window = &content[..content.len().min(2048)];
+    let window_lower = window.to_ascii_lowercase();
+
+    static LANE_KEYWORDS: &[(&str, &[&str])] = &[
+        ("architecture", &["architecture", "system design", "data flow", "component layout", "schema migration"]),
+        ("decisions", &["decided", "decision", "rationale", "trade-off", "tradeoff", "chose", "we chose"]),
+        ("constraints", &["constraint", "limitation", "boundary", "must not", "non-negotiable", "requirement"]),
+        ("patterns", &["pattern", "convention", "coding standard", "best practice", "style guide"]),
+        ("design", &["ui design", "ux ", "frontend", "layout", "mockup", "wireframe", "figma"]),
+        ("operations", &["deploy", "infrastructure", "monitoring", "alerting", "pipeline", "ci/cd", "runbook"]),
+    ];
+
+    for &(lane, keywords) in LANE_KEYWORDS {
+        if keywords.iter().any(|kw| window_lower.contains(kw)) {
+            return Some(lane.to_string());
+        }
+    }
+
+    None
+}
+
 pub(crate) fn event_type_for_stage(stage: MemoryStage) -> &'static str {
     match stage {
         MemoryStage::Candidate => "candidate_created",
@@ -894,6 +980,7 @@ mod tests {
             created_at: Utc::now(),
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
+                    lane: None,
             last_verified_at: Some(Utc::now()),
             supersedes: Vec::new(),
             updated_at: Utc::now(),
@@ -1314,6 +1401,7 @@ mod epistemic_state_tests {
             tags: vec![],
             status,
             stage: MemoryStage::Canonical,
+                    lane: None,
         }
     }
 

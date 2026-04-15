@@ -180,6 +180,22 @@ pub(crate) fn migrate_hive_sessions_last_wake_at(conn: &Connection) -> anyhow::R
     Ok(())
 }
 
+pub(crate) fn migrate_lane_column(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "lane") {
+        conn.execute_batch("ALTER TABLE memory_items ADD COLUMN lane TEXT;")?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_memory_lane ON memory_items(lane);",
+        )?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"

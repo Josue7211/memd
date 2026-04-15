@@ -259,6 +259,7 @@ async fn ingest_text_memory(
         last_verified_at: None,
         supersedes,
         tags,
+        lane: None,
     };
 
     if args.apply {
@@ -511,6 +512,7 @@ pub(crate) async fn ingest_sources(
                 supersedes: Vec::new(),
                 tags: tags.clone(),
                 status: Some(MemoryStatus::Active),
+                lane: None,
             };
             let resp = client.store(&req).await.with_context(|| {
                 format!("store canonical item for {}", path.display())

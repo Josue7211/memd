@@ -40,6 +40,7 @@ fn sample_memory_item() -> MemoryItem {
         status: MemoryStatus::Active,
         source_quality: Some(SourceQuality::Canonical),
         stage: MemoryStage::Canonical,
+        lane: None,
     }
 }
 

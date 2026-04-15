@@ -159,6 +159,7 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileUpsertRequest, AssociativeRecallRequest,
     BenchmarkEvidenceSummary, BenchmarkGateDecision, BenchmarkRegistry, BenchmarkSubjectMetrics,
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
+    CorrectMemoryRequest,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
     ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,

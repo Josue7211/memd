@@ -945,6 +945,7 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["caveman-ultra".to_string(), "token-efficient".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
             }]
     } else if query.contains("stale belief") {
         vec![memd_schema::MemoryItem {
@@ -972,6 +973,7 @@ pub(crate) async fn mock_search_memory(
             tags: vec!["correction-target".to_string()],
             status: memd_schema::MemoryStatus::Stale,
             stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
         }]
     } else if req.query.is_none() {
         vec![
@@ -1000,6 +1002,7 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["resume_state".to_string(), "session_state".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
             },
             memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
@@ -1026,6 +1029,7 @@ pub(crate) async fn mock_search_memory(
                 tags: vec!["roadmap".to_string(), "phase-e".to_string(), "ralph".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
             }
         ]
     } else {
@@ -1054,6 +1058,7 @@ pub(crate) async fn mock_search_memory(
             tags: vec!["resume_state".to_string(), "session_state".to_string()],
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
         }]
     };
     Json(memd_schema::SearchMemoryResponse {
@@ -1096,6 +1101,7 @@ pub(crate) async fn mock_store_memory(
             tags: req.tags,
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
         },
     })
 }
@@ -1137,6 +1143,7 @@ pub(crate) async fn mock_candidate_memory(
             tags: req.tags,
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Candidate,
+                    lane: None,
         },
         duplicate_of: None,
     })
@@ -1179,6 +1186,7 @@ pub(crate) async fn mock_repair_memory(
             tags: req.tags.unwrap_or_default(),
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
+                    lane: None,
         },
         mode: req.mode,
         reasons: vec!["mock_repair".to_string()],
