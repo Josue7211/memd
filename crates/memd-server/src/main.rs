@@ -48,7 +48,7 @@ use memd_schema::{
     EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
     EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
     EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
-    ExplainMemoryResponse, HealthResponse, HiveBoardRequest, HiveBoardResponse,
+    ExplainMemoryResponse, HealthResponse, PressureMetrics, HiveBoardRequest, HiveBoardResponse,
     HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,

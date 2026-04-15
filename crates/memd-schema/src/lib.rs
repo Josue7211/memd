@@ -2214,9 +2214,21 @@ pub struct CompactionSpillResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PressureMetrics {
+    pub inbox: usize,
+    pub candidates: usize,
+    pub stale: usize,
+    pub expired: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub items: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval_score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pressure: Option<PressureMetrics>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

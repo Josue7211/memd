@@ -4,9 +4,39 @@ pub(crate) async fn healthz(
     State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, (StatusCode, String)> {
     let items = state.store.count().map_err(internal_error)?;
+
+    // Compute pressure metrics from store
+    let all_items = state.store.list().unwrap_or_default();
+    let inbox_count = all_items
+        .iter()
+        .filter(|i| {
+            i.stage == MemoryStage::Candidate || i.status != MemoryStatus::Active
+        })
+        .filter(|i| i.status != MemoryStatus::Expired)
+        .count();
+    let candidates = all_items
+        .iter()
+        .filter(|i| i.stage == MemoryStage::Candidate)
+        .count();
+    let stale = all_items
+        .iter()
+        .filter(|i| i.status == MemoryStatus::Stale)
+        .count();
+    let expired = all_items
+        .iter()
+        .filter(|i| i.status == MemoryStatus::Expired)
+        .count();
+
     Ok(Json(HealthResponse {
         status: "ok".to_string(),
         items,
+        eval_score: None,
+        pressure: Some(PressureMetrics {
+            inbox: inbox_count,
+            candidates,
+            stale,
+            expired,
+        }),
     }))
 }
 
@@ -188,7 +218,12 @@ pub(crate) async fn search_memory(
     let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
         .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
-    let items = filter_items(&items, &req, &plan);
+    let fts_ranks = req
+        .query
+        .as_ref()
+        .and_then(|q| state.store.fts_search(q, 100).ok())
+        .unwrap_or_default();
+    let items = filter_items(&items, &req, &plan, &fts_ranks);
     state
         .rehearse_items(&items, feedback_limit)
         .map_err(internal_error)?;
