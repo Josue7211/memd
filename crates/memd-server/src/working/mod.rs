@@ -352,14 +352,17 @@ fn working_item_priority(
         .unwrap_or(45.0);
     let rehearsal_count = entity.map(|entity| entity.rehearsal_count).unwrap_or(0);
 
+    // B2: kind is the dominant admission factor. Facts/decisions must always
+    // outrank status regardless of confidence. Spread: 0.55 (Fact→Status).
     let kind_score = match item.kind {
-        memd_schema::MemoryKind::Status => -0.15,
-        memd_schema::MemoryKind::Fact
-        | memd_schema::MemoryKind::Decision
-        | memd_schema::MemoryKind::Procedural => 0.10,
-        memd_schema::MemoryKind::Preference
-        | memd_schema::MemoryKind::Constraint
-        | memd_schema::MemoryKind::Runbook => 0.06,
+        memd_schema::MemoryKind::Fact | memd_schema::MemoryKind::Decision => 0.30,
+        memd_schema::MemoryKind::Preference => 0.25,
+        memd_schema::MemoryKind::Procedural => 0.20,
+        memd_schema::MemoryKind::Constraint | memd_schema::MemoryKind::Runbook => 0.15,
+        memd_schema::MemoryKind::Pattern
+        | memd_schema::MemoryKind::Topology
+        | memd_schema::MemoryKind::SelfModel => 0.08,
+        memd_schema::MemoryKind::Status => -0.25,
         _ => 0.0,
     };
     let status_score = match item.status {
@@ -471,7 +474,8 @@ fn working_item_priority(
         reasons.push(format!("lane={}", item.lane.as_deref().unwrap_or("?")));
     }
     (
-        (confidence * 0.48
+        // B2: reduced confidence weight (0.35 from 0.48) so kind_score dominates.
+        (confidence * 0.35
             + kind_score
             + status_score
             + source_score
@@ -594,6 +598,36 @@ mod tests {
         assert!(
             working_item_priority(&verified, None, 0.8, 0.6, now).0
                 > working_item_priority(&unverified, None, 0.8, 0.6, now).0
+        );
+    }
+
+    #[test]
+    fn b2_fact_always_outranks_status_regardless_of_confidence() {
+        let now = Utc::now();
+        // High-confidence status item (0.9 — typical checkpoint)
+        let mut status_item = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Canonical),
+            0.9,
+            Some(now),
+            now,
+        );
+        status_item.kind = memd_schema::MemoryKind::Status;
+
+        // Medium-confidence fact (0.6 — freshly stored)
+        let fact_item = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Canonical),
+            0.6,
+            Some(now),
+            now,
+        );
+
+        let status_score = working_item_priority(&status_item, None, 0.9, 0.6, now).0;
+        let fact_score = working_item_priority(&fact_item, None, 0.7, 0.6, now).0;
+        assert!(
+            fact_score > status_score,
+            "fact ({fact_score:.3}) must outrank status ({status_score:.3})"
         );
     }
 

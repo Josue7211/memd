@@ -132,7 +132,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push_str("- none\n\n");
     } else {
         let limit = if claude_strict {
-            1
+            2
         } else if verbose {
             6
         } else {
@@ -145,7 +145,25 @@ pub(crate) fn render_bundle_wakeup_markdown(
         } else {
             140
         };
-        for item in snapshot.context.records.iter().take(limit) {
+        // B2: Reorder durable truth to show non-live_truth items first.
+        // LiveTruth (repo deltas, file edits) is transient; facts/decisions
+        // are the durable knowledge this section should surface.
+        let is_live_truth =
+            |r: &memd_schema::CompactMemoryRecord| r.record.contains("kind=live_truth");
+        let non_live: Vec<_> = snapshot
+            .context
+            .records
+            .iter()
+            .filter(|r| !is_live_truth(r))
+            .collect();
+        let live: Vec<_> = snapshot
+            .context
+            .records
+            .iter()
+            .filter(|r| is_live_truth(r))
+            .collect();
+        let reordered: Vec<_> = non_live.into_iter().chain(live.into_iter()).collect();
+        for item in reordered.iter().take(limit) {
             prefix.push_str(&format!(
                 "- {}\n",
                 compact_inline(item.record.trim(), item_limit)

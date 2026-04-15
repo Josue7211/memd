@@ -1625,6 +1625,8 @@ pub(crate) async fn mock_healthz() -> Json<memd_schema::HealthResponse> {
     Json(memd_schema::HealthResponse {
         status: "ok".to_string(),
         items: 1,
+        eval_score: None,
+        pressure: None,
     })
 }
 
