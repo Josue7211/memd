@@ -74,6 +74,40 @@ function StatusDashboard() {
         />
       </div>
 
+      {/* Pressure metrics */}
+      {h?.pressure && (
+        <div className="grid grid-cols-4 gap-4">
+          <MetricCard
+            label="Eval Score"
+            value={h.eval_score != null ? `${Math.round(h.eval_score)}` : "—"}
+            color={
+              h.eval_score == null
+                ? "text-text-tertiary"
+                : h.eval_score >= 80
+                  ? "text-status-current"
+                  : h.eval_score >= 50
+                    ? "text-status-stale"
+                    : "text-status-expired"
+            }
+          />
+          <MetricCard
+            label="Candidates"
+            value={h.pressure.candidates}
+            color="text-status-candidate"
+          />
+          <MetricCard
+            label="Stale"
+            value={h.pressure.stale}
+            color="text-status-stale"
+          />
+          <MetricCard
+            label="Expired"
+            value={h.pressure.expired}
+            color="text-status-expired"
+          />
+        </div>
+      )}
+
       {/* Harness bootstrap health */}
       {sessions.data?.sessions.length ? (
         <HarnessHealthPanel sessions={sessions.data.sessions} />
