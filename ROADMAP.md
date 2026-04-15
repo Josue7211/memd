@@ -3,31 +3,32 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-14
+truth_date: 2026-04-15
 version: v2
 version_status: in_progress
-current_milestone: M1
-milestone_status: in_progress
-current_phase: phase_c2
+current_milestone: M2
+milestone_status: pending
+current_phase: phase_d2
 phase_status: pending
-next_milestone: M2
-next_step: C2 (ghost cleanup) + F2 (ingestion pipeline)
+next_milestone: M3
+next_step: begin M2 — D2 Correction Flow, E2 Atlas Activation, G2 Lane Architecture
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M0 closed — baseline recorded, B2 verified. M1 active with C2 + F2 next.
+note: M1 closed 2026-04-15. All gates passed. M2 begins.
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-04-14`
+- truth date: `2026-04-15`
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M1: Core Loop` (active)
-- current phase: `Phase C2: Ghost Cleanup` (pending), `Phase F2: Ingestion Pipeline` (pending)
-- completed: `M0: Baseline + Research` (verified), `Phase A2` (verified), `Phase B2` (verified)
-- next step: C2 (ghost cleanup) + F2 (ingestion pipeline) — parallel M1 phases
+- current milestone: `M2: Truth Layer` (next)
+- current phase: `D2 Correction Flow` (pending)
+- completed: `M0` (verified), `M1` (verified — all gates passed 2026-04-15), `Phase A2` (verified), `Phase B2` (verified), `Phase C2` (verified), `Phase F2` (verified)
+- next step: begin M2 — D2 Correction Flow, E2 Atlas Activation, G2 Lane Architecture
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
+- M1 benchmark re-run: LongMemEval 96.0% (+13.2%), LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - B2 pass gate: eval=95, 0 status items in working memory, 100% noise reduction, E2E fact recall confirmed
 
 ## V1 → V2 Decision
@@ -144,12 +145,13 @@ Single highest-impact milestone. Fix the live loop. After M1, memd is usable.
 | Phase | Name | Status | Backlog | Detail |
 | --- | --- | --- | --- | --- |
 | B2 | Signal vs Noise | `verified` | #42, #49, #66, #77 | [[docs/phases/phase-b2-signal-vs-noise.md]] |
-| C2 | Ghost Cleanup | `pending` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
-| F2 | Ingestion Pipeline | `pending` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
+| C2 | Ghost Cleanup | `verified` | #46, #50, #76 | [[docs/phases/phase-c2-ghost-cleanup.md]] |
+| F2 | Ingestion Pipeline | `verified` | #37, #39, #41 | [[docs/phases/phase-f2-ingestion-pipeline.md]] |
 
 **Gate**: `memd eval --fail-below 65`. Store a fact → recall it next session.
 Working memory ≤ 2 status items. Zero ghost refs. Benchmark re-run shows improvement.
 **Fixes V1**: Phase B (continuity), Phase C (dedup), Phase E (wake), Phase G (procedural).
+**PASSED 2026-04-15.** eval=95 (≥65), 0 status items (≤2), 0 ghost refs, store→recall fact `8187177f` confirmed, LME 82.8→96.0% (+13.2%).
 
 ### M2: Truth Layer (correction, navigation, lanes)
 
@@ -260,10 +262,10 @@ If any milestone gate shows regression from prior milestone, STOP and fix before
 
 ## Next Up
 
-1. `M0` — run benchmark baseline (A2 extraction done, baseline numbers still needed to close M0 gate)
-2. `B2` — verify pass gate: `memd eval` ≥ 65, E2E fact-in-wake test, working memory composition, noise reduction measurement
-3. `M1` — after B2 gate passes: C2 (ghost cleanup) + F2 (ingestion pipeline)
-4. See [[docs/specs/2026-04-14-b2-signal-vs-noise-plan.md]] for B2 task details and pass gate checklist
+1. `M2` — begin Truth Layer: D2 (Correction Flow), E2 (Atlas Activation), G2 (Lane Architecture)
+2. `D2` — first-class correction flow: CLI command, supersede chain, E2E proof
+3. `E2` — atlas activation: surface regions in wake packet, navigable in ≤ 4 hops
+4. `G2` — lane architecture: 6 lanes functional with auto-activation
 5. See [[docs/verification/MEMD-10-STAR.md]] for 10-star target
 6. See [[docs/audits/2026-04-13-full-codebase-audit.md]] for V1 audit
 
