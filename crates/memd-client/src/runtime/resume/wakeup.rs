@@ -93,7 +93,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
     );
     let claude_strict = wake_budget_agent_name(output, snapshot)
         .as_deref()
-        .is_some_and(|agent| agent.trim().eq_ignore_ascii_case("claude-code"));
+        .is_some_and(|agent| {
+            let normalized = agent.trim().to_ascii_lowercase();
+            normalized == "claude-code" || normalized.starts_with("claude-code@")
+        });
 
     prefix.push_str("# memd wake-up\n\n");
     prefix.push_str(&format!(
