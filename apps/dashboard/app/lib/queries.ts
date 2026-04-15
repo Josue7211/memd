@@ -12,6 +12,7 @@ import type {
   VerifyMemoryRequest,
   InboxDismissRequest,
   RepairMemoryRequest,
+  CorrectMemoryRequest,
   HiveQueenActionRequest,
 } from "./types";
 
@@ -154,6 +155,33 @@ export function useTasks(params?: { project?: string }) {
   });
 }
 
+export function useProfile(agent: string, project?: string) {
+  return useQuery({
+    queryKey: ["profile", agent, project] as const,
+    queryFn: () => api.profile({ agent, project }),
+    enabled: !!agent,
+  });
+}
+
+export function useSource(params?: {
+  source_agent?: string;
+  project?: string;
+}) {
+  return useQuery({
+    queryKey: ["source", params] as const,
+    queryFn: () => api.source(params ?? {}),
+    enabled: !!params?.source_agent,
+  });
+}
+
+export function useAtlasExpand(entityId: string) {
+  return useQuery({
+    queryKey: ["atlasExpand", entityId] as const,
+    queryFn: () => api.atlasExpand({ entity_id: entityId }),
+    enabled: !!entityId,
+  });
+}
+
 // ── Mutations ────────────────────────────────────────────────────────────────
 
 function useInvalidate(...queryKeys: readonly (readonly unknown[])[]) {
@@ -209,6 +237,14 @@ export function useRepair() {
   const invalidate = useInvalidate(["inbox"], ["search"]);
   return useMutation({
     mutationFn: (req: RepairMemoryRequest) => api.repair(req),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCorrect() {
+  const invalidate = useInvalidate(["search"], ["working"], ["inbox"]);
+  return useMutation({
+    mutationFn: (req: CorrectMemoryRequest) => api.correct(req),
     onSuccess: invalidate,
   });
 }
