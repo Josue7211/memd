@@ -769,6 +769,7 @@ pub(crate) async fn refresh_live_truth(output: &Path, base_url: &str) -> anyhow:
             tags: vec!["live-truth".to_string(), "lane-refresh".to_string()],
             belief_branch: None,
             status: None,
+            lane: None,
         };
         match client.store(&req).await {
             Ok(_) => {
