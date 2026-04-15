@@ -2,12 +2,29 @@
 phase: E2
 name: Atlas Activation
 version: v2
-status: complete
+status: reopened
 depends_on: [B2, C2]
 backlog_items: [44, 51, 52]
+reopened_at: 2026-04-15
+reopened_reason: Atlas code exists but entity links don't populate from real usage. Navigation dead-ends. Wake packet doesn't include atlas region hints. Progressive zoom (wake→region→entity→evidence) not proven end-to-end.
 ---
 
 # Phase E2: Atlas Activation
+
+Current status: `reopened` — atlas infrastructure exists but is inert. Entity links table empty in production. Wake packet doesn't include region hints. Navigation from wake to raw evidence untested with real data.
+
+## Reopened Scope
+
+- **Entity links populated**: co-occurrence analysis must run and populate links from real items
+- **Wake includes atlas hints**: top regions surfaced in wake packet
+- **Progressive zoom proven**: wake → region → entity → evidence in ≤ 4 hops with real data
+- **Wiki link resolution**: `[[entity]]` in stored content creates navigable entity link
+- **Backlinks work**: navigate from entity back to all items that reference it
+
+## Node Verification (from [[docs/verification/NODE-VERIFICATION-MATRIX.md]])
+
+This phase owns M2-tier verification for:
+- S2 (memory atlas): navigable wake→region→node→evidence, backlinks work
 
 ## Goal
 

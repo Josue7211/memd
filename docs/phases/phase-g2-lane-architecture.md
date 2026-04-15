@@ -2,12 +2,29 @@
 phase: G2
 name: Lane Architecture
 version: v2
-status: complete
+status: reopened
 depends_on: [A2, F2]
 backlog_items: [38, 40]
+reopened_at: 2026-04-15
+reopened_reason: Lane schema exists but routing is broken. Items stored without lane tags. Auto-detection never fires in production. Retrieval boosting untested with real lane-tagged data. DB-tag routing (not grep) not proven end-to-end.
 ---
 
 # Phase G2: Lane Architecture
+
+Current status: `reopened` — schema migration exists but lanes are dead infrastructure. No items get lane-tagged in production. Auto-detection doesn't fire. Retrieval boosting has no lane-tagged data to boost.
+
+## Reopened Scope
+
+- **Lane tagging at ingest**: every ingested item gets a lane tag from source path or content analysis
+- **Auto-detection in production**: working on frontend → design lane activates without explicit request
+- **Retrieval boosting proven**: lane-tagged items actually rank higher in real queries
+- **DB-tag routing**: lane queries hit server with DB tag filter, not file grep
+- **Contradiction detection across lanes**: same fact in two lanes → reconcile
+
+## Node Verification (from [[docs/verification/NODE-VERIFICATION-MATRIX.md]])
+
+This phase owns M2-tier verification for:
+- P3 (typed retrieval + promotion): lane-based routing (DB tags not grep), contradiction detection
 
 ## Goal
 

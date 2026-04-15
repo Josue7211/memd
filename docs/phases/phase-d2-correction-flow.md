@@ -2,12 +2,29 @@
 phase: D2
 name: Correction Flow
 version: v2
-status: complete
+status: reopened
 depends_on: [B2, C2]
 backlog_items: [43, 57, 58, 78, 80]
+reopened_at: 2026-04-15
+reopened_reason: Correction CLI exists but corrections don't change future recall in production. Trust hierarchy not enforced. Contradiction detection not wired. Preferences lost every session because correction→recall pipeline never runs end-to-end.
 ---
 
 # Phase D2: Correction Flow
+
+Current status: `reopened` — correction mechanics exist in code but the pipeline doesn't execute in production. User corrections don't persist across sessions. Trust hierarchy (human > canonical > candidate) not enforced.
+
+## Reopened Scope
+
+- **Corrections change future recall**: corrected fact must replace stale belief in next wake
+- **Trust hierarchy enforced**: human correction outranks all, canonical outranks candidate
+- **Contradiction detection wired**: two items claiming opposite → both marked contested
+- **Correction audit trail queryable**: `memd explain <id>` shows full correction history
+- **Cross-session persistence**: correction made in session N visible in session N+1
+
+## Node Verification (from [[docs/verification/NODE-VERIFICATION-MATRIX.md]])
+
+This phase owns M2-tier verification for:
+- P4 (correction, provenance, authority): corrections change future recall, trust hierarchy enforced
 
 ## Goal
 

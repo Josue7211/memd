@@ -2,13 +2,32 @@
 phase: F2
 name: Ingestion Pipeline
 version: v2
-status: verified
+status: reopened
 depends_on: [B2]
 backlog_items: [37, 39, 41]
 verified_at: 2026-04-14
+reopened_at: 2026-04-15
+reopened_reason: Ingestion works for inspiration lane but 5 of 6 lanes have zero source material. Theory/design docs not ingested as architecture-lane items. Agents re-read THEORY.md, DESIGN.md, architecture.md every session instead of getting them from memory.
 ---
 
 # Phase F2: Ingestion Pipeline
+
+Current status: `reopened` — basic ingestion works but only inspiration lane has source material. Theory, design, and architecture docs are re-read every session instead of being ingested as lane-tagged memory items. This is why agents don't know the theory across sessions.
+
+## Reopened Scope
+
+- **All 6 lanes seeded**: not just inspiration — architecture, design, research, workflow, preference
+- **Theory docs ingested**: THEORY.md, DESIGN.md, architecture.md → architecture lane items
+- **Workflow conventions ingested**: "ROADMAP.md is authoritative", "backlogs in docs/backlog/" → workflow lane
+- **User preferences ingested**: corrections and preferences → preference lane
+
+## Node Verification (from [[docs/verification/NODE-VERIFICATION-MATRIX.md]])
+
+This phase owns M1-tier verification for:
+- I1 (turns, docs, artifacts, corrections): captures all event types, no silent loss
+- I2 (hooks, checkpoints, spill): hooks fire, checkpoints persist, spill drains
+- M4 (semantic memory): architecture decisions stored, facts retrievable
+- M5 (procedural memory): procedures stored, detection triggers in prod
 
 ## Goal
 

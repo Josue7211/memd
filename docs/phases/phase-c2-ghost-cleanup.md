@@ -2,13 +2,29 @@
 phase: C2
 name: Ghost Cleanup
 version: v2
-status: verified
+status: reopened
 depends_on: [B2]
 backlog_items: [46, 50, 76]
 verified_at: 2026-04-14
+reopened_at: 2026-04-15
+reopened_reason: GC mechanics work in tests but stale records still accumulate in production. Working memory holds B2 phase status weeks after completion. TTL enforcement and lifecycle management not running in real use.
 ---
 
 # Phase C2: Ghost Cleanup
+
+Current status: `reopened` — GC mechanics verified in test but production DB still accumulates dead weight. Stale completed-phase records persist indefinitely.
+
+## Reopened Scope
+
+- **TTL enforcement in production**: expired items must actually be removed, not just flagged
+- **Phase-completion expiry**: when a phase flips to verified/complete, its status records expire
+- **Lifecycle management**: the consolidation loop must run and clean up
+
+## Node Verification (from [[docs/verification/NODE-VERIFICATION-MATRIX.md]])
+
+This phase owns M1-tier verification for:
+- P2 (session continuity): answers what/where/changed/next without ghosts
+- M2 (session continuity): clean resume without ghost refs
 
 ## Goal
 

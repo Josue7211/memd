@@ -2,9 +2,14 @@
 phase: I2
 name: Human Dashboard
 version: v2
-status: pending
+status: in_progress
 depends_on: [D2, E2, G2]
-backlog_items: []
+backlog_items:
+  - "2026-04-15-dashboard-not-served-from-memd-server"
+  - "2026-04-15-graph-page-crash-entity-search-type-mismatch"
+  - "2026-04-15-memory-entity-record-type-mismatch"
+  - "2026-04-15-dashboard-env-hardcoded-tailscale-ip"
+  - "2026-04-15-memd-preferences-not-persisted-across-sessions"
 ---
 
 # Phase I2: Human Dashboard
