@@ -33,7 +33,10 @@ function GraphPage() {
   const [dims, setDims] = useState({ width: 800, height: 600 });
 
   const search = useEntitySearch(searchQuery);
-  const links = useEntityLinks();
+  const firstEntityId = search.data?.entities[0]?.id;
+  const links = useEntityLinks(
+    firstEntityId ? { entity_id: firstEntityId } : undefined,
+  );
 
   // Measure container
   useEffect(() => {

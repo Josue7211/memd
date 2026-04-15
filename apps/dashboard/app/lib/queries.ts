@@ -97,6 +97,7 @@ export function useEntityLinks(params?: { entity_id?: string }) {
   return useQuery({
     queryKey: keys.entityLinks(params),
     queryFn: () => api.entityLinks(params ?? {}),
+    enabled: !!params?.entity_id,
   });
 }
 
