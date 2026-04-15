@@ -196,6 +196,69 @@ pub(crate) fn migrate_lane_column(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(crate) fn migrate_fts5_index(conn: &Connection) -> anyhow::Result<()> {
+    let has_fts = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_items_fts'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+
+    if !has_fts {
+        conn.execute_batch(
+            r#"
+            CREATE VIRTUAL TABLE memory_items_fts USING fts5(
+                content,
+                tags,
+                item_id UNINDEXED
+            );
+
+            CREATE TRIGGER IF NOT EXISTS memory_items_fts_ai
+            AFTER INSERT ON memory_items BEGIN
+                INSERT INTO memory_items_fts(item_id, content, tags)
+                VALUES (
+                    new.id,
+                    COALESCE(json_extract(new.payload_json, '$.content'), ''),
+                    COALESCE(json_extract(new.payload_json, '$.tags'), '[]')
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memory_items_fts_au
+            AFTER UPDATE ON memory_items BEGIN
+                DELETE FROM memory_items_fts WHERE item_id = old.id;
+                INSERT INTO memory_items_fts(item_id, content, tags)
+                VALUES (
+                    new.id,
+                    COALESCE(json_extract(new.payload_json, '$.content'), ''),
+                    COALESCE(json_extract(new.payload_json, '$.tags'), '[]')
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memory_items_fts_ad
+            AFTER DELETE ON memory_items BEGIN
+                DELETE FROM memory_items_fts WHERE item_id = old.id;
+            END;
+            "#,
+        )?;
+
+        // Backfill existing items into the FTS index
+        conn.execute_batch(
+            r#"
+            INSERT INTO memory_items_fts(item_id, content, tags)
+            SELECT
+                id,
+                COALESCE(json_extract(payload_json, '$.content'), ''),
+                COALESCE(json_extract(payload_json, '$.tags'), '[]')
+            FROM memory_items;
+            "#,
+        )?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"

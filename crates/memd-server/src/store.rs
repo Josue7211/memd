@@ -31,8 +31,9 @@ use crate::store_hive::{
     refresh_hive_session_presence,
 };
 use crate::store_migrations::{
-    create_hive_session_identity_indexes, migrate_hive_sessions_identity_columns,
-    migrate_hive_sessions_last_wake_at, migrate_lane_column, migrate_redundancy_key,
+    create_hive_session_identity_indexes, migrate_fts5_index,
+    migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
+    migrate_lane_column, migrate_redundancy_key,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -404,6 +405,7 @@ impl SqliteStore {
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
+        migrate_fts5_index(&conn)?;
 
         Ok(Self {
             db_path: Arc::new(db_path),
@@ -1558,6 +1560,42 @@ impl SqliteStore {
         }
 
         Ok(items)
+    }
+
+    /// Full-text search via FTS5 index. Returns (item_id, bm25_score) pairs
+    /// ranked by BM25 relevance. Scores are negative (SQLite BM25 convention)
+    /// so we negate them for positive-is-better ordering.
+    pub fn fts_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<(Uuid, f64)>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT item_id, -rank AS score
+                FROM memory_items_fts
+                WHERE memory_items_fts MATCH ?1
+                ORDER BY rank
+                LIMIT ?2
+                "#,
+            )
+            .context("prepare fts search query")?;
+
+        let rows = stmt
+            .query_map(params![query, limit as i64], |row| {
+                let id_str: String = row.get(0)?;
+                let score: f64 = row.get(1)?;
+                Ok((id_str, score))
+            })
+            .context("execute fts search")?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let (id_str, score) = row.context("read fts result row")?;
+            if let Ok(id) = Uuid::parse_str(&id_str) {
+                results.push((id, score));
+            }
+        }
+
+        Ok(results)
     }
 
     pub fn count(&self) -> anyhow::Result<usize> {

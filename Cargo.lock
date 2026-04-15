@@ -1392,6 +1392,7 @@ dependencies = [
  "mime_guess",
  "notify",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

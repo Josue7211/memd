@@ -147,6 +147,7 @@ pub(crate) fn filter_items(
     items: &[MemoryViewItem],
     req: &SearchMemoryRequest,
     plan: &RetrievalPlan,
+    fts_ranks: &[(Uuid, f64)],
 ) -> Vec<MemoryItem> {
     let query = req.query.as_ref().map(|q| q.to_ascii_lowercase());
     let limit = req.limit.unwrap_or(10).min(100);
@@ -210,6 +211,7 @@ pub(crate) fn filter_items(
         .cloned()
         .collect();
 
+    // Sort by search_score first to establish the metadata-based ranking
     filtered.sort_by(|a, b| {
         search_score(
             &b.item,
@@ -238,11 +240,52 @@ pub(crate) fn filter_items(
         })
         .then_with(|| b.item.updated_at.cmp(&a.item.updated_at))
     });
+
+    // RRF merge when FTS results are available
+    if !fts_ranks.is_empty() {
+        rrf_rerank(&mut filtered, fts_ranks);
+    }
+
     for item in &mut filtered {
         item.item.content = compact_content(&item.item.content, max_chars);
     }
     filtered.truncate(limit);
     filtered.into_iter().map(|entry| entry.item).collect()
+}
+
+/// Reciprocal Rank Fusion: merge metadata-based ranking (already applied as
+/// sort order on `items`) with FTS5 BM25 ranking. Each ranker contributes
+/// `1 / (k + rank)` per item; items appearing in both lists get combined
+/// scores. k=60 is the standard constant from the original RRF paper.
+fn rrf_rerank(items: &mut Vec<MemoryViewItem>, fts_ranks: &[(Uuid, f64)]) {
+    const RRF_K: f64 = 60.0;
+
+    let fts_rank_map: std::collections::HashMap<Uuid, usize> = fts_ranks
+        .iter()
+        .enumerate()
+        .map(|(rank, (id, _))| (*id, rank))
+        .collect();
+
+    let mut rrf_scores: Vec<(usize, f64)> = items
+        .iter()
+        .enumerate()
+        .map(|(meta_rank, entry)| {
+            let meta_rrf = 1.0 / (RRF_K + meta_rank as f64);
+            let fts_rrf = fts_rank_map
+                .get(&entry.item.id)
+                .map(|&fts_rank| 1.0 / (RRF_K + fts_rank as f64))
+                .unwrap_or(0.0);
+            (meta_rank, meta_rrf + fts_rrf)
+        })
+        .collect();
+
+    rrf_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+    let reordered: Vec<MemoryViewItem> = rrf_scores
+        .into_iter()
+        .map(|(original_index, _)| items[original_index].clone())
+        .collect();
+    *items = reordered;
 }
 
 pub(crate) fn compact_content(content: &str, max_chars: usize) -> String {

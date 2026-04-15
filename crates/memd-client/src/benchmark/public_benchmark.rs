@@ -1440,7 +1440,10 @@ pub(crate) fn build_public_benchmark_retrieval_config(
     let longmemeval_backend = match requested_backend {
         "lexical" => LongMemEvalRetrievalBackend::Lexical,
         "sidecar" => LongMemEvalRetrievalBackend::Sidecar,
-        other => anyhow::bail!("invalid retrieval backend `{other}`; expected lexical or sidecar"),
+        "rrf" => LongMemEvalRetrievalBackend::Rrf,
+        other => anyhow::bail!(
+            "invalid retrieval backend `{other}`; expected lexical, sidecar, or rrf"
+        ),
     };
 
     let sidecar_base_url = if longmemeval_backend == LongMemEvalRetrievalBackend::Sidecar {
@@ -1480,6 +1483,9 @@ pub(crate) fn rank_longmemeval_corpus(
                 base_url, query, corpus, corpus_ids, mode, namespace,
             )
         }
+        LongMemEvalRetrievalBackend::Rrf => Ok(rank_longmemeval_corpus_via_rrf(
+            query, corpus, corpus_ids, mode,
+        )),
     }
 }
 
@@ -1585,6 +1591,81 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
             let lexical_rank = lexical_rank_by_index.get(&index).copied().unwrap_or(0);
             ranked.push((index, (50usize.saturating_sub(lexical_rank)) as f64));
         }
+    }
+
+    Ok(ranked)
+}
+
+/// RRF-based ranking: build an ephemeral FTS5 index from the corpus,
+/// query it, then merge FTS ranks with lexical ranks via Reciprocal Rank
+/// Fusion (k=60). Returns (corpus_index, rrf_score) pairs sorted by score.
+pub(crate) fn rank_longmemeval_corpus_via_rrf(
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+) -> Vec<(usize, f64)> {
+    const RRF_K: f64 = 60.0;
+
+    // Lexical ranking (existing path)
+    let lexical_order = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
+
+    // Build ephemeral FTS5 index
+    let fts_order = match build_ephemeral_fts_ranking(query, corpus) {
+        Ok(order) => order,
+        Err(_) => {
+            // Fall back to lexical-only if FTS fails
+            return lexical_order
+                .into_iter()
+                .enumerate()
+                .map(|(rank, index)| (index, (50usize.saturating_sub(rank)) as f64))
+                .collect();
+        }
+    };
+
+    // Build rank maps
+    let mut rrf_scores = std::collections::HashMap::<usize, f64>::new();
+    for (rank, &index) in lexical_order.iter().enumerate() {
+        *rrf_scores.entry(index).or_default() += 1.0 / (RRF_K + rank as f64);
+    }
+    for (rank, &index) in fts_order.iter().enumerate() {
+        *rrf_scores.entry(index).or_default() += 1.0 / (RRF_K + rank as f64);
+    }
+
+    let mut merged: Vec<(usize, f64)> = rrf_scores.into_iter().collect();
+    merged.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    merged
+}
+
+/// Create a temp SQLite DB with FTS5, index the corpus, query it, return
+/// ranked corpus indices.
+fn build_ephemeral_fts_ranking(query: &str, corpus: &[String]) -> anyhow::Result<Vec<usize>> {
+    let conn = rusqlite::Connection::open_in_memory()
+        .context("open ephemeral fts db")?;
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE corpus_fts USING fts5(content, doc_index UNINDEXED);",
+    )?;
+
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO corpus_fts(doc_index, content) VALUES (?1, ?2)",
+        )?;
+        for (index, doc) in corpus.iter().enumerate() {
+            stmt.execute(rusqlite::params![index as i64, doc])?;
+        }
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT doc_index FROM corpus_fts WHERE corpus_fts MATCH ?1 ORDER BY rank LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![query, corpus.len() as i64], |row| {
+            row.get::<_, i64>(0)
+        })?;
+
+    let mut ranked = Vec::new();
+    for row in rows {
+        ranked.push(row? as usize);
     }
 
     Ok(ranked)
@@ -2802,6 +2883,7 @@ pub(crate) fn build_public_benchmark_manifest(
             "retrieval_backend": match retrieval_config.longmemeval_backend {
                 LongMemEvalRetrievalBackend::Lexical => "lexical",
                 LongMemEvalRetrievalBackend::Sidecar => "sidecar",
+                LongMemEvalRetrievalBackend::Rrf => "rrf",
             },
             "sidecar_base_url": retrieval_config.sidecar_base_url,
             "top_k": top_k,

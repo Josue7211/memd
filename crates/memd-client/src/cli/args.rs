@@ -2510,7 +2510,7 @@ pub(crate) struct PublicBenchmarkArgs {
     #[arg(long, value_parser = ["raw", "hybrid"])]
     pub(crate) mode: Option<String>,
 
-    #[arg(long, value_parser = ["lexical", "sidecar"])]
+    #[arg(long, value_parser = ["lexical", "sidecar", "rrf"])]
     pub(crate) retrieval_backend: Option<String>,
 
     #[arg(long)]

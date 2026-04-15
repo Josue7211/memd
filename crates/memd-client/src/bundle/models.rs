@@ -451,6 +451,7 @@ pub(crate) struct PublicBenchmarkRunReport {
 pub(crate) enum LongMemEvalRetrievalBackend {
     Lexical,
     Sidecar,
+    Rrf,
 }
 
 #[derive(Debug, Clone)]
