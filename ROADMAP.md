@@ -6,15 +6,15 @@
 truth_date: 2026-04-15
 version: v2
 version_status: in_progress
-current_milestone: M2
-milestone_status: complete
-current_phase: phase_g2
-phase_status: complete
-next_milestone: M3
-next_step: M2 gate verification — then M3 Proof + Surface
+current_milestone: M3
+milestone_status: pending
+current_phase: phase_h2
+phase_status: pending
+next_milestone: M4
+next_step: M3 Proof + Surface — H2 Recall Proof then I2 Human Dashboard
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M2 complete 2026-04-15. D2+E2+G2 all implemented and tested. M3 next.
+note: M2 gate closed 2026-04-15. All checks passed. M3 begins.
 -->
 
 ## Status Snapshot
@@ -23,10 +23,10 @@ note: M2 complete 2026-04-15. D2+E2+G2 all implemented and tested. M3 next.
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M2: Truth Layer` (complete)
-- current phase: all M2 phases complete
-- completed: `M0` (verified), `M1` (verified — all gates passed 2026-04-15), `Phase A2` (verified), `Phase B2` (verified), `Phase C2` (verified), `Phase F2` (verified), `Phase D2` (verified), `Phase E2` (verified), `Phase G2` (verified)
-- next step: M2 gate verification, then M3 Proof + Surface
+- current milestone: `M3: Proof + Surface` (next)
+- current phase: `H2 Recall Proof` (pending)
+- completed: `M0` (verified), `M1` (verified), `M2` (verified — gate closed 2026-04-15), `Phase A2`, `Phase B2`, `Phase C2`, `Phase F2`, `Phase D2`, `Phase E2`, `Phase G2`
+- next step: M3 — H2 Recall Proof (LongMemEval >= 80%), then I2 Human Dashboard
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - M1 benchmark re-run: LongMemEval 96.0% (+13.2%), LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - B2 pass gate: eval=95, 0 status items in working memory, 100% noise reduction, E2E fact recall confirmed
