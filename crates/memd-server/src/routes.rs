@@ -1192,6 +1192,50 @@ pub(crate) async fn decay_diagnostics(
     }))
 }
 
+/// Token efficiency diagnostics — computes per-kind character breakdown for
+/// the working memory of a given project/namespace/agent context.
+pub(crate) async fn token_efficiency_diagnostics(
+    State(state): State<AppState>,
+    Json(req): Json<WorkingMemoryRequest>,
+) -> Result<Json<memd_schema::OperationTokenReport>, (StatusCode, String)> {
+    let response = crate::working::working_memory(&state, req)
+        .map_err(|e| e)?;
+
+    // Build the report from compaction quality (already computed in working memory)
+    let cq = response
+        .compaction_quality
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| memd_schema::CompactionQualityReport {
+            admitted: response.records.len(),
+            evicted: 0,
+            per_kind_admitted: Default::default(),
+            per_kind_evicted: Default::default(),
+            chars_per_kind_admitted: Default::default(),
+            budget_chars: response.budget_chars,
+            used_chars: response.used_chars,
+        });
+
+    let utilization_pct = if cq.budget_chars > 0 {
+        (cq.used_chars as f64 / cq.budget_chars as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(Json(memd_schema::OperationTokenReport {
+        operation: "working_memory".to_string(),
+        budget_chars: cq.budget_chars,
+        used_chars: cq.used_chars,
+        utilization_pct,
+        per_kind: memd_schema::PerKindTokenMetrics {
+            chars_per_kind: cq.chars_per_kind_admitted,
+            items_per_kind: cq.per_kind_admitted,
+            total_chars: cq.used_chars,
+            total_items: cq.admitted,
+        },
+    }))
+}
+
 pub(crate) async fn consolidate_memory(
     State(state): State<AppState>,
     Json(req): Json<MemoryConsolidationRequest>,

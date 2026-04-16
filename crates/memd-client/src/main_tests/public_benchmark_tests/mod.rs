@@ -464,6 +464,8 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         dry_run: false,
         all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect_err("unknown benchmark should be rejected");
@@ -506,6 +508,8 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
         sample: None,
         dry_run: false,
         all: false,
+        ci: false,
+        record: false,
     })
     .await
     .expect_err("community-standard longmemeval should require hypotheses");
@@ -541,6 +545,8 @@ fn validate_rejects_empty_dataset_without_all_flag() {
         sample: None,
         dry_run: false,
         all: false,
+        ci: false,
+        record: false,
     };
     let err = validate_public_benchmark_args(&args).expect_err("should reject empty dataset");
     assert!(err.to_string().contains("dataset is required"));
@@ -568,6 +574,8 @@ fn validate_accepts_empty_dataset_with_all_flag() {
         sample: None,
         dry_run: false,
         all: true,
+        ci: false,
+        record: false,
     };
     validate_public_benchmark_args(&args).expect("--all should accept empty dataset");
 }
@@ -1462,6 +1470,8 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         dry_run: false,
         all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run public benchmark");
@@ -1531,6 +1541,8 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         dry_run: false,
         all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run hybrid public benchmark");
@@ -1587,6 +1599,8 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         dry_run: false,
         all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run public benchmark");
@@ -1640,6 +1654,8 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             dry_run: false,
             all: false,
             out: output.clone(),
+            ci: false,
+            record: false,
         })
         .await
         .expect("run public benchmark");
@@ -1666,6 +1682,8 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         dry_run: false,
         all: false,
         out: output.clone(),
+        ci: false,
+        record: false,
     })
     .await
     .expect("run latest public benchmark");

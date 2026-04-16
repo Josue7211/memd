@@ -6830,3 +6830,96 @@ fn o2_5_post_consolidation_recall_ab_test() {
 
     std::fs::remove_dir_all(dir).expect("cleanup o2-5-recall-ab");
 }
+
+#[test]
+fn p2_compaction_quality_report_includes_per_kind_chars() {
+    // P2: Verify CompactionQualityReport tracks per-kind character counts
+    let (dir, state) = temp_state("p2-per-kind-chars");
+
+    // Store items of different kinds
+    let kinds_and_content = vec![
+        (MemoryKind::Fact, "The earth revolves around the sun"),
+        (MemoryKind::Decision, "We chose Rust for memory safety and performance"),
+        (MemoryKind::Preference, "User prefers dark mode in the dashboard"),
+        (MemoryKind::Status, "M3 phase P2 is in progress"),
+    ];
+
+    for (kind, content) in &kinds_and_content {
+        let mut item = sample_memory_item(None);
+        item.kind = kind.clone();
+        item.content = content.to_string();
+        item.project = Some("p2-test".to_string());
+        let ck = super::keys::canonical_key(&item);
+        let rk = super::keys::redundancy_key(&item);
+        state
+            .store
+            .insert_or_get_duplicate(&item, &ck, &rk)
+            .expect("store p2 test item");
+    }
+
+    // Build working memory
+    let req = memd_schema::WorkingMemoryRequest {
+        project: Some("p2-test".to_string()),
+        agent: None,
+        workspace: None,
+        visibility: None,
+        route: Some(memd_schema::RetrievalRoute::ProjectFirst),
+        intent: Some(memd_schema::RetrievalIntent::CurrentTask),
+        limit: None,
+        max_chars_per_item: None,
+        max_total_chars: None,
+        rehydration_limit: None,
+        auto_consolidate: None,
+        query: None,
+    };
+
+    let response = crate::working::working_memory(&state, req).expect("build working memory");
+
+    // Verify compaction quality report exists and has per-kind char breakdown
+    let cq = response
+        .compaction_quality
+        .expect("compaction quality report must exist");
+
+    assert!(
+        cq.admitted > 0,
+        "at least one item should be admitted"
+    );
+    assert!(
+        !cq.per_kind_admitted.is_empty(),
+        "per_kind_admitted should have entries"
+    );
+    assert!(
+        !cq.chars_per_kind_admitted.is_empty(),
+        "chars_per_kind_admitted should have entries (P2 per-kind char tracking)"
+    );
+
+    // Verify chars are non-zero for admitted kinds
+    for (kind, chars) in &cq.chars_per_kind_admitted {
+        assert!(
+            *chars > 0,
+            "kind '{kind}' should have non-zero character count"
+        );
+    }
+
+    // Verify budget utilization
+    assert!(
+        cq.budget_chars > 0,
+        "budget_chars should be positive"
+    );
+    assert!(
+        cq.used_chars <= cq.budget_chars,
+        "used_chars ({}) should not exceed budget_chars ({})",
+        cq.used_chars,
+        cq.budget_chars
+    );
+
+    println!(
+        "\nP2 Token Efficiency: budget={}, used={}, utilization={:.1}%",
+        cq.budget_chars,
+        cq.used_chars,
+        (cq.used_chars as f64 / cq.budget_chars as f64) * 100.0
+    );
+    println!("Per-kind chars: {:?}", cq.chars_per_kind_admitted);
+
+    std::fs::remove_dir_all(dir).expect("cleanup p2 test");
+}

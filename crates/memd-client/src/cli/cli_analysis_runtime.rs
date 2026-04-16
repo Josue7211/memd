@@ -80,6 +80,11 @@ pub(crate) async fn run_benchmark_command(
 ) -> anyhow::Result<()> {
     match &args.subcommand {
         Some(BenchmarkSubcommand::Public(public_args)) => {
+            // CI mode: run all benchmarks, hard-fail on threshold breach
+            if public_args.ci {
+                return run_benchmark_ci_gate(public_args).await;
+            }
+
             let response = run_public_benchmark_command(public_args).await?;
             if public_args.write {
                 let receipt = write_public_benchmark_run_artifacts(&public_args.out, &response)?;
@@ -93,6 +98,10 @@ pub(crate) async fn run_benchmark_command(
                 if let Some(repo_root) = infer_bundle_project_root(&public_args.out) {
                     write_public_benchmark_docs(&repo_root, &public_args.out, &response)?;
                 }
+            }
+            // Record results if --record
+            if public_args.record {
+                record_benchmark_run(&public_args.out, &response)?;
             }
             // Threshold gate
             let thresholds_path = public_args.out.join("benchmarks").join("thresholds.json");
@@ -160,6 +169,127 @@ pub(crate) async fn run_benchmark_command(
             }
         }
     }
+    Ok(())
+}
+
+/// CI gate: hardcoded regression thresholds per benchmark.
+/// Returns (benchmark_id, threshold).
+fn ci_gate_thresholds() -> Vec<(&'static str, &'static str, f64)> {
+    vec![
+        ("longmemeval", "f1_score", 0.80),
+        ("locomo", "f1_score", 0.415),
+        ("membench", "accuracy", 0.30),
+    ]
+}
+
+/// Run all public benchmarks in CI mode. Exit 1 if any drops below threshold.
+async fn run_benchmark_ci_gate(base_args: &PublicBenchmarkArgs) -> anyhow::Result<()> {
+    let benchmark_ids = implemented_public_benchmark_ids();
+    let mut results: Vec<(String, std::collections::BTreeMap<String, f64>, bool)> = Vec::new();
+    let thresholds = ci_gate_thresholds();
+
+    for dataset_id in benchmark_ids {
+        let mut sub_args = base_args.clone();
+        sub_args.dataset = dataset_id.to_string();
+        sub_args.all = false;
+        sub_args.ci = false;
+
+        eprintln!("[ci-gate] running {dataset_id}…");
+        match Box::pin(run_public_benchmark_command(&sub_args)).await {
+            Ok(report) => {
+                // Record if requested
+                if base_args.record {
+                    let _ = record_benchmark_run(&base_args.out, &report);
+                }
+
+                // Check against hardcoded thresholds
+                let mut passed = true;
+                for (tid, metric, threshold) in &thresholds {
+                    if *tid == *dataset_id {
+                        let actual = report.metrics.get(*metric).copied().unwrap_or(0.0);
+                        if actual < *threshold {
+                            eprintln!(
+                                "[ci-gate] FAIL: {dataset_id} {metric} = {actual:.3} < {threshold:.3}"
+                            );
+                            passed = false;
+                        } else {
+                            eprintln!(
+                                "[ci-gate] PASS: {dataset_id} {metric} = {actual:.3} >= {threshold:.3}"
+                            );
+                        }
+                    }
+                }
+                results.push((dataset_id.to_string(), report.metrics.clone(), passed));
+            }
+            Err(err) => {
+                eprintln!("[ci-gate] ERROR: {dataset_id} failed: {err}");
+                results.push((dataset_id.to_string(), Default::default(), false));
+            }
+        }
+    }
+
+    // Summary table
+    eprintln!();
+    eprintln!("[ci-gate] Summary:");
+    for (id, _metrics, passed) in &results {
+        eprintln!(
+            "  {} {}",
+            if *passed { "✓" } else { "✗" },
+            id
+        );
+    }
+
+    let any_failed = results.iter().any(|(_, _, passed)| !*passed);
+    if any_failed {
+        anyhow::bail!("CI gate FAILED: one or more benchmarks below threshold");
+    }
+
+    eprintln!("[ci-gate] All benchmarks passed.");
+    Ok(())
+}
+
+/// Record a benchmark run to the history log (JSON-lines format).
+fn record_benchmark_run(
+    output: &std::path::Path,
+    report: &PublicBenchmarkRunReport,
+) -> anyhow::Result<()> {
+    let history_dir = output.join("benchmarks").join("history");
+    std::fs::create_dir_all(&history_dir)?;
+    let history_file = history_dir.join("benchmark-runs.jsonl");
+
+    // Get git SHA
+    let git_sha = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let (primary_label, primary_value) = public_benchmark_primary_metric(report);
+
+    let entry = serde_json::json!({
+        "benchmark_id": report.manifest.benchmark_id,
+        "git_sha": git_sha,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "primary_metric": primary_label,
+        "primary_value": primary_value,
+        "metrics": report.metrics,
+        "item_count": report.item_count,
+    });
+
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&history_file)?;
+    writeln!(f, "{}", serde_json::to_string(&entry)?)?;
+
+    eprintln!(
+        "[record] appended {} result to {}",
+        report.manifest.benchmark_id,
+        history_file.display()
+    );
     Ok(())
 }
 

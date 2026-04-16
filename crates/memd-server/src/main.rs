@@ -606,6 +606,10 @@ async fn main() {
         .route("/procedures/detect", post(post_procedure_detect))
         .route("/ingest/lanes", post(post_ingest_lanes))
         .route("/api/diagnostics/decay", post(decay_diagnostics))
+        .route(
+            "/api/diagnostics/token-efficiency",
+            post(token_efficiency_diagnostics),
+        )
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {

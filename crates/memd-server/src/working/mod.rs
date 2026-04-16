@@ -262,9 +262,12 @@ pub(crate) fn working_memory(
                 .unwrap_or_else(|| format!("{:?}", kind).to_lowercase())
         };
         let mut per_kind_admitted: BTreeMap<String, usize> = BTreeMap::new();
+        let mut chars_per_kind_admitted: BTreeMap<String, usize> = BTreeMap::new();
         for record in &records {
             if let Some(item) = selected_items.iter().find(|i| i.id == record.id) {
-                *per_kind_admitted.entry(kind_key(&item.kind)).or_insert(0) += 1;
+                let key = kind_key(&item.kind);
+                *per_kind_admitted.entry(key.clone()).or_insert(0) += 1;
+                *chars_per_kind_admitted.entry(key).or_insert(0) += record.record.len();
             }
         }
         let mut per_kind_evicted: BTreeMap<String, usize> = BTreeMap::new();
@@ -278,6 +281,7 @@ pub(crate) fn working_memory(
             evicted: evicted.len(),
             per_kind_admitted,
             per_kind_evicted,
+            chars_per_kind_admitted,
             budget_chars,
             used_chars,
         }

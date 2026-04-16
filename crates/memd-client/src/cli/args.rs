@@ -101,6 +101,55 @@ pub(crate) enum Commands {
     Loops(LoopsArgs),
     Telemetry(TelemetryArgs),
     Autoresearch(AutoresearchArgs),
+    Diagnostics(DiagnosticsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsArgs {
+    #[command(subcommand)]
+    pub(crate) command: DiagnosticsCommand,
+
+    #[arg(long, default_value_t = default_base_url())]
+    pub(crate) base_url: String,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum DiagnosticsCommand {
+    /// Combined measurement report: token efficiency, decay, compaction, benchmarks.
+    Report(DiagnosticsReportArgs),
+    /// Per-kind token efficiency for a given project context.
+    TokenEfficiency(DiagnosticsTokenEfficiencyArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsReportArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+
+    /// Output as JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsTokenEfficiencyArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2564,6 +2613,15 @@ pub(crate) struct PublicBenchmarkArgs {
 
     #[arg(long, alias = "output", default_value_os_t = default_bundle_root_path())]
     pub(crate) out: PathBuf,
+
+    /// CI gate mode: run all benchmarks, exit 1 if any drops below threshold.
+    /// Thresholds: LongMemEval >= 80%, LoCoMo >= 41.5%, MemBench >= 30%.
+    #[arg(long, default_value_t = false)]
+    pub(crate) ci: bool,
+
+    /// Record results to benchmark-registry.json with git SHA and timestamp.
+    #[arg(long, default_value_t = false)]
+    pub(crate) record: bool,
 }
 
 #[derive(Debug, Clone, Args)]

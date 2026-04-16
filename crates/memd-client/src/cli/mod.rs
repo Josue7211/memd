@@ -944,6 +944,207 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Autoresearch(args) => {
             run_autoresearch_command(args, &base_url).await?;
         }
+        Commands::Diagnostics(args) => {
+            run_diagnostics_command(args).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_diagnostics_command(args: DiagnosticsArgs) -> anyhow::Result<()> {
+    match args.command {
+        DiagnosticsCommand::Report(report_args) => {
+            run_diagnostics_report(&args.base_url, &report_args).await
+        }
+        DiagnosticsCommand::TokenEfficiency(te_args) => {
+            run_diagnostics_token_efficiency(&args.base_url, &te_args).await
+        }
+    }
+}
+
+async fn run_diagnostics_token_efficiency(
+    base_url: &str,
+    args: &DiagnosticsTokenEfficiencyArgs,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+    let req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+        "agent": args.agent,
+        "route": "auto",
+        "intent": "current_task",
+    });
+
+    let resp = client
+        .post(format!("{base_url}/api/diagnostics/token-efficiency"))
+        .json(&req)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("token-efficiency endpoint returned {status}: {body}");
+    }
+
+    let report: memd_schema::OperationTokenReport = resp.json().await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("## Token Efficiency: {}", report.operation);
+        println!();
+        println!(
+            "Budget: {} chars | Used: {} chars | Utilization: {:.1}%",
+            report.budget_chars, report.used_chars, report.utilization_pct
+        );
+        println!();
+        println!("### Per-Kind Breakdown");
+        println!();
+        println!("{:<20} {:>8} {:>8}", "Kind", "Items", "Chars");
+        println!("{}", "-".repeat(40));
+        for (kind, items) in &report.per_kind.items_per_kind {
+            let chars = report.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+            println!("{:<20} {:>8} {:>8}", kind, items, chars);
+        }
+        println!("{}", "-".repeat(40));
+        println!(
+            "{:<20} {:>8} {:>8}",
+            "TOTAL", report.per_kind.total_items, report.per_kind.total_chars
+        );
+    }
+
+    Ok(())
+}
+
+async fn run_diagnostics_report(
+    base_url: &str,
+    args: &DiagnosticsReportArgs,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+
+    // 1. Fetch token efficiency (working memory)
+    let te_req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+        "agent": args.agent,
+        "route": "auto",
+        "intent": "current_task",
+    });
+
+    let te_resp = client
+        .post(format!("{base_url}/api/diagnostics/token-efficiency"))
+        .json(&te_req)
+        .send()
+        .await;
+
+    let token_report: Option<memd_schema::OperationTokenReport> = match te_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    // 2. Fetch decay diagnostics
+    let decay_req = serde_json::json!({
+        "project": args.project.as_deref().unwrap_or("default"),
+        "namespace": args.namespace.as_deref().unwrap_or("main"),
+    });
+
+    let decay_resp = client
+        .post(format!("{base_url}/api/diagnostics/decay"))
+        .json(&decay_req)
+        .send()
+        .await;
+
+    let decay_report: Option<serde_json::Value> = match decay_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    // 3. Fetch health for compaction/consolidation info
+    let health_resp = client
+        .get(format!("{base_url}/healthz"))
+        .send()
+        .await;
+
+    let health: Option<serde_json::Value> = match health_resp {
+        Ok(r) if r.status().is_success() => r.json().await.ok(),
+        _ => None,
+    };
+
+    if args.json {
+        let combined = serde_json::json!({
+            "token_efficiency": token_report,
+            "decay": decay_report,
+            "health": health,
+            "timestamp": chrono::Utc::now().timestamp(),
+        });
+        println!("{}", serde_json::to_string_pretty(&combined)?);
+    } else {
+        println!("# memd Diagnostics Report");
+        println!();
+        println!("Timestamp: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+        println!();
+
+        // Token efficiency section
+        println!("## 1. Token Efficiency");
+        if let Some(ref te) = token_report {
+            println!(
+                "- Operation: {} | Budget: {} | Used: {} | Utilization: {:.1}%",
+                te.operation, te.budget_chars, te.used_chars, te.utilization_pct
+            );
+            for (kind, items) in &te.per_kind.items_per_kind {
+                let chars = te.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+                println!("  - {}: {} items, {} chars", kind, items, chars);
+            }
+        } else {
+            println!("- N/A (server unreachable or no data)");
+        }
+        println!();
+
+        // Decay section
+        println!("## 2. Decay Diagnostics");
+        if let Some(ref decay) = decay_report {
+            if let Some(metrics) = decay.get("metrics") {
+                println!("- Items inspected: {}", metrics.get("items_inspected").unwrap_or(&serde_json::Value::Null));
+                println!("- Items decayed: {}", metrics.get("items_decayed").unwrap_or(&serde_json::Value::Null));
+                println!("- Items expired: {}", metrics.get("items_expired").unwrap_or(&serde_json::Value::Null));
+            }
+            println!("- Inactive days: {}", decay.get("inactive_days").unwrap_or(&serde_json::Value::Null));
+            println!("- Max decay: {}", decay.get("max_decay").unwrap_or(&serde_json::Value::Null));
+            println!("- Decay divisor: {}", decay.get("decay_divisor").unwrap_or(&serde_json::Value::Null));
+        } else {
+            println!("- N/A (server unreachable or no data)");
+        }
+        println!();
+
+        // Health section
+        println!("## 3. System Health");
+        if let Some(ref h) = health {
+            println!("- Status: {}", h.get("status").unwrap_or(&serde_json::Value::Null));
+            if let Some(items) = h.get("item_count") {
+                println!("- Total items: {}", items);
+            }
+            if let Some(entities) = h.get("entity_count") {
+                println!("- Total entities: {}", entities);
+            }
+        } else {
+            println!("- N/A (server unreachable)");
+        }
+        println!();
+
+        // Measurement dimensions summary
+        println!("## 4. Measurement Completeness");
+        let te_ok = token_report.is_some();
+        let decay_ok = decay_report.is_some();
+        let health_ok = health.is_some();
+        println!("- [{}] Token efficiency (per-kind, per-operation)", if te_ok { "✓" } else { " " });
+        println!("- [{}] Decay diagnostics (calibrated parameters)", if decay_ok { "✓" } else { " " });
+        println!("- [{}] System health (item/entity counts)", if health_ok { "✓" } else { " " });
+        println!("- [ ] Benchmark results (run `memd benchmark public --ci --record`)");
+        println!("- [ ] Compaction quality (per working memory build)");
+        println!("- [ ] Consolidation quality (per consolidation run)");
+        println!("- [ ] Handoff quality (per handoff packet)");
     }
 
     Ok(())

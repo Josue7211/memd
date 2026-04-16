@@ -350,6 +350,80 @@ pub(crate) fn render_bundle_wakeup_summary(snapshot: &ResumeSnapshot) -> String 
     )
 }
 
+/// Extract the `kind=<value>` field from a compact memory record string.
+fn extract_kind_from_record(record: &str) -> String {
+    // Records look like: "id=... | kind=fact | status=active | ..."
+    for segment in record.split('|') {
+        let trimmed = segment.trim();
+        if let Some(rest) = trimmed.strip_prefix("kind=") {
+            return rest.trim().to_string();
+        }
+    }
+    "unknown".to_string()
+}
+
+/// Compute per-kind token metrics for the wake packet.
+///
+/// Analyzes both context (durable truth) and working (focus) records from the
+/// snapshot, counting characters and items per memory kind. Returns an
+/// `OperationTokenReport` for the "wake" operation.
+pub(crate) fn compute_wake_token_metrics(
+    output: &Path,
+    snapshot: &ResumeSnapshot,
+    rendered_markdown: &str,
+) -> memd_schema::OperationTokenReport {
+    use std::collections::BTreeMap;
+
+    let budget = crate::harness::preset::wake_char_budget_for_agent(
+        wake_budget_agent_name(output, snapshot).as_deref(),
+    );
+    let used_chars = rendered_markdown.len();
+
+    let mut chars_per_kind: BTreeMap<String, usize> = BTreeMap::new();
+    let mut items_per_kind: BTreeMap<String, usize> = BTreeMap::new();
+    let mut total_items = 0usize;
+    let mut total_record_chars = 0usize;
+
+    // Count context records (durable truth)
+    for record in &snapshot.context.records {
+        let kind = extract_kind_from_record(&record.record);
+        let char_len = record.record.len();
+        *chars_per_kind.entry(kind.clone()).or_insert(0) += char_len;
+        *items_per_kind.entry(kind).or_insert(0) += 1;
+        total_items += 1;
+        total_record_chars += char_len;
+    }
+
+    // Count working records (focus)
+    for record in &snapshot.working.records {
+        let kind = extract_kind_from_record(&record.record);
+        let char_len = record.record.len();
+        *chars_per_kind.entry(kind.clone()).or_insert(0) += char_len;
+        *items_per_kind.entry(kind).or_insert(0) += 1;
+        total_items += 1;
+        total_record_chars += char_len;
+    }
+
+    let utilization_pct = if budget > 0 {
+        (used_chars as f64 / budget as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    memd_schema::OperationTokenReport {
+        operation: "wake".to_string(),
+        budget_chars: budget,
+        used_chars,
+        utilization_pct,
+        per_kind: memd_schema::PerKindTokenMetrics {
+            chars_per_kind,
+            items_per_kind,
+            total_chars: total_record_chars,
+            total_items,
+        },
+    }
+}
+
 pub(crate) fn render_bundle_scope_markdown(output: &Path, snapshot: &ResumeSnapshot) -> String {
     let runtime = read_bundle_runtime_config(output).ok().flatten();
     let heartbeat_tab_id = read_bundle_heartbeat(output)

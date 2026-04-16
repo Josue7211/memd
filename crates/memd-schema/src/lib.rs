@@ -521,8 +521,48 @@ pub struct CompactionQualityReport {
     pub evicted: usize,
     pub per_kind_admitted: BTreeMap<String, usize>,
     pub per_kind_evicted: BTreeMap<String, usize>,
+    /// Per-kind character counts for admitted items.
+    #[serde(default)]
+    pub chars_per_kind_admitted: BTreeMap<String, usize>,
     pub budget_chars: usize,
     pub used_chars: usize,
+}
+
+/// Per-kind character and item counts for a single operation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PerKindTokenMetrics {
+    /// Map of kind name → character count consumed by that kind.
+    pub chars_per_kind: BTreeMap<String, usize>,
+    /// Map of kind name → item count for that kind.
+    pub items_per_kind: BTreeMap<String, usize>,
+    /// Total characters consumed across all kinds.
+    pub total_chars: usize,
+    /// Total items across all kinds.
+    pub total_items: usize,
+}
+
+/// Token efficiency report for a single operation (wake, recall, handoff, working memory).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationTokenReport {
+    /// Which operation produced this report.
+    pub operation: String,
+    /// Total character budget available for this operation.
+    pub budget_chars: usize,
+    /// Characters actually used.
+    pub used_chars: usize,
+    /// Budget utilization as a percentage (0.0–100.0).
+    pub utilization_pct: f64,
+    /// Per-kind breakdown.
+    pub per_kind: PerKindTokenMetrics,
+}
+
+/// Combined token efficiency report across all measured operations.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenEfficiencyReport {
+    /// One entry per measured operation.
+    pub operations: Vec<OperationTokenReport>,
+    /// Timestamp of this report (seconds since epoch).
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
