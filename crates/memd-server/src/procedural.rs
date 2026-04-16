@@ -13,6 +13,7 @@ use memd_schema::{
     ProcedureUseRequest, ProcedureUseResponse,
 };
 use rusqlite::params;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::store::SqliteStore;
@@ -66,12 +67,12 @@ impl SqliteStore {
                 Ok(payload)
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: procedure row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "procedure row read"))
                     .ok()
             })
             .filter_map(|payload| {
                 serde_json::from_str::<Procedure>(&payload)
-                    .inspect_err(|e| eprintln!("warn: procedure json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "procedure json parse"))
                     .ok()
             })
             .collect();
@@ -151,12 +152,12 @@ impl SqliteStore {
                     Ok(p)
                 })?
                 .filter_map(|r| {
-                    r.inspect_err(|e| eprintln!("warn: procedure row read: {e}"))
+                    r.inspect_err(|e| warn!(error = %e, "procedure row read"))
                         .ok()
                 })
                 .filter_map(|p| {
                     serde_json::from_str::<Procedure>(&p)
-                        .inspect_err(|e| eprintln!("warn: procedure json parse: {e}"))
+                        .inspect_err(|e| warn!(error = %e, "procedure json parse"))
                         .ok()
                 })
                 .collect();
@@ -193,7 +194,7 @@ impl SqliteStore {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: stale procedure row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "stale procedure row read"))
                     .ok()
             })
             .collect();
@@ -210,7 +211,7 @@ impl SqliteStore {
                         "UPDATE procedures SET status = 'retired', updated_at = ?1, payload_json = ?2 WHERE id = ?3",
                         params![now.to_rfc3339(), new_payload, id_str],
                     ) {
-                        eprintln!("warn: auto_retire_stale_procedures update: {e:#}");
+                        warn!(error = %format_args!("{e:#}"), "auto_retire_stale_procedures update");
                     }
                     retired += 1;
                 }
@@ -229,7 +230,7 @@ impl SqliteStore {
     ) -> anyhow::Result<ProcedureMatchResponse> {
         // G6: Auto-retire stale procedures before matching.
         if let Err(e) = self.auto_retire_stale_procedures() {
-            eprintln!("warn: auto_retire_stale_procedures: {e:#}");
+            warn!(error = %format_args!("{e:#}"), "auto_retire_stale_procedures");
         }
         let conn = self.connect()?;
         let mut sql =
@@ -259,12 +260,12 @@ impl SqliteStore {
                 Ok(payload)
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: procedure row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "procedure row read"))
                     .ok()
             })
             .filter_map(|payload| {
                 serde_json::from_str::<Procedure>(&payload)
-                    .inspect_err(|e| eprintln!("warn: procedure json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "procedure json parse"))
                     .ok()
             })
             .collect();
@@ -477,7 +478,7 @@ impl SqliteStore {
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: detect candidate row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "detect candidate row read"))
                     .ok()
             })
             .collect();

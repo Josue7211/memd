@@ -7,6 +7,7 @@ use memd_schema::{
     MemoryKind, MemoryStatus,
 };
 use rusqlite::params;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::SqliteStore;
@@ -47,12 +48,12 @@ impl SqliteStore {
                 Ok(payload)
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: atlas region row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "atlas region row read"))
                     .ok()
             })
             .filter_map(|payload| {
                 serde_json::from_str::<AtlasRegion>(&payload)
-                    .inspect_err(|e| eprintln!("warn: atlas region json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "atlas region json parse"))
                     .ok()
             })
             .collect();
@@ -118,12 +119,12 @@ impl SqliteStore {
                 row.get::<_, String>(0)
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: region member row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "region member row read"))
                     .ok()
             })
             .filter_map(|s| {
                 s.parse::<Uuid>()
-                    .inspect_err(|e| eprintln!("warn: region member uuid parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "region member uuid parse"))
                     .ok()
             })
             .collect();
@@ -449,11 +450,11 @@ impl SqliteStore {
             };
             // Persist the generated region
             if let Err(e) = self.upsert_atlas_region(&region) {
-                eprintln!("warn: upsert_atlas_region: {e:#}");
+                warn!(error = %format_args!("{e:#}"), "upsert_atlas_region");
             }
             let member_ids: Vec<Uuid> = members.iter().map(|m| m.id).collect();
             if let Err(e) = self.set_region_members(region_id, &member_ids) {
-                eprintln!("warn: set_region_members: {e:#}");
+                warn!(error = %format_args!("{e:#}"), "set_region_members");
             }
             regions.push(region);
         }
@@ -596,12 +597,12 @@ impl SqliteStore {
         let trails = stmt
             .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: atlas trail row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "atlas trail row read"))
                     .ok()
             })
             .filter_map(|json| {
                 serde_json::from_str::<AtlasSavedTrail>(&json)
-                    .inspect_err(|e| eprintln!("warn: atlas trail json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "atlas trail json parse"))
                     .ok()
             })
             .collect();
@@ -651,7 +652,7 @@ impl SqliteStore {
                 ))
             })?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: atlas link row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "atlas link row read"))
                     .ok()
             })
             .filter_map(|(from, to, kind, weight, label)| {
@@ -712,12 +713,12 @@ impl SqliteStore {
         let events = stmt
             .query_map(params![item_id.to_string()], |row| row.get::<_, String>(0))?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: event row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "event row read"))
                     .ok()
             })
             .filter_map(|json| {
                 serde_json::from_str::<MemoryEventRecord>(&json)
-                    .inspect_err(|e| eprintln!("warn: event json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "event json parse"))
                     .ok()
             })
             .collect();
@@ -748,12 +749,12 @@ impl SqliteStore {
         let links = stmt
             .query_map(params![id_str], |row| row.get::<_, String>(0))?
             .filter_map(|r| {
-                r.inspect_err(|e| eprintln!("warn: entity link row read: {e}"))
+                r.inspect_err(|e| warn!(error = %e, "entity link row read"))
                     .ok()
             })
             .filter_map(|json| {
                 serde_json::from_str(&json)
-                    .inspect_err(|e| eprintln!("warn: entity link json parse: {e}"))
+                    .inspect_err(|e| warn!(error = %e, "entity link json parse"))
                     .ok()
             })
             .collect();

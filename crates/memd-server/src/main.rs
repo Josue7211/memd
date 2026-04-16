@@ -35,6 +35,9 @@ use axum::{
     response::Html,
     routing::{get, post},
 };
+use tower_http::trace::TraceLayer;
+use tracing::{error, warn};
+use tracing_subscriber::EnvFilter;
 use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
@@ -149,7 +152,7 @@ impl AppState {
                 "restored",
                 "duplicate memory item restored to active canonical state".to_string(),
             ) {
-                eprintln!("warn: record_item_event (restored): {e:#}");
+                warn!(error = %format_args!("{e:#}"), "record_item_event (restored)");
             }
             return Ok((revived, None));
         }
@@ -169,7 +172,7 @@ impl AppState {
                 "reinforced",
                 "duplicate store reinforced existing item".to_string(),
             ) {
-                eprintln!("warn: record_item_event (reinforced): {e:#}");
+                warn!(error = %format_args!("{e:#}"), "record_item_event (reinforced)");
             }
             return Ok((reinforced, Some(found.clone())));
         }
@@ -185,26 +188,26 @@ impl AppState {
                     }
                 ),
             ) {
-                eprintln!("warn: record_item_event (stored): {e:#}");
+                warn!(error = %format_args!("{e:#}"), "record_item_event (stored)");
             }
 
             // Auto-expire excess status items to prevent noise accumulation
             if item.kind == MemoryKind::Status {
                 if let Err(e) = self.expire_excess_status_items(&item, 4) {
-                    eprintln!("warn: expire_excess_status_items: {e:#}");
+                    warn!(error = %format_args!("{e:#}"), "expire_excess_status_items");
                 }
             }
 
             // Auto-link co-occurring entities within the same project
             if item.kind != MemoryKind::Status {
                 if let Err(e) = self.auto_link_entity(&entity.record, &item) {
-                    eprintln!("warn: auto_link_entity: {e:#}");
+                    warn!(error = %format_args!("{e:#}"), "auto_link_entity");
                 }
             }
 
             // E2: Parse [[wiki links]] in content and create entity links
             if let Err(e) = self.create_wiki_links(&entity.record, &item) {
-                eprintln!("warn: create_wiki_links: {e:#}");
+                warn!(error = %format_args!("{e:#}"), "create_wiki_links");
             }
         }
         Ok((item, duplicate))
@@ -443,7 +446,7 @@ impl AppState {
             "promoted",
             "memory item promoted to canonical stage".to_string(),
         ) {
-            eprintln!("warn: record_item_event (promoted): {e:#}");
+            warn!(error = %format_args!("{e:#}"), "record_item_event (promoted)");
         }
         Ok((item, None))
     }
@@ -480,15 +483,27 @@ impl AppState {
     }
 }
 
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,memd_server=debug,tower_http=info"));
+    let format = std::env::var("MEMD_LOG_FORMAT").unwrap_or_else(|_| "pretty".to_string());
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    match format.as_str() {
+        "json" => builder.json().init(),
+        _ => builder.compact().init(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing();
     let db_path = std::env::var("MEMD_DB_PATH").unwrap_or_else(|_| ".memd/memd.db".to_string());
     let bind_addr =
         std::env::var("MEMD_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let store = match SqliteStore::open(&db_path) {
         Ok(store) => store,
         Err(e) => {
-            eprintln!("error: failed to open database at {db_path}: {e:#}");
+            error!(error = %format_args!("{e:#}"), %db_path, "failed to open database");
             std::process::exit(1);
         }
     };
@@ -610,18 +625,23 @@ async fn main() {
             "/api/diagnostics/token-efficiency",
             post(token_efficiency_diagnostics),
         )
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!("error: failed to bind to {bind_addr}: {e:#}");
-            eprintln!("hint: port may be in use, set MEMD_BIND_ADDR to change");
+            error!(
+                error = %format_args!("{e:#}"),
+                %bind_addr,
+                "failed to bind (hint: port may be in use, set MEMD_BIND_ADDR to change)"
+            );
             std::process::exit(1);
         }
     };
+    tracing::info!(%bind_addr, %db_path, "memd-server listening");
     if let Err(e) = axum::serve(listener, app).await {
-        eprintln!("error: server exited unexpectedly: {e:#}");
+        error!(error = %format_args!("{e:#}"), "server exited unexpectedly");
         std::process::exit(1);
     }
 }

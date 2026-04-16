@@ -5,6 +5,7 @@ use memd_schema::{
     MemoryRepairMode, MemoryStage, MemoryStatus, RepairMemoryRequest, RepairMemoryResponse,
     StoreMemoryRequest, VerifyMemoryRequest,
 };
+use tracing::warn;
 
 use crate::{AppState, RecordEventArgs, canonical_key, internal_error, redundancy_key};
 
@@ -31,7 +32,7 @@ pub(crate) fn expire_item(
         .update(&item, &canonical_key, &redundancy_key)
         .map_err(internal_error)?;
     if let Err(e) = record_lifecycle_event(state, &item, "expired", "memory item marked expired") {
-        eprintln!("warn: record_lifecycle_event (expired): {e:#}");
+        warn!(error = %format_args!("{e:#}"), "record_lifecycle_event (expired)");
     }
     Ok(item)
 }
@@ -97,7 +98,7 @@ pub(crate) fn correct_item(
         "superseded_by_correction",
         &format!("memory item superseded by correction"),
     ) {
-        eprintln!("warn: record_lifecycle_event (superseded_by_correction): {e:#}");
+        warn!(error = %format_args!("{e:#}"), "record_lifecycle_event (superseded_by_correction)");
     }
 
     // 2. Create new item with corrected content
@@ -154,7 +155,7 @@ pub(crate) fn correct_item(
             req.reason.as_deref().unwrap_or("content corrected")
         ),
     ) {
-        eprintln!("warn: record_lifecycle_event (correction_created): {e:#}");
+        warn!(error = %format_args!("{e:#}"), "record_lifecycle_event (correction_created)");
     }
 
     // 3. Contradiction detection: entity-based matching.
@@ -374,7 +375,7 @@ pub(crate) fn repair_item(
         .map_err(internal_error)?;
     let summary = format!("memory item {} via {}", event_type, format_mode(req.mode));
     if let Err(e) = record_lifecycle_event(state, &item, event_type, &summary) {
-        eprintln!("warn: record_lifecycle_event ({event_type}): {e:#}");
+        warn!(error = %format_args!("{e:#}"), %event_type, "record_lifecycle_event");
     }
     Ok(RepairMemoryResponse {
         item,
