@@ -1000,6 +1000,8 @@
                 content: Some("refresh live event pages".to_string()),
                 input: None,
                 stdin: false,
+                auto_commit: false,
+                roadmap_set: vec![],
             },
             &base_url,
         )

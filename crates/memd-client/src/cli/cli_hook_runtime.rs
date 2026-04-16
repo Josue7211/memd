@@ -91,6 +91,7 @@ pub(crate) async fn run_hook_mode(
                     content: Some(content.clone()),
                     input: None,
                     auto_commit: false,
+                    roadmap_set: vec![],
                     stdin: false,
                 },
                 base_url,

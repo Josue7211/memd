@@ -814,6 +814,7 @@ pub(crate) async fn auto_checkpoint_bundle_event(
             input: None,
             stdin: false,
             auto_commit: false,
+            roadmap_set: vec![],
         },
         base_url,
     )
@@ -878,6 +879,7 @@ pub(crate) async fn auto_checkpoint_live_snapshot(
             input: None,
             stdin: false,
             auto_commit: false,
+            roadmap_set: vec![],
         },
         base_url,
     )
@@ -918,6 +920,7 @@ pub(crate) async fn auto_checkpoint_compaction_packet(
             input: None,
             stdin: false,
             auto_commit: false,
+            roadmap_set: vec![],
         },
         base_url,
     )
@@ -1047,6 +1050,102 @@ pub(crate) fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs
         input: args.input.clone(),
         stdin: args.stdin,
     }
+}
+
+/// Update key-value pairs inside the `<!-- ROADMAP_STATE ... -->` block in ROADMAP.md.
+///
+/// Finds the git repo root, locates ROADMAP.md, parses the `<!-- ROADMAP_STATE` block,
+/// patches matching keys (or appends new ones), and writes back.
+/// Returns `Ok(true)` if changes were written, `Ok(false)` if nothing changed.
+pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Result<bool> {
+    if updates.is_empty() {
+        return Ok(false);
+    }
+
+    // Find git root
+    let toplevel = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+
+    let repo_dir = match toplevel {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        _ => anyhow::bail!("not in a git repository — cannot locate ROADMAP.md"),
+    };
+
+    let roadmap_path = std::path::Path::new(&repo_dir).join("ROADMAP.md");
+    if !roadmap_path.exists() {
+        anyhow::bail!("ROADMAP.md not found at {}", roadmap_path.display());
+    }
+
+    let content = fs::read_to_string(&roadmap_path)
+        .with_context(|| format!("read {}", roadmap_path.display()))?;
+
+    let start_marker = "<!-- ROADMAP_STATE";
+    let end_marker = "-->";
+
+    let Some(start_pos) = content.find(start_marker) else {
+        anyhow::bail!("no <!-- ROADMAP_STATE block found in ROADMAP.md");
+    };
+
+    let block_content_start = start_pos + start_marker.len();
+    let Some(end_offset) = content[block_content_start..].find(end_marker) else {
+        anyhow::bail!("unterminated <!-- ROADMAP_STATE block (missing -->)");
+    };
+    let block_content_end = block_content_start + end_offset;
+
+    // Parse existing key-value lines
+    let block_text = &content[block_content_start..block_content_end];
+    let mut lines: Vec<(String, String)> = Vec::new();
+
+    for line in block_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Split on first ": " to preserve colons in values
+        if let Some(colon_pos) = trimmed.find(": ") {
+            let key = trimmed[..colon_pos].trim().to_string();
+            let value = trimmed[colon_pos + 2..].trim().to_string();
+            lines.push((key, value));
+        }
+    }
+
+    // Apply updates: patch existing keys or append new ones
+    let mut changed = false;
+    for (update_key, update_value) in updates {
+        if let Some(existing) = lines.iter_mut().find(|(k, _)| k == update_key) {
+            if existing.1 != *update_value {
+                existing.1 = update_value.clone();
+                changed = true;
+            }
+        } else {
+            lines.push((update_key.clone(), update_value.clone()));
+            changed = true;
+        }
+    }
+
+    if !changed {
+        return Ok(false);
+    }
+
+    // Rebuild block
+    let mut new_block = String::from("\n");
+    for (key, value) in &lines {
+        new_block.push_str(&format!("{}: {}\n", key, value));
+    }
+
+    let mut new_content = String::new();
+    new_content.push_str(&content[..start_pos]);
+    new_content.push_str(start_marker);
+    new_content.push_str(&new_block);
+    new_content.push_str(&content[block_content_end..]);
+
+    fs::write(&roadmap_path, &new_content)
+        .with_context(|| format!("write {}", roadmap_path.display()))?;
+
+    Ok(true)
 }
 
 /// Auto-commit tracked dirty files before checkpointing.
@@ -1249,5 +1348,135 @@ mod tests {
         assert!(!hash.unwrap().is_empty(), "hash should not be empty");
 
         fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn update_roadmap_state_patches_existing_keys() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "memd-roadmap-state-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        // Init git repo (update_roadmap_state uses git rev-parse)
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+
+        // Write a ROADMAP.md with a state block
+        let roadmap = r#"# Roadmap
+
+<!-- ROADMAP_STATE
+current_phase: O2
+phase_status: verified
+next_step: P2 — do the thing: with colons
+note: O2 done
+-->
+
+## Content
+"#;
+        fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
+
+        let original_dir = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
+
+        let updates = vec![
+            ("current_phase".to_string(), "P2".to_string()),
+            ("phase_status".to_string(), "in_progress".to_string()),
+        ];
+
+        let result = update_roadmap_state(&updates);
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "should report changes made");
+
+        let updated = fs::read_to_string(temp_root.join("ROADMAP.md")).expect("read updated");
+        assert!(
+            updated.contains("current_phase: P2"),
+            "phase should be updated"
+        );
+        assert!(
+            updated.contains("phase_status: in_progress"),
+            "status should be updated"
+        );
+        // Colons in values must survive
+        assert!(
+            updated.contains("next_step: P2 — do the thing: with colons"),
+            "colon-bearing values must be preserved"
+        );
+        assert!(updated.contains("## Content"), "rest of file preserved");
+
+        fs::remove_dir_all(temp_root).expect("cleanup");
+    }
+
+    #[test]
+    fn update_roadmap_state_appends_new_keys() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "memd-roadmap-append-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+
+        let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";
+        fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
+
+        let original_dir = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
+
+        let updates = vec![("new_key".to_string(), "new_value".to_string())];
+        let result = update_roadmap_state(&updates);
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "should report changes");
+
+        let updated = fs::read_to_string(temp_root.join("ROADMAP.md")).expect("read");
+        assert!(updated.contains("new_key: new_value"), "new key appended");
+        assert!(
+            updated.contains("current_phase: O2"),
+            "existing key preserved"
+        );
+
+        fs::remove_dir_all(temp_root).expect("cleanup");
+    }
+
+    #[test]
+    fn update_roadmap_state_no_changes_returns_false() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "memd-roadmap-noop-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+
+        let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";
+        fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
+
+        let original_dir = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
+
+        // Same value — no change
+        let updates = vec![("current_phase".to_string(), "O2".to_string())];
+        let result = update_roadmap_state(&updates);
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "no changes should return false");
+
+        fs::remove_dir_all(temp_root).expect("cleanup");
     }
 }

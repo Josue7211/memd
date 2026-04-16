@@ -14,6 +14,8 @@
             content: Some("remember current blocker".to_string()),
             input: None,
             stdin: false,
+            auto_commit: false,
+            roadmap_set: vec![],
         };
 
         let translated = checkpoint_as_remember_args(&args);

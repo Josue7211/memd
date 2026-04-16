@@ -650,6 +650,26 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint(args) => {
+            // Update ROADMAP_STATE before auto-commit so changes are included
+            if !args.roadmap_set.is_empty() {
+                let updates: Vec<(String, String)> = args
+                    .roadmap_set
+                    .iter()
+                    .filter_map(|pair| {
+                        let (key, value) = pair.split_once('=')?;
+                        Some((key.trim().to_string(), value.trim().to_string()))
+                    })
+                    .collect();
+                match crate::runtime::update_roadmap_state(&updates) {
+                    Ok(true) => {
+                        eprintln!("memd: updated ROADMAP_STATE ({} keys)", updates.len());
+                    }
+                    Ok(false) => {} // no changes needed
+                    Err(err) => {
+                        eprintln!("memd: roadmap-set failed (non-fatal): {}", err);
+                    }
+                }
+            }
             // Auto-commit tracked dirty files before checkpointing
             if args.auto_commit {
                 let commit_msg = match args.content.as_deref() {

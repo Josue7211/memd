@@ -3008,6 +3008,12 @@ pub(crate) struct CheckpointArgs {
     /// Ensures uncommitted work is saved as part of the handoff.
     #[arg(long)]
     pub(crate) auto_commit: bool,
+
+    /// Update ROADMAP_STATE key-value pairs before checkpointing.
+    /// Format: KEY=VALUE (e.g. --roadmap-set current_phase=P2 --roadmap-set phase_status=in_progress).
+    /// Applied before auto-commit so changes are included in the commit.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub(crate) roadmap_set: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
