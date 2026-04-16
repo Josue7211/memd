@@ -7269,3 +7269,219 @@ fn concurrency_10_threads_100_writes_no_sqlite_busy_surfaces() {
 
     std::fs::remove_dir_all(dir).expect("cleanup concurrency test");
 }
+
+// L2.8: cross-harness E2E — codex-style harness A hands off to
+// claude-code-style harness B, B makes corrections, A wakes up and picks
+// them up. Runs against the shared store (single sqlite file) the way two
+// harnesses coexist in production: distinct source_agent, shared storage.
+#[test]
+fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
+    use memd_schema::{
+        CompactMemoryRecord, HiveHandoffPacket, Procedure, ProcedureKind, ProcedureStatus,
+        WorkingContextSnapshot,
+    };
+
+    let dir = std::env::temp_dir().join(format!("memd-x-harness-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open store");
+
+    // Shared namespace/workspace — both harnesses operate on the same lane.
+    let project = Some("memd".to_string());
+    let namespace = Some("main".to_string());
+    let workspace = Some("shared".to_string());
+
+    fn seed_as(
+        store: &SqliteStore,
+        agent: &str,
+        kind: MemoryKind,
+        content: &str,
+        project: &Option<String>,
+        namespace: &Option<String>,
+        workspace: &Option<String>,
+    ) -> MemoryItem {
+        let now = Utc::now();
+        let item = MemoryItem {
+            id: uuid::Uuid::new_v4(),
+            content: content.to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind,
+            scope: MemoryScope::Project,
+            project: project.clone(),
+            namespace: namespace.clone(),
+            workspace: workspace.clone(),
+            visibility: MemoryVisibility::Workspace,
+            source_agent: Some(agent.to_string()),
+            source_system: Some("cross-harness-test".to_string()),
+            source_path: None,
+            source_quality: Some(SourceQuality::Canonical),
+            confidence: 0.9,
+            ttl_seconds: None,
+            created_at: now,
+            updated_at: now,
+            last_verified_at: Some(now),
+            supersedes: Vec::new(),
+            tags: vec!["cross-harness".to_string()],
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+        };
+        let ck = keys::canonical_key(&item);
+        let rk = keys::redundancy_key(&item);
+        store
+            .insert_or_get_duplicate(&item, &ck, &rk)
+            .expect("seed item");
+        item
+    }
+
+    // (a) Harness A: 3 facts + 2 decisions + 1 procedure candidate.
+    let a_fact_1 = seed_as(&store, "codex@A", MemoryKind::Fact, "hive uses Lamport clocks", &project, &namespace, &workspace);
+    let a_fact_2 = seed_as(&store, "codex@A", MemoryKind::Fact, "writes retry under WAL", &project, &namespace, &workspace);
+    let a_fact_3 = seed_as(&store, "codex@A", MemoryKind::Fact, "procedural memory is 8-slot bounded", &project, &namespace, &workspace);
+    let a_dec_1 = seed_as(&store, "codex@A", MemoryKind::Decision, "adopt FTS5 for search", &project, &namespace, &workspace);
+    let a_dec_2 = seed_as(&store, "codex@A", MemoryKind::Decision, "use SQLite online backup for snapshots", &project, &namespace, &workspace);
+    let a_proc_seed = seed_as(&store, "codex@A", MemoryKind::Procedural, "when tests fail intermittently, check busy_timeout", &project, &namespace, &workspace);
+
+    // (b) Build a handoff packet from A. Snapshot carries working records +
+    //     unresolved procedure candidate.
+    let compact = |item: &MemoryItem| CompactMemoryRecord {
+        id: item.id,
+        record: item.content.clone(),
+    };
+    let snapshot = WorkingContextSnapshot {
+        working_records: vec![
+            compact(&a_fact_1),
+            compact(&a_fact_2),
+            compact(&a_fact_3),
+            compact(&a_dec_1),
+            compact(&a_dec_2),
+        ],
+        doing: Some("ship L2".to_string()),
+        left_off: Some("just finished L2.7".to_string()),
+        next_action: Some("start L2.8".to_string()),
+        blocker: None,
+        unresolved_procedures: vec![Procedure {
+            id: uuid::Uuid::new_v4(),
+            name: "retry on flakes".to_string(),
+            description: "observed pattern from A".to_string(),
+            kind: ProcedureKind::Recovery,
+            status: ProcedureStatus::Candidate,
+            trigger: "tests flake".to_string(),
+            steps: vec!["check busy_timeout".to_string()],
+            success_criteria: None,
+            source_ids: vec![a_proc_seed.id],
+            project: project.clone(),
+            namespace: namespace.clone(),
+            use_count: 0,
+            confidence: 0.6,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            tags: vec!["cross-harness".to_string()],
+            session_count: 0,
+            last_session: Some("A".to_string()),
+            supersedes: None,
+        }],
+        version: 1,
+        captured_at: Some(Utc::now()),
+    }
+    .truncate_to_cap();
+
+    let packet = HiveHandoffPacket {
+        from_session: "A".to_string(),
+        from_worker: Some("codex".to_string()),
+        to_session: "B".to_string(),
+        to_worker: Some("claude-code".to_string()),
+        task_id: Some("ship-l2".to_string()),
+        topic_claim: Some("L2 hive hardening".to_string()),
+        scope_claims: Vec::new(),
+        next_action: Some("start L2.8".to_string()),
+        blocker: None,
+        note: Some("running out of context".to_string()),
+        created_at: Utc::now(),
+        working_context: Some(snapshot.clone()),
+    };
+
+    // (c) Harness B resumes. In production this fans out to store calls;
+    //     here we validate the contract: all seeded items referenced by the
+    //     snapshot are visible via the shared store.
+    for rec in &packet.working_context.as_ref().unwrap().working_records {
+        let row = store
+            .get(rec.id)
+            .expect("store.get works")
+            .expect("handed-off item visible to B");
+        assert_eq!(row.content, rec.record);
+    }
+    assert_eq!(
+        packet.working_context.as_ref().unwrap().working_records.len(),
+        5,
+        "3 facts + 2 decisions"
+    );
+    assert_eq!(
+        packet
+            .working_context
+            .as_ref()
+            .unwrap()
+            .unresolved_procedures
+            .len(),
+        1,
+        "1 procedure candidate"
+    );
+
+    // (e) Harness B: correction to fact_1 + new decision.
+    let mut corrected_fact = a_fact_1.clone();
+    corrected_fact.id = uuid::Uuid::new_v4();
+    corrected_fact.content = "hive uses Lamport clocks (versioned u64)".to_string();
+    corrected_fact.source_agent = Some("claude-code@B".to_string());
+    corrected_fact.supersedes = vec![a_fact_1.id];
+    corrected_fact.updated_at = Utc::now();
+    let ck = keys::canonical_key(&corrected_fact);
+    let rk = keys::redundancy_key(&corrected_fact);
+    store
+        .insert_or_get_duplicate(&corrected_fact, &ck, &rk)
+        .expect("B writes correction");
+
+    let b_new_dec = seed_as(
+        &store,
+        "claude-code@B",
+        MemoryKind::Decision,
+        "prefer online backup over cold copy",
+        &project,
+        &namespace,
+        &workspace,
+    );
+
+    // (f) Harness A wakes up — reads from same store, sees B's additions.
+    let all_items = {
+        let conn = rusqlite::Connection::open(dir.join("state.sqlite")).expect("reopen to query");
+        let mut stmt = conn
+            .prepare("SELECT payload_json FROM memory_items")
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| {
+                let s = r.unwrap();
+                serde_json::from_str::<MemoryItem>(&s).expect("decode payload")
+            })
+            .collect::<Vec<_>>();
+        rows
+    };
+
+    let correction_visible = all_items
+        .iter()
+        .any(|i| i.id == corrected_fact.id && i.supersedes == vec![a_fact_1.id]);
+    assert!(correction_visible, "A must see B's correction chain");
+
+    let new_dec_visible = all_items.iter().any(|i| i.id == b_new_dec.id);
+    assert!(new_dec_visible, "A must see B's newly added decision");
+
+    // And the originals remain reachable so the supersedes chain works.
+    for original in [&a_fact_1, &a_fact_2, &a_fact_3, &a_dec_1, &a_dec_2, &a_proc_seed] {
+        let found = all_items.iter().any(|i| i.id == original.id);
+        assert!(found, "original item {} still in shared store", original.id);
+    }
+
+    std::fs::remove_dir_all(dir).expect("cleanup x-harness");
+}
