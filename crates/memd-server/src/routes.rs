@@ -1010,6 +1010,29 @@ pub(crate) async fn post_hive_queen_handoff(
             workspace: req.workspace.clone(),
         })
         .map_err(internal_error)?;
+    let effective_task_id = req
+        .task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| target.target.task_id.clone());
+    let lock_version = if let Some(task_id) = effective_task_id.as_deref() {
+        Some(
+            state
+                .store
+                .apply_handoff_lock(task_id, &target_session, Some(&req.queen_session))
+                .map_err(internal_error)?,
+        )
+    } else {
+        None
+    };
+    let lock_fragment = match (effective_task_id.as_deref(), lock_version) {
+        (Some(task), Some(version)) => {
+            format!(" Lock v{} on task {}.", version, task)
+        }
+        _ => String::new(),
+    };
     let receipt = state
         .store
         .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
@@ -1017,13 +1040,13 @@ pub(crate) async fn post_hive_queen_handoff(
             actor_session: req.queen_session.clone(),
             actor_agent: Some("dashboard".to_string()),
             target_session: Some(target_session.clone()),
-            task_id: target.target.task_id.clone(),
+            task_id: effective_task_id.clone(),
             scope: Some(scope.clone()),
             project: req.project.clone(),
             namespace: req.namespace.clone(),
             workspace: req.workspace.clone(),
             summary: format!(
-                "Queen handed off scope {} to session {}.",
+                "Queen handed off scope {} to session {}.{lock_fragment}",
                 scope, target_session
             ),
         })

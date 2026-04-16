@@ -959,3 +959,124 @@ fn queen_reroute_rewrites_session_lane_via_json_set() {
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
+
+#[test]
+fn queen_handoff_lock_bumps_version_and_blocks_other_sessions() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-handoff-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    // First handoff — expect version 1 and only the locked session may mutate.
+    let v1 = store
+        .apply_handoff_lock("task-omega", "bee-2", Some("queen-1"))
+        .expect("first handoff lock");
+    assert_eq!(v1, 1, "first handoff must stamp version 1");
+
+    // Locked session can still upsert.
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-2".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("locked session upsert");
+
+    // Someone else tries → 409-class error.
+    let err = store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega (other)".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-3".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect_err("unrelated session must be locked out");
+    assert!(
+        format!("{err:#}").contains("queen_handoff_locked:"),
+        "expected queen_handoff_locked marker, got: {err:#}"
+    );
+
+    // Assign to unrelated session → also blocked.
+    let err = store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-omega".to_string(),
+            from_session: None,
+            to_session: "bee-3".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect_err("assign to unrelated session must be locked out");
+    assert!(format!("{err:#}").contains("queen_handoff_locked:"));
+
+    // Second handoff (to a new session) — version monotonically bumps.
+    let v2 = store
+        .apply_handoff_lock("task-omega", "bee-3", Some("queen-1"))
+        .expect("second handoff lock");
+    assert_eq!(v2, 2, "second handoff must stamp version 2");
+
+    // Previously denied session (bee-3) now owns the lock — handoff clears
+    // any prior deny on that (task, session) pair.
+    store
+        .record_queen_deny("task-omega", "bee-3", Some("stale"))
+        .expect("record deny pre-handoff");
+    let v3 = store
+        .apply_handoff_lock("task-omega", "bee-3", Some("queen-1"))
+        .expect("handoff subsumes deny");
+    assert_eq!(v3, 3);
+    assert!(
+        !store
+            .is_task_denied_for_session("task-omega", "bee-3")
+            .expect("check deny"),
+        "handoff must subsume stale deny on the same (task, session)"
+    );
+
+    // Explicit clear unlocks.
+    store.clear_handoff_lock("task-omega").expect("clear lock");
+    assert!(
+        store
+            .handoff_lock_for_task("task-omega")
+            .expect("read lock")
+            .is_none()
+    );
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-omega".to_string(),
+            title: "Omega (unlocked)".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-4".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("upsert succeeds once lock cleared");
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}

@@ -531,13 +531,22 @@ impl SqliteStore {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            && self.is_task_denied_for_session(request.task_id.trim(), session)?
         {
-            anyhow::bail!(
-                "queen_denied: task '{}' is blocked for session '{}'",
-                request.task_id.trim(),
-                session
-            );
+            if self.is_task_denied_for_session(request.task_id.trim(), session)? {
+                anyhow::bail!(
+                    "queen_denied: task '{}' is blocked for session '{}'",
+                    request.task_id.trim(),
+                    session
+                );
+            }
+            if let Some(owner) = self.task_locked_by_other(request.task_id.trim(), session)? {
+                anyhow::bail!(
+                    "queen_handoff_locked: task '{}' is locked to session '{}' (attempted by '{}')",
+                    request.task_id.trim(),
+                    owner,
+                    session
+                );
+            }
         }
         let conn = self.connect()?;
         let existing = conn
@@ -672,6 +681,16 @@ impl SqliteStore {
             anyhow::bail!(
                 "queen_denied: task '{}' is blocked for session '{}'",
                 request.task_id.trim(),
+                request.to_session.trim()
+            );
+        }
+        if let Some(owner) =
+            self.task_locked_by_other(request.task_id.trim(), request.to_session.trim())?
+        {
+            anyhow::bail!(
+                "queen_handoff_locked: task '{}' is locked to session '{}' (attempted by '{}')",
+                request.task_id.trim(),
+                owner,
                 request.to_session.trim()
             );
         }
@@ -954,6 +973,121 @@ impl SqliteStore {
             .context("check queen deny")?
             .is_some();
         Ok(denied)
+    }
+
+    /// L2.3: apply or refresh a queen handoff lock. Each call monotonically
+    /// bumps the lock's `version` — a Lamport-style counter local to the
+    /// (task_id, lock-row) pair — so conflicting retries can be disambiguated
+    /// without wall-clock time. Returns the new version.
+    ///
+    /// The act of handing off a task to `to_session` also clears any prior
+    /// deny on that same (task_id, to_session) — a handoff is the queen
+    /// explicitly granting authority, so the earlier block is subsumed.
+    pub fn apply_handoff_lock(
+        &self,
+        task_id: &str,
+        to_session: &str,
+        from_session: Option<&str>,
+    ) -> anyhow::Result<u64> {
+        let task_id = task_id.trim();
+        let to_session = to_session.trim();
+        if task_id.is_empty() || to_session.is_empty() {
+            anyhow::bail!("apply_handoff_lock: task_id and to_session must be non-empty");
+        }
+        let from_session = from_session
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self.connect()?;
+        let existing = conn
+            .query_row(
+                "SELECT version FROM hive_handoff_locks WHERE task_id = ?1",
+                params![task_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("read existing handoff lock version")?;
+        let next_version = existing.map(|v| v.max(0) as u64 + 1).unwrap_or(1);
+        conn.execute(
+            r#"
+            INSERT INTO hive_handoff_locks
+              (task_id, locked_to_session, locked_from_session, locked_at, version)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(task_id) DO UPDATE SET
+              locked_to_session = excluded.locked_to_session,
+              locked_from_session = excluded.locked_from_session,
+              locked_at = excluded.locked_at,
+              version = excluded.version
+            "#,
+            params![
+                task_id,
+                to_session,
+                &from_session,
+                chrono::Utc::now().to_rfc3339(),
+                next_version as i64,
+            ],
+        )
+        .context("upsert handoff lock")?;
+        // A handoff supersedes any outstanding deny on the same (task, session):
+        // the queen has now explicitly authorized that bee to own the task.
+        conn.execute(
+            "DELETE FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+            params![task_id, to_session],
+        )
+        .context("clear deny on handoff")?;
+        Ok(next_version)
+    }
+
+    pub fn handoff_lock_for_task(
+        &self,
+        task_id: &str,
+    ) -> anyhow::Result<Option<(String, u64)>> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.connect()?;
+        let row = conn
+            .query_row(
+                "SELECT locked_to_session, version FROM hive_handoff_locks WHERE task_id = ?1",
+                params![task_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u64,
+                    ))
+                },
+            )
+            .optional()
+            .context("read handoff lock")?;
+        Ok(row)
+    }
+
+    pub fn clear_handoff_lock(&self, task_id: &str) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM hive_handoff_locks WHERE task_id = ?1",
+            params![task_id],
+        )
+        .context("delete handoff lock")?;
+        Ok(())
+    }
+
+    /// Returns the session that currently owns the handoff lock, if the acting
+    /// session is locked out. `None` means the acting session may proceed.
+    fn task_locked_by_other(
+        &self,
+        task_id: &str,
+        acting_session: &str,
+    ) -> anyhow::Result<Option<String>> {
+        match self.handoff_lock_for_task(task_id)? {
+            Some((owner, _)) if owner.as_str() != acting_session.trim() => Ok(Some(owner)),
+            _ => Ok(None),
+        }
     }
 
     /// L2.3: queen-issued reroute — atomically rewrites `lane_id` inside the
