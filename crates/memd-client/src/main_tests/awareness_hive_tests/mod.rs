@@ -1540,6 +1540,7 @@ fn render_hive_handoff_summary_surfaces_packet_fields() {
             blocker: Some("render lane is about to converge".to_string()),
             note: Some("Keep render.rs out of scope".to_string()),
             created_at: Utc::now(),
+            working_context: None,
         },
         receipt_kind: "queen_handoff".to_string(),
         receipt_summary: "Handoff to Avicenna (session-avicenna) task=parser-refactor".to_string(),

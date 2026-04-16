@@ -1135,6 +1135,53 @@ pub struct HiveHandoffPacket {
     pub blocker: Option<String>,
     pub note: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// L2.4: compact snapshot of outgoing-bee working memory, continuity
+    /// fields, and unresolved procedures. Optional so legacy payloads
+    /// decode; serialized only when populated so receipts stay compact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_context: Option<WorkingContextSnapshot>,
+}
+
+/// L2.4: carrier for the outgoing bee's in-flight context on handoff.
+///
+/// Hard-capped at 8 working-memory slots to mirror the wake working-set
+/// cap. Procedures are included only when `status != done` in the source
+/// session so the receiver sees what is still open.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkingContextSnapshot {
+    #[serde(default)]
+    pub working_records: Vec<CompactMemoryRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_off: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    #[serde(default)]
+    pub unresolved_procedures: Vec<Procedure>,
+    /// Lamport stamp of the snapshot — the outgoing session's `version` at
+    /// capture time. Lets the receiver detect a stale handoff packet
+    /// arriving after a newer one.
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<DateTime<Utc>>,
+}
+
+impl WorkingContextSnapshot {
+    /// Cap on the working-records slice — matches the 8-slot working-set
+    /// budget applied at retrieval time. Callers should pass already-trimmed
+    /// data, but we enforce it here defensively so packets never balloon.
+    pub const MAX_WORKING_RECORDS: usize = 8;
+
+    pub fn truncate_to_cap(mut self) -> Self {
+        if self.working_records.len() > Self::MAX_WORKING_RECORDS {
+            self.working_records.truncate(Self::MAX_WORKING_RECORDS);
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -4276,5 +4323,76 @@ mod tests {
         });
         let decoded: HiveTaskRecord = serde_json::from_value(legacy).unwrap();
         assert_eq!(decoded.coordination_mode, CoordinationMode::ExclusiveWrite);
+    }
+
+    #[test]
+    fn hive_handoff_packet_without_working_context_decodes_as_legacy() {
+        let legacy = serde_json::json!({
+            "from_session": "bee-1",
+            "from_worker": null,
+            "to_session": "bee-2",
+            "to_worker": null,
+            "task_id": null,
+            "topic_claim": null,
+            "scope_claims": [],
+            "next_action": null,
+            "blocker": null,
+            "note": null,
+            "created_at": "2025-01-01T00:00:00Z",
+        });
+        let decoded: HiveHandoffPacket = serde_json::from_value(legacy).unwrap();
+        assert!(decoded.working_context.is_none());
+        let re_encoded = serde_json::to_value(&decoded).unwrap();
+        assert!(
+            re_encoded.get("working_context").is_none(),
+            "absent working_context must serialize-skip"
+        );
+    }
+
+    #[test]
+    fn working_context_snapshot_truncates_to_cap() {
+        let bulky: Vec<CompactMemoryRecord> = (0..16)
+            .map(|n| CompactMemoryRecord {
+                id: Uuid::new_v4(),
+                record: format!("row-{n}"),
+            })
+            .collect();
+        let snap = WorkingContextSnapshot {
+            working_records: bulky,
+            doing: Some("building L2.4".to_string()),
+            version: 7,
+            ..Default::default()
+        }
+        .truncate_to_cap();
+        assert_eq!(
+            snap.working_records.len(),
+            WorkingContextSnapshot::MAX_WORKING_RECORDS
+        );
+
+        let packet = HiveHandoffPacket {
+            from_session: "bee-a".to_string(),
+            from_worker: None,
+            to_session: "bee-b".to_string(),
+            to_worker: None,
+            task_id: Some("task-1".to_string()),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            next_action: None,
+            blocker: None,
+            note: None,
+            created_at: DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            working_context: Some(snap),
+        };
+        let round: HiveHandoffPacket =
+            serde_json::from_str(&serde_json::to_string(&packet).unwrap()).unwrap();
+        let wc = round.working_context.expect("working_context survives");
+        assert_eq!(
+            wc.working_records.len(),
+            WorkingContextSnapshot::MAX_WORKING_RECORDS
+        );
+        assert_eq!(wc.version, 7);
+        assert_eq!(wc.doing.as_deref(), Some("building L2.4"));
     }
 }

@@ -485,6 +485,7 @@ pub(crate) async fn run_hive_handoff_command(
         blocker: args.blocker.clone(),
         note: args.note.clone(),
         created_at: Utc::now(),
+        working_context: None,
     };
 
     let receipt_summary = format_hive_handoff_receipt_summary(&packet);
