@@ -1,4 +1,5 @@
 mod atlas;
+mod errors;
 mod helpers;
 mod inspection;
 mod keys;

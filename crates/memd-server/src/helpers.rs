@@ -538,7 +538,7 @@ pub(crate) fn consolidation_tags(entity: &MemoryEntityRecord, event_count: usize
 }
 
 pub(crate) fn internal_error(error: anyhow::Error) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    crate::errors::MemdError::from(error).into()
 }
 
 pub(crate) fn compact_record(item: &MemoryItem) -> String {
