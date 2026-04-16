@@ -8,8 +8,8 @@ version: v2
 version_status: in_progress
 current_milestone: M3
 milestone_status: verified
-current_phase: M4-planning
-phase_status: plan-drafted
+current_phase: K2
+phase_status: complete
 next_milestone: M4
 next_step: M4 planning — K2 (Observability) phase research.
 active_blockers: []
