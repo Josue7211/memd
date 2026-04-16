@@ -2425,6 +2425,24 @@ pub struct MemoryHealthBreakdown {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyBucket {
+    pub upper_ms: u64,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyDiagnosticsResponse {
+    pub surface: String,
+    pub total: u64,
+    pub mean_ms: f64,
+    pub max_ms: u64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub buckets: Vec<LatencyBucket>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpineViolation {
     pub entity_id: Uuid,
     pub earlier_event_id: Uuid,

@@ -41,9 +41,7 @@ fn temp_state(name: &str) -> (std::path::PathBuf, AppState) {
     let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp state dir");
     let db_path = dir.join("memd.db");
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open temp store"),
-    };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp store"), latency: crate::latency::LatencyHistogram::new() };
     (dir, state)
 }
 
@@ -728,9 +726,7 @@ fn verified_canonical_memory_ranks_above_unverified_synthetic_memory() {
 #[test]
 fn live_truth_precedes_project_memory() {
     let db_path = std::env::temp_dir().join(format!("memd-live-truth-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open temp db"),
-    };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
 
     let _ = state
         .store_item(
@@ -818,9 +814,7 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
         "memd-current-task-project-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open temp db"),
-    };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
 
     let _ = state
         .store_item(
@@ -908,9 +902,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
         "memd-current-task-workspace-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open temp db"),
-    };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
 
     let _ = state
         .store_item(
@@ -1001,9 +993,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
 fn superseded_memory_drops_out_after_manual_correction_loop() {
     let db_path =
         std::env::temp_dir().join(format!("memd-correction-loop-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState {
-        store: SqliteStore::open(&db_path).expect("open temp db"),
-    };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
 
     let (old_item, _) = state
         .store_item(
@@ -1415,6 +1405,7 @@ async fn ui_artifact_handler_returns_detail_response() {
             std::env::temp_dir().join(format!("memd-ui-detail-{}.db", uuid::Uuid::new_v4())),
         )
         .expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1437,6 +1428,7 @@ async fn ui_action_handler_returns_open_metadata() {
             std::env::temp_dir().join(format!("memd-ui-action-{}.db", uuid::Uuid::new_v4())),
         )
         .expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1464,9 +1456,7 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store several memory items of different kinds
     for (i, kind) in [
@@ -1534,9 +1524,7 @@ async fn atlas_explore_returns_nodes_for_region() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items
     let mut stored_ids = Vec::new();
@@ -1609,9 +1597,7 @@ async fn atlas_explore_single_node_returns_that_item() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     let req = StoreMemoryRequest {
         content: "single node test".to_string(),
@@ -1670,9 +1656,7 @@ async fn atlas_pivot_filters_by_min_trust() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items with different confidence
     for (i, cf) in [0.3, 0.5, 0.9].iter().enumerate() {
@@ -1742,9 +1726,7 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
         std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items with varying confidence
     for (i, cf) in [0.5, 0.9, 0.7].iter().enumerate() {
@@ -1829,9 +1811,7 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
         std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items
     for i in 0..3 {
@@ -1937,9 +1917,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
         std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items with lane tags
     for i in 0..3 {
@@ -2020,9 +1998,7 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
         std::env::temp_dir().join(format!("memd-atlas-expand-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     let req = StoreMemoryRequest {
         content: "expand seed item".to_string(),
@@ -2073,9 +2049,7 @@ async fn atlas_nodes_include_evidence_count() {
         std::env::temp_dir().join(format!("memd-atlas-evidence-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     let req = StoreMemoryRequest {
         content: "evidence count item".to_string(),
@@ -2139,9 +2113,7 @@ async fn atlas_rename_region_persists_new_name() {
         std::env::temp_dir().join(format!("memd-atlas-rename-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Create items so regions can be generated
     for i in 0..3 {
@@ -2217,9 +2189,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store a seed item with tags
     let (seed, _) = state
@@ -2354,9 +2324,7 @@ async fn atlas_explore_with_evidence_returns_events() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     let (item, _) = state
         .store_item(
@@ -2421,9 +2389,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
         std::env::temp_dir().join(format!("memd-atlas-scope-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store project-scoped and global-scoped items
     state
@@ -2521,9 +2487,7 @@ async fn atlas_from_working_seeds_from_working_memory() {
         std::env::temp_dir().join(format!("memd-atlas-fromwork-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store Status items (working memory candidates)
     for i in 0..2 {
@@ -2620,9 +2584,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
         std::env::temp_dir().join(format!("memd-atlas-supersedes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store the old item (will be superseded)
     let (old_item, _) = state
@@ -2726,9 +2688,7 @@ async fn atlas_persisted_links_survive_reload() {
     let db_path =
         std::env::temp_dir().join(format!("memd-atlas-persist-{}.db", uuid::Uuid::new_v4()));
     let store = SqliteStore::open(&db_path).expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store two items
     let (item_a, _) = state
@@ -2849,9 +2809,7 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
         std::env::temp_dir().join(format!("memd-atlas-salience-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState {
-        store: store.clone(),
-    };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
 
     // Store items — entity salience_score is set during store_item
     // via entity creation. Items with higher confidence get higher salience.
@@ -6942,6 +6900,93 @@ fn p2_compaction_quality_report_includes_per_kind_chars() {
     println!("Per-kind chars: {:?}", cq.chars_per_kind_admitted);
 
     std::fs::remove_dir_all(dir).expect("cleanup p2 test");
+}
+
+#[test]
+fn working_memory_retrieval_p95_under_100ms() {
+    // K2.6 CI gate: seed a realistic corpus, issue N working-memory requests
+    // through the same path as the /memory/working handler, and assert the
+    // histogram p95 stays under the SLA. Threshold is intentionally generous
+    // to absorb cold-cache noise on CI; regressions above this point mean
+    // the retrieval path has drifted.
+    let (dir, state) = temp_state("memd-latency-sla");
+    for n in 0..64 {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("warm fact {n}"),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: None,
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: vec![],
+                    tags: vec![],
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("seed fact");
+    }
+
+    for _ in 0..20 {
+        let started = std::time::Instant::now();
+        let _ = crate::working::working_memory(
+            &state,
+            WorkingMemoryRequest {
+                project: Some("memd".to_string()),
+                agent: Some("codex".to_string()),
+                workspace: None,
+                visibility: None,
+                route: None,
+                intent: Some(RetrievalIntent::CurrentTask),
+                limit: Some(8),
+                max_chars_per_item: Some(220),
+                max_total_chars: Some(1600),
+                rehydration_limit: Some(4),
+                auto_consolidate: Some(false),
+                query: None,
+            },
+        )
+        .expect("working memory");
+        state
+            .latency
+            .record_ms(started.elapsed().as_millis() as u64);
+    }
+
+    let snap = state.latency.snapshot();
+    assert!(snap.total >= 20, "expected 20 recorded samples, got {}", snap.total);
+
+    // Debug builds run SQLite-bound paths roughly 5-10x slower than release,
+    // so the hard 100ms gate only fires in release/CI. Debug gets a looser
+    // smoke check that still catches pathological regressions.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        snap.p95_ms < 100.0,
+        "working-memory retrieval p95 exceeded 100ms SLA: p95={} mean={} max={}",
+        snap.p95_ms,
+        snap.mean_ms,
+        snap.max_ms,
+    );
+    #[cfg(debug_assertions)]
+    assert!(
+        snap.p95_ms < 500.0,
+        "debug-build working-memory p95 regression: p95={} mean={}",
+        snap.p95_ms,
+        snap.mean_ms,
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup latency sla test");
 }
 
 #[test]

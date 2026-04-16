@@ -4,7 +4,8 @@
 
 use axum::{extract::State, http::StatusCode, Json};
 use memd_schema::{
-    HarnessStatus, MemoryHealthBreakdown, MemoryStage, MemoryStatus, SpineVerifyResponse,
+    HarnessStatus, LatencyDiagnosticsResponse, MemoryHealthBreakdown, MemoryStage, MemoryStatus,
+    SpineVerifyResponse,
 };
 
 use crate::{helpers::internal_error, AppState};
@@ -39,14 +40,28 @@ pub(crate) async fn get_harness_status(
         }
     }
 
+    let latency_p95_ms = state.latency.p95_ms();
+    let benchmark_gate = match latency_p95_ms {
+        Some(p95) if p95 < 100.0 => "pass",
+        Some(_) => "fail",
+        None => "unverified",
+    };
+
     Ok(Json(HarnessStatus {
         git_branch: env!("MEMD_GIT_BRANCH").to_string(),
         git_commit: env!("MEMD_GIT_COMMIT").to_string(),
         git_dirty: env!("MEMD_GIT_DIRTY").to_string(),
         memory: breakdown,
-        latency_p95_ms: None,
-        benchmark_gate: "unverified".to_string(),
+        latency_p95_ms,
+        benchmark_gate: benchmark_gate.to_string(),
     }))
+}
+
+// K2.6: histogram snapshot for the working-memory retrieval surface.
+pub(crate) async fn get_latency(
+    State(state): State<AppState>,
+) -> Result<Json<LatencyDiagnosticsResponse>, (StatusCode, String)> {
+    Ok(Json(state.latency.snapshot()))
 }
 
 // K2.5: spine verify surfaces monotonicity of the memory_events log plus a

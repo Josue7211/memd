@@ -5,6 +5,7 @@ mod inspection;
 mod keys;
 mod procedural;
 mod repair;
+mod latency;
 mod routes;
 mod routing;
 mod status;
@@ -92,6 +93,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct AppState {
     store: SqliteStore,
+    latency: std::sync::Arc<latency::LatencyHistogram>,
 }
 
 impl AppState {
@@ -509,7 +511,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let state = AppState { store };
+    let state = AppState { store, latency: latency::LatencyHistogram::new() };
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
@@ -519,6 +521,7 @@ async fn main() {
         .route("/api/status", get(status::get_harness_status))
         .route("/api/memory/search", get(search_memory_get))
         .route("/api/diagnostics/spine/verify", get(status::verify_spine))
+        .route("/api/diagnostics/latency", get(status::get_latency))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))

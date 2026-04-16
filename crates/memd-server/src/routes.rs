@@ -181,7 +181,15 @@ pub(crate) async fn get_working_memory(
     State(state): State<AppState>,
     Query(req): Query<WorkingMemoryRequest>,
 ) -> Result<Json<WorkingMemoryResponse>, (StatusCode, String)> {
-    let response = working::working_memory(&state, req)?;
+    // K2.6: record wall-clock ms into the process-global histogram so
+    // /api/diagnostics/latency and HarnessStatus.latency_p95_ms reflect
+    // the true tail of working-memory retrieval.
+    let started = std::time::Instant::now();
+    let result = working::working_memory(&state, req);
+    state
+        .latency
+        .record_ms(started.elapsed().as_millis() as u64);
+    let response = result?;
     Ok(Json(response))
 }
 
