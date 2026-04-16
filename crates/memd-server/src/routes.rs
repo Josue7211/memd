@@ -206,6 +206,41 @@ pub(crate) async fn get_memory_policy() -> Json<MemoryPolicyResponse> {
     Json(working::memory_policy_snapshot())
 }
 
+#[derive(Deserialize)]
+pub(crate) struct GetSearchQuery {
+    pub(crate) query: Option<String>,
+    pub(crate) tag: Option<String>,
+    pub(crate) kind: Option<MemoryKind>,
+    pub(crate) status: Option<MemoryStatus>,
+    pub(crate) stage: Option<MemoryStage>,
+    pub(crate) project: Option<String>,
+    pub(crate) namespace: Option<String>,
+    pub(crate) workspace: Option<String>,
+    pub(crate) limit: Option<usize>,
+}
+
+// K2.4: GET surface for ergonomic curl/dashboard search.
+// Delegates to the same filter pipeline as POST /memory/search so ranking,
+// FTS, and retrieval-feedback stay consistent between the two entry points.
+pub(crate) async fn search_memory_get(
+    state: State<AppState>,
+    Query(q): Query<GetSearchQuery>,
+) -> Result<Json<SearchMemoryResponse>, (StatusCode, String)> {
+    let req = SearchMemoryRequest {
+        query: q.query,
+        tags: q.tag.into_iter().collect(),
+        kinds: q.kind.into_iter().collect(),
+        statuses: q.status.into_iter().collect(),
+        stages: q.stage.into_iter().collect(),
+        project: q.project,
+        namespace: q.namespace,
+        workspace: q.workspace,
+        limit: q.limit,
+        ..SearchMemoryRequest::default()
+    };
+    search_memory(state, Json(req)).await
+}
+
 pub(crate) async fn search_memory(
     State(state): State<AppState>,
     Json(req): Json<SearchMemoryRequest>,

@@ -517,6 +517,7 @@ async fn main() {
         .route("/ui/action", post(post_visible_memory_action))
         .route("/healthz", get(healthz))
         .route("/api/status", get(status::get_harness_status))
+        .route("/api/memory/search", get(search_memory_get))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))
