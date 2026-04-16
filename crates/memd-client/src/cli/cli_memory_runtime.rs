@@ -399,6 +399,7 @@ pub(crate) async fn run_working_command(
             max_total_chars: args.max_total_chars,
             rehydration_limit: args.rehydration_limit,
             auto_consolidate: Some(args.auto_consolidate),
+            query: args.query,
         })
         .await?;
     if args.summary {

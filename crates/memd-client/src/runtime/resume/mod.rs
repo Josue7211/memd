@@ -137,6 +137,7 @@ pub(crate) async fn read_bundle_resume(
             max_total_chars: Some(1600),
             rehydration_limit,
             auto_consolidate: Some(false),
+            query: None,
         })
         .await?;
     let inbox = client

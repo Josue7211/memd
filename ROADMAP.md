@@ -14,7 +14,7 @@ next_milestone: M4
 next_step: Start M3 planning — J2 (Isolation + Trust) phase research
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M2 verified 2026-04-16. All four phases pass. 624 tests, 0 failures. Benchmarks zero regression. Node verification 15 ✓, 6 ~, 0 ✗. Binary deployed to openclaw, correction flow smoke-tested. G2.2 query lane boost deferred as known gap.
+note: M2 verified 2026-04-16. All four phases pass. 626 tests, 0 failures. Benchmarks zero regression. Node verification 15 ✓, 6 ~, 0 ✗. Binary deployed to openclaw, correction flow smoke-tested. G2.2 query lane boost implemented.
 -->
 
 ## Status Snapshot
@@ -114,7 +114,7 @@ Fix architectural gaps.
 
 **Decisions logged**:
 - Contradiction detection only works for path-based entities (shared source_path). Content-based entities have different canonical_key → different entity → no siblings. This is a design limitation, not a bug. Future: topic-extraction entity keys.
-- Query lane boost (G2.2) deferred — needs `query: Option<String>` on WorkingMemoryRequest. Current `lane_score` gives +0.06 to ANY item with ANY lane tag, not query-matched lanes. The amnesia checklist item "Query with lane context → same-lane items rank higher" is only partially satisfied: lane-tagged items rank above untagged, but same-lane items don't rank above different-lane items. Full fix requires detecting query lane and applying differential boost (+0.08 match vs +0.02 other). Accepted as known gap for M2; revisit in M3/M4.
+- Query lane boost (G2.2) implemented — `query: Option<String>` added to WorkingMemoryRequest. `detect_content_lane` runs on query text to detect lane context. Differential scoring: +0.08 same-lane match, +0.02 different-lane, +0.06 no-query-context (backward compat). Reasons trace includes `lane_match`/`lane_mismatch`. 2 unit tests added. CLI `memd working --query "..."` wired.
 - Entity link backfill findings appear in API response but not persisted payload_json. Non-blocking data gap.
 
 **Remaining for M2 gate**:
@@ -134,8 +134,8 @@ Fix architectural gaps.
 **Execution plan**: [[docs/plans/M2-EXECUTION-PLAN.md]]
 **Gate**: All nodes pass M2 tier. Correction→recall proven. Atlas navigable.
 Lanes are DB-tag routing. Cross-harness works. Benchmark re-run no regression.
-**VERIFIED 2026-04-16**: 624 tests, 0 failures. Node verification 15✓/6~/0✗. Benchmarks zero regression.
-Binary deployed to openclaw. Correction flow smoke-tested on remote. Known gap: G2.2 query lane boost deferred.
+**VERIFIED 2026-04-16**: 626 tests, 0 failures. Node verification 15✓/6~/0✗. Benchmarks zero regression.
+Binary deployed to openclaw. Correction flow smoke-tested on remote. G2.2 query lane boost implemented (differential: +0.08 same-lane, +0.02 different-lane, +0.06 no-query-context).
 
 ### M3: Make It Provable — Tier 3 (10-STAR gaps 18-23)
 
@@ -144,6 +144,8 @@ Fix measurement gaps.
 | Phase | Name | Status | Gaps | Phase Doc | Theory Lock |
 | --- | --- | --- | --- | --- | --- |
 | J2 | Isolation + Trust | `pending` | 20, 23 | [[phase-j2-isolation-trust]] | [[memd-theory-lock-v1]] |
+| O2 | Lifecycle Calibration | `pending` | 21, 22 | [[phase-o2-lifecycle-calibration]] | [[memd-canonical-promotion-theory-lock-v1]] |
+| P2 | Measurement Proof | `pending` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-3]]
@@ -151,6 +153,7 @@ Fix measurement gaps.
 - Benchmark registry: [[docs/verification/benchmark-registry.json]]
 - Public benchmarks: [[docs/verification/PUBLIC_BENCHMARKS.md]]
 
+**Execution plan**: [[docs/plans/M3-EXECUTION-PLAN.md]]
 **Gate**: All nodes pass M3 tier. LongMemEval ≥ 80%. Token efficiency measured.
 Decay calibrated. Benchmark ≥ 90%.
 

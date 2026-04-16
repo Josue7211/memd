@@ -3796,6 +3796,7 @@ fn dogfood_store_fact_survives_context_retrieval() {
             max_total_chars: Some(1600),
             rehydration_limit: Some(4),
             auto_consolidate: Some(false),
+            query: None,
         },
     )
     .expect("build working memory");
@@ -3891,6 +3892,7 @@ fn dogfood_decision_surfaces_over_status_noise() {
             max_total_chars: Some(1600),
             rehydration_limit: Some(4),
             auto_consolidate: Some(false),
+            query: None,
         },
     )
     .expect("build working memory");
@@ -4138,6 +4140,7 @@ fn status_cap_eviction_tracked_in_working_memory() {
             max_total_chars: Some(4000),
             rehydration_limit: Some(4),
             auto_consolidate: Some(false),
+            query: None,
         },
     )
     .expect("build working memory");
@@ -5418,6 +5421,7 @@ fn d2_correction_e2e() {
             max_total_chars: Some(2400),
             rehydration_limit: Some(4),
             auto_consolidate: Some(false),
+            query: None,
         },
     )
     .expect("build working memory");

@@ -476,6 +476,10 @@ pub struct WorkingMemoryRequest {
     pub max_total_chars: Option<usize>,
     pub rehydration_limit: Option<usize>,
     pub auto_consolidate: Option<bool>,
+    /// Optional query text for lane-aware scoring (G2.2).
+    /// When provided, items whose lane matches the query's detected lane
+    /// get a higher boost than items with a different lane.
+    pub query: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3385,6 +3389,7 @@ mod tests {
             max_total_chars: Some(900),
             rehydration_limit: Some(2),
             auto_consolidate: Some(true),
+            query: Some("system architecture".to_string()),
         };
 
         let response = WorkingMemoryResponse {

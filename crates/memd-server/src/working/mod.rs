@@ -42,6 +42,10 @@ pub(crate) fn working_memory(
         retrieval_order,
         items,
     } = build_context(state, &compact_req)?;
+    let query_lane = req
+        .query
+        .as_deref()
+        .and_then(|q| crate::helpers::detect_content_lane(q, None, &[]));
     state.rehearse_items(&items, 3).map_err(internal_error)?;
     state
         .record_retrieval_feedback(&items, 3, "retrieved_working", &plan)
@@ -60,6 +64,7 @@ pub(crate) fn working_memory(
             source_trust_score,
             source_trust_floor,
             now,
+            query_lane.as_deref(),
         );
         ranked_items.push((score, reasons, item));
     }
@@ -379,6 +384,7 @@ fn working_item_priority(
     source_trust_score: f32,
     source_trust_floor: f32,
     now: chrono::DateTime<Utc>,
+    query_lane: Option<&str>,
 ) -> (f32, Vec<String>) {
     let confidence = item.confidence.clamp(0.0, 1.0);
     let age_days = now.signed_duration_since(item.updated_at).num_days().max(0) as f32;
@@ -471,7 +477,14 @@ fn working_item_priority(
             }
         }
     };
-    let lane_score = if item.lane.is_some() { 0.06 } else { 0.0 };
+    // G2.2: query-aware lane boost. Same-lane items rank above different-lane.
+    // When no query context, preserve backward-compat flat +0.06.
+    let lane_score = match (&item.lane, query_lane) {
+        (Some(lane), Some(ql)) if lane == ql => 0.08, // same-lane match
+        (Some(_), Some(_)) => 0.02,                   // has lane, different from query
+        (Some(_), None) => 0.06,                      // has lane, no query context
+        (None, _) => 0.0,
+    };
     let correction_boost = if item.tags.iter().any(|t| t == "correction") {
         0.10
     } else {
@@ -522,8 +535,13 @@ fn working_item_priority(
     if item.source_quality == Some(memd_schema::SourceQuality::Canonical) {
         reasons.push("trusted_source".to_string());
     }
-    if item.lane.is_some() {
-        reasons.push(format!("lane={}", item.lane.as_deref().unwrap_or("?")));
+    if let Some(lane) = &item.lane {
+        reasons.push(format!("lane={lane}"));
+        match query_lane {
+            Some(ql) if lane == ql => reasons.push("lane_match".to_string()),
+            Some(_) => reasons.push("lane_mismatch".to_string()),
+            None => {}
+        }
     }
     if correction_boost > 0.0 {
         reasons.push("correction_boost".to_string());
@@ -632,8 +650,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&good, None, 0.95, 0.6, now).0
-                > working_item_priority(&weak, None, 0.22, 0.6, now).0
+            working_item_priority(&good, None, 0.95, 0.6, now, None).0
+                > working_item_priority(&weak, None, 0.22, 0.6, now, None).0
         );
     }
 
@@ -656,8 +674,8 @@ mod tests {
         );
 
         assert!(
-            working_item_priority(&verified, None, 0.8, 0.6, now).0
-                > working_item_priority(&unverified, None, 0.8, 0.6, now).0
+            working_item_priority(&verified, None, 0.8, 0.6, now, None).0
+                > working_item_priority(&unverified, None, 0.8, 0.6, now, None).0
         );
     }
 
@@ -683,8 +701,8 @@ mod tests {
             now,
         );
 
-        let status_score = working_item_priority(&status_item, None, 0.9, 0.6, now).0;
-        let fact_score = working_item_priority(&fact_item, None, 0.7, 0.6, now).0;
+        let status_score = working_item_priority(&status_item, None, 0.9, 0.6, now, None).0;
+        let fact_score = working_item_priority(&fact_item, None, 0.7, 0.6, now, None).0;
         assert!(
             fact_score > status_score,
             "fact ({fact_score:.3}) must outrank status ({status_score:.3})"
@@ -702,7 +720,7 @@ mod tests {
             now - chrono::Duration::days(40),
         );
 
-        let (_, reasons) = working_item_priority(&item, None, 0.28, 0.6, now);
+        let (_, reasons) = working_item_priority(&item, None, 0.28, 0.6, now, None);
         assert!(reasons.iter().any(|reason| reason == "contested"));
         assert!(reasons.iter().any(|reason| reason == "contradiction_state"));
         assert!(reasons.iter().any(|reason| reason == "trust_below_floor"));
@@ -710,6 +728,75 @@ mod tests {
             reasons
                 .iter()
                 .any(|reason| reason.starts_with("recent_use_days="))
+        );
+    }
+
+    #[test]
+    fn g2_2_same_lane_items_outrank_different_lane_with_query() {
+        let now = Utc::now();
+        // Use moderate scores so the total doesn't clamp to 1.0
+        let mut same_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        same_lane.lane = Some("architecture".to_string());
+
+        let mut diff_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        diff_lane.lane = Some("design".to_string());
+
+        let query_lane = Some("architecture");
+
+        let (same_score, same_reasons) =
+            working_item_priority(&same_lane, None, 0.7, 0.6, now, query_lane);
+        let (diff_score, diff_reasons) =
+            working_item_priority(&diff_lane, None, 0.7, 0.6, now, query_lane);
+
+        assert!(
+            same_score > diff_score,
+            "same-lane ({same_score:.3}) must outrank different-lane ({diff_score:.3})"
+        );
+        assert!(same_reasons.iter().any(|r| r == "lane_match"));
+        assert!(diff_reasons.iter().any(|r| r == "lane_mismatch"));
+    }
+
+    #[test]
+    fn g2_2_no_query_preserves_flat_lane_boost() {
+        let now = Utc::now();
+        let mut with_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+        with_lane.lane = Some("architecture".to_string());
+
+        let without_lane = sample_item(
+            memd_schema::MemoryStatus::Active,
+            Some(memd_schema::SourceQuality::Derived),
+            0.5,
+            None,
+            now - chrono::Duration::days(10),
+        );
+
+        let (lane_score, _) =
+            working_item_priority(&with_lane, None, 0.7, 0.6, now, None);
+        let (no_lane_score, _) =
+            working_item_priority(&without_lane, None, 0.7, 0.6, now, None);
+
+        // With no query context, lane items still get the flat +0.06 boost
+        assert!(
+            lane_score > no_lane_score,
+            "lane item ({lane_score:.3}) must outrank no-lane ({no_lane_score:.3}) without query"
         );
     }
 }

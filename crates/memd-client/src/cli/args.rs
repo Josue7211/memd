@@ -248,6 +248,10 @@ pub(crate) struct WorkingArgs {
 
     #[arg(long)]
     pub(crate) auto_consolidate: bool,
+
+    /// Query text for lane-aware scoring (G2.2)
+    #[arg(long)]
+    pub(crate) query: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
