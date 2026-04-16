@@ -3003,6 +3003,11 @@ pub(crate) struct CheckpointArgs {
 
     #[arg(long)]
     pub(crate) stdin: bool,
+
+    /// Auto-commit tracked dirty files before checkpointing.
+    /// Ensures uncommitted work is saved as part of the handoff.
+    #[arg(long)]
+    pub(crate) auto_commit: bool,
 }
 
 #[derive(Debug, Clone, Args)]

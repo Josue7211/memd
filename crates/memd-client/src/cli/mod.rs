@@ -650,6 +650,25 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             }
         }
         Commands::Checkpoint(args) => {
+            // Auto-commit tracked dirty files before checkpointing
+            if args.auto_commit {
+                let commit_msg = match args.content.as_deref() {
+                    Some(content) => {
+                        let summary: String = content.chars().take(72).collect();
+                        format!("memd auto-commit: {}", summary)
+                    }
+                    None => "memd auto-commit: checkpoint".to_string(),
+                };
+                match crate::runtime::git_auto_commit_if_dirty(&commit_msg) {
+                    Ok(Some(hash)) => {
+                        eprintln!("memd: auto-committed dirty tree ({})", hash);
+                    }
+                    Ok(None) => {} // clean tree, nothing to do
+                    Err(err) => {
+                        eprintln!("memd: auto-commit failed (non-fatal): {}", err);
+                    }
+                }
+            }
             let (default_project, default_namespace) = infer_bundle_identity_defaults(&args.output);
             let response = match checkpoint_with_bundle_defaults(&args, &base_url).await {
                 Ok(response) => response,

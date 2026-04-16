@@ -813,6 +813,7 @@ pub(crate) async fn auto_checkpoint_bundle_event(
             content: Some(content),
             input: None,
             stdin: false,
+            auto_commit: false,
         },
         base_url,
     )
@@ -876,6 +877,7 @@ pub(crate) async fn auto_checkpoint_live_snapshot(
             content: Some(content),
             input: None,
             stdin: false,
+            auto_commit: false,
         },
         base_url,
     )
@@ -915,6 +917,7 @@ pub(crate) async fn auto_checkpoint_compaction_packet(
             content: Some(content),
             input: None,
             stdin: false,
+            auto_commit: false,
         },
         base_url,
     )
@@ -1046,6 +1049,84 @@ pub(crate) fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs
     }
 }
 
+/// Auto-commit tracked dirty files before checkpointing.
+///
+/// Returns `Ok(Some(hash))` if a commit was made, `Ok(None)` if the tree was clean.
+/// Uses `git add -u` (tracked files only) to avoid staging secrets or binaries.
+pub(crate) fn git_auto_commit_if_dirty(message: &str) -> anyhow::Result<Option<String>> {
+    // Find the git root from CWD
+    let toplevel = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+
+    let repo_dir = match toplevel {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        _ => return Ok(None), // not a git repo — nothing to commit
+    };
+
+    // Check if working tree is dirty
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&repo_dir)
+        .output()?;
+
+    let status_text = String::from_utf8_lossy(&status.stdout);
+    if status_text.trim().is_empty() {
+        return Ok(None); // clean tree
+    }
+
+    // Stage tracked files only (git add -u avoids untracked/secrets)
+    let add = std::process::Command::new("git")
+        .args(["add", "-u"])
+        .current_dir(&repo_dir)
+        .output()?;
+
+    if !add.status.success() {
+        anyhow::bail!(
+            "git add -u failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
+    }
+
+    // Verify something is actually staged (git add -u might be a no-op
+    // if all changes were untracked)
+    let diff_staged = std::process::Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(&repo_dir)
+        .output()?;
+
+    if diff_staged.status.success() {
+        // Nothing staged — only untracked files exist
+        return Ok(None);
+    }
+
+    // Commit
+    let commit = std::process::Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(&repo_dir)
+        .output()?;
+
+    if !commit.status.success() {
+        let stderr = String::from_utf8_lossy(&commit.stderr);
+        // "nothing to commit" is not an error for us
+        if stderr.contains("nothing to commit") {
+            return Ok(None);
+        }
+        anyhow::bail!("git commit failed: {}", stderr);
+    }
+
+    // Extract commit hash
+    let rev = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(&repo_dir)
+        .output()?;
+
+    let hash = String::from_utf8_lossy(&rev.stdout).trim().to_string();
+    Ok(Some(hash))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1062,6 +1143,110 @@ mod tests {
         let (project, namespace) = infer_bundle_identity_defaults(&bundle_root);
         assert_eq!(project.as_deref(), Some("repo-b"));
         assert_eq!(namespace.as_deref(), Some("main"));
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn git_auto_commit_clean_tree_returns_none() {
+        let temp_root = std::env::temp_dir()
+            .join(format!("memd-auto-commit-clean-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        // Init a git repo with one commit
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config email");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config name");
+        fs::write(temp_root.join("file.txt"), "content").expect("write file");
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git commit");
+
+        // CWD into the clean repo
+        let original_dir = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
+
+        let result = git_auto_commit_if_dirty("test: should not commit");
+        std::env::set_current_dir(original_dir).expect("restore cwd");
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none(), "clean tree should return None");
+
+        fs::remove_dir_all(temp_root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn git_auto_commit_dirty_tree_commits_and_returns_hash() {
+        let temp_root = std::env::temp_dir()
+            .join(format!("memd-auto-commit-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        // Init a git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init");
+
+        // Configure git user for the test repo
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config email");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git config name");
+
+        // Create and commit an initial file (need at least one commit)
+        let file_path = temp_root.join("tracked.txt");
+        fs::write(&file_path, "initial").expect("write file");
+        std::process::Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git commit initial");
+
+        // Modify the tracked file (makes tree dirty)
+        fs::write(&file_path, "modified").expect("modify file");
+
+        // Run auto-commit from within the temp repo
+        let original_dir = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
+
+        let result = git_auto_commit_if_dirty("test: auto-commit dirty tree");
+        std::env::set_current_dir(original_dir).expect("restore cwd");
+
+        assert!(result.is_ok());
+        let hash = result.unwrap();
+        assert!(hash.is_some(), "should have committed and returned a hash");
+        assert!(!hash.unwrap().is_empty(), "hash should not be empty");
 
         fs::remove_dir_all(temp_root).expect("cleanup temp root");
     }

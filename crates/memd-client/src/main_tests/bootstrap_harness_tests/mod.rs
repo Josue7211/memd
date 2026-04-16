@@ -2650,6 +2650,7 @@ fn checkpoint_translation_sets_short_term_defaults() {
         content: Some("remember current blocker".to_string()),
         input: None,
         stdin: false,
+        auto_commit: false,
     };
 
     let translated = checkpoint_as_remember_args(&args);

@@ -97,8 +97,8 @@ pub(crate) fn build_command_catalog(bundle_root: &Path) -> CommandCatalog {
             "memd",
             "native-cli",
             &["memd-binary", "bundle-root-present"],
-            "memd checkpoint --output .memd --content \"...\"",
-            "write short-term task state into the live backend",
+            "memd checkpoint --output .memd --content \"...\" [--auto-commit]",
+            "write short-term task state into the live backend (--auto-commit commits dirty tracked files first)",
             None,
         ),
         entry(
