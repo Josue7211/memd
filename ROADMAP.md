@@ -7,14 +7,14 @@ truth_date: 2026-04-16
 version: v2
 version_status: in_progress
 current_milestone: M4
-milestone_status: verified
-current_phase: L2
-phase_status: complete
+milestone_status: in_progress
+current_phase: I2
+phase_status: pending
 next_milestone: M4
-next_step: L2.2 CoordinationMode enum
-active_blockers: []
+next_step: I2.2 fix EntitySearchResult type mismatch (graph page crash)
+active_blockers: [memd-preferences-not-persisted-across-sessions, hive-handoff-accepts-ephemeral-proof-sessions]
 v1_status: frozen_architecture_complete
-note: M3 verified. 167 server + 426 client = 593 tests, 0 failures. Benchmarks: LME 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0%. CI gate all pass. Node verification 18✓/4~/0✗. Dead code wired (wake token metrics). CI gate metric names fixed. Amnesia checklist 15/15.
+note: M4 in progress on research/mining. K2 complete (10/10 on main, last 235d959). L2 complete (9/9 on research/mining, last 7ce2b7c). Tests: 190 server + 430 client. Next up: I2 (Human Dashboard, 11 substeps). See docs/handoff/2026-04-16-L2-complete-next-I2.md.
 -->
 
 ## Status Snapshot
@@ -23,13 +23,14 @@ note: M3 verified. 167 server + 426 client = 593 tests, 0 failures. Benchmarks: 
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M4: Make It 10-Star` (10-STAR Tier 4)
-- current phase: pending — M4 planning
-- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16)
+- current milestone: `M4: Make It 10-Star` (10-STAR Tier 4) — in progress
+- current phase: `I2: Human Dashboard` (pending) — K2 + L2 complete inside M4
+- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); inside `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16)
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
-- next step: M4 planning — K2 (Observability) phase research
+- M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
+- next step: `I2` (Human Dashboard) — fix `EntitySearchResult` and `MemoryEntityRecord` type mismatches first (graph page crashes), then preference persistence round-trip, then dashboard-served-from-server. See `docs/handoff/2026-04-16-L2-complete-next-I2.md`.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
@@ -167,11 +168,13 @@ Product gaps. Dashboard last.
 
 | Phase | Name | Status | Gaps | Phase Doc | Theory Lock |
 | --- | --- | --- | --- | --- | --- |
-| K2 | Observability | `pending` | 32 | [[phase-k2-observability]] | [[memd-theory-lock-v1]] |
-| L2 | Hive Hardening | `pending` | 28, 33, 34, 35 | [[phase-l2-hive-hardening]] | [[memd-hive-theory-lock-v1]] |
+| K2 | Observability | `complete` | 32 | [[phase-k2-observability]] | [[memd-theory-lock-v1]] |
+| L2 | Hive Hardening | `complete` | 28, 33, 34, 35 | [[phase-l2-hive-hardening]] | [[memd-hive-theory-lock-v1]] |
+| I2 | Human Dashboard | `pending` | 27 | [[phase-i2-human-dashboard]] | — |
 | M2-evo | Overnight Evolution | `pending` | 24, 25 | [[phase-m2-overnight-evolution]] | [[memd-theory-lock-v1]] |
 | N2 | Integrations Polish | `pending` | 26, 29, 30, 31 | [[phase-n2-integrations-polish]] | [[memd-theory-lock-v1]] |
-| I2 | Human Dashboard | `pending` | 27 | [[phase-i2-human-dashboard]] | — |
+
+**M4 progress (2026-04-16)**: `K2` complete on `main` — 10/10 substeps (structured tracing, error classes, `memd explain`, tag search, spine integrity, latency SLA, backup/restore, schema-migration backcompat, `HarnessStatus`, per-response token headers). `L2` complete on `research/mining` — 9/9 substeps (queen deny/reroute/handoff Lamport lock, `WorkingContextSnapshot` in handoff packet, `/hive/divergence`, per-agent write rate limit 100 soft / 200 hard per 60s, 10×100 concurrent-write stress, cross-harness E2E A→B→A with corrections, 0.8 composite handoff-quality gate). Tests at L2 exit: 190 server + 430 client. Handoff: `docs/handoff/2026-04-16-L2-complete-next-I2.md`.
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-4]]
