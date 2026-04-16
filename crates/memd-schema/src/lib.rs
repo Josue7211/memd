@@ -2379,6 +2379,29 @@ pub struct HealthResponse {
     pub pressure: Option<PressureMetrics>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryHealthBreakdown {
+    pub total: usize,
+    pub active: usize,
+    pub stale: usize,
+    pub superseded: usize,
+    pub contested: usize,
+    pub expired: usize,
+    pub candidates: usize,
+    pub canonical: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarnessStatus {
+    pub git_branch: String,
+    pub git_commit: String,
+    pub git_dirty: String,
+    pub memory: MemoryHealthBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_p95_ms: Option<f64>,
+    pub benchmark_gate: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BenchmarkRegistry {
     pub version: String,

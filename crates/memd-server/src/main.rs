@@ -7,6 +7,7 @@ mod procedural;
 mod repair;
 mod routes;
 mod routing;
+mod status;
 mod store;
 mod store_entities;
 mod store_hive;
@@ -515,6 +516,7 @@ async fn main() {
         .route("/ui/artifact", get(get_visible_memory_artifact))
         .route("/ui/action", post(post_visible_memory_action))
         .route("/healthz", get(healthz))
+        .route("/api/status", get(status::get_harness_status))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))
