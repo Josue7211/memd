@@ -4585,6 +4585,26 @@ fn explain_shows_correction_events() {
         "new item should have correction_created or stored_canonical event"
     );
 
+    // K2.3: corrected item should surface its predecessor via corrections_chain.
+    assert!(
+        explain_new
+            .corrections_chain
+            .iter()
+            .any(|entry| entry.id == original.id),
+        "new item's corrections_chain should contain the superseded original"
+    );
+    assert!(
+        !explain_new.confidence_timeline.is_empty(),
+        "corrected item should have at least a `created` confidence sample"
+    );
+    assert!(
+        explain_new
+            .confidence_timeline
+            .iter()
+            .any(|sample| sample.source == "created"),
+        "confidence timeline should carry the initial `created` sample"
+    );
+
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
 

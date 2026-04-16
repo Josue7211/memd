@@ -2275,6 +2275,39 @@ pub struct ExplainMemoryResponse {
     pub branch_siblings: Vec<ExplainBranchSiblingRecord>,
     pub rehydration: Vec<MemoryRehydrationRecord>,
     pub policy_hooks: Vec<String>,
+    #[serde(default)]
+    pub corrections_chain: Vec<CorrectionChainEntry>,
+    #[serde(default)]
+    pub confidence_timeline: Vec<ConfidenceSample>,
+    #[serde(default)]
+    pub trust_rank_history: Vec<TrustRankSample>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrectionChainEntry {
+    pub id: Uuid,
+    pub content_preview: String,
+    pub confidence: f32,
+    pub stage: MemoryStage,
+    pub status: MemoryStatus,
+    pub updated_at: DateTime<Utc>,
+    pub supersedes: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfidenceSample {
+    pub at: DateTime<Utc>,
+    pub confidence: f32,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustRankSample {
+    pub at: DateTime<Utc>,
+    pub source_agent: Option<String>,
+    pub source_system: Option<String>,
+    pub event_type: String,
+    pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3434,6 +3467,27 @@ mod tests {
                 "intent=decision".to_string(),
                 "source_trust_floor=0.60".to_string(),
             ],
+            corrections_chain: vec![CorrectionChainEntry {
+                id: Uuid::new_v4(),
+                content_preview: "prior revision of decision".to_string(),
+                confidence: 0.81,
+                stage: MemoryStage::Canonical,
+                status: MemoryStatus::Superseded,
+                updated_at: now,
+                supersedes: vec![],
+            }],
+            confidence_timeline: vec![ConfidenceSample {
+                at: now,
+                confidence: 0.92,
+                source: "created".to_string(),
+            }],
+            trust_rank_history: vec![TrustRankSample {
+                at: now,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                event_type: "verify".to_string(),
+                confidence: 0.9,
+            }],
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -3444,6 +3498,9 @@ mod tests {
         assert_eq!(decoded.rehydration.len(), 1);
         assert_eq!(decoded.policy_hooks.len(), 3);
         assert_eq!(decoded.sources[0].trust_score, 0.95);
+        assert_eq!(decoded.corrections_chain.len(), 1);
+        assert_eq!(decoded.confidence_timeline.len(), 1);
+        assert_eq!(decoded.trust_rank_history.len(), 1);
     }
 
     #[test]

@@ -1041,6 +1041,9 @@ mod tests {
             branch_siblings: Vec::new(),
             rehydration: Vec::new(),
             policy_hooks: Vec::new(),
+            corrections_chain: Vec::new(),
+            confidence_timeline: Vec::new(),
+            trust_rank_history: Vec::new(),
         };
 
         let path = default_compiled_memory_path(Path::new("/tmp/vault"), &explain);
