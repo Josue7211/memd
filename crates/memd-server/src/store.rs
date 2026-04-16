@@ -1764,6 +1764,93 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
+    // K2.5: scan the memory_events spine for per-entity recorded_at
+    // monotonicity and produce a deterministic rolling payload hash.
+    // Ordering: (entity_id, recorded_at ASC, id ASC) so any stale/reordered
+    // row shows up as a monotonic violation against its entity predecessor.
+    // The rolling hash chains the payload bytes across every row; it's a
+    // stable fingerprint callers can compare across invocations to detect
+    // in-place tampering, not a Merkle proof.
+    pub fn verify_spine(&self) -> anyhow::Result<memd_schema::SpineVerifyResponse> {
+        use sha2::{Digest, Sha256};
+
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT id, entity_id, recorded_at, payload_json
+                FROM memory_events
+                ORDER BY entity_id ASC, recorded_at ASC, id ASC
+                "#,
+            )
+            .context("prepare spine verify query")?;
+
+        let mut rows = stmt
+            .query([])
+            .context("execute spine verify query")?;
+
+        let mut scanned: u64 = 0;
+        let mut violations: u64 = 0;
+        let mut first_violation: Option<memd_schema::SpineViolation> = None;
+        let mut hasher = Sha256::new();
+
+        let mut prev: Option<(String, chrono::DateTime<chrono::Utc>, String)> = None;
+
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let entity_id: String = row.get(1)?;
+            let recorded_at_raw: String = row.get(2)?;
+            let payload_json: String = row.get(3)?;
+
+            let recorded_at = chrono::DateTime::parse_from_rfc3339(&recorded_at_raw)
+                .with_context(|| format!("parse recorded_at for event {id}"))?
+                .with_timezone(&chrono::Utc);
+
+            hasher.update(entity_id.as_bytes());
+            hasher.update([0u8]);
+            hasher.update(recorded_at_raw.as_bytes());
+            hasher.update([0u8]);
+            hasher.update(payload_json.as_bytes());
+            hasher.update([0xff]);
+            scanned += 1;
+
+            if let Some((prev_entity, prev_at, prev_id)) = &prev {
+                if prev_entity == &entity_id && recorded_at < *prev_at {
+                    violations += 1;
+                    if first_violation.is_none()
+                        && let (Ok(earlier), Ok(later)) =
+                            (Uuid::parse_str(prev_id), Uuid::parse_str(&id))
+                    {
+                        if let Ok(entity_uuid) = Uuid::parse_str(&entity_id) {
+                            first_violation = Some(memd_schema::SpineViolation {
+                                entity_id: entity_uuid,
+                                earlier_event_id: earlier,
+                                later_event_id: later,
+                                earlier_recorded_at: *prev_at,
+                                later_recorded_at: recorded_at,
+                            });
+                        }
+                    }
+                }
+            }
+
+            prev = Some((entity_id, recorded_at, id));
+        }
+
+        let digest = hasher.finalize();
+        let rolling_sha256 = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+
+        Ok(memd_schema::SpineVerifyResponse {
+            scanned,
+            monotonic_violations: violations,
+            first_violation,
+            rolling_sha256,
+        })
+    }
+
     pub fn drain_expired(
         &self,
         project: Option<&str>,

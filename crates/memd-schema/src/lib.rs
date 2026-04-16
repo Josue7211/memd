@@ -2425,6 +2425,23 @@ pub struct MemoryHealthBreakdown {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpineViolation {
+    pub entity_id: Uuid,
+    pub earlier_event_id: Uuid,
+    pub later_event_id: Uuid,
+    pub earlier_recorded_at: DateTime<Utc>,
+    pub later_recorded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpineVerifyResponse {
+    pub scanned: u64,
+    pub monotonic_violations: u64,
+    pub first_violation: Option<SpineViolation>,
+    pub rolling_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HarnessStatus {
     pub git_branch: String,
     pub git_commit: String,

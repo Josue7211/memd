@@ -3,7 +3,9 @@
 // latency histogram and CI gate wiring.
 
 use axum::{extract::State, http::StatusCode, Json};
-use memd_schema::{HarnessStatus, MemoryHealthBreakdown, MemoryStage, MemoryStatus};
+use memd_schema::{
+    HarnessStatus, MemoryHealthBreakdown, MemoryStage, MemoryStatus, SpineVerifyResponse,
+};
 
 use crate::{helpers::internal_error, AppState};
 
@@ -45,4 +47,13 @@ pub(crate) async fn get_harness_status(
         latency_p95_ms: None,
         benchmark_gate: "unverified".to_string(),
     }))
+}
+
+// K2.5: spine verify surfaces monotonicity of the memory_events log plus a
+// deterministic rolling payload hash for tamper detection.
+pub(crate) async fn verify_spine(
+    State(state): State<AppState>,
+) -> Result<Json<SpineVerifyResponse>, (StatusCode, String)> {
+    let report = state.store.verify_spine().map_err(internal_error)?;
+    Ok(Json(report))
 }

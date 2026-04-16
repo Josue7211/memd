@@ -518,6 +518,7 @@ async fn main() {
         .route("/healthz", get(healthz))
         .route("/api/status", get(status::get_harness_status))
         .route("/api/memory/search", get(search_memory_get))
+        .route("/api/diagnostics/spine/verify", get(status::verify_spine))
         .route("/memory/store", post(store_memory))
         .route("/memory/candidates", post(store_candidate))
         .route("/memory/promote", post(promote_memory))

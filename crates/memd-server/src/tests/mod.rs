@@ -6943,3 +6943,52 @@ fn p2_compaction_quality_report_includes_per_kind_chars() {
 
     std::fs::remove_dir_all(dir).expect("cleanup p2 test");
 }
+
+#[test]
+fn spine_verify_reports_no_violations_on_clean_store() {
+    let (dir, state) = temp_state("memd-spine-verify");
+
+    for n in 0..3 {
+        state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("fact {n}"),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: Some("test".to_string()),
+                    source_system: None,
+                    source_path: None,
+                    source_quality: None,
+                    confidence: None,
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: vec![],
+                    tags: vec![],
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store fact");
+    }
+
+    let report = state.store.verify_spine().expect("verify spine");
+    assert!(report.scanned > 0, "at least the store events should scan");
+    assert_eq!(report.monotonic_violations, 0);
+    assert!(report.first_violation.is_none());
+    assert_eq!(report.rolling_sha256.len(), 64);
+    assert!(report.rolling_sha256.chars().all(|c| c.is_ascii_hexdigit()));
+
+    let again = state.store.verify_spine().expect("verify spine again");
+    assert_eq!(
+        again.rolling_sha256, report.rolling_sha256,
+        "rolling hash should be deterministic across calls"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup spine verify test");
+}
