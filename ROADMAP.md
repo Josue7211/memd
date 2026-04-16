@@ -9,12 +9,12 @@ version_status: in_progress
 current_milestone: M3
 milestone_status: in_progress
 current_phase: P2
-phase_status: pending
+phase_status: in_progress
 next_milestone: M4
-next_step: P2 — Measurement Proof (per-kind token counter, CI benchmark gate, diagnostics report). J2+O2 complete.
+next_step: P2 verification — run full benchmark suite, node-by-node E2E tests, update phase doc to verified.
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M3 in progress. J2 verified. O2 verified 2026-04-16 (decay diagnostics endpoint, sensitivity analysis, consolidation quality scoring, A/B recall test, defaults 21/0.12/14.0 confirmed). 166 server tests passing. P2 unblocked.
+note: M3 P2 code complete. TokenEfficiencyReport + per-kind char tracking + benchmark CI gate (--ci/--record) + diagnostics report CLI. 167 server + 429 client tests passing. Remaining: full-eval benchmark run, node verification, M3 gate.
 -->
 
 ## Status Snapshot
@@ -145,7 +145,7 @@ Fix measurement gaps.
 | --- | --- | --- | --- | --- | --- |
 | J2 | Isolation + Trust | `verified` | 20, 23 | [[phase-j2-isolation-trust]] | [[memd-theory-lock-v1]] |
 | O2 | Lifecycle Calibration | `verified` | 21, 22 | [[phase-o2-lifecycle-calibration]] | [[memd-canonical-promotion-theory-lock-v1]] |
-| P2 | Measurement Proof | `pending` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
+| P2 | Measurement Proof | `in_progress` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-3]]
