@@ -1948,7 +1948,7 @@ mod tests {
 
     fn test_state() -> AppState {
         let path = std::env::temp_dir().join(format!("memd-visible-ui-{}.db", Uuid::new_v4()));
-        AppState { store: crate::SqliteStore::open(&path).unwrap(), latency: crate::latency::LatencyHistogram::new() }
+        AppState { store: crate::SqliteStore::open(&path).unwrap(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) }
     }
 
     #[test]

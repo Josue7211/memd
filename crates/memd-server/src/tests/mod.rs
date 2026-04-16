@@ -42,7 +42,7 @@ fn temp_state(name: &str) -> (std::path::PathBuf, AppState) {
     let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp state dir");
     let db_path = dir.join("memd.db");
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp store"), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp store"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
     (dir, state)
 }
 
@@ -727,7 +727,7 @@ fn verified_canonical_memory_ranks_above_unverified_synthetic_memory() {
 #[test]
 fn live_truth_precedes_project_memory() {
     let db_path = std::env::temp_dir().join(format!("memd-live-truth-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let _ = state
         .store_item(
@@ -815,7 +815,7 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
         "memd-current-task-project-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let _ = state
         .store_item(
@@ -903,7 +903,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
         "memd-current-task-workspace-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let _ = state
         .store_item(
@@ -994,7 +994,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
 fn superseded_memory_drops_out_after_manual_correction_loop() {
     let db_path =
         std::env::temp_dir().join(format!("memd-correction-loop-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let (old_item, _) = state
         .store_item(
@@ -1407,6 +1407,7 @@ async fn ui_artifact_handler_returns_detail_response() {
         )
         .expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1430,6 +1431,7 @@ async fn ui_action_handler_returns_open_metadata() {
         )
         .expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1457,7 +1459,7 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store several memory items of different kinds
     for (i, kind) in [
@@ -1525,7 +1527,7 @@ async fn atlas_explore_returns_nodes_for_region() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items
     let mut stored_ids = Vec::new();
@@ -1598,7 +1600,7 @@ async fn atlas_explore_single_node_returns_that_item() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let req = StoreMemoryRequest {
         content: "single node test".to_string(),
@@ -1657,7 +1659,7 @@ async fn atlas_pivot_filters_by_min_trust() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items with different confidence
     for (i, cf) in [0.3, 0.5, 0.9].iter().enumerate() {
@@ -1727,7 +1729,7 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
         std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items with varying confidence
     for (i, cf) in [0.5, 0.9, 0.7].iter().enumerate() {
@@ -1812,7 +1814,7 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
         std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items
     for i in 0..3 {
@@ -1918,7 +1920,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
         std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items with lane tags
     for i in 0..3 {
@@ -1999,7 +2001,7 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
         std::env::temp_dir().join(format!("memd-atlas-expand-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let req = StoreMemoryRequest {
         content: "expand seed item".to_string(),
@@ -2050,7 +2052,7 @@ async fn atlas_nodes_include_evidence_count() {
         std::env::temp_dir().join(format!("memd-atlas-evidence-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let req = StoreMemoryRequest {
         content: "evidence count item".to_string(),
@@ -2114,7 +2116,7 @@ async fn atlas_rename_region_persists_new_name() {
         std::env::temp_dir().join(format!("memd-atlas-rename-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Create items so regions can be generated
     for i in 0..3 {
@@ -2190,7 +2192,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store a seed item with tags
     let (seed, _) = state
@@ -2325,7 +2327,7 @@ async fn atlas_explore_with_evidence_returns_events() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     let (item, _) = state
         .store_item(
@@ -2390,7 +2392,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
         std::env::temp_dir().join(format!("memd-atlas-scope-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store project-scoped and global-scoped items
     state
@@ -2488,7 +2490,7 @@ async fn atlas_from_working_seeds_from_working_memory() {
         std::env::temp_dir().join(format!("memd-atlas-fromwork-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store Status items (working memory candidates)
     for i in 0..2 {
@@ -2585,7 +2587,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
         std::env::temp_dir().join(format!("memd-atlas-supersedes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store the old item (will be superseded)
     let (old_item, _) = state
@@ -2689,7 +2691,7 @@ async fn atlas_persisted_links_survive_reload() {
     let db_path =
         std::env::temp_dir().join(format!("memd-atlas-persist-{}.db", uuid::Uuid::new_v4()));
     let store = SqliteStore::open(&db_path).expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store two items
     let (item_a, _) = state
@@ -2810,7 +2812,7 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
         std::env::temp_dir().join(format!("memd-atlas-salience-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new() };
+    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
 
     // Store items — entity salience_score is set during store_item
     // via entity creation. Items with higher confidence get higher salience.
@@ -7112,4 +7114,81 @@ fn l2_1_lamport_version_increments_on_mutation_and_rejects_stale_imports() {
     );
 
     std::fs::remove_dir_all(dir).expect("cleanup L2.1 test");
+}
+
+// L2.6: end-to-end rate limit middleware. Wires a one-route router exactly
+// like the real app — same `from_fn_with_state` layer — and hammers it. Reads
+// stay unthrottled, writes cross both thresholds, header carries agent key.
+#[tokio::test]
+async fn rate_limit_middleware_throttles_writes_per_agent_and_passes_reads() {
+    let dir = std::env::temp_dir().join(format!("memd-rl-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let db_path = dir.join("memd.db");
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp store"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::with(
+            2,
+            4,
+            std::time::Duration::from_secs(60),
+        )),
+    };
+
+    let app = Router::new()
+        .route(
+            "/ping",
+            axum::routing::get(|| async { "pong" }).post(|| async { "wrote" }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::rate_limit::rate_limit_middleware,
+        ))
+        .with_state(state);
+
+    async fn status_and_headers(
+        app: &Router,
+        method: &str,
+        agent: Option<&str>,
+    ) -> (axum::http::StatusCode, axum::http::HeaderMap) {
+        let mut req = Request::builder().method(method).uri("/ping");
+        if let Some(a) = agent {
+            req = req.header("x-memd-agent", a);
+        }
+        let resp = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .expect("oneshot");
+        (resp.status(), resp.headers().clone())
+    }
+
+    // GET is never throttled.
+    for _ in 0..10 {
+        let (status, _) = status_and_headers(&app, "GET", Some("agent-1")).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+    }
+
+    // Writes 1..=2 succeed for agent-1 (soft=2).
+    let (s1, h1) = status_and_headers(&app, "POST", Some("agent-1")).await;
+    assert_eq!(s1, axum::http::StatusCode::OK);
+    assert!(h1.contains_key("x-memd-ratelimit-remaining"));
+    let (s2, _) = status_and_headers(&app, "POST", Some("agent-1")).await;
+    assert_eq!(s2, axum::http::StatusCode::OK);
+
+    // Writes 3..=4 are soft-throttled → 429 + Retry-After.
+    let (s3, h3) = status_and_headers(&app, "POST", Some("agent-1")).await;
+    assert_eq!(s3, axum::http::StatusCode::TOO_MANY_REQUESTS);
+    assert!(h3.contains_key("retry-after"));
+    let (s4, _) = status_and_headers(&app, "POST", Some("agent-1")).await;
+    assert_eq!(s4, axum::http::StatusCode::TOO_MANY_REQUESTS);
+
+    // Write 5 is hard-rejected (still 429 but tier="hard").
+    let (s5, _) = status_and_headers(&app, "POST", Some("agent-1")).await;
+    assert_eq!(s5, axum::http::StatusCode::TOO_MANY_REQUESTS);
+
+    // A different agent's bucket is independent.
+    let (s_b1, _) = status_and_headers(&app, "POST", Some("agent-2")).await;
+    assert_eq!(s_b1, axum::http::StatusCode::OK);
+
+    std::fs::remove_dir_all(dir).expect("cleanup rl test");
 }

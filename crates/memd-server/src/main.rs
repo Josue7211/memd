@@ -7,6 +7,7 @@ mod keys;
 mod procedural;
 mod repair;
 mod latency;
+mod rate_limit;
 mod routes;
 mod routing;
 mod status;
@@ -96,6 +97,7 @@ use uuid::Uuid;
 struct AppState {
     store: SqliteStore,
     latency: std::sync::Arc<latency::LatencyHistogram>,
+    rate_limiter: std::sync::Arc<rate_limit::RateLimiter>,
 }
 
 impl AppState {
@@ -583,7 +585,11 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let state = AppState { store, latency: latency::LatencyHistogram::new() };
+    let state = AppState {
+        store,
+        latency: latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(rate_limit::RateLimiter::new()),
+    };
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))
@@ -708,6 +714,10 @@ async fn main() {
         )
         .layer(axum::middleware::from_fn(
             token_headers::token_headers_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit::rate_limit_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
