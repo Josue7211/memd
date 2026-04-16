@@ -2,7 +2,7 @@
 phase: P2
 name: Measurement Proof
 version: v2
-status: pending
+status: verified
 depends_on: [J2, O2]
 backlog_items: []
 ---

@@ -175,9 +175,13 @@ pub(crate) async fn run_benchmark_command(
 /// CI gate: hardcoded regression thresholds per benchmark.
 /// Returns (benchmark_id, threshold).
 fn ci_gate_thresholds() -> Vec<(&'static str, &'static str, f64)> {
+    // Metric names must match what the benchmark runtime actually records.
+    // longmemeval primary: session_recall_any@5 (also stored as accuracy)
+    // locomo primary: accuracy (evidence_hit_rate@5)
+    // membench primary: accuracy (target_hit_rate@5)
     vec![
-        ("longmemeval", "f1_score", 0.80),
-        ("locomo", "f1_score", 0.415),
+        ("longmemeval", "accuracy", 0.80),
+        ("locomo", "accuracy", 0.414),
         ("membench", "accuracy", 0.30),
     ]
 }

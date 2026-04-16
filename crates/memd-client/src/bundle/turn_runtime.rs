@@ -100,10 +100,30 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         Err(err) => return Err(err),
     };
     let wakeup = render_bundle_wakeup_markdown(&args.output, &snapshot, args.verbose);
+    let wake_token_metrics = crate::runtime::compute_wake_token_metrics(
+        &args.output,
+        &snapshot,
+        &wakeup,
+    );
     if args.write {
         write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
         auto_checkpoint_live_snapshot(&args.output, base_url, &snapshot, "wake").await?;
         update_hive_session_wake_timestamp(&args.output, base_url).await?;
+        // P2: Persist wake token metrics for diagnostics report consumption.
+        if let Ok(json) = serde_json::to_string_pretty(&wake_token_metrics) {
+            let metrics_path = args.output.join("wake-token-metrics.json");
+            let _ = std::fs::write(&metrics_path, json);
+        }
+    }
+    if args.verbose {
+        eprintln!(
+            "[memd] wake token efficiency: {}/{} chars ({:.1}%), {} items across {} kinds",
+            wake_token_metrics.used_chars,
+            wake_token_metrics.budget_chars,
+            wake_token_metrics.utilization_pct,
+            wake_token_metrics.per_kind.total_items,
+            wake_token_metrics.per_kind.chars_per_kind.len(),
+        );
     }
     if codex_pack || agent_zero_pack || openclaw_pack || hermes_pack || opencode_pack {
         let _ = refresh_harness_pack_files_for_snapshot(

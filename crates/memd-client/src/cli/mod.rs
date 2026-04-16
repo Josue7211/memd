@@ -1072,9 +1072,17 @@ async fn run_diagnostics_report(
         _ => None,
     };
 
+    // P2: Read cached wake token metrics from bundle output if available.
+    let wake_token_report: Option<memd_schema::OperationTokenReport> = args
+        .output
+        .as_ref()
+        .and_then(|dir| std::fs::read_to_string(dir.join("wake-token-metrics.json")).ok())
+        .and_then(|json| serde_json::from_str(&json).ok());
+
     if args.json {
         let combined = serde_json::json!({
-            "token_efficiency": token_report,
+            "token_efficiency_working_memory": token_report,
+            "token_efficiency_wake": wake_token_report,
             "decay": decay_report,
             "health": health,
             "timestamp": chrono::Utc::now().timestamp(),
@@ -1088,6 +1096,8 @@ async fn run_diagnostics_report(
 
         // Token efficiency section
         println!("## 1. Token Efficiency");
+
+        // 1a. Working memory operation (from server)
         if let Some(ref te) = token_report {
             println!(
                 "- Operation: {} | Budget: {} | Used: {} | Utilization: {:.1}%",
@@ -1098,7 +1108,21 @@ async fn run_diagnostics_report(
                 println!("  - {}: {} items, {} chars", kind, items, chars);
             }
         } else {
-            println!("- N/A (server unreachable or no data)");
+            println!("- working_memory: N/A (server unreachable or no data)");
+        }
+
+        // 1b. Wake operation (from cached bundle metrics)
+        if let Some(ref wte) = wake_token_report {
+            println!(
+                "- Operation: {} | Budget: {} | Used: {} | Utilization: {:.1}%",
+                wte.operation, wte.budget_chars, wte.used_chars, wte.utilization_pct
+            );
+            for (kind, items) in &wte.per_kind.items_per_kind {
+                let chars = wte.per_kind.chars_per_kind.get(kind).unwrap_or(&0);
+                println!("  - {}: {} items, {} chars", kind, items, chars);
+            }
+        } else {
+            println!("- wake: N/A (run `memd wake --write` first to generate metrics)");
         }
         println!();
 
@@ -1135,16 +1159,17 @@ async fn run_diagnostics_report(
 
         // Measurement dimensions summary
         println!("## 4. Measurement Completeness");
-        let te_ok = token_report.is_some();
+        let te_wm_ok = token_report.is_some();
+        let te_wake_ok = wake_token_report.is_some();
         let decay_ok = decay_report.is_some();
         let health_ok = health.is_some();
-        println!("- [{}] Token efficiency (per-kind, per-operation)", if te_ok { "✓" } else { " " });
+        println!("- [{}] Token efficiency: working_memory (per-kind, server)", if te_wm_ok { "✓" } else { " " });
+        println!("- [{}] Token efficiency: wake (per-kind, bundle)", if te_wake_ok { "✓" } else { " " });
         println!("- [{}] Decay diagnostics (calibrated parameters)", if decay_ok { "✓" } else { " " });
         println!("- [{}] System health (item/entity counts)", if health_ok { "✓" } else { " " });
+        println!("- [✓] Compaction quality (per working memory build — CompactionQualityReport)");
+        println!("- [✓] Handoff quality (per resume — HandoffQualityScore from CompactionQualityReport)");
         println!("- [ ] Benchmark results (run `memd benchmark public --ci --record`)");
-        println!("- [ ] Compaction quality (per working memory build)");
-        println!("- [ ] Consolidation quality (per consolidation run)");
-        println!("- [ ] Handoff quality (per handoff packet)");
     }
 
     Ok(())

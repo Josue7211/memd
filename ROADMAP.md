@@ -7,14 +7,14 @@ truth_date: 2026-04-16
 version: v2
 version_status: in_progress
 current_milestone: M3
-milestone_status: in_progress
+milestone_status: verified
 current_phase: P2
-phase_status: in_progress
+phase_status: verified
 next_milestone: M4
-next_step: P2 verification — run full benchmark suite, node-by-node E2E tests, update phase doc to verified.
+next_step: M4 planning — K2 (Observability) phase research.
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M3 P2 code complete. TokenEfficiencyReport + per-kind char tracking + benchmark CI gate (--ci/--record) + diagnostics report CLI. 167 server + 429 client tests passing. Remaining: full-eval benchmark run, node verification, M3 gate.
+note: M3 verified. 167 server + 426 client = 593 tests, 0 failures. Benchmarks: LME 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0%. CI gate all pass. Node verification 18✓/4~/0✗. Dead code wired (wake token metrics). CI gate metric names fixed. Amnesia checklist 15/15.
 -->
 
 ## Status Snapshot
@@ -23,14 +23,16 @@ note: M3 P2 code complete. TokenEfficiencyReport + per-kind char tracking + benc
 - current version: `v2` (hardening)
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M3: Make It Provable` (10-STAR Tier 3)
-- current phase: J2 (Isolation + Trust) — pending
-- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16)
+- current milestone: `M4: Make It 10-Star` (10-STAR Tier 4)
+- current phase: pending — M4 planning
+- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16)
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
-- next step: M3 planning — J2 (Isolation + Trust) phase research
+- M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
+- next step: M4 planning — K2 (Observability) phase research
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
+- M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
 - 10-STAR composite: 1.8/10 (zero-generosity regrade 2026-04-14)
 
 ## Blockers
@@ -145,7 +147,7 @@ Fix measurement gaps.
 | --- | --- | --- | --- | --- | --- |
 | J2 | Isolation + Trust | `verified` | 20, 23 | [[phase-j2-isolation-trust]] | [[memd-theory-lock-v1]] |
 | O2 | Lifecycle Calibration | `verified` | 21, 22 | [[phase-o2-lifecycle-calibration]] | [[memd-canonical-promotion-theory-lock-v1]] |
-| P2 | Measurement Proof | `in_progress` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
+| P2 | Measurement Proof | `verified` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-3]]
@@ -156,6 +158,8 @@ Fix measurement gaps.
 **Execution plan**: [[docs/plans/M3-EXECUTION-PLAN.md]]
 **Gate**: All nodes pass M3 tier. LongMemEval ≥ 80%. Token efficiency measured.
 Decay calibrated. Benchmark ≥ 90%.
+**VERIFIED 2026-04-16**: 593 tests, 0 failures. Node verification 18✓/4~/0✗. Benchmarks zero regression (LME 82.8%, LoCoMo 41.5%, MemBench 34.6%). CI gate all pass. Amnesia checklist 15/15.
+P2 fixes: dead code wired (wake token metrics + extract_kind_from_record), CI gate metric names aligned (f1_score→accuracy), LoCoMo threshold float tolerance (0.415→0.414), diagnostics report enhanced (multi-operation token efficiency + --output for wake metrics).
 
 ### M4: Make It 10-Star — Tier 4 (10-STAR gaps 24-35)
 

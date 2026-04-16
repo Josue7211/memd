@@ -132,6 +132,10 @@ pub(crate) struct DiagnosticsReportArgs {
     #[arg(long)]
     pub(crate) agent: Option<String>,
 
+    /// Bundle output directory (reads cached wake token metrics).
+    #[arg(long)]
+    pub(crate) output: Option<std::path::PathBuf>,
+
     /// Output as JSON instead of human-readable text.
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
