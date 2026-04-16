@@ -7192,3 +7192,80 @@ async fn rate_limit_middleware_throttles_writes_per_agent_and_passes_reads() {
 
     std::fs::remove_dir_all(dir).expect("cleanup rl test");
 }
+
+// L2.7: 10 threads × 100 writes each. busy_timeout=5000 + WAL journal must
+// absorb contention entirely. If any thread surfaces SQLITE_BUSY, L2-D3
+// (the WAL+busy_timeout guarantees from M2) regressed — fail hard.
+#[test]
+fn concurrency_10_threads_100_writes_no_sqlite_busy_surfaces() {
+    let dir = std::env::temp_dir().join(format!("memd-concurrency-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let db_path = dir.join("state.sqlite");
+    let store = SqliteStore::open(&db_path).expect("open store");
+
+    const THREADS: usize = 10;
+    const PER_THREAD: usize = 100;
+
+    let start = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
+    let mut handles = Vec::with_capacity(THREADS);
+    for tid in 0..THREADS {
+        let store = store.clone();
+        let start = start.clone();
+        handles.push(std::thread::spawn(move || {
+            start.wait();
+            let mut busy_hits = 0usize;
+            let mut other_errors: Vec<String> = Vec::new();
+            for i in 0..PER_THREAD {
+                let mut item = sample_memory_item(None);
+                item.id = uuid::Uuid::new_v4();
+                item.content = format!("concurrency t{tid}-i{i}");
+                item.tags = vec!["concurrency".to_string(), format!("t{tid}")];
+                item.source_agent = Some(format!("agent-t{tid}"));
+                let ck = keys::canonical_key(&item);
+                let rk = keys::redundancy_key(&item);
+                match store.insert_or_get_duplicate(&item, &ck, &rk) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        let msg = format!("{err:#}").to_lowercase();
+                        if msg.contains("busy") || msg.contains("database is locked") {
+                            busy_hits += 1;
+                        } else {
+                            other_errors.push(format!("t{tid}-i{i}: {err:#}"));
+                        }
+                    }
+                }
+            }
+            (busy_hits, other_errors)
+        }));
+    }
+
+    let mut total_busy = 0usize;
+    let mut all_errors: Vec<String> = Vec::new();
+    for h in handles {
+        let (busy, errs) = h.join().expect("thread joined");
+        total_busy += busy;
+        all_errors.extend(errs);
+    }
+
+    assert_eq!(
+        total_busy, 0,
+        "SQLITE_BUSY must not surface under WAL + 5000ms busy_timeout (L2-D3 regressed)"
+    );
+    assert!(
+        all_errors.is_empty(),
+        "unexpected non-busy errors: {all_errors:#?}"
+    );
+
+    // Row count sanity: each thread produced 100 distinct writes.
+    let conn = rusqlite::Connection::open(&db_path).expect("reopen to count");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memory_items WHERE source_agent LIKE 'agent-t%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count rows");
+    assert_eq!(count, (THREADS * PER_THREAD) as i64);
+
+    std::fs::remove_dir_all(dir).expect("cleanup concurrency test");
+}
