@@ -159,8 +159,8 @@ impl SqliteStore {
 mod tests {
     use chrono::TimeDelta;
     use memd_schema::{
-        HiveClaimAcquireRequest, HiveClaimsRequest, HiveSessionUpsertRequest, HiveSessionsRequest,
-        HiveTaskUpsertRequest,
+        CoordinationMode, HiveClaimAcquireRequest, HiveClaimsRequest, HiveSessionUpsertRequest,
+        HiveSessionsRequest, HiveTaskUpsertRequest,
     };
     use rusqlite::params;
     use uuid::Uuid;
@@ -231,7 +231,7 @@ mod tests {
                 title: "Dogfood parser lane".to_string(),
                 description: None,
                 status: Some("active".to_string()),
-                coordination_mode: Some("solo".to_string()),
+                coordination_mode: Some(CoordinationMode::Solo),
                 session: Some("session-dogfood-proof".to_string()),
                 agent: Some("Avicenna".to_string()),
                 effective_agent: Some("Avicenna@session-dogfood-proof".to_string()),

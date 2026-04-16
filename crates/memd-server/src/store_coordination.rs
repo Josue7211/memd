@@ -76,7 +76,9 @@ impl SqliteStore {
             .collect::<Vec<_>>();
         let review_queue = tasks
             .iter()
-            .filter(|task| task.review_requested || task.coordination_mode == "shared_review")
+            .filter(|task| {
+                task.review_requested || task.coordination_mode == CoordinationMode::SharedReview
+            })
             .map(|task| {
                 format!(
                     "{} -> {}",
@@ -545,11 +547,8 @@ impl SqliteStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            if let Some(mode) = request.coordination_mode.as_deref() {
-                let trimmed = mode.trim();
-                if !trimmed.is_empty() {
-                    task.coordination_mode = trimmed.to_string();
-                }
+            if let Some(mode) = request.coordination_mode {
+                task.coordination_mode = mode;
             }
             if let Some(status) = request.status.as_deref() {
                 let trimmed = status.trim();
@@ -596,13 +595,7 @@ impl SqliteStore {
                     .filter(|value| !value.is_empty())
                     .unwrap_or("active")
                     .to_string(),
-                coordination_mode: request
-                    .coordination_mode
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("exclusive_write")
-                    .to_string(),
+                coordination_mode: request.coordination_mode.unwrap_or_default(),
                 session: request.session.clone(),
                 agent: request.agent.clone(),
                 effective_agent: request.effective_agent.clone(),

@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, EntityLinkRequest, EntityLinksRequest,
-    EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
+    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, EntityLinkRequest,
+    EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
     HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,

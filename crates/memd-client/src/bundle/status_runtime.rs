@@ -235,7 +235,7 @@ pub(crate) async fn read_bundle_status(
                 let exclusive = tasks
                     .tasks
                     .iter()
-                    .filter(|task| task.coordination_mode == "exclusive_write")
+                    .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
                     .count();
                 let open = tasks
                     .tasks
@@ -254,12 +254,12 @@ pub(crate) async fn read_bundle_status(
                     "owned_exclusive_tasks": inbox
                         .owned_tasks
                         .iter()
-                        .filter(|task| task.coordination_mode == "exclusive_write")
+                        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
                         .count(),
                     "owned_shared_tasks": inbox
                         .owned_tasks
                         .iter()
-                        .filter(|task| task.coordination_mode != "exclusive_write")
+                        .filter(|task| task.coordination_mode != CoordinationMode::ExclusiveWrite)
                         .count(),
                     "help_inbox": inbox.help_tasks.len(),
                     "review_inbox": inbox.review_tasks.len(),

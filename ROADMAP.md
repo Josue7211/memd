@@ -11,7 +11,7 @@ milestone_status: verified
 current_phase: L2
 phase_status: in_progress
 next_milestone: M4
-next_step: L2.1 Lamport version on MemoryItem
+next_step: L2.2 CoordinationMode enum
 active_blockers: []
 v1_status: frozen_architecture_complete
 note: M3 verified. 167 server + 426 client = 593 tests, 0 failures. Benchmarks: LME 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0%. CI gate all pass. Node verification 18✓/4~/0✗. Dead code wired (wake token metrics). CI gate metric names fixed. Amnesia checklist 15/15.

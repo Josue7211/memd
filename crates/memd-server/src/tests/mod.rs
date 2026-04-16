@@ -3,7 +3,7 @@ use axum::{
     body::{Body, to_bytes},
     http::Request,
 };
-use memd_schema::{MemoryRepairMode, SkillPolicyActivationRecord};
+use memd_schema::{CoordinationMode, MemoryRepairMode, SkillPolicyActivationRecord};
 use tower::util::ServiceExt;
 
 fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
@@ -170,7 +170,7 @@ fn seed_hive_route_state(state: &AppState) {
             title: "Refine parser overlap flow".to_string(),
             description: Some("narrow parser work".to_string()),
             status: Some("active".to_string()),
-            coordination_mode: Some("exclusive_write".to_string()),
+            coordination_mode: Some(CoordinationMode::ExclusiveWrite),
             session: Some("bee-1".to_string()),
             agent: Some("codex".to_string()),
             effective_agent: Some("codex@bee-1".to_string()),
@@ -3426,7 +3426,7 @@ async fn task_upsert_and_list_via_routes() {
                         title: "Test task via route".to_string(),
                         description: Some("integration test".to_string()),
                         status: Some("active".to_string()),
-                        coordination_mode: Some("exclusive_write".to_string()),
+                        coordination_mode: Some(CoordinationMode::ExclusiveWrite),
                         session: Some("bee-1".to_string()),
                         agent: Some("codex".to_string()),
                         effective_agent: None,

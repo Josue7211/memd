@@ -1133,14 +1133,54 @@ pub struct HiveHandoffPacket {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinationMode {
+    #[default]
+    ExclusiveWrite,
+    SharedReview,
+    HelpOnly,
+    Solo,
+}
+
+impl CoordinationMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CoordinationMode::ExclusiveWrite => "exclusive_write",
+            CoordinationMode::SharedReview => "shared_review",
+            CoordinationMode::HelpOnly => "help_only",
+            CoordinationMode::Solo => "solo",
+        }
+    }
+}
+
+impl std::fmt::Display for CoordinationMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CoordinationMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "exclusive_write" => Ok(CoordinationMode::ExclusiveWrite),
+            "shared_review" => Ok(CoordinationMode::SharedReview),
+            "help_only" => Ok(CoordinationMode::HelpOnly),
+            "solo" => Ok(CoordinationMode::Solo),
+            other => Err(format!("unknown coordination_mode: {other}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTaskRecord {
     pub task_id: String,
     pub title: String,
     pub description: Option<String>,
     pub status: String,
-    #[serde(default = "default_coordination_mode")]
-    pub coordination_mode: String,
+    #[serde(default)]
+    pub coordination_mode: CoordinationMode,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -1160,7 +1200,7 @@ pub struct HiveTaskUpsertRequest {
     pub title: String,
     pub description: Option<String>,
     pub status: Option<String>,
-    pub coordination_mode: Option<String>,
+    pub coordination_mode: Option<CoordinationMode>,
     pub session: Option<String>,
     pub agent: Option<String>,
     pub effective_agent: Option<String>,
@@ -1195,10 +1235,6 @@ pub struct HiveTasksRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HiveTasksResponse {
     pub tasks: Vec<HiveTaskRecord>,
-}
-
-fn default_coordination_mode() -> String {
-    "exclusive_write".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -4192,5 +4228,49 @@ mod tests {
         assert_eq!(decoded.memory_kind, MemoryKind::Status);
         assert_eq!(decoded.memory_stage, MemoryStage::Canonical);
         assert_eq!(decoded.typed_memory, "session_continuity+canonical");
+    }
+
+    #[test]
+    fn coordination_mode_wire_format_is_snake_case() {
+        use std::str::FromStr;
+        for (variant, wire) in [
+            (CoordinationMode::ExclusiveWrite, "exclusive_write"),
+            (CoordinationMode::SharedReview, "shared_review"),
+            (CoordinationMode::HelpOnly, "help_only"),
+            (CoordinationMode::Solo, "solo"),
+        ] {
+            let encoded = serde_json::to_string(&variant).unwrap();
+            assert_eq!(encoded, format!("\"{wire}\""));
+            let decoded: CoordinationMode = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, variant);
+            assert_eq!(variant.as_str(), wire);
+            assert_eq!(variant.to_string(), wire);
+            assert_eq!(CoordinationMode::from_str(wire).unwrap(), variant);
+        }
+        assert_eq!(CoordinationMode::default(), CoordinationMode::ExclusiveWrite);
+        assert!(CoordinationMode::from_str("bogus").is_err());
+    }
+
+    #[test]
+    fn hive_task_record_default_coordination_mode_matches_legacy_payload() {
+        let legacy = serde_json::json!({
+            "task_id": "legacy-task",
+            "title": "legacy",
+            "description": null,
+            "status": "open",
+            "session": null,
+            "agent": null,
+            "effective_agent": null,
+            "project": null,
+            "namespace": null,
+            "workspace": null,
+            "claim_scopes": [],
+            "help_requested": false,
+            "review_requested": false,
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z",
+        });
+        let decoded: HiveTaskRecord = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.coordination_mode, CoordinationMode::ExclusiveWrite);
     }
 }

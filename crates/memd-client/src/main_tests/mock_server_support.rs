@@ -537,9 +537,7 @@ pub(crate) async fn mock_runtime_task_upsert(
             title: req.title,
             description: req.description,
             status: req.status.unwrap_or_else(|| "open".to_string()),
-            coordination_mode: req
-                .coordination_mode
-                .unwrap_or_else(|| "shared".to_string()),
+            coordination_mode: req.coordination_mode.unwrap_or_default(),
             session: req.session,
             agent: req.agent,
             effective_agent: req.effective_agent,

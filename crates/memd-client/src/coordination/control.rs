@@ -79,11 +79,11 @@ pub(crate) fn suggest_boundary_recommendations(
     tasks
         .iter()
         .map(|task| {
-            let branch_prefix = match task.coordination_mode.as_str() {
-                "exclusive_write" => "dedicated branch",
-                "shared_review" => "review branch",
-                "help_only" => "help branch",
-                _ => "shared branch",
+            let branch_prefix = match task.coordination_mode {
+                CoordinationMode::ExclusiveWrite => "dedicated branch",
+                CoordinationMode::SharedReview => "review branch",
+                CoordinationMode::HelpOnly => "help branch",
+                CoordinationMode::Solo => "shared branch",
             };
             let owner = task
                 .effective_agent
@@ -569,7 +569,7 @@ pub(crate) async fn run_coordination_command(
         .collect::<Vec<_>>();
     let policy_conflicts = tasks
         .iter()
-        .filter(|task| task.coordination_mode == "exclusive_write")
+        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
         .flat_map(|task| {
             task.claim_scopes.iter().filter_map(|scope| {
                 claims
@@ -722,7 +722,14 @@ pub(crate) async fn run_tasks_command(
                 title: title.to_string(),
                 description: args.description.clone(),
                 status: args.status.clone(),
-                coordination_mode: args.mode.clone(),
+                coordination_mode: args
+                    .mode
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(|value| value.parse::<CoordinationMode>())
+                    .transpose()
+                    .map_err(anyhow::Error::msg)?,
                 session: current_session.clone(),
                 agent: current_agent.clone(),
                 effective_agent: current_effective_agent.clone(),
@@ -988,9 +995,9 @@ pub(crate) async fn run_tasks_command(
                     "needs_review".to_string()
                 }),
                 coordination_mode: Some(if args.request_help {
-                    "help_only".to_string()
+                    CoordinationMode::HelpOnly
                 } else {
-                    "shared_review".to_string()
+                    CoordinationMode::SharedReview
                 }),
                 session: current_session.clone(),
                 agent: current_agent.clone(),
@@ -1102,11 +1109,11 @@ pub(crate) async fn run_tasks_command(
                 .collect(),
             "exclusive" => tasks
                 .into_iter()
-                .filter(|task| task.coordination_mode == "exclusive_write")
+                .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
                 .collect(),
             "shared" => tasks
                 .into_iter()
-                .filter(|task| task.coordination_mode != "exclusive_write")
+                .filter(|task| task.coordination_mode != CoordinationMode::ExclusiveWrite)
                 .collect(),
             "open" => tasks
                 .into_iter()

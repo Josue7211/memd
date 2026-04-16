@@ -215,7 +215,7 @@ pub(crate) fn render_tasks_summary(response: &TasksResponse) -> String {
     let exclusive = response
         .tasks
         .iter()
-        .filter(|task| task.coordination_mode == "exclusive_write")
+        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
         .count();
     let shared = response.tasks.len().saturating_sub(exclusive);
     let open = response
@@ -290,7 +290,7 @@ pub(crate) fn build_task_view_counts(
     let review = tasks.iter().filter(|task| task.review_requested).count();
     let exclusive = tasks
         .iter()
-        .filter(|task| task.coordination_mode == "exclusive_write")
+        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
         .count();
     let shared = tasks.len().saturating_sub(exclusive);
     let owned = tasks
@@ -317,7 +317,7 @@ pub(crate) fn render_coordination_summary(
         .inbox
         .owned_tasks
         .iter()
-        .filter(|task| task.coordination_mode == "exclusive_write")
+        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
         .count();
     let shared = response.inbox.owned_tasks.len().saturating_sub(exclusive);
     let mut lines = vec![
@@ -914,7 +914,7 @@ pub(crate) fn suggest_coordination_actions(
 
     for task in tasks
         .iter()
-        .filter(|task| task.coordination_mode == "exclusive_write")
+        .filter(|task| task.coordination_mode == CoordinationMode::ExclusiveWrite)
     {
         for scope in &task.claim_scopes {
             let Some(task_owner) = task.session.as_deref() else {
@@ -966,12 +966,10 @@ pub(crate) fn suggest_coordination_actions(
             .filter(|task| task.session.as_deref() == Some(current_session))
             .take(2)
         {
-            let action = if task.coordination_mode == "shared_review" {
-                "request_review"
-            } else if task.coordination_mode == "help_only" {
-                "request_help"
-            } else {
-                continue;
+            let action = match task.coordination_mode {
+                CoordinationMode::SharedReview => "request_review",
+                CoordinationMode::HelpOnly => "request_help",
+                _ => continue,
             };
             if action == "request_review" && task.review_requested {
                 continue;

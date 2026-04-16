@@ -161,7 +161,7 @@ use memd_schema::{
     CandidateMemoryRequest, CompactionDecision, CompactionOpenLoop, CompactionPacket,
     CorrectMemoryRequest,
     CompactionReference, CompactionSession, CompactionSpillOptions, CompactionSpillResult,
-    ContextRequest, ContinuityJourneyReport, EntityLinkRequest, EntityLinksRequest,
+    ContextRequest, ContinuityJourneyReport, CoordinationMode, EntityLinkRequest, EntityLinksRequest,
     EntitySearchRequest, ExpireMemoryRequest, ExplainMemoryRequest, FixtureRecord,
     HiveBoardRequest, HiveBoardResponse, HiveClaimRecoverRequest, HiveClaimsRequest,
     HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
