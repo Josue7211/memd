@@ -269,6 +269,8 @@ async fn mock_working_memory_for_spill(
                 traces: Vec::new(),
                 semantic_consolidation: None,
                 procedures: vec![],
+
+                compaction_quality: None,
             }),
     )
 }
@@ -603,6 +605,8 @@ async fn resume_command_surfaces_compact_working_state_from_live_server() {
         traces: Vec::new(),
         semantic_consolidation: None,
         procedures: vec![],
+
+        compaction_quality: None,
     });
 
     env.set("HOME", &home);
@@ -802,6 +806,8 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: RetrievalRoute::ProjectFirst,
@@ -820,5 +826,6 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false, atlas_region_hints: Vec::new(),
+ handoff_quality: None,
     }
 }

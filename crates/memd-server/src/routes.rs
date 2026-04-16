@@ -333,6 +333,7 @@ pub(crate) async fn get_inbox(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| crate::helpers::visibility_allows(&None, &entry.item))
         .filter(|entry| {
             req.belief_branch
                 .as_ref()
@@ -1163,11 +1164,31 @@ pub(crate) async fn decay_memory(
     State(state): State<AppState>,
     Json(req): Json<MemoryDecayRequest>,
 ) -> Result<Json<MemoryDecayResponse>, (StatusCode, String)> {
-    let (scanned, updated, events) = state.store.decay_entities(&req).map_err(internal_error)?;
+    let (scanned, updated, events, metrics) =
+        state.store.decay_entities(&req).map_err(internal_error)?;
     Ok(Json(MemoryDecayResponse {
         scanned,
         updated,
         events,
+        metrics: Some(metrics),
+    }))
+}
+
+pub(crate) async fn decay_diagnostics(
+    State(state): State<AppState>,
+    Json(req): Json<MemoryDecayRequest>,
+) -> Result<Json<DecayDiagnosticsResponse>, (StatusCode, String)> {
+    let inactive_days = req.inactive_days.unwrap_or(21).max(1) as usize;
+    let max_decay = req.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+    let decay_divisor = req.decay_divisor.unwrap_or(14.0).max(1.0);
+    let max_items = req.max_items.unwrap_or(128).min(1_000);
+    let metrics = state.store.decay_diagnostics(&req).map_err(internal_error)?;
+    Ok(Json(DecayDiagnosticsResponse {
+        metrics,
+        inactive_days,
+        max_decay,
+        decay_divisor,
+        max_items,
     }))
 }
 
@@ -1337,6 +1358,7 @@ impl AppState {
         let mut duplicates = 0usize;
         let mut events = 0usize;
         let mut highlights = Vec::new();
+        let mut quality_scores: Vec<memd_schema::ConsolidationQualityScore> = Vec::new();
 
         for candidate in candidates {
             scanned += candidate.event_count;
@@ -1372,6 +1394,17 @@ impl AppState {
                         .and_then(|context| context.location.clone())
                 });
 
+            // Inherit the most restrictive visibility from source items.
+            // Private < Workspace < Public — min() gives the strictest.
+            let inherited_visibility = self
+                .store
+                .items_for_entity(candidate.entity.id)
+                .unwrap_or_default()
+                .iter()
+                .map(|item| item.visibility)
+                .min()
+                .unwrap_or(MemoryVisibility::Workspace);
+
             let (item, duplicate) = self.store_item(
                 StoreMemoryRequest {
                     content,
@@ -1392,7 +1425,7 @@ impl AppState {
                         .context
                         .as_ref()
                         .and_then(|context| context.workspace.clone()),
-                    visibility: Some(MemoryVisibility::Workspace),
+                    visibility: Some(inherited_visibility),
                     belief_branch: None,
                     source_agent: candidate
                         .entity
@@ -1431,6 +1464,13 @@ impl AppState {
                 ));
             }
             consolidated += 1;
+            let quality = score_consolidation_quality(
+                &candidate.entity,
+                &item,
+                inherited_visibility,
+                candidate.event_count,
+            );
+            quality_scores.push(quality);
             if record_events {
                 let context = Some(entity_context_frame(&candidate.entity, &item));
                 let _ = self.store.record_event(
@@ -1491,6 +1531,11 @@ impl AppState {
             }
         }
 
+        let mean_quality = if quality_scores.is_empty() {
+            None
+        } else {
+            Some(quality_scores.iter().map(|q| q.overall).sum::<f32>() / quality_scores.len() as f32)
+        };
         Ok(MemoryConsolidationResponse {
             scanned,
             groups,
@@ -1498,6 +1543,8 @@ impl AppState {
             duplicates,
             events,
             highlights,
+            mean_quality,
+            quality_scores,
         })
     }
 

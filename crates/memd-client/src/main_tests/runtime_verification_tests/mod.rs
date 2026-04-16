@@ -783,6 +783,8 @@ fn render_working_summary_surfaces_typed_trace_trail_in_verification_suite() {
         }],
         semantic_consolidation: None,
         procedures: vec![],
+
+        compaction_quality: None,
     };
 
     let summary = crate::render::render_working_summary(&response, true);

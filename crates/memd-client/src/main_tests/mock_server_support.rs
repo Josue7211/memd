@@ -700,7 +700,10 @@ pub(crate) async fn mock_working_memory(
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
-        });
+
+            compaction_quality: None,
+        }
+);
     Json(response)
 }
 

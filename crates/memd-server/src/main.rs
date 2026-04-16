@@ -61,6 +61,7 @@ use memd_schema::{
     InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
     MaintainReport, MaintainReportRequest,
     MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
+    DecayDiagnosticsResponse,
     MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
     MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
     MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
@@ -604,6 +605,7 @@ async fn main() {
         .route("/procedures/retire", post(post_procedure_retire))
         .route("/procedures/detect", post(post_procedure_detect))
         .route("/ingest/lanes", post(post_ingest_lanes))
+        .route("/api/diagnostics/decay", post(decay_diagnostics))
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {

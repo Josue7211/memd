@@ -175,6 +175,7 @@ pub(crate) fn build_fixture_resume_snapshot(
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -237,6 +238,7 @@ pub(crate) fn build_fixture_resume_snapshot(
         resume_state_age_minutes: Some(1),
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     }
 }
 

@@ -54,6 +54,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
     live_truth.sort_by(|a, b| b.item.updated_at.cmp(&a.item.updated_at));
@@ -82,6 +83,7 @@ pub(crate) fn build_context(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.agent, &entry.item))
         .cloned()
         .collect();
 
@@ -181,6 +183,7 @@ pub(crate) fn filter_items(
             req.visibility
                 .is_none_or(|visibility| entry.item.visibility == visibility)
         })
+        .filter(|entry| visibility_allows(&req.source_agent, &entry.item))
         .filter(|entry| {
             req.belief_branch
                 .as_ref()
@@ -410,6 +413,64 @@ pub(crate) fn entity_context_frame(
         agent: item.source_agent.clone(),
         location: item.source_path.clone(),
     })
+}
+
+/// Score a single consolidated item across four quality dimensions.
+///
+/// - `entity`         — the source entity whose events were consolidated.
+/// - `item`           — the produced MemoryItem.
+/// - `source_vis`     — most-restrictive visibility inherited from source items.
+/// - `event_count`    — number of episodic events that were consolidated.
+pub(crate) fn score_consolidation_quality(
+    entity: &MemoryEntityRecord,
+    item: &MemoryItem,
+    source_vis: MemoryVisibility,
+    event_count: usize,
+) -> memd_schema::ConsolidationQualityScore {
+    let content = &item.content;
+
+    // (a) Semantic coherence: entity_type words present in consolidated content.
+    let entity_words: Vec<&str> = entity.entity_type.split(['_', ':', '/', '.']).collect();
+    let coherent_words = entity_words
+        .iter()
+        .filter(|&&w| w.len() > 2 && content.to_lowercase().contains(&w.to_lowercase()))
+        .count();
+    let semantic_coherence = if entity_words.is_empty() {
+        0.5
+    } else {
+        (coherent_words as f32 / entity_words.len() as f32).min(1.0)
+    };
+
+    // (b) Information preservation: clause density vs event count.
+    // Count rough clause boundaries ('. ', '! ', '? ', ': ', '; ') in content.
+    let clause_count = content
+        .split(|c: char| c == '.' || c == '!' || c == '?' || c == ':' || c == ';')
+        .filter(|s| s.trim().len() > 4)
+        .count()
+        .max(1);
+    let expected_clauses = (event_count / 2).max(1);
+    let information_preservation = ((clause_count as f32) / (expected_clauses as f32))
+        .min(1.0)
+        .max(0.1);
+
+    // (c) Kind preservation: expected kind from entity type should match item kind.
+    let expected_kind = consolidation_kind(&entity.entity_type);
+    let kind_preserved = if item.kind == expected_kind { 1.0 } else { 0.0 };
+
+    // (d) Visibility preservation: consolidated visibility matches inherited source visibility.
+    let visibility_preserved = if item.visibility == source_vis { 1.0 } else { 0.0 };
+
+    let overall =
+        (semantic_coherence + information_preservation + kind_preserved + visibility_preserved)
+            / 4.0;
+
+    memd_schema::ConsolidationQualityScore {
+        semantic_coherence,
+        information_preservation,
+        kind_preserved,
+        visibility_preserved,
+        overall,
+    }
 }
 
 pub(crate) fn consolidation_content(
@@ -924,6 +985,22 @@ pub(crate) fn matches_requested_project(
     match item.project.as_ref() {
         Some(item_project) => item_project == project,
         None => item.scope == MemoryScope::Global,
+    }
+}
+
+/// Visibility enforcement: Private items are only visible to the owning agent.
+/// Workspace and Public items are visible to everyone (in the right project scope).
+pub(crate) fn visibility_allows(
+    requesting_agent: &Option<String>,
+    item: &MemoryItem,
+) -> bool {
+    match item.visibility {
+        MemoryVisibility::Private => match (&requesting_agent, &item.source_agent) {
+            (Some(agent), Some(owner)) => agent == owner,
+            // No requesting agent or no owner → deny Private items
+            _ => false,
+        },
+        MemoryVisibility::Workspace | MemoryVisibility::Public => true,
     }
 }
 

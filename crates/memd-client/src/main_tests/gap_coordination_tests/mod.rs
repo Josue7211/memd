@@ -98,6 +98,8 @@ fn describes_eval_changes_against_baseline() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -155,6 +157,7 @@ fn describes_eval_changes_against_baseline() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false, atlas_region_hints: Vec::new(),
+ handoff_quality: None,
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -312,6 +315,8 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -366,6 +371,7 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false, atlas_region_hints: Vec::new(),
+ handoff_quality: None,
     };
 
     let recommendations = build_eval_recommendations(&snapshot, 62);

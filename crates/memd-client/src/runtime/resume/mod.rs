@@ -262,6 +262,11 @@ pub(crate) async fn read_bundle_resume(
         })
         .unwrap_or_default();
 
+    let handoff_quality = working
+        .compaction_quality
+        .as_ref()
+        .map(HandoffQualityScore::from_report);
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -285,6 +290,7 @@ pub(crate) async fn read_bundle_resume(
         resume_state_age_minutes,
         refresh_recommended,
         atlas_region_hints,
+        handoff_quality,
     };
 
     sync_resume_state_record(
@@ -1013,6 +1019,8 @@ mod tests {
                 traces: Vec::new(),
                 semantic_consolidation: None,
                 procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1036,6 +1044,8 @@ mod tests {
             resume_state_age_minutes: None,
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1098,6 +1108,8 @@ mod tests {
                 traces: Vec::new(),
                 semantic_consolidation: None,
                 procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1134,6 +1146,8 @@ mod tests {
             resume_state_age_minutes: None,
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1198,6 +1212,8 @@ mod tests {
                 traces: Vec::new(),
                 semantic_consolidation: None,
                 procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::ProjectFirst,
@@ -1217,6 +1233,8 @@ mod tests {
             resume_state_age_minutes: None,
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
+
+            handoff_quality: None,
         };
 
         assert_eq!(
@@ -1235,6 +1253,45 @@ mod tests {
             snapshot.continuity_next().as_deref(),
             Some("resume next step")
         );
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct HandoffQualityScore {
+    /// Fraction of candidates admitted (0.0–1.0).
+    pub(crate) fill_rate: f64,
+    /// Fraction of budget chars consumed (0.0–1.0).
+    pub(crate) budget_utilization: f64,
+    /// Kind with the most admitted items.
+    pub(crate) dominant_kind: Option<String>,
+    /// Fraction of candidates evicted (complement of fill_rate).
+    pub(crate) eviction_pressure: f64,
+}
+
+impl HandoffQualityScore {
+    pub(crate) fn from_report(report: &memd_schema::CompactionQualityReport) -> Self {
+        let total = report.admitted + report.evicted;
+        let fill_rate = if total > 0 {
+            report.admitted as f64 / total as f64
+        } else {
+            1.0
+        };
+        let budget_utilization = if report.budget_chars > 0 {
+            report.used_chars as f64 / report.budget_chars as f64
+        } else {
+            0.0
+        };
+        let dominant_kind = report
+            .per_kind_admitted
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(kind, _)| kind.clone());
+        HandoffQualityScore {
+            fill_rate,
+            budget_utilization,
+            dominant_kind,
+            eviction_pressure: 1.0 - fill_rate,
+        }
     }
 }
 
@@ -1260,6 +1317,8 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) refresh_recommended: bool,
     #[serde(default)]
     pub(crate) atlas_region_hints: Vec<String>,
+    #[serde(default)]
+    pub(crate) handoff_quality: Option<HandoffQualityScore>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

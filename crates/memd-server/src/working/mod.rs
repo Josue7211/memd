@@ -4,11 +4,11 @@ use uuid::Uuid;
 
 use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error, store_entities::trust_rank};
 use memd_schema::{
-    AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
-    MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation, MemoryPolicyDecay,
-    MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse, MemoryPolicyRouteDefault,
-    MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope, MemoryStage,
-    WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
+    AgentProfileRequest, CompactMemoryRecord, CompactionQualityReport, ContextRequest,
+    MemoryConsolidationRequest, MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation,
+    MemoryPolicyDecay, MemoryPolicyFeedback, MemoryPolicyPromotion, MemoryPolicyResponse,
+    MemoryPolicyRouteDefault, MemoryPolicyWorkingMemory, MemoryRehydrationRecord, MemoryScope,
+    MemoryStage, WorkingMemoryEvictionRecord, WorkingMemoryPolicyState, WorkingMemoryRequest,
     WorkingMemoryResponse, WorkingMemoryTraceRecord,
 };
 
@@ -253,6 +253,36 @@ pub(crate) fn working_memory(
         }
     };
 
+    let compaction_quality = {
+        use std::collections::BTreeMap;
+        let kind_key = |kind: &MemoryKind| -> String {
+            serde_json::to_value(kind)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{:?}", kind).to_lowercase())
+        };
+        let mut per_kind_admitted: BTreeMap<String, usize> = BTreeMap::new();
+        for record in &records {
+            if let Some(item) = selected_items.iter().find(|i| i.id == record.id) {
+                *per_kind_admitted.entry(kind_key(&item.kind)).or_insert(0) += 1;
+            }
+        }
+        let mut per_kind_evicted: BTreeMap<String, usize> = BTreeMap::new();
+        for record in &evicted {
+            if let Some(item) = selected_items.iter().find(|i| i.id == record.id) {
+                *per_kind_evicted.entry(kind_key(&item.kind)).or_insert(0) += 1;
+            }
+        }
+        CompactionQualityReport {
+            admitted: records.len(),
+            evicted: evicted.len(),
+            per_kind_admitted,
+            per_kind_evicted,
+            budget_chars,
+            used_chars,
+        }
+    };
+
     Ok(WorkingMemoryResponse {
         route: plan.route,
         intent: plan.intent,
@@ -273,6 +303,7 @@ pub(crate) fn working_memory(
         traces,
         semantic_consolidation,
         procedures,
+        compaction_quality: Some(compaction_quality),
     })
 }
 
@@ -900,6 +931,7 @@ pub(crate) fn memory_policy_snapshot() -> MemoryPolicyResponse {
             max_items: 128,
             inactive_days: 21,
             max_decay: 0.12,
+            decay_divisor: 14.0,
             record_events: true,
         },
         consolidation: MemoryPolicyConsolidation {

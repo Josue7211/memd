@@ -5078,7 +5078,7 @@ fn rrf_merge_boosts_fts_matched_items_in_search() {
                 project: None,
                 namespace: None,
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 source_agent: Some("codex".to_string()),
                 source_system: Some("memd".to_string()),
                 source_path: None,
@@ -5106,7 +5106,7 @@ fn rrf_merge_boosts_fts_matched_items_in_search() {
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 source_agent: Some("codex".to_string()),
                 source_system: Some("memd".to_string()),
                 source_path: None,
@@ -5171,7 +5171,7 @@ fn ab_influence_recall_changes_search_output() {
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 source_agent: Some("codex".to_string()),
                 source_system: Some("memd".to_string()),
                 source_path: None,
@@ -5198,7 +5198,7 @@ fn ab_influence_recall_changes_search_output() {
                 project: Some("memd".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 source_agent: Some("codex".to_string()),
                 source_system: Some("memd".to_string()),
                 source_path: None,
@@ -5711,7 +5711,7 @@ fn h2_cross_session_correction_persists() {
                 project: Some("infra".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 belief_branch: None,
                 source_agent: Some("session-1".to_string()),
                 source_system: None,
@@ -5785,7 +5785,7 @@ fn h2_cross_harness_item_retrievable() {
                 project: Some("shared".to_string()),
                 namespace: Some("main".to_string()),
                 workspace: None,
-                visibility: None,
+                visibility: Some(MemoryVisibility::Workspace),
                 belief_branch: None,
                 source_agent: Some("agent-A".to_string()),
                 source_system: Some("system-A".to_string()),
@@ -5982,4 +5982,851 @@ fn h2_ab_influence_corrections_improve_retrieval() {
     );
 
     std::fs::remove_dir_all(dir).expect("cleanup h2-ab-influence");
+}
+
+// ── J2: Isolation + Trust ──────────────────────────────────────────────
+
+#[test]
+fn j2_adversarial_visibility_private_items_invisible_to_other_agents() {
+    let (dir, state) = temp_state("j2-adversarial-visibility");
+
+    // Agent A stores a Private item
+    let (private_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "agent A secret: internal API key rotation schedule".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Private),
+                source_agent: Some("agent-a".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.95),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["secret".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store agent A private item");
+
+    // Agent A stores a Workspace item
+    let (workspace_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "shared fact: memd uses SQLite with WAL mode".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Workspace),
+                source_agent: Some("agent-a".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["architecture".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store agent A workspace item");
+
+    // Agent B queries the same project
+    let agent_b_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-b".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: Some(32),
+            max_chars_per_item: None,
+        },
+    )
+    .expect("agent B context");
+
+    // Assert: agent B cannot see agent A's Private item
+    assert!(
+        !agent_b_ctx
+            .items
+            .iter()
+            .any(|item| item.id == private_item.id),
+        "LEAK: agent B retrieved agent A's Private item"
+    );
+
+    // Assert: agent B CAN see agent A's Workspace item
+    assert!(
+        agent_b_ctx
+            .items
+            .iter()
+            .any(|item| item.id == workspace_item.id),
+        "agent B should see Workspace items from agent A"
+    );
+
+    // Agent A queries — should see both
+    let agent_a_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-a".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: Some(32),
+            max_chars_per_item: None,
+        },
+    )
+    .expect("agent A context");
+
+    assert!(
+        agent_a_ctx
+            .items
+            .iter()
+            .any(|item| item.id == private_item.id),
+        "agent A should see own Private item"
+    );
+    assert!(
+        agent_a_ctx
+            .items
+            .iter()
+            .any(|item| item.id == workspace_item.id),
+        "agent A should see own Workspace item"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup j2-adversarial-visibility");
+}
+
+#[test]
+fn j2_multi_project_isolation_items_dont_cross_projects() {
+    let (dir, state) = temp_state("j2-multi-project-isolation");
+
+    // Store item in project X
+    let (project_x_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "project X secret architecture decision".to_string(),
+                kind: MemoryKind::Decision,
+                scope: MemoryScope::Project,
+                project: Some("project-x".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Workspace),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec![],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store project X item");
+
+    // Query from project Y context
+    let project_y_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("project-y".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: Some(32),
+            max_chars_per_item: None,
+        },
+    )
+    .expect("project Y context");
+
+    // Assert: project X item NOT returned in project Y
+    assert!(
+        !project_y_ctx
+            .items
+            .iter()
+            .any(|item| item.id == project_x_item.id),
+        "LEAK: project X item appeared in project Y retrieval"
+    );
+
+    // Query from project X context — should find it
+    let project_x_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("project-x".to_string()),
+            agent: Some("codex".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: Some(32),
+            max_chars_per_item: None,
+        },
+    )
+    .expect("project X context");
+
+    assert!(
+        project_x_ctx
+            .items
+            .iter()
+            .any(|item| item.id == project_x_item.id),
+        "project X item should be visible in project X"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup j2-multi-project-isolation");
+}
+
+#[test]
+fn j2_per_agent_working_context_isolation() {
+    use crate::working::working_memory;
+
+    let (dir, state) = temp_state("j2-per-agent-working");
+
+    // Agent A stores a Private fact
+    let (private_item, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "agent A private procedure: restart services in order X→Y→Z".to_string(),
+                kind: MemoryKind::Procedural,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Private),
+                source_agent: Some("agent-a".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec![],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store agent A private item");
+
+    // Agent B requests working memory for same project
+    let agent_b_working = working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-b".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: None,
+            max_chars_per_item: None,
+            max_total_chars: None,
+            rehydration_limit: None,
+            auto_consolidate: None,
+            query: None,
+        },
+    )
+    .expect("agent B working memory");
+
+    // Assert: agent B's working context does NOT contain agent A's Private item
+    assert!(
+        !agent_b_working
+            .records
+            .iter()
+            .any(|record| record.id == private_item.id),
+        "LEAK: agent A's Private item in agent B's working memory"
+    );
+
+    // Agent A requests working memory — should contain their own Private item
+    let agent_a_working = working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-a".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: None,
+            limit: None,
+            max_chars_per_item: None,
+            max_total_chars: None,
+            rehydration_limit: None,
+            auto_consolidate: None,
+            query: None,
+        },
+    )
+    .expect("agent A working memory");
+
+    assert!(
+        agent_a_working
+            .records
+            .iter()
+            .any(|record| record.id == private_item.id),
+        "agent A should see own Private item in working memory"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup j2-per-agent-working");
+}
+
+#[test]
+fn j2_consolidation_preserves_source_visibility() {
+    let (dir, state) = temp_state("j2-consolidation-visibility");
+    let plan = RetrievalPlan::resolve(
+        Some(RetrievalRoute::ProjectFirst),
+        Some(RetrievalIntent::General),
+    );
+
+    // Store 3 Private items from agent-a, all under same source_path.
+    // Same source_path → same entity key → all events link to one entity.
+    let mut source_items = Vec::new();
+    for i in 0..3 {
+        let (item, _) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: format!("private note {}: agent-a internal context", i),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: Some(MemoryVisibility::Private),
+                    belief_branch: None,
+                    source_agent: Some("agent-a".to_string()),
+                    source_system: Some("cli".to_string()),
+                    source_path: Some("notes/private.md".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.9),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["private".to_string()],
+                    status: Some(MemoryStatus::Active),
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store private source item");
+        source_items.push(item);
+    }
+
+    // Record retrieval feedback for each → creates memory events linking all 3
+    // items to the same entity (same source_path entity key).
+    state
+        .record_retrieval_feedback(&source_items, 3, "retrieved_working", &plan)
+        .expect("record retrieval feedback");
+
+    // Consolidate with low thresholds so the test runs deterministically.
+    let response = state
+        .consolidate_semantic_memory(&MemoryConsolidationRequest {
+            project: Some("memd".to_string()),
+            namespace: None,
+            max_groups: Some(8),
+            min_events: Some(2),
+            lookback_days: Some(30),
+            min_salience: Some(0.0),
+            record_events: Some(false),
+        })
+        .expect("consolidate semantic memory");
+
+    assert!(
+        response.consolidated >= 1,
+        "expected at least 1 consolidated item, got {}",
+        response.consolidated
+    );
+
+    // Agent-a requests context — consolidated item (Derived quality) must be Private.
+    let agent_a_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-a".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(16),
+            max_chars_per_item: Some(220),
+        },
+    )
+    .expect("build context agent-a");
+
+    let consolidated = agent_a_ctx
+        .items
+        .iter()
+        .find(|item| item.source_quality == Some(SourceQuality::Derived))
+        .expect("consolidated item must appear in agent-a context");
+    assert_eq!(
+        consolidated.visibility,
+        MemoryVisibility::Private,
+        "consolidated item must inherit Private visibility from sources"
+    );
+
+    // Agent-b requests context — must not see any Private items.
+    let agent_b_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("agent-b".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(16),
+            max_chars_per_item: Some(220),
+        },
+    )
+    .expect("build context agent-b");
+
+    assert!(
+        agent_b_ctx
+            .items
+            .iter()
+            .all(|item| item.visibility != MemoryVisibility::Private),
+        "LEAK: Private consolidated item visible to agent-b"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup j2-consolidation-visibility");
+}
+
+// O2.3: Decay sensitivity analysis
+// Runs 5 param sets on identical pre-aged entities and compares outcomes.
+//
+// Param sets:
+//   defaults:     inactive_days=21, max_decay=0.12, decay_divisor=14.0
+//   aggressive:   inactive_days=14, max_decay=0.20, decay_divisor=7.0
+//   conservative: inactive_days=30, max_decay=0.06, decay_divisor=21.0
+//   fast_decay:   inactive_days=7,  max_decay=0.25, decay_divisor=5.0
+//   slow_decay:   inactive_days=45, max_decay=0.04, decay_divisor=30.0
+//
+// Each scenario uses its own isolated DB seeded with 10 entities:
+//   5 "old" entities (40 days idle, salience=0.6)
+//   5 "recent" entities (5 days idle, salience=0.8)
+#[test]
+fn o2_3_decay_sensitivity_analysis() {
+    struct Scenario {
+        name: &'static str,
+        inactive_days: i64,
+        max_decay: f32,
+        decay_divisor: f32,
+        // expectations on the old entities (40 days idle)
+        expect_old_decayed: bool,
+        // expectations on the recent entities (5 days idle)
+        expect_recent_decayed: bool,
+    }
+
+    let scenarios = [
+        Scenario {
+            name: "defaults",
+            inactive_days: 21,
+            max_decay: 0.12,
+            decay_divisor: 14.0,
+            expect_old_decayed: true,
+            expect_recent_decayed: false,
+        },
+        Scenario {
+            name: "aggressive",
+            inactive_days: 14,
+            max_decay: 0.20,
+            decay_divisor: 7.0,
+            expect_old_decayed: true,
+            expect_recent_decayed: false,
+        },
+        Scenario {
+            name: "conservative",
+            inactive_days: 30,
+            max_decay: 0.06,
+            decay_divisor: 21.0,
+            expect_old_decayed: true,
+            expect_recent_decayed: false,
+        },
+        Scenario {
+            name: "fast_decay",
+            inactive_days: 7,
+            max_decay: 0.25,
+            decay_divisor: 5.0,
+            expect_old_decayed: true,
+            expect_recent_decayed: false,
+        },
+        Scenario {
+            name: "slow_decay",
+            inactive_days: 45,
+            max_decay: 0.04,
+            decay_divisor: 30.0,
+            expect_old_decayed: false, // 40 days < 45 threshold
+            expect_recent_decayed: false,
+        },
+    ];
+
+    let mut results_table: Vec<(String, usize, usize, f32)> = Vec::new();
+
+    for scenario in &scenarios {
+        let (dir, state) = temp_state(&format!("o2-3-decay-{}", scenario.name));
+
+        // Seed 10 entities via store_item (auto-creates memory_entities rows).
+        for i in 0..10 {
+            let _ = state
+                .store_item(
+                    StoreMemoryRequest {
+                        content: format!("decay sensitivity entity {i}"),
+                        kind: MemoryKind::Fact,
+                        scope: MemoryScope::Project,
+                        project: Some("memd".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: None,
+                        visibility: Some(MemoryVisibility::Public),
+                        belief_branch: None,
+                        source_agent: Some("test".to_string()),
+                        source_system: Some("cli".to_string()),
+                        source_path: None,
+                        source_quality: Some(SourceQuality::Canonical),
+                        confidence: Some(0.7),
+                        ttl_seconds: None,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        tags: Vec::new(),
+                        status: Some(MemoryStatus::Active),
+                        lane: None,
+                    },
+                    MemoryStage::Canonical,
+                )
+                .expect("seed entity");
+        }
+
+        // Age the first 5 entities to 40 days idle; last 5 stay at 5 days idle.
+        let now = chrono::Utc::now();
+        let old_ts = (now - chrono::Duration::days(40)).to_rfc3339();
+        let recent_ts = (now - chrono::Duration::days(5)).to_rfc3339();
+
+        {
+            let conn = state.store.connect().expect("connect for age patch");
+            let all_keys: Vec<String> = {
+                let mut stmt = conn
+                    .prepare("SELECT entity_key FROM memory_entities ORDER BY rowid ASC")
+                    .expect("prepare entity keys query");
+                stmt.query_map([], |row| row.get(0))
+                    .expect("query entity keys")
+                    .map(|r| r.expect("read entity key"))
+                    .collect()
+            };
+
+            // Also backdate the salience in payload_json so pre-decay salience is predictable.
+            for (idx, key) in all_keys.iter().enumerate() {
+                let ts = if idx < 5 { &old_ts } else { &recent_ts };
+                let salience = if idx < 5 { 0.6f32 } else { 0.8f32 };
+                // Read the current payload, patch timestamps + salience, write back.
+                let payload_json: String = conn
+                    .query_row(
+                        "SELECT payload_json FROM memory_entities WHERE entity_key = ?1",
+                        rusqlite::params![key],
+                        |row| row.get(0),
+                    )
+                    .expect("read entity payload");
+                let mut record: memd_schema::MemoryEntityRecord =
+                    serde_json::from_str(&payload_json).expect("deserialize entity");
+                record.salience_score = salience;
+                record.last_accessed_at = Some(
+                    chrono::DateTime::parse_from_rfc3339(ts)
+                        .expect("parse ts")
+                        .with_timezone(&chrono::Utc),
+                );
+                record.updated_at = chrono::DateTime::parse_from_rfc3339(ts)
+                    .expect("parse ts")
+                    .with_timezone(&chrono::Utc);
+                let patched = serde_json::to_string(&record).expect("re-serialize entity");
+                conn.execute(
+                    "UPDATE memory_entities SET updated_at = ?1, payload_json = ?2 WHERE entity_key = ?3",
+                    rusqlite::params![ts, patched, key],
+                )
+                .expect("patch entity age");
+            }
+        }
+
+        // Run decay_diagnostics (read-only — does not mutate; use decay_entities for real run).
+        let req = MemoryDecayRequest {
+            max_items: Some(20),
+            inactive_days: Some(scenario.inactive_days),
+            max_decay: Some(scenario.max_decay),
+            decay_divisor: Some(scenario.decay_divisor),
+            record_events: Some(false),
+        };
+        let metrics = state
+            .store
+            .decay_diagnostics(&req)
+            .expect("decay diagnostics");
+
+        // Validate age distribution: all 10 entities were inspected.
+        assert_eq!(
+            metrics.inspected, 10,
+            "[{}] expected 10 entities inspected",
+            scenario.name
+        );
+
+        // old entities (40 days idle) should fall in over_30d bucket.
+        assert_eq!(
+            metrics.age_distribution.over_30d, 5,
+            "[{}] expected 5 entities in over_30d bucket",
+            scenario.name
+        );
+
+        // recent entities (5 days idle) should fall in under_7d bucket.
+        assert_eq!(
+            metrics.age_distribution.under_7d, 5,
+            "[{}] expected 5 entities in under_7d bucket",
+            scenario.name
+        );
+
+        // Check decay expectations.
+        if scenario.expect_old_decayed {
+            assert!(
+                metrics.decayed > 0,
+                "[{}] expected old entities to be decayed but decayed={}",
+                scenario.name,
+                metrics.decayed
+            );
+        } else {
+            assert_eq!(
+                metrics.decayed, 0,
+                "[{}] expected NO decay (threshold not met) but decayed={}",
+                scenario.name,
+                metrics.decayed
+            );
+        }
+
+        if !scenario.expect_recent_decayed {
+            // Recent entities should never be decayed (5 days < all inactive_days thresholds).
+            // We can't distinguish which decayed, but if old threshold is met and recent is not:
+            // decayed count should be <= 5 (only old entities, not recent).
+            // This holds for all scenarios where recent entities are below threshold.
+            assert!(
+                metrics.decayed <= 5,
+                "[{}] recent entities should not be decayed, decayed={}",
+                scenario.name,
+                metrics.decayed
+            );
+        }
+
+        results_table.push((
+            scenario.name.to_string(),
+            metrics.decayed,
+            metrics.inspected,
+            metrics.total_decay_applied,
+        ));
+
+        std::fs::remove_dir_all(dir)
+            .unwrap_or_else(|_| eprintln!("warn: cleanup failed for {}", scenario.name));
+    }
+
+    // Print comparison table for documentation.
+    println!("\nO2.3 Decay Sensitivity Comparison Table:");
+    println!("{:<14} {:>8} {:>10} {:>16}", "scenario", "decayed", "inspected", "total_decay");
+    for (name, decayed, inspected, total) in &results_table {
+        println!("{:<14} {:>8} {:>10} {:>16.4}", name, decayed, inspected, total);
+    }
+
+    // Ranking check: aggressive > defaults > conservative for total_decay (when old entities present).
+    let aggressive_decay = results_table.iter().find(|(n, ..)| n == "aggressive").map(|(_, _, _, d)| *d).unwrap_or(0.0);
+    let defaults_decay = results_table.iter().find(|(n, ..)| n == "defaults").map(|(_, _, _, d)| *d).unwrap_or(0.0);
+    let conservative_decay = results_table.iter().find(|(n, ..)| n == "conservative").map(|(_, _, _, d)| *d).unwrap_or(0.0);
+    let slow_decay = results_table.iter().find(|(n, ..)| n == "slow_decay").map(|(_, _, _, d)| *d).unwrap_or(0.0);
+
+    assert!(
+        aggressive_decay >= defaults_decay,
+        "aggressive params must decay at least as much as defaults: {aggressive_decay:.4} vs {defaults_decay:.4}"
+    );
+    assert!(
+        defaults_decay >= conservative_decay,
+        "defaults must decay at least as much as conservative: {defaults_decay:.4} vs {conservative_decay:.4}"
+    );
+    assert_eq!(
+        slow_decay, 0.0,
+        "slow_decay scenario: 40-day-old entities should not decay (threshold=45d)"
+    );
+}
+
+// O2.5: Post-consolidation A/B recall comparison
+//
+// Proves that consolidation does NOT degrade retrieval:
+//   (a) Store 10 items on the same topic (all map to one entity via shared source_path)
+//   (b) Run 5 context queries and record pre-consolidation hit counts
+//   (c) Generate retrieval events so consolidation threshold is met
+//   (d) Run consolidation
+//   (e) Run the same 5 queries again and assert post >= pre for each
+#[test]
+fn o2_5_post_consolidation_recall_ab_test() {
+    let (dir, state) = temp_state("o2-5-recall-ab");
+    let plan = RetrievalPlan::resolve(
+        Some(RetrievalRoute::ProjectFirst),
+        Some(RetrievalIntent::General),
+    );
+
+    // (a) Store 10 items on the same topic.  All share source_path so they map to one entity.
+    let rust_facts = [
+        "rust ownership model prevents use-after-free at compile time",
+        "rust borrow checker enforces single mutable reference per scope",
+        "rust lifetimes ensure references never outlive their referents",
+        "rust move semantics transfer ownership without copying heap data",
+        "rust drop trait runs destructors deterministically when scope ends",
+        "rust rc and arc provide shared ownership via reference counting",
+        "rust box type allocates heap memory with sole ownership",
+        "rust slice references provide safe views into contiguous memory",
+        "rust unsafe blocks allow raw pointer operations with explicit opt-in",
+        "rust pin type prevents moving self-referential structs in memory",
+    ];
+
+    let mut all_items: Vec<MemoryItem> = Vec::new();
+    for content in &rust_facts {
+        let (item, _) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: content.to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("probe".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: Some(MemoryVisibility::Public),
+                    belief_branch: None,
+                    source_agent: Some("codex".to_string()),
+                    source_system: Some("cli".to_string()),
+                    source_path: Some("topic/rust-memory".to_string()),
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.9),
+                    ttl_seconds: None,
+                    last_verified_at: Some(Utc::now()),
+                    supersedes: Vec::new(),
+                    tags: vec!["rust".to_string(), "memory".to_string()],
+                    status: Some(MemoryStatus::Active),
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store rust fact");
+        all_items.push(item);
+    }
+    assert_eq!(all_items.len(), 10, "expected 10 seeded items");
+
+    // Helper closure: build context and count items that contain "rust" (all seeded items do).
+    let query = |limit: usize| -> usize {
+        build_context(
+            &state,
+            &ContextRequest {
+                project: Some("probe".to_string()),
+                agent: Some("o2-5-agent".to_string()),
+                workspace: None,
+                visibility: None,
+                route: Some(RetrievalRoute::ProjectFirst),
+                intent: Some(RetrievalIntent::General),
+                limit: Some(limit),
+                max_chars_per_item: Some(300),
+            },
+        )
+        .expect("build context")
+        .items
+        .into_iter()
+        .filter(|i| i.content.contains("rust"))
+        .count()
+    };
+
+    // (b) Pre-consolidation baseline: run 5 queries with increasing limits.
+    let pre = [query(5), query(8), query(10), query(12), query(20)];
+    let pre_total: usize = pre.iter().sum();
+    // Sanity: at least the smallest query returns something.
+    assert!(pre[0] >= 1, "pre-consolidation baseline empty at limit=5; got {}", pre[0]);
+
+    // (c) Record retrieval events twice so the entity hits min_events=2.
+    state
+        .record_retrieval_feedback(&all_items, all_items.len(), "retrieved_working", &plan)
+        .expect("retrieval feedback pass 1");
+    state
+        .record_retrieval_feedback(&all_items, all_items.len(), "retrieved_working", &plan)
+        .expect("retrieval feedback pass 2");
+
+    // (d) Run consolidation — min_events=2 means one entity (all 10 items share source_path)
+    //     should be consolidated into a single synthesised item.
+    let response = state
+        .consolidate_semantic_memory(&MemoryConsolidationRequest {
+            project: Some("probe".to_string()),
+            namespace: Some("main".to_string()),
+            max_groups: Some(4),
+            min_events: Some(2),
+            lookback_days: Some(7),
+            min_salience: Some(0.0),
+            record_events: Some(false),
+        })
+        .expect("consolidate semantic memory");
+    assert!(
+        response.consolidated >= 1,
+        "expected at least 1 consolidated item; got {}",
+        response.consolidated
+    );
+
+    // (e) Post-consolidation: same 5 queries. Post >= pre for each, and in aggregate.
+    let post = [query(5), query(8), query(10), query(12), query(20)];
+    let post_total: usize = post.iter().sum();
+
+    for (i, (pre_hits, post_hits)) in pre.iter().zip(post.iter()).enumerate() {
+        assert!(
+            post_hits >= pre_hits,
+            "query[{i}]: recall degraded post-consolidation — pre={pre_hits} post={post_hits}"
+        );
+    }
+    assert!(
+        post_total >= pre_total,
+        "aggregate recall degraded post-consolidation — pre={pre_total} post={post_total}"
+    );
+
+    // Consolidated (Derived) item must be discoverable via retrieval.
+    let final_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("probe".to_string()),
+            agent: Some("o2-5-agent".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(50),
+            max_chars_per_item: Some(500),
+        },
+    )
+    .expect("final context");
+    assert!(
+        final_ctx
+            .items
+            .iter()
+            .any(|i| i.source_quality == Some(SourceQuality::Derived)),
+        "consolidated (Derived) item must appear in retrieval after consolidation"
+    );
+
+    println!(
+        "\nO2.5 A/B Recall: pre=[{},{},{},{},{}] post=[{},{},{},{},{}] total {pre_total}->{post_total}",
+        pre[0], pre[1], pre[2], pre[3], pre[4],
+        post[0], post[1], post[2], post[3], post[4],
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup o2-5-recall-ab");
 }

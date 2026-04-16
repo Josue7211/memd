@@ -13,8 +13,9 @@ use memd_schema::{
     HiveRosterResponse, HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
-    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
-    MemoryEntityRecord, MemoryEventRecord, MemoryItem, SourceMemoryRecord, SourceMemoryRequest,
+    DecayAgeDistribution, DecayRunMetrics, MemoryConsolidationRequest, MemoryContextFrame,
+    MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
+    SalienceHistogram, SourceMemoryRecord, SourceMemoryRequest,
     SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -33,7 +34,7 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_redundancy_key,
+    migrate_lane_column, migrate_redundancy_key, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -402,6 +403,7 @@ impl SqliteStore {
 
         migrate_redundancy_key(&conn)?;
         migrate_lane_column(&conn)?;
+        migrate_visibility_column(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -443,8 +445,8 @@ impl SqliteStore {
             conn.execute(
                 r#"
                 INSERT INTO memory_items (
-                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                 "#,
                 params![
                     item.id.to_string(),
@@ -461,6 +463,7 @@ impl SqliteStore {
                     item.updated_at.to_rfc3339(),
                     payload_json,
                     item.lane,
+                    serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
                 ],
             )
         };
@@ -507,7 +510,8 @@ impl SqliteStore {
                 canonical_key = ?11,
                 updated_at = ?12,
                 payload_json = ?13,
-                lane = ?14
+                lane = ?14,
+                visibility = ?15
             WHERE id = ?1
             "#,
             params![
@@ -525,6 +529,7 @@ impl SqliteStore {
                 item.updated_at.to_rfc3339(),
                 &payload_json,
                 item.lane,
+                serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
             ],
         );
 
@@ -562,7 +567,8 @@ impl SqliteStore {
                         confidence = ?10,
                         canonical_key = ?11,
                         updated_at = ?12,
-                        payload_json = ?13
+                        payload_json = ?13,
+                        visibility = ?14
                     WHERE id = ?1
                     "#,
                     params![
@@ -579,6 +585,7 @@ impl SqliteStore {
                         canonical_key,
                         item.updated_at.to_rfc3339(),
                         &payload_json,
+                        serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
                     ],
                 )
                 .context("merge duplicate memory item")?;
@@ -629,10 +636,11 @@ impl SqliteStore {
     pub fn decay_entities(
         &self,
         request: &MemoryDecayRequest,
-    ) -> anyhow::Result<(usize, usize, usize)> {
+    ) -> anyhow::Result<(usize, usize, usize, DecayRunMetrics)> {
         let max_items = request.max_items.unwrap_or(128).min(1_000);
         let inactive_days = request.inactive_days.unwrap_or(21).max(1);
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
         let record_events = request.record_events.unwrap_or(true);
 
         let rows: Vec<(String, MemoryEntityRecord)> = {
@@ -668,29 +676,59 @@ impl SqliteStore {
         let mut events = 0usize;
         let now = chrono::Utc::now();
 
+        let mut metrics = DecayRunMetrics {
+            inspected: 0,
+            decayed: 0,
+            zeroed: 0,
+            total_decay_applied: 0.0,
+            age_distribution: DecayAgeDistribution::default(),
+            salience_pre: SalienceHistogram::new(),
+            salience_post: SalienceHistogram::new(),
+        };
+
         for (entity_key, mut entity) in rows {
             scanned += 1;
+            metrics.inspected += 1;
 
             let reference = entity
                 .last_accessed_at
                 .or(entity.last_seen_at)
                 .unwrap_or(entity.updated_at);
             let idle_days = (now - reference).num_days().max(0);
+
+            // Record age distribution for all inspected items.
+            match idle_days {
+                d if d < 7 => metrics.age_distribution.under_7d += 1,
+                d if d < 14 => metrics.age_distribution.d7_to_14 += 1,
+                d if d < 21 => metrics.age_distribution.d14_to_21 += 1,
+                d if d < 30 => metrics.age_distribution.d21_to_30 += 1,
+                _ => metrics.age_distribution.over_30d += 1,
+            }
+
             if idle_days < inactive_days {
                 continue;
             }
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay <= 0.001 {
                 continue;
             }
 
             let original_salience = entity.salience_score;
+            metrics.salience_pre.record(original_salience);
+
             entity.salience_score = (entity.salience_score - decay).max(0.0);
             if (entity.salience_score - original_salience).abs() < f32::EPSILON {
                 continue;
+            }
+
+            metrics.decayed += 1;
+            metrics.total_decay_applied += original_salience - entity.salience_score;
+            metrics.salience_post.record(entity.salience_score);
+            if entity.salience_score == 0.0 {
+                metrics.zeroed += 1;
             }
 
             entity.updated_at = now;
@@ -743,13 +781,14 @@ impl SqliteStore {
             }
         }
 
-        Ok((scanned, updated, events))
+        Ok((scanned, updated, events, metrics))
     }
 
     pub fn decay_candidate_count(&self, request: &MemoryDecayRequest) -> anyhow::Result<usize> {
         let max_items = request.max_items.unwrap_or(128).min(1_000);
         let inactive_days = request.inactive_days.unwrap_or(21).max(1);
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
 
         let rows: Vec<MemoryEntityRecord> = {
             let conn = self.connect()?;
@@ -792,13 +831,103 @@ impl SqliteStore {
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / 14.0).min(1.0) * max_decay * rehearsal_factor;
+            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay > 0.001 {
                 updated += 1;
             }
         }
 
         Ok(updated)
+    }
+
+    /// Read-only decay simulation: scans entities and returns metrics without modifying anything.
+    /// Used by the `/api/diagnostics/decay` endpoint.
+    pub fn decay_diagnostics(&self, request: &MemoryDecayRequest) -> anyhow::Result<DecayRunMetrics> {
+        let max_items = request.max_items.unwrap_or(128).min(1_000);
+        let inactive_days = request.inactive_days.unwrap_or(21).max(1);
+        let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
+        let decay_divisor = request.decay_divisor.unwrap_or(14.0).max(1.0);
+
+        let rows: Vec<MemoryEntityRecord> = {
+            let conn = self.connect()?;
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT payload_json
+                    FROM memory_entities
+                    ORDER BY updated_at ASC
+                    LIMIT ?1
+                    "#,
+                )
+                .context("prepare decay diagnostics query")?;
+            let rows = stmt
+                .query_map(params![max_items as i64], |row| row.get::<_, String>(0))
+                .context("query decay diagnostics entities")?;
+            let mut decoded = Vec::new();
+            for row in rows {
+                let payload = row.context("read decay diagnostics row")?;
+                let entity: MemoryEntityRecord = serde_json::from_str(&payload)
+                    .context("deserialize decay diagnostics entity")?;
+                decoded.push(entity);
+            }
+            decoded
+        };
+
+        let now = chrono::Utc::now();
+        let mut metrics = DecayRunMetrics {
+            inspected: 0,
+            decayed: 0,
+            zeroed: 0,
+            total_decay_applied: 0.0,
+            age_distribution: DecayAgeDistribution::default(),
+            salience_pre: SalienceHistogram::new(),
+            salience_post: SalienceHistogram::new(),
+        };
+
+        for entity in rows {
+            metrics.inspected += 1;
+
+            let reference = entity
+                .last_accessed_at
+                .or(entity.last_seen_at)
+                .unwrap_or(entity.updated_at);
+            let idle_days = (now - reference).num_days().max(0);
+
+            match idle_days {
+                d if d < 7 => metrics.age_distribution.under_7d += 1,
+                d if d < 14 => metrics.age_distribution.d7_to_14 += 1,
+                d if d < 21 => metrics.age_distribution.d14_to_21 += 1,
+                d if d < 30 => metrics.age_distribution.d21_to_30 += 1,
+                _ => metrics.age_distribution.over_30d += 1,
+            }
+
+            if idle_days < inactive_days {
+                continue;
+            }
+
+            let inactive_days_over = (idle_days - inactive_days) as f32;
+            let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
+            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
+            if decay <= 0.001 {
+                continue;
+            }
+
+            let original_salience = entity.salience_score;
+            let post_salience = (original_salience - decay).max(0.0);
+            if (post_salience - original_salience).abs() < f32::EPSILON {
+                continue;
+            }
+
+            metrics.decayed += 1;
+            metrics.total_decay_applied += original_salience - post_salience;
+            metrics.salience_pre.record(original_salience);
+            metrics.salience_post.record(post_salience);
+            if post_salience == 0.0 {
+                metrics.zeroed += 1;
+            }
+        }
+
+        Ok(metrics)
     }
 
     pub fn consolidation_candidates(

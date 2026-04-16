@@ -134,6 +134,7 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
             max_items: Some(args.batch_size),
             inactive_days: Some(21),
             max_decay: Some(0.12),
+            decay_divisor: None,
             record_events: Some(true),
         })
         .await

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -500,6 +502,9 @@ pub struct WorkingMemoryResponse {
     /// Procedures matched against current working context (Phase G).
     #[serde(default)]
     pub procedures: Vec<Procedure>,
+    /// Admission cycle quality metrics for M3/J2 observability.
+    #[serde(default)]
+    pub compaction_quality: Option<CompactionQualityReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -508,6 +513,16 @@ pub struct WorkingMemoryPolicyState {
     pub max_chars_per_item: usize,
     pub budget_chars: usize,
     pub rehydration_limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionQualityReport {
+    pub admitted: usize,
+    pub evicted: usize,
+    pub per_kind_admitted: BTreeMap<String, usize>,
+    pub per_kind_evicted: BTreeMap<String, usize>,
+    pub budget_chars: usize,
+    pub used_chars: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1900,6 +1915,59 @@ pub struct MemoryDecayRequest {
     pub inactive_days: Option<i64>,
     pub max_decay: Option<f32>,
     pub record_events: Option<bool>,
+    /// Divisor controlling decay acceleration past inactive threshold.
+    /// decay = (idle_days_over / decay_divisor).min(1.0) * max_decay
+    /// Defaults to 14.0.
+    #[serde(default)]
+    pub decay_divisor: Option<f32>,
+}
+
+/// Age distribution of entities scanned during a decay pass.
+/// Buckets are based on idle_days (days since last access/seen/updated).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DecayAgeDistribution {
+    pub under_7d: usize,
+    pub d7_to_14: usize,
+    pub d14_to_21: usize,
+    pub d21_to_30: usize,
+    pub over_30d: usize,
+}
+
+/// Salience distribution: 10 buckets [0.0,0.1), [0.1,0.2), ..., [0.9,1.0].
+/// Index i covers salience in [i*0.1, (i+1)*0.1).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SalienceHistogram {
+    pub buckets: Vec<usize>,
+}
+
+impl SalienceHistogram {
+    pub fn new() -> Self {
+        Self { buckets: vec![0; 10] }
+    }
+
+    pub fn record(&mut self, salience: f32) {
+        let idx = ((salience * 10.0) as usize).min(9);
+        self.buckets[idx] += 1;
+    }
+}
+
+/// Metrics collected during a single decay run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayRunMetrics {
+    /// Items read and evaluated.
+    pub inspected: usize,
+    /// Items that had salience reduced.
+    pub decayed: usize,
+    /// Items that reached salience == 0.0 after decay.
+    pub zeroed: usize,
+    /// Sum of all decay deltas applied across all items.
+    pub total_decay_applied: f32,
+    /// Distribution of idle age across inspected items.
+    pub age_distribution: DecayAgeDistribution,
+    /// Salience distribution before decay was applied.
+    pub salience_pre: SalienceHistogram,
+    /// Salience distribution after decay was applied (for items that changed).
+    pub salience_post: SalienceHistogram,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1907,6 +1975,17 @@ pub struct MemoryDecayResponse {
     pub scanned: usize,
     pub updated: usize,
     pub events: usize,
+    #[serde(default)]
+    pub metrics: Option<DecayRunMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecayDiagnosticsResponse {
+    pub metrics: DecayRunMetrics,
+    pub inactive_days: usize,
+    pub max_decay: f32,
+    pub decay_divisor: f32,
+    pub max_items: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1920,6 +1999,23 @@ pub struct MemoryConsolidationRequest {
     pub record_events: Option<bool>,
 }
 
+/// Per-item quality score computed after a consolidation write.
+/// Scores are in [0.0, 1.0] and reflect how well the generated item preserves
+/// source fidelity across four dimensions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationQualityScore {
+    /// Entity type present in consolidated content (semantic coherence).
+    pub semantic_coherence: f32,
+    /// Clause/sentence density vs event count (information preservation).
+    pub information_preservation: f32,
+    /// Consolidated kind matches expected kind from entity type (1.0 or 0.0).
+    pub kind_preserved: f32,
+    /// Consolidated visibility matches most-restrictive source visibility (1.0 or 0.0).
+    pub visibility_preserved: f32,
+    /// Average of the four dimension scores.
+    pub overall: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConsolidationResponse {
     pub scanned: usize,
@@ -1928,6 +2024,12 @@ pub struct MemoryConsolidationResponse {
     pub duplicates: usize,
     pub events: usize,
     pub highlights: Vec<String>,
+    /// Mean quality score across all consolidated items in this run.
+    #[serde(default)]
+    pub mean_quality: Option<f32>,
+    /// Per-item quality scores (one per consolidated item, in consolidation order).
+    #[serde(default)]
+    pub quality_scores: Vec<ConsolidationQualityScore>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2059,6 +2161,8 @@ pub struct MemoryPolicyDecay {
     pub inactive_days: i64,
     pub max_decay: f32,
     pub record_events: bool,
+    /// Divisor controlling decay acceleration past inactive threshold. Default: 14.0.
+    pub decay_divisor: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3076,6 +3180,8 @@ mod tests {
             duplicates: 1,
             events: 3,
             highlights: vec!["repo:3 events".to_string()],
+            mean_quality: None,
+            quality_scores: vec![],
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -3351,6 +3457,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
@@ -3445,8 +3552,11 @@ mod tests {
                 duplicates: 0,
                 events: 1,
                 highlights: vec!["working-set replay".to_string()],
+                mean_quality: None,
+                quality_scores: vec![],
             }),
             procedures: vec![],
+            compaction_quality: None,
         };
 
         let request_json = serde_json::to_string(&request).unwrap();

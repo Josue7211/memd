@@ -7,14 +7,14 @@ truth_date: 2026-04-16
 version: v2
 version_status: in_progress
 current_milestone: M3
-milestone_status: pending
-current_phase: J2
+milestone_status: in_progress
+current_phase: P2
 phase_status: pending
 next_milestone: M4
-next_step: Start M3 planning — J2 (Isolation + Trust) phase research
+next_step: P2 — Measurement Proof (per-kind token counter, CI benchmark gate, diagnostics report). J2+O2 complete.
 active_blockers: []
 v1_status: frozen_architecture_complete
-note: M2 verified 2026-04-16. All four phases pass. 626 tests, 0 failures. Benchmarks zero regression. Node verification 15 ✓, 6 ~, 0 ✗. Binary deployed to openclaw, correction flow smoke-tested. G2.2 query lane boost implemented.
+note: M3 in progress. J2 verified. O2 verified 2026-04-16 (decay diagnostics endpoint, sensitivity analysis, consolidation quality scoring, A/B recall test, defaults 21/0.12/14.0 confirmed). 166 server tests passing. P2 unblocked.
 -->
 
 ## Status Snapshot
@@ -143,8 +143,8 @@ Fix measurement gaps.
 
 | Phase | Name | Status | Gaps | Phase Doc | Theory Lock |
 | --- | --- | --- | --- | --- | --- |
-| J2 | Isolation + Trust | `pending` | 20, 23 | [[phase-j2-isolation-trust]] | [[memd-theory-lock-v1]] |
-| O2 | Lifecycle Calibration | `pending` | 21, 22 | [[phase-o2-lifecycle-calibration]] | [[memd-canonical-promotion-theory-lock-v1]] |
+| J2 | Isolation + Trust | `verified` | 20, 23 | [[phase-j2-isolation-trust]] | [[memd-theory-lock-v1]] |
+| O2 | Lifecycle Calibration | `verified` | 21, 22 | [[phase-o2-lifecycle-calibration]] | [[memd-canonical-promotion-theory-lock-v1]] |
 | P2 | Measurement Proof | `pending` | 18, 19 | [[phase-p2-measurement-proof]] | [[memd-evaluation-theory-lock-v1]] |
 
 **Verification**:

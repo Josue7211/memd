@@ -373,6 +373,8 @@ mod tests {
             }],
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         };
 
         let summary = render_working_summary(&response, true);

@@ -28,6 +28,7 @@ impl SqliteStore {
             max_items: Some(256),
             inactive_days: request.inactive_days,
             max_decay: request.max_decay,
+            decay_divisor: None,
             record_events: Some(false),
         })?;
         let consolidated_candidates =

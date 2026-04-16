@@ -1035,6 +1035,8 @@ async fn read_bundle_state_reports_freshness_changed_when_repo_dirty() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         });
     }
     let base_url = spawn_mock_runtime_server(state, false).await;
@@ -1106,6 +1108,8 @@ async fn read_bundle_state_reports_freshness_unchanged_when_repo_clean() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         });
     }
     let base_url = spawn_mock_runtime_server(state, false).await;
@@ -1187,6 +1191,8 @@ async fn read_bundle_state_reports_freshness_stale_when_resume_state_is_old() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         });
     }
     let base_url = spawn_mock_runtime_server(state, false).await;

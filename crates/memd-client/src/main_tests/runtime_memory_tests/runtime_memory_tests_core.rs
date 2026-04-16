@@ -380,6 +380,8 @@ fn resume_prompt_surfaces_current_task_snapshot() {
             traces: Vec::new(),
             semantic_consolidation: None,
             procedures: vec![],
+
+            compaction_quality: None,
         },
         inbox: memd_schema::MemoryInboxResponse {
             route: memd_schema::RetrievalRoute::Auto,
@@ -427,6 +429,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
         refresh_recommended: false, atlas_region_hints: Vec::new(),
+ handoff_quality: None,
     };
 
     let base = snapshot;
@@ -477,6 +480,8 @@ fn working_summary_surfaces_typed_trace_trail() {
         }],
         semantic_consolidation: None,
         procedures: vec![],
+
+        compaction_quality: None,
     };
 
     let summary = render_working_summary(&response, true);

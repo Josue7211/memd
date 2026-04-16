@@ -636,6 +636,8 @@ mod tests {
                 traces: Vec::new(),
                 semantic_consolidation: None,
                 procedures: vec![],
+
+                compaction_quality: None,
             },
             inbox: memd_schema::MemoryInboxResponse {
                 route: RetrievalRoute::Auto,
@@ -654,6 +656,7 @@ mod tests {
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
             refresh_recommended: false, atlas_region_hints: Vec::new(),
+ handoff_quality: None,
         }
     }
 

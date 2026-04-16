@@ -180,6 +180,49 @@ pub(crate) fn migrate_hive_sessions_last_wake_at(conn: &Connection) -> anyhow::R
     Ok(())
 }
 
+pub(crate) fn migrate_visibility_column(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "visibility") {
+        // Default 'workspace' for existing items — they predate enforcement
+        // and should remain visible to all project agents.
+        conn.execute_batch(
+            "ALTER TABLE memory_items ADD COLUMN visibility TEXT NOT NULL DEFAULT '\"workspace\"';",
+        )?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_memory_visibility ON memory_items(visibility);",
+        )?;
+
+        // Backfill from payload_json where visibility was explicitly set.
+        // Items without the key in JSON keep the 'workspace' default.
+        let mut read_stmt = conn.prepare("SELECT id, payload_json FROM memory_items")?;
+        let rows = read_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, payload) = row?;
+            let parsed: serde_json::Value =
+                serde_json::from_str(&payload).context("parse payload_json for visibility backfill")?;
+            if let Some(vis) = parsed.get("visibility").and_then(|v| v.as_str()) {
+                // Only update if explicitly set and different from default.
+                // Store as JSON-quoted string to match INSERT/UPDATE format.
+                if vis != "workspace" {
+                    let quoted = format!("\"{}\"", vis);
+                    conn.execute(
+                        "UPDATE memory_items SET visibility = ?1 WHERE id = ?2",
+                        params![quoted, id],
+                    )?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub(crate) fn migrate_lane_column(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
     let columns = stmt

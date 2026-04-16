@@ -613,6 +613,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
@@ -690,6 +691,7 @@ mod tests {
                 max_items: 128,
                 inactive_days: 21,
                 max_decay: 0.12,
+                decay_divisor: 14.0,
                 record_events: true,
             },
             consolidation: MemoryPolicyConsolidation {
