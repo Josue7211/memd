@@ -1,4 +1,5 @@
 use super::*;
+use super::errors::MemdError;
 
 pub(crate) async fn healthz(
     State(state): State<AppState>,
@@ -82,10 +83,7 @@ pub(crate) async fn store_memory(
     Json(req): Json<StoreMemoryRequest>,
 ) -> Result<Json<StoreMemoryResponse>, (StatusCode, String)> {
     if req.content.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "content must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("content", "must not be empty").into_wire());
     }
 
     let item = state
@@ -102,10 +100,7 @@ pub(crate) async fn store_candidate(
     Json(req): Json<CandidateMemoryRequest>,
 ) -> Result<Json<CandidateMemoryResponse>, (StatusCode, String)> {
     if req.content.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "content must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("content", "must not be empty").into_wire());
     }
 
     let store_req = StoreMemoryRequest {
@@ -527,22 +522,13 @@ pub(crate) async fn post_hive_message(
     Json(req): Json<HiveMessageSendRequest>,
 ) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.from_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "from_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("from_session", "must not be empty").into_wire());
     }
     if req.to_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "to_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("to_session", "must not be empty").into_wire());
     }
     if req.content.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "content must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("content", "must not be empty").into_wire());
     }
 
     let response = state
@@ -557,10 +543,7 @@ pub(crate) async fn get_hive_inbox(
     Query(req): Query<HiveMessageInboxRequest>,
 ) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state.store.hive_inbox(&req).map_err(internal_error)?;
     Ok(Json(response))
@@ -571,13 +554,10 @@ pub(crate) async fn post_hive_ack(
     Json(req): Json<HiveMessageAckRequest>,
 ) -> Result<Json<HiveMessagesResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     if req.id.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "id must not be empty".to_string()));
+        return Err(MemdError::validation("id", "must not be empty").into_wire());
     }
     let response = state.store.ack_hive_message(&req).map_err(internal_error)?;
     Ok(Json(response))
@@ -588,10 +568,7 @@ pub(crate) async fn get_hive_coordination_inbox(
     Query(req): Query<HiveCoordinationInboxRequest>,
 ) -> Result<Json<HiveCoordinationInboxResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -605,22 +582,13 @@ pub(crate) async fn post_hive_coordination_receipt(
     Json(req): Json<HiveCoordinationReceiptRequest>,
 ) -> Result<Json<HiveCoordinationReceiptsResponse>, (StatusCode, String)> {
     if req.kind.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "kind must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("kind", "must not be empty").into_wire());
     }
     if req.actor_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "actor_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("actor_session", "must not be empty").into_wire());
     }
     if req.summary.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "summary must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("summary", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -645,16 +613,10 @@ pub(crate) async fn post_skill_policy_apply_receipt(
     Json(req): Json<SkillPolicyApplyRequest>,
 ) -> Result<Json<SkillPolicyApplyResponse>, (StatusCode, String)> {
     if req.bundle_root.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "bundle_root must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("bundle_root", "must not be empty").into_wire());
     }
     if req.source_queue_path.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "source_queue_path must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("source_queue_path", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -690,16 +652,10 @@ pub(crate) async fn post_hive_claim_acquire(
     Json(req): Json<HiveClaimAcquireRequest>,
 ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "scope must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("scope", "must not be empty").into_wire());
     }
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -713,16 +669,10 @@ pub(crate) async fn post_hive_claim_release(
     Json(req): Json<HiveClaimReleaseRequest>,
 ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "scope must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("scope", "must not be empty").into_wire());
     }
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -736,16 +686,10 @@ pub(crate) async fn post_hive_claim_transfer(
     Json(req): Json<HiveClaimTransferRequest>,
 ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "scope must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("scope", "must not be empty").into_wire());
     }
     if req.from_session.trim().is_empty() || req.to_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "from_session and to_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("from_session and to_session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -759,24 +703,15 @@ pub(crate) async fn post_hive_claim_recover(
     Json(req): Json<HiveClaimRecoverRequest>,
 ) -> Result<Json<HiveClaimsResponse>, (StatusCode, String)> {
     if req.scope.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "scope must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("scope", "must not be empty").into_wire());
     }
     if req.from_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "from_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("from_session", "must not be empty").into_wire());
     }
     if let Some(to_session) = req.to_session.as_deref()
         && to_session.trim().is_empty()
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "to_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("to_session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -798,10 +733,7 @@ pub(crate) async fn post_hive_session_upsert(
     Json(req): Json<HiveSessionUpsertRequest>,
 ) -> Result<Json<HiveSessionsResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -815,10 +747,7 @@ pub(crate) async fn post_hive_session_retire(
     Json(req): Json<HiveSessionRetireRequest>,
 ) -> Result<Json<HiveSessionRetireResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state
         .store
@@ -881,10 +810,7 @@ pub(crate) async fn get_hive_follow(
     Query(req): Query<HiveFollowRequest>,
 ) -> Result<Json<HiveFollowResponse>, (StatusCode, String)> {
     if req.session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("session", "must not be empty").into_wire());
     }
     let response = state.store.hive_follow(&req).map_err(internal_error)?;
     Ok(Json(response))
@@ -996,12 +922,7 @@ pub(crate) async fn post_hive_queen_handoff(
             let value = value.trim();
             if value.is_empty() { None } else { Some(value) }
         })
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                "scope must not be empty".to_string(),
-            )
-        })?
+        .ok_or_else(|| MemdError::validation("scope", "must not be empty").into_wire())?
         .to_string();
     let target = state
         .store
@@ -1073,10 +994,7 @@ pub(crate) fn require_hive_queen_target(
     req: &HiveQueenActionRequest,
 ) -> Result<String, (StatusCode, String)> {
     if req.queen_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "queen_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("queen_session", "must not be empty").into_wire());
     }
     req.target_session
         .as_deref()
@@ -1085,12 +1003,7 @@ pub(crate) fn require_hive_queen_target(
             if value.is_empty() { None } else { Some(value) }
         })
         .map(str::to_string)
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                "target_session must not be empty".to_string(),
-            )
-        })
+        .ok_or_else(|| MemdError::validation("target_session", "must not be empty").into_wire())
 }
 
 pub(crate) async fn post_hive_task_upsert(
@@ -1098,16 +1011,10 @@ pub(crate) async fn post_hive_task_upsert(
     Json(req): Json<HiveTaskUpsertRequest>,
 ) -> Result<Json<HiveTasksResponse>, (StatusCode, String)> {
     if req.task_id.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "task_id must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("task_id", "must not be empty").into_wire());
     }
     if req.title.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "title must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("title", "must not be empty").into_wire());
     }
     let response = state.store.upsert_hive_task(&req).map_err(internal_error)?;
     Ok(Json(response))
@@ -1118,16 +1025,10 @@ pub(crate) async fn post_hive_task_assign(
     Json(req): Json<HiveTaskAssignRequest>,
 ) -> Result<Json<HiveTasksResponse>, (StatusCode, String)> {
     if req.task_id.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "task_id must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("task_id", "must not be empty").into_wire());
     }
     if req.to_session.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "to_session must not be empty".to_string(),
-        ));
+        return Err(MemdError::validation("to_session", "must not be empty").into_wire());
     }
     let response = state.store.assign_hive_task(&req).map_err(internal_error)?;
     Ok(Json(response))
@@ -1263,13 +1164,10 @@ pub(crate) async fn dismiss_inbox(
     Json(req): Json<InboxDismissRequest>,
 ) -> Result<Json<InboxDismissResponse>, (StatusCode, String)> {
     if req.ids.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "ids must not be empty".to_string()));
+        return Err(MemdError::validation("ids", "must not be empty").into_wire());
     }
     if req.ids.len() > 100 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "max 100 items per dismiss".to_string(),
-        ));
+        return Err(MemdError::validation("ids", "max 100 items per dismiss").into_wire());
     }
     let dismissed = state
         .store
@@ -1937,7 +1835,9 @@ pub(crate) async fn post_ingest_lanes(
 ) -> Result<Json<IngestLanesResponse>, (StatusCode, String)> {
     let root = std::path::Path::new(&req.root);
     if !root.is_dir() {
-        return Err((StatusCode::BAD_REQUEST, format!("root is not a directory: {}", req.root)));
+        return Err(
+            MemdError::validation("root", format!("is not a directory: {}", req.root)).into_wire(),
+        );
     }
     let summary = crate::store_ingestion::ingest_lane_files(
         &state,

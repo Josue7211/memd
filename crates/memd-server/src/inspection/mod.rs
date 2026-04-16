@@ -7,7 +7,7 @@ use memd_schema::{
 };
 use std::collections::BTreeMap;
 
-use super::{AppState, canonical_key, internal_error, redundancy_key};
+use super::{AppState, canonical_key, errors::MemdError, internal_error, redundancy_key};
 
 pub(crate) fn explain_memory(
     state: &AppState,
@@ -18,13 +18,13 @@ pub(crate) fn explain_memory(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
     if req
         .belief_branch
         .as_ref()
         .is_some_and(|branch| item.belief_branch.as_ref() != Some(branch))
     {
-        return Err((StatusCode::NOT_FOUND, "memory item not found".to_string()));
+        return Err(MemdError::not_found("memory item", req.id).into_wire());
     }
 
     let reasons = explain_reasons(&item, &plan);

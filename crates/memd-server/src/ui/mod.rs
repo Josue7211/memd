@@ -12,7 +12,7 @@ use memd_schema::{
 };
 use uuid::Uuid;
 
-use crate::{AppState, canonical_key, internal_error, redundancy_key};
+use crate::{AppState, canonical_key, errors::MemdError, internal_error, redundancy_key};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UiPage {
@@ -1254,7 +1254,7 @@ pub(crate) fn build_visible_memory_artifact_detail(
         .iter()
         .find(|item| item.id == id)
         .cloned()
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", id).into_wire())?;
     build_visible_memory_artifact_detail_from_item(state, focus_item, &items)
 }
 
@@ -1266,7 +1266,7 @@ pub(crate) fn perform_visible_memory_action(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
 
     let action = req.action;
     let snapshot = state.snapshot().map_err(internal_error)?;

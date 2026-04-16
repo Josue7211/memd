@@ -7,7 +7,7 @@ use memd_schema::{
 };
 use tracing::warn;
 
-use crate::{AppState, RecordEventArgs, canonical_key, internal_error, redundancy_key};
+use crate::{AppState, RecordEventArgs, canonical_key, errors::MemdError, internal_error, redundancy_key};
 
 pub(crate) fn expire_item(
     state: &AppState,
@@ -17,7 +17,7 @@ pub(crate) fn expire_item(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
 
     item.status = req.status.unwrap_or(MemoryStatus::Expired);
     item.updated_at = Utc::now();
@@ -67,16 +67,13 @@ pub(crate) fn correct_item(
     req: CorrectMemoryRequest,
 ) -> Result<CorrectMemoryResponse, (StatusCode, String)> {
     if req.content.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "correction content cannot be empty".to_string(),
-        ));
+        return Err(MemdError::validation("content", "cannot be empty").into_wire());
     }
     let old_item = state
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
 
     // 1. Mark old item Superseded
     let mut superseded = old_item.clone();
@@ -212,7 +209,7 @@ pub(crate) fn repair_item(
         .store
         .get(req.id)
         .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "memory item not found".to_string()))?;
+        .ok_or_else(|| MemdError::not_found("memory item", req.id).into_wire())?;
     let mut reasons = vec![format!("mode={}", format_mode(req.mode))];
     let event_type = match req.mode {
         MemoryRepairMode::Verify => {
@@ -336,10 +333,7 @@ pub(crate) fn repair_item(
             if let Some(content) = req.content {
                 let content = content.trim().to_string();
                 if content.is_empty() {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "content cannot be empty".to_string(),
-                    ));
+                    return Err(MemdError::validation("content", "cannot be empty").into_wire());
                 }
                 item.content = content;
                 reasons.push("content_repaired".to_string());
