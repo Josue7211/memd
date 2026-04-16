@@ -10,6 +10,7 @@ mod routes;
 mod routing;
 mod status;
 mod store;
+mod token_headers;
 mod store_entities;
 mod store_hive;
 mod store_hive_lifecycle;
@@ -633,6 +634,9 @@ async fn main() {
             "/api/diagnostics/token-efficiency",
             post(token_efficiency_diagnostics),
         )
+        .layer(axum::middleware::from_fn(
+            token_headers::token_headers_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
