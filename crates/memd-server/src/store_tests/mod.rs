@@ -41,6 +41,7 @@ fn sample_memory_item() -> MemoryItem {
         source_quality: Some(SourceQuality::Canonical),
         stage: MemoryStage::Canonical,
         lane: None,
+        version: 1,
     }
 }
 

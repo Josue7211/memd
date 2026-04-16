@@ -246,6 +246,15 @@ pub struct MemoryItem {
     pub stage: MemoryStage,
     #[serde(default)]
     pub lane: Option<String>,
+    /// Lamport version — incremented on every server-side mutation.
+    /// Foreign imports with `version <= stored.version` are rejected as
+    /// `Conflict`, giving timestamp-independent resolution across harnesses.
+    #[serde(default = "default_memory_item_version")]
+    pub version: u64,
+}
+
+pub fn default_memory_item_version() -> u64 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3436,6 +3445,7 @@ mod tests {
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             },
             canonical_key: "decision:bundle-first".to_string(),
             redundancy_key: "decision:bundle-first".to_string(),
@@ -3918,6 +3928,7 @@ mod tests {
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             },
             mode: request.mode,
             reasons: vec![

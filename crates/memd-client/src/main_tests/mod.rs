@@ -144,6 +144,7 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),

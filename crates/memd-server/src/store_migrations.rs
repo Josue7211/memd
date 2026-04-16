@@ -223,6 +223,33 @@ pub(crate) fn migrate_visibility_column(conn: &Connection) -> anyhow::Result<()>
     Ok(())
 }
 
+/// L2.1: Lamport versioning on memory_items.
+/// Adds a monotonic `version` column persisted alongside `payload_json` so
+/// conflict resolution between harnesses is timestamp-independent.
+pub(crate) fn migrate_version_column(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "version") {
+        conn.execute_batch(
+            "ALTER TABLE memory_items ADD COLUMN version INTEGER NOT NULL DEFAULT 1;",
+        )?;
+        // Backfill payload_json so existing items expose their version via the
+        // JSON path too. Default is 1 — they are pre-Lamport but not
+        // pre-existent; any cross-harness import should dominate via version 2+.
+        conn.execute(
+            "UPDATE memory_items \
+             SET payload_json = json_set(payload_json, '$.version', 1) \
+             WHERE json_extract(payload_json, '$.version') IS NULL",
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn migrate_lane_column(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
     let columns = stmt

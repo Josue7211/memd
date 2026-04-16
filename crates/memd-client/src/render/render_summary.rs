@@ -524,6 +524,7 @@ mod tests {
                         status: memd_schema::MemoryStatus::Active,
                         stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
                     },
                     reasons: vec!["stale".to_string()],
                 }],

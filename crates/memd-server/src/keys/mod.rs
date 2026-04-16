@@ -227,6 +227,7 @@ mod tests {
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
         }
     }
 

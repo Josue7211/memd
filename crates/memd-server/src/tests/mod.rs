@@ -34,6 +34,7 @@ fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
         status: MemoryStatus::Active,
         stage: MemoryStage::Canonical,
         lane: None,
+        version: 1,
     }
 }
 
@@ -4229,6 +4230,7 @@ fn concurrent_writes_no_sqlite_busy() {
                         status: MemoryStatus::Active,
                         stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
                     };
                     let ck = super::keys::canonical_key(&item);
                     let rk = super::keys::redundancy_key(&item);
@@ -7036,4 +7038,78 @@ fn spine_verify_reports_no_violations_on_clean_store() {
     );
 
     std::fs::remove_dir_all(dir).expect("cleanup spine verify test");
+}
+
+#[test]
+fn l2_1_lamport_version_increments_on_mutation_and_rejects_stale_imports() {
+    let (dir, state) = temp_state("l2-1-lamport-version");
+    let item = sample_memory_item(Some("core"));
+    let id = item.id;
+    let ck = keys::canonical_key(&item);
+    let rk = keys::redundancy_key(&item);
+
+    // Insert: persisted version starts at 1.
+    state
+        .store
+        .insert_or_get_duplicate(&item, &ck, &rk)
+        .expect("insert new item");
+    assert_eq!(
+        state.store.get_version(id).expect("read version"),
+        Some(1),
+        "fresh insert persists at version 1"
+    );
+
+    // Local mutation: version auto-increments to 2.
+    let mut mutated = item.clone();
+    mutated.content = "workspace-ranked memory (edited)".to_string();
+    mutated.updated_at = Utc::now();
+    let ck2 = keys::canonical_key(&mutated);
+    let rk2 = keys::redundancy_key(&mutated);
+    state
+        .store
+        .update(&mutated, &ck2, &rk2)
+        .expect("update item");
+    assert_eq!(
+        state.store.get_version(id).expect("read version after update"),
+        Some(2),
+        "update bumps Lamport version by 1"
+    );
+    let stored = state.store.get(id).expect("get").expect("row present");
+    assert_eq!(stored.version, 2, "payload_json and column stay in sync");
+
+    // Import with equal version: rejected.
+    let mut stale = stored.clone();
+    stale.version = 2;
+    let outcome = state
+        .store
+        .import_with_version(&stale, &ck2, &rk2)
+        .expect("import call");
+    assert_eq!(
+        outcome,
+        crate::store::ImportOutcome::RejectedStale {
+            stored_version: 2,
+            incoming_version: 2,
+        },
+        "equal-version import must be treated as stale"
+    );
+
+    // Import with strictly-greater version: applied, version becomes 5.
+    let mut fresh = stored.clone();
+    fresh.version = 5;
+    fresh.content = "workspace-ranked memory (remote)".to_string();
+    fresh.updated_at = Utc::now();
+    let ck3 = keys::canonical_key(&fresh);
+    let rk3 = keys::redundancy_key(&fresh);
+    let outcome = state
+        .store
+        .import_with_version(&fresh, &ck3, &rk3)
+        .expect("import fresh");
+    assert_eq!(outcome, crate::store::ImportOutcome::Applied);
+    assert_eq!(
+        state.store.get_version(id).expect("read version post-import"),
+        Some(5),
+        "accepted import preserves incoming version exactly"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup L2.1 test");
 }

@@ -78,6 +78,7 @@ async fn search_memory(
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }],
     })
 }
@@ -171,6 +172,7 @@ async fn mock_candidate_memory(
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
         },
         duplicate_of: None,
     })
@@ -212,6 +214,7 @@ async fn mock_store_memory(
             status: req.status.unwrap_or(MemoryStatus::Active),
             stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         },
     })
 }

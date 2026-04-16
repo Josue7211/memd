@@ -2745,6 +2745,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
                     last_verified_at: None,
                     supersedes: Vec::new(),
                     updated_at: chrono::Utc::now(),

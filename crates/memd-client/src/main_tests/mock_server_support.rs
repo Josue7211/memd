@@ -949,6 +949,7 @@ pub(crate) async fn mock_search_memory(
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             }]
     } else if query.contains("stale belief") {
         vec![memd_schema::MemoryItem {
@@ -977,6 +978,7 @@ pub(crate) async fn mock_search_memory(
             status: memd_schema::MemoryStatus::Stale,
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }]
     } else if req.query.is_none() {
         vec![
@@ -1006,6 +1008,7 @@ pub(crate) async fn mock_search_memory(
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             },
             memd_schema::MemoryItem {
                 id: uuid::Uuid::new_v4(),
@@ -1033,6 +1036,7 @@ pub(crate) async fn mock_search_memory(
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             }
         ]
     } else {
@@ -1062,6 +1066,7 @@ pub(crate) async fn mock_search_memory(
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }]
     };
     Json(memd_schema::SearchMemoryResponse {
@@ -1105,6 +1110,7 @@ pub(crate) async fn mock_store_memory(
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         },
     })
 }
@@ -1147,6 +1153,7 @@ pub(crate) async fn mock_candidate_memory(
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
         },
         duplicate_of: None,
     })
@@ -1190,6 +1197,7 @@ pub(crate) async fn mock_repair_memory(
             status: req.status.unwrap_or(memd_schema::MemoryStatus::Active),
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         },
         mode: req.mode,
         reasons: vec!["mock_repair".to_string()],

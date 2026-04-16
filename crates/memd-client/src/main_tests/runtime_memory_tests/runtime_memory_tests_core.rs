@@ -123,6 +123,7 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }],
     };
 
@@ -413,6 +414,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
                     status: memd_schema::MemoryStatus::Active,
                     stage: memd_schema::MemoryStage::Candidate,
                     lane: None,
+                    version: 1,
                 },
                 reasons: vec!["same".to_string()],
             }],

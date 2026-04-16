@@ -815,6 +815,7 @@ mod tests {
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
                 },
                 memd_schema::MemoryItem {
                     id: uuid::Uuid::new_v4(),
@@ -842,6 +843,7 @@ mod tests {
                     status: MemoryStatus::Active,
                     stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
                 },
             ],
         };

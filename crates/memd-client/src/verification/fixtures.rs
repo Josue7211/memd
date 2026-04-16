@@ -207,6 +207,7 @@ pub(crate) fn build_fixture_resume_snapshot(
                     updated_at: Utc::now(),
                     tags: vec!["continuity".to_string()],
                     lane: None,
+                    version: 1,
                 },
                 reasons: vec!["fixture".to_string()],
             }],

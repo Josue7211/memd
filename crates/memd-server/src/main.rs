@@ -133,6 +133,7 @@ impl AppState {
             source_quality: req.source_quality.or(Some(SourceQuality::Canonical)),
             stage,
             lane,
+            version: 1,
         };
 
         let canonical_key = canonical_key(&item);

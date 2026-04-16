@@ -663,6 +663,7 @@ mod tests {
             status,
             stage: memd_schema::MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }
     }
 

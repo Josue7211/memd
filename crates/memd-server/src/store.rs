@@ -34,7 +34,8 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_redundancy_key, migrate_visibility_column,
+    migrate_lane_column, migrate_redundancy_key, migrate_version_column,
+    migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -87,6 +88,19 @@ fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
 pub struct DuplicateMatch {
     pub id: Uuid,
     pub item: MemoryItem,
+}
+
+/// Outcome of [`SqliteStore::import_with_version`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportOutcome {
+    /// The import landed (new insert or higher-Lamport overwrite).
+    Applied,
+    /// The incoming item's Lamport version was not strictly greater than the
+    /// stored version — the write was refused to preserve causal ordering.
+    RejectedStale {
+        stored_version: u64,
+        incoming_version: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -148,7 +162,8 @@ impl SqliteStore {
               confidence REAL NOT NULL,
               canonical_key TEXT NOT NULL,
               updated_at TEXT NOT NULL,
-              payload_json TEXT NOT NULL
+              payload_json TEXT NOT NULL,
+              version INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_items(scope);
@@ -448,6 +463,7 @@ impl SqliteStore {
         migrate_redundancy_key(&conn)?;
         migrate_lane_column(&conn)?;
         migrate_visibility_column(&conn)?;
+        migrate_version_column(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -491,8 +507,8 @@ impl SqliteStore {
             conn.execute(
                 r#"
                 INSERT INTO memory_items (
-                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                  id, kind, scope, stage, project, namespace, source_agent, redundancy_key, status, confidence, canonical_key, updated_at, payload_json, lane, visibility, version
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                 "#,
                 params![
                     item.id.to_string(),
@@ -510,6 +526,7 @@ impl SqliteStore {
                     payload_json,
                     item.lane,
                     serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
+                    item.version as i64,
                 ],
             )
         };
@@ -541,6 +558,9 @@ impl SqliteStore {
         let status = serde_json::to_string(&item.status).context("serialize memory status")?;
 
         let mut conn = self.connect()?;
+        // L2.1: monotonic version bump. `version = version + 1` runs against
+        // the pre-update row, and `json_set` rewrites the nested payload copy
+        // atomically so the column and payload_json stay in lock-step.
         let update_result = conn.execute(
             r#"
             UPDATE memory_items
@@ -555,9 +575,10 @@ impl SqliteStore {
                 confidence = ?10,
                 canonical_key = ?11,
                 updated_at = ?12,
-                payload_json = ?13,
+                payload_json = json_set(?13, '$.version', version + 1),
                 lane = ?14,
-                visibility = ?15
+                visibility = ?15,
+                version = version + 1
             WHERE id = ?1
             "#,
             params![
@@ -613,8 +634,9 @@ impl SqliteStore {
                         confidence = ?10,
                         canonical_key = ?11,
                         updated_at = ?12,
-                        payload_json = ?13,
-                        visibility = ?14
+                        payload_json = json_set(?13, '$.version', version + 1),
+                        visibility = ?14,
+                        version = version + 1
                     WHERE id = ?1
                     "#,
                     params![
@@ -640,6 +662,98 @@ impl SqliteStore {
             }
             Err(err) => Err(err).context("update memory item"),
         }
+    }
+
+    /// Return the current Lamport `version` for a stored item, if present.
+    pub fn get_version(&self, id: Uuid) -> anyhow::Result<Option<u64>> {
+        let conn = self.connect()?;
+        let v = conn
+            .query_row(
+                "SELECT version FROM memory_items WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("read memory_items.version")?;
+        Ok(v.map(|n| n.max(0) as u64))
+    }
+
+    /// L2.1: conflict-checked import from a foreign source.
+    ///
+    /// `incoming.version` is the version the caller believes is authoritative.
+    /// If the row already exists and `stored.version >= incoming.version`, the
+    /// import is rejected as stale via [`ImportOutcome::RejectedStale`]. When
+    /// accepted, the item is inserted (new id) or overwritten with
+    /// `version = incoming.version` — the caller's version becomes the new
+    /// authoritative value, sidestepping the auto-increment used by local
+    /// mutations.
+    pub fn import_with_version(
+        &self,
+        item: &MemoryItem,
+        canonical_key: &str,
+        redundancy_key: &str,
+    ) -> anyhow::Result<ImportOutcome> {
+        if let Some(stored) = self.get_version(item.id)? {
+            if item.version <= stored {
+                return Ok(ImportOutcome::RejectedStale {
+                    stored_version: stored,
+                    incoming_version: item.version,
+                });
+            }
+
+            let payload_json =
+                serde_json::to_string(item).context("serialize imported item")?;
+            let kind = serde_json::to_string(&item.kind).context("serialize kind")?;
+            let scope = serde_json::to_string(&item.scope).context("serialize scope")?;
+            let stage = serde_json::to_string(&item.stage).context("serialize stage")?;
+            let status = serde_json::to_string(&item.status).context("serialize status")?;
+            let conn = self.connect()?;
+            conn.execute(
+                r#"
+                UPDATE memory_items
+                SET kind = ?2,
+                    scope = ?3,
+                    stage = ?4,
+                    project = ?5,
+                    namespace = ?6,
+                    source_agent = ?7,
+                    redundancy_key = ?8,
+                    status = ?9,
+                    confidence = ?10,
+                    canonical_key = ?11,
+                    updated_at = ?12,
+                    payload_json = ?13,
+                    lane = ?14,
+                    visibility = ?15,
+                    version = ?16
+                WHERE id = ?1
+                "#,
+                params![
+                    item.id.to_string(),
+                    &kind,
+                    &scope,
+                    &stage,
+                    item.project,
+                    item.namespace,
+                    item.source_agent,
+                    redundancy_key,
+                    &status,
+                    item.confidence,
+                    canonical_key,
+                    item.updated_at.to_rfc3339(),
+                    &payload_json,
+                    item.lane,
+                    serde_json::to_string(&item.visibility)
+                        .unwrap_or_else(|_| "\"workspace\"".to_string()),
+                    item.version as i64,
+                ],
+            )
+            .context("apply imported memory item")?;
+            return Ok(ImportOutcome::Applied);
+        }
+
+        self.insert_or_get_duplicate(item, canonical_key, redundancy_key)?;
+        Ok(ImportOutcome::Applied)
     }
 
     pub fn resolve_entity_for_item(
@@ -1972,7 +2086,7 @@ impl SqliteStore {
                 serde_json::to_string(&item).context("serialize dismissed item")?;
             let updated_status = &expired_status;
             tx.execute(
-                "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = ?3 WHERE id = ?4",
+                "UPDATE memory_items SET status = ?1, updated_at = ?2, payload_json = json_set(?3, '$.version', version + 1), version = version + 1 WHERE id = ?4",
                 params![updated_status, item.updated_at.to_rfc3339(), updated_payload, id.to_string()],
             )
             .context("dismiss inbox item")?;

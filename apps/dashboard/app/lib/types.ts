@@ -90,6 +90,9 @@ export interface MemoryItem {
   tags: string[];
   status: MemoryStatus;
   stage: MemoryStage;
+  lane?: string | null;
+  /** L2.1: Lamport version — monotonic, incremented on every mutation. */
+  version: number;
 }
 
 export interface InboxMemoryItem {

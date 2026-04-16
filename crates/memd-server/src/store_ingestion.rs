@@ -134,6 +134,7 @@ pub(crate) fn ingest_lane_files(
                 stage: MemoryStage::Canonical,
                 redundancy_key: None,
                 lane: Some(lane_name.clone()),
+                version: 1,
             };
 
             let ck = canonical_key(&item);

@@ -1104,6 +1104,7 @@ mod tests {
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
             last_verified_at: Some(Utc::now()),
             supersedes: Vec::new(),
             updated_at: Utc::now(),
@@ -1525,6 +1526,7 @@ mod epistemic_state_tests {
             status,
             stage: MemoryStage::Canonical,
                     lane: None,
+                    version: 1,
         }
     }
 
