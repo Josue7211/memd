@@ -52,7 +52,7 @@ use memd_schema::{
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
-    CorrectMemoryRequest, CorrectMemoryResponse,
+    CorrectMemoryRequest, CorrectMemoryResponse, DivergenceRequest, DivergenceSummary,
     EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
     EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
     EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
@@ -672,6 +672,7 @@ async fn main() {
         .route("/hive/board", get(get_hive_board))
         .route("/hive/roster", get(get_hive_roster))
         .route("/hive/follow", get(get_hive_follow))
+        .route("/hive/divergence", get(get_hive_divergence))
         .route("/hive/queen/deny", post(post_hive_queen_deny))
         .route("/hive/queen/reroute", post(post_hive_queen_reroute))
         .route("/hive/queen/handoff", post(post_hive_queen_handoff))

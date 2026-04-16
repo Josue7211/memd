@@ -859,6 +859,14 @@ pub(crate) async fn get_hive_follow(
     Ok(Json(response))
 }
 
+pub(crate) async fn get_hive_divergence(
+    State(state): State<AppState>,
+    Query(req): Query<DivergenceRequest>,
+) -> Result<Json<DivergenceSummary>, (StatusCode, String)> {
+    let response = state.store.hive_divergence(&req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
 pub(crate) async fn post_hive_queen_deny(
     State(state): State<AppState>,
     Json(req): Json<HiveQueenActionRequest>,

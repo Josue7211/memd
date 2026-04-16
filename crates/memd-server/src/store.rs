@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, EntityLinkRequest,
+    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, DivergenceBranch,
+    DivergenceDecision, DivergenceRequest, DivergenceSummary, EntityLinkRequest,
     EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
     HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
@@ -39,6 +40,8 @@ use crate::store_migrations::{
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
+#[path = "store_divergence.rs"]
+mod store_divergence;
 
 // K2.8: schema boundary marker persisted in `PRAGMA user_version`.
 // M3 shipped without stamping the version, so an unstamped file (value 0)

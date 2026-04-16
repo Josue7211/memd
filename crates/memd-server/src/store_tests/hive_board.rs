@@ -1080,3 +1080,85 @@ fn queen_handoff_lock_bumps_version_and_blocks_other_sessions() {
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
+
+#[test]
+fn hive_divergence_caps_branches_and_decisions_and_dedups_by_normalized_text() {
+    use memd_schema::DivergenceRequest;
+
+    let dir =
+        std::env::temp_dir().join(format!("memd-hive-divergence-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    let base = chrono::Utc::now();
+    // (branch, content, minutes_ago) — 3 branches so we trigger truncated_branches.
+    let seeds: &[(&str, &str, i64)] = &[
+        // branch main: 4 decisions, 2 are normalization-duplicates (different casing/whitespace).
+        ("main", "Adopt FTS5 for search", 60),
+        ("main", "adopt   fts5   for search", 55), // dedups with above
+        ("main", "Cache embeddings in-memory", 50),
+        ("main", "Use Lamport clocks for imports", 45),
+        ("main", "Shard by project", 40), // pushes truncated_decisions after cap=3
+        // branch alt-a: 2 decisions
+        ("alt-a", "Prefer DuckDB over SQLite", 30),
+        ("alt-a", "Compact with vacuum weekly", 25),
+        // branch alt-b: 1 decision (oldest — should be evicted by MAX_BRANCHES=2)
+        ("alt-b", "Write handoff to separate DB", 120),
+    ];
+
+    for (branch, content, minutes_ago) in seeds {
+        let mut item = sample_memory_item();
+        item.id = uuid::Uuid::new_v4();
+        item.kind = memd_schema::MemoryKind::Decision;
+        item.belief_branch = Some((*branch).to_string());
+        item.content = (*content).to_string();
+        let ts = base - chrono::Duration::minutes(*minutes_ago);
+        item.created_at = ts;
+        item.updated_at = ts;
+        let ckey = canonical_key(&item);
+        let rkey = redundancy_key(&item);
+        store
+            .insert_or_get_duplicate(&item, &ckey, &rkey)
+            .expect("seed decision row");
+    }
+
+    let summary = store
+        .hive_divergence(&DivergenceRequest {
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+        })
+        .expect("compute divergence");
+
+    assert!(summary.truncated_branches, "3 branches → truncated flag set");
+    assert_eq!(summary.branches.len(), 2, "cap MAX_BRANCHES=2");
+
+    // Most-recent-first: main (last update 40min ago) then alt-a (25min ago wins over 30min).
+    // alt-a has its newest at 25min; main has newest at 40min. alt-a should come first.
+    assert_eq!(summary.branches[0].branch_name, "alt-a");
+    assert_eq!(summary.branches[1].branch_name, "main");
+
+    let main_branch = &summary.branches[1];
+    assert!(
+        main_branch.truncated_decisions,
+        "main had 4 unique decisions after dedup; cap=3"
+    );
+    assert_eq!(main_branch.decisions.len(), 3);
+    // First dup ("adopt fts5 for search") must not appear twice.
+    let normalized_set: std::collections::HashSet<&str> = main_branch
+        .decisions
+        .iter()
+        .map(|d| d.normalized.as_str())
+        .collect();
+    assert_eq!(
+        normalized_set.len(),
+        main_branch.decisions.len(),
+        "decisions must be unique after normalization"
+    );
+
+    let alt_a = &summary.branches[0];
+    assert!(!alt_a.truncated_decisions);
+    assert_eq!(alt_a.decisions.len(), 2);
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}

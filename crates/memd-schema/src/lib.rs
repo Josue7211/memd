@@ -1170,6 +1170,48 @@ pub struct WorkingContextSnapshot {
     pub captured_at: Option<DateTime<Utc>>,
 }
 
+/// L2.5: per-branch divergence summary. Kept bounded so the human
+/// dashboard can render it without paging — at most 2 branches with 3
+/// decisions each. Decisions are normalized (trim + lowercase + collapse
+/// whitespace) and deduplicated so the dashboard sees the distinct set.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DivergenceSummary {
+    pub branches: Vec<DivergenceBranch>,
+    pub truncated_branches: bool,
+}
+
+impl DivergenceSummary {
+    pub const MAX_BRANCHES: usize = 2;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DivergenceBranch {
+    pub branch_name: String,
+    pub decisions: Vec<DivergenceDecision>,
+    pub truncated_decisions: bool,
+}
+
+impl DivergenceBranch {
+    pub const MAX_DECISIONS: usize = 3;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DivergenceDecision {
+    pub id: Uuid,
+    /// Raw decision text (first 280 chars, untrimmed).
+    pub text: String,
+    /// Normalized form used for dedup + diff at the caller.
+    pub normalized: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DivergenceRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub workspace: Option<String>,
+}
+
 impl WorkingContextSnapshot {
     /// Cap on the working-records slice — matches the 8-slot working-set
     /// budget applied at retrieval time. Callers should pass already-trimmed
