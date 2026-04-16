@@ -2468,6 +2468,8 @@ pub struct HarnessStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_p95_ms: Option<f64>,
     pub benchmark_gate: String,
+    #[serde(default)]
+    pub schema_version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

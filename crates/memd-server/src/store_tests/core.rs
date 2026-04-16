@@ -238,3 +238,79 @@ fn concurrent_write_and_cross_workspace_reads_complete() {
     reader.join().expect("join reader");
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
+
+#[test]
+fn fresh_database_stamped_at_current_schema_version() {
+    let (dir, _store) = open_temp_store("k28-fresh");
+    let db = dir.join("state.sqlite");
+    let conn = rusqlite::Connection::open(&db).expect("reopen");
+    let v: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read user_version");
+    assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M4);
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn m3_stamped_database_upgrades_to_m4_on_open() {
+    let dir = std::env::temp_dir().join(format!("k28-upgrade-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let db = dir.join("state.sqlite");
+
+    // First open stamps M4 and runs column migrations.
+    {
+        let _store = SqliteStore::open(&db).expect("open fresh store");
+    }
+
+    // Seed two rows and simulate an M3-era file by rewinding user_version.
+    {
+        let conn = rusqlite::Connection::open(&db).expect("reopen");
+        conn.execute_batch(
+            "INSERT INTO memory_items (id, kind, scope, stage, status, confidence, canonical_key, updated_at, payload_json, lane, visibility) \
+             VALUES ('a', '\"fact\"','\"project\"','\"canonical\"','\"active\"',0.8,'k1','2026-04-16T00:00:00Z','{}','\"default\"','\"public\"'), \
+                    ('b', '\"fact\"','\"project\"','\"canonical\"','\"active\"',0.7,'k2','2026-04-16T00:00:01Z','{}','\"default\"','\"public\"');",
+        )
+        .expect("seed rows");
+        conn.pragma_update(None, "user_version", crate::store::SCHEMA_VERSION_M3)
+            .expect("rewind user_version to M3");
+    }
+
+    // Reopen — migration path must upgrade to M4 without dropping data.
+    {
+        let _store = SqliteStore::open(&db).expect("reopen M3 db");
+        let conn = rusqlite::Connection::open(&db).expect("inspect");
+        let v: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read user_version");
+        assert_eq!(v as u32, crate::store::SCHEMA_VERSION_M4);
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(count, 2, "M3 -> M4 upgrade must preserve data");
+    }
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn future_schema_version_opens_with_warning() {
+    let dir = std::env::temp_dir().join(format!("k28-future-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let db = dir.join("state.sqlite");
+    {
+        let _store = SqliteStore::open(&db).expect("open fresh store");
+    }
+    // Pretend a newer binary stamped version 99.
+    {
+        let conn = rusqlite::Connection::open(&db).expect("reopen");
+        conn.pragma_update(None, "user_version", 99u32).expect("stamp future");
+    }
+    // Must still open — downgrade must not brick the deploy.
+    let _store = SqliteStore::open(&db).expect("reopen future-stamped db");
+    let conn = rusqlite::Connection::open(&db).expect("inspect");
+    let v: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read user_version");
+    assert_eq!(v, 99, "future version must be left intact, not silently downgraded");
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}

@@ -46,6 +46,7 @@ pub(crate) async fn get_harness_status(
         Some(_) => "fail",
         None => "unverified",
     };
+    let schema_version = state.store.schema_version().map_err(internal_error)?;
 
     Ok(Json(HarnessStatus {
         git_branch: env!("MEMD_GIT_BRANCH").to_string(),
@@ -54,6 +55,7 @@ pub(crate) async fn get_harness_status(
         memory: breakdown,
         latency_p95_ms,
         benchmark_gate: benchmark_gate.to_string(),
+        schema_version,
     }))
 }
 

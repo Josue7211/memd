@@ -39,6 +39,50 @@ use crate::store_migrations::{
 #[path = "store_coordination.rs"]
 mod store_coordination;
 
+// K2.8: schema boundary marker persisted in `PRAGMA user_version`.
+// M3 shipped without stamping the version, so an unstamped file (value 0)
+// is treated as pre-M4 and idempotently upgraded. Any value <= current
+// runs the forward migration path (which today is no-op DDL — the column
+// shims run unconditionally via migrate_* helpers below). A value greater
+// than SCHEMA_VERSION_M4 means the file was written by a newer binary;
+// we log a warning but still open so a rollback doesn't brick the deploy.
+pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
+pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
+
+fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
+    let current: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+        .context("read user_version")
+        .map(|v| v as u32)?;
+    match current {
+        0 => {
+            tracing::info!(
+                version = SCHEMA_VERSION_M4,
+                "stamping fresh database at schema version M4"
+            );
+        }
+        v if v == SCHEMA_VERSION_M4 => {}
+        v if v < SCHEMA_VERSION_M4 => {
+            tracing::info!(
+                from = v,
+                to = SCHEMA_VERSION_M4,
+                "upgrading database schema boundary marker (columns already migrated)"
+            );
+        }
+        v => {
+            tracing::warn!(
+                found = v,
+                expected = SCHEMA_VERSION_M4,
+                "database was written by a newer binary; opening anyway — proceed carefully"
+            );
+            return Ok(());
+        }
+    }
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M4)
+        .context("write user_version")?;
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct DuplicateMatch {
     pub id: Uuid,
@@ -408,6 +452,8 @@ impl SqliteStore {
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
         migrate_fts5_index(&conn)?;
+
+        stamp_schema_version(&conn)?;
 
         Ok(Self {
             db_path: Arc::new(db_path),
@@ -1762,6 +1808,14 @@ impl SqliteStore {
             .query_row("SELECT COUNT(*) FROM memory_items", [], |row| row.get(0))
             .context("count memory items")?;
         Ok(count as usize)
+    }
+
+    pub fn schema_version(&self) -> anyhow::Result<u32> {
+        let conn = self.connect()?;
+        let v: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .context("read user_version")?;
+        Ok(v as u32)
     }
 
     // K2.5: scan the memory_events spine for per-entity recorded_at
