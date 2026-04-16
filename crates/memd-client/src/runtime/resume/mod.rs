@@ -1266,9 +1266,27 @@ pub(crate) struct HandoffQualityScore {
     pub(crate) dominant_kind: Option<String>,
     /// Fraction of candidates evicted (complement of fill_rate).
     pub(crate) eviction_pressure: f64,
+    /// L2.9: admitted-fact count / target (target = 3). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) fact_coverage: f64,
+    /// L2.9: admitted-decision count / target (target = 2). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) decision_coverage: f64,
+    /// L2.9: working-context depth = admitted / target (target = 8). Capped at 1.0.
+    #[serde(default)]
+    pub(crate) working_depth: f64,
+    /// L2.9: composite weighted score across 4 dimensions. Range 0.0–1.0.
+    #[serde(default)]
+    pub(crate) composite: f64,
 }
 
 impl HandoffQualityScore {
+    /// L2.9: minimum composite that counts as a "complete" handoff.
+    pub(crate) const ACCEPTANCE_THRESHOLD: f64 = 0.8;
+    const TARGET_FACTS: f64 = 3.0;
+    const TARGET_DECISIONS: f64 = 2.0;
+    const TARGET_WORKING_DEPTH: f64 = 8.0;
+
     pub(crate) fn from_report(report: &memd_schema::CompactionQualityReport) -> Self {
         let total = report.admitted + report.evicted;
         let fill_rate = if total > 0 {
@@ -1277,7 +1295,7 @@ impl HandoffQualityScore {
             1.0
         };
         let budget_utilization = if report.budget_chars > 0 {
-            report.used_chars as f64 / report.budget_chars as f64
+            (report.used_chars as f64 / report.budget_chars as f64).min(1.0)
         } else {
             0.0
         };
@@ -1286,12 +1304,147 @@ impl HandoffQualityScore {
             .iter()
             .max_by_key(|(_, count)| *count)
             .map(|(kind, _)| kind.clone());
+
+        // L2.9: new dimensions. per_kind keys are JSON-encoded
+        // ("\"fact\"") or bare ("fact") depending on upstream. Match both.
+        let kind_count = |kind: &str| -> usize {
+            report
+                .per_kind_admitted
+                .iter()
+                .filter(|(k, _)| {
+                    let trimmed = k.trim_matches('"');
+                    trimmed.eq_ignore_ascii_case(kind)
+                })
+                .map(|(_, c)| *c)
+                .sum()
+        };
+        let fact_coverage = (kind_count("fact") as f64 / Self::TARGET_FACTS).min(1.0);
+        let decision_coverage =
+            (kind_count("decision") as f64 / Self::TARGET_DECISIONS).min(1.0);
+        let working_depth =
+            (report.admitted as f64 / Self::TARGET_WORKING_DEPTH).min(1.0);
+
+        // Trust distribution proxy: budget_utilization stays in-band when the
+        // outgoing harness filled but didn't truncate. Penalize both
+        // starvation (utilization < 0.25) and truncation (utilization ~= 1.0
+        // plus high eviction). For handoff purposes, we want the packet
+        // *rich* but not *overstuffed*, so anything in [0.5, 0.95] scores 1.0.
+        let trust_score = if budget_utilization >= 0.5 && budget_utilization <= 0.95 {
+            1.0
+        } else if budget_utilization < 0.5 {
+            budget_utilization / 0.5
+        } else {
+            // utilization in (0.95, 1.0]: mild penalty proportional to how
+            // close we are to truncation.
+            1.0 - (budget_utilization - 0.95) * 4.0
+        }
+        .clamp(0.0, 1.0);
+
+        // Weighted composite: coverage of the substantive kinds matters
+        // most, working-depth second, trust third.
+        let composite = 0.30 * fact_coverage
+            + 0.30 * decision_coverage
+            + 0.25 * working_depth
+            + 0.15 * trust_score;
+
         HandoffQualityScore {
             fill_rate,
             budget_utilization,
             dominant_kind,
             eviction_pressure: 1.0 - fill_rate,
+            fact_coverage,
+            decision_coverage,
+            working_depth,
+            composite,
         }
+    }
+
+    /// L2.9: true iff the handoff meets the shipping threshold.
+    pub(crate) fn is_acceptable(&self) -> bool {
+        self.composite >= Self::ACCEPTANCE_THRESHOLD
+    }
+}
+
+#[cfg(test)]
+mod handoff_quality_tests {
+    use super::*;
+    use memd_schema::CompactionQualityReport;
+    use std::collections::BTreeMap;
+
+    fn report(facts: usize, decisions: usize, extras: usize, used_chars: usize) -> CompactionQualityReport {
+        let mut per_kind_admitted = BTreeMap::new();
+        if facts > 0 {
+            per_kind_admitted.insert("\"fact\"".to_string(), facts);
+        }
+        if decisions > 0 {
+            per_kind_admitted.insert("\"decision\"".to_string(), decisions);
+        }
+        if extras > 0 {
+            per_kind_admitted.insert("\"status\"".to_string(), extras);
+        }
+        CompactionQualityReport {
+            admitted: facts + decisions + extras,
+            evicted: 0,
+            per_kind_admitted,
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 4000,
+            used_chars,
+        }
+    }
+
+    #[test]
+    fn rich_handoff_meets_08_threshold() {
+        let score = HandoffQualityScore::from_report(&report(3, 2, 3, 3000));
+        assert!(
+            score.is_acceptable(),
+            "rich handoff should pass: composite={}",
+            score.composite
+        );
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+    }
+
+    #[test]
+    fn sparse_handoff_fails_08_threshold() {
+        let score = HandoffQualityScore::from_report(&report(1, 0, 0, 200));
+        assert!(
+            !score.is_acceptable(),
+            "sparse handoff should fail: composite={}",
+            score.composite
+        );
+        assert!(score.fact_coverage < 0.5);
+        assert_eq!(score.decision_coverage, 0.0);
+    }
+
+    #[test]
+    fn truncated_handoff_penalizes_trust_score() {
+        // Utilization near 1.0 → trust proxy below 1.0.
+        let score = HandoffQualityScore::from_report(&report(3, 2, 2, 4000));
+        assert!(score.budget_utilization >= 0.99);
+        // composite still can pass if coverage is maxed
+        assert!(score.is_acceptable());
+    }
+
+    #[test]
+    fn unknown_kind_spellings_still_match() {
+        // upstream sometimes emits bare keys (no JSON quotes).
+        let mut per_kind_admitted = BTreeMap::new();
+        per_kind_admitted.insert("fact".to_string(), 3);
+        per_kind_admitted.insert("decision".to_string(), 2);
+        let report = CompactionQualityReport {
+            admitted: 5,
+            evicted: 0,
+            per_kind_admitted,
+            per_kind_evicted: BTreeMap::new(),
+            chars_per_kind_admitted: BTreeMap::new(),
+            budget_chars: 4000,
+            used_chars: 2000,
+        };
+        let score = HandoffQualityScore::from_report(&report);
+        assert!(score.fact_coverage >= 0.99);
+        assert!(score.decision_coverage >= 0.99);
+        assert!(score.is_acceptable());
     }
 }
 
