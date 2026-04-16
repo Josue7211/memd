@@ -837,3 +837,125 @@ fn queen_deny_blocks_subsequent_task_upsert_for_denied_session() {
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
+
+#[test]
+fn queen_reroute_rewrites_session_lane_via_json_set() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-reroute-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    store
+        .upsert_hive_session(&HiveSessionUpsertRequest {
+            session: "bee-42".to_string(),
+            agent: Some("codex".to_string()),
+            effective_agent: Some("codex@bee-42".to_string()),
+            hive_system: Some("codex".to_string()),
+            hive_role: Some("worker".to_string()),
+            worker_name: Some("Ada".to_string()),
+            display_name: None,
+            role: Some("worker".to_string()),
+            capabilities: Vec::new(),
+            hive_groups: Vec::new(),
+            lane_id: Some("lane-alpha".to_string()),
+            hive_group_goal: None,
+            authority: Some("participant".to_string()),
+            heartbeat_model: None,
+            tab_id: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            base_branch: None,
+            workspace: Some("shared".to_string()),
+            visibility: Some("workspace".to_string()),
+            base_url: Some("http://127.0.0.1:8787".to_string()),
+            base_url_healthy: Some(true),
+            host: None,
+            pid: Some(42),
+            topic_claim: None,
+            scope_claims: Vec::new(),
+            task_id: None,
+            focus: None,
+            pressure: None,
+            next_recovery: None,
+            next_action: None,
+            working: None,
+            touches: Vec::new(),
+            blocked_by: Vec::new(),
+            cowork_with: Vec::new(),
+            handoff_target: None,
+            offered_to: Vec::new(),
+            needs_help: false,
+            needs_review: false,
+            handoff_state: None,
+            confidence: None,
+            risk: None,
+            last_wake_at: None,
+            status: Some("live".to_string()),
+        })
+        .expect("seed session");
+
+    let touched = store
+        .set_session_lane(
+            "bee-42",
+            Some("memd"),
+            Some("main"),
+            Some("shared"),
+            Some("lane-beta"),
+        )
+        .expect("reroute");
+    assert_eq!(touched, 1, "expected exactly one session row rewritten");
+
+    let sessions = store
+        .hive_sessions(&HiveSessionsRequest {
+            session: Some("bee-42".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(4),
+        })
+        .expect("read session back");
+    assert_eq!(sessions.sessions.len(), 1);
+    assert_eq!(
+        sessions.sessions[0].lane_id.as_deref(),
+        Some("lane-beta"),
+        "lane_id must be persisted to payload_json"
+    );
+
+    let cleared = store
+        .set_session_lane("bee-42", Some("memd"), Some("main"), Some("shared"), None)
+        .expect("reroute clear");
+    assert_eq!(cleared, 1);
+    let sessions = store
+        .hive_sessions(&HiveSessionsRequest {
+            session: Some("bee-42".to_string()),
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: Some("shared".to_string()),
+            repo_root: None,
+            worktree_root: None,
+            branch: None,
+            hive_system: None,
+            hive_role: None,
+            host: None,
+            hive_group: None,
+            active_only: Some(false),
+            limit: Some(4),
+        })
+        .expect("read session after clear");
+    assert!(
+        sessions.sessions[0].lane_id.is_none(),
+        "clearing lane should null lane_id in payload"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}

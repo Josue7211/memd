@@ -956,6 +956,45 @@ impl SqliteStore {
         Ok(denied)
     }
 
+    /// L2.3: queen-issued reroute — atomically rewrites `lane_id` inside the
+    /// target session's `payload_json` via `json_set`, mirroring the K2
+    /// Lamport-update pattern so we don't round-trip the full record.
+    ///
+    /// Returns the number of session rows touched (a session can have multiple
+    /// identity-keyed rows differing only in host/agent/worktree).
+    pub fn set_session_lane(
+        &self,
+        session: &str,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        workspace: Option<&str>,
+        new_lane: Option<&str>,
+    ) -> anyhow::Result<usize> {
+        let session = session.trim();
+        if session.is_empty() {
+            return Ok(0);
+        }
+        let lane_value = new_lane
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let conn = self.connect()?;
+        let affected = conn
+            .execute(
+                r#"
+                UPDATE hive_sessions
+                SET payload_json = json_set(payload_json, '$.lane_id', ?5)
+                WHERE session = ?1
+                  AND (?2 IS NULL OR project IS ?2 OR project = ?2)
+                  AND (?3 IS NULL OR namespace IS ?3 OR namespace = ?3)
+                  AND (?4 IS NULL OR workspace IS ?4 OR workspace = ?4)
+                "#,
+                params![session, project, namespace, workspace, lane_value],
+            )
+            .context("update session lane_id")?;
+        Ok(affected)
+    }
+
     /// L2.3: clear a queen deny when the task ownership changes (handoff,
     /// reassignment, retire). Keeps the deny table from shadowing legitimate
     /// future assignments after the conflict is resolved upstream.

@@ -934,6 +934,26 @@ pub(crate) async fn post_hive_queen_reroute(
             workspace: req.workspace.clone(),
         })
         .map_err(internal_error)?;
+    let new_lane = req
+        .new_lane
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let affected = state
+        .store
+        .set_session_lane(
+            &target_session,
+            req.project.as_deref(),
+            req.namespace.as_deref(),
+            req.workspace.as_deref(),
+            new_lane.as_deref(),
+        )
+        .map_err(internal_error)?;
+    let lane_summary = new_lane
+        .as_deref()
+        .map(|lane| format!("lane={}", lane))
+        .unwrap_or_else(|| "lane cleared".to_string());
     let receipt = state
         .store
         .record_hive_coordination_receipt(&HiveCoordinationReceiptRequest {
@@ -947,7 +967,7 @@ pub(crate) async fn post_hive_queen_reroute(
             namespace: req.namespace.clone(),
             workspace: req.workspace.clone(),
             summary: format!(
-                "Queen ordered session {} onto a new isolated lane.",
+                "Queen rerouted session {} ({lane_summary}, {affected} row(s) updated).",
                 target_session
             ),
         })
@@ -961,7 +981,7 @@ pub(crate) async fn post_hive_queen_reroute(
         receipt,
         message_id: None,
         retired: Vec::new(),
-        summary: format!("Reroute recorded for: {}", target_session),
+        summary: format!("Reroute applied to {}: {lane_summary}", target_session),
         follow_session: Some(target_session),
     }))
 }
