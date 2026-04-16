@@ -1054,27 +1054,36 @@ pub(crate) fn checkpoint_as_remember_args(args: &CheckpointArgs) -> RememberArgs
 
 /// Update key-value pairs inside the `<!-- ROADMAP_STATE ... -->` block in ROADMAP.md.
 ///
-/// Finds the git repo root, locates ROADMAP.md, parses the `<!-- ROADMAP_STATE` block,
+/// If `repo_root` is Some, uses that directory. Otherwise finds the git repo root via
+/// `git rev-parse --show-toplevel`. Parses the `<!-- ROADMAP_STATE` block,
 /// patches matching keys (or appends new ones), and writes back.
 /// Returns `Ok(true)` if changes were written, `Ok(false)` if nothing changed.
-pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Result<bool> {
+pub(crate) fn update_roadmap_state_in(
+    updates: &[(String, String)],
+    repo_root: Option<&std::path::Path>,
+) -> anyhow::Result<bool> {
     if updates.is_empty() {
         return Ok(false);
     }
 
-    // Find git root
-    let toplevel = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output();
-
-    let repo_dir = match toplevel {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
-        _ => anyhow::bail!("not in a git repository — cannot locate ROADMAP.md"),
+    let repo_dir_buf;
+    let repo_dir: &std::path::Path = if let Some(root) = repo_root {
+        root
+    } else {
+        // Find git root from CWD
+        let toplevel = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output();
+        repo_dir_buf = match toplevel {
+            Ok(out) if out.status.success() => {
+                std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            }
+            _ => anyhow::bail!("not in a git repository — cannot locate ROADMAP.md"),
+        };
+        &repo_dir_buf
     };
 
-    let roadmap_path = std::path::Path::new(&repo_dir).join("ROADMAP.md");
+    let roadmap_path = repo_dir.join("ROADMAP.md");
     if !roadmap_path.exists() {
         anyhow::bail!("ROADMAP.md not found at {}", roadmap_path.display());
     }
@@ -1148,21 +1157,33 @@ pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Resu
     Ok(true)
 }
 
+/// Convenience wrapper — calls `update_roadmap_state_in` with CWD-based git detection.
+pub(crate) fn update_roadmap_state(updates: &[(String, String)]) -> anyhow::Result<bool> {
+    update_roadmap_state_in(updates, None)
+}
+
 /// Auto-commit tracked dirty files before checkpointing.
 ///
+/// If `repo_root` is Some, uses that as the git repo. Otherwise detects via CWD.
 /// Returns `Ok(Some(hash))` if a commit was made, `Ok(None)` if the tree was clean.
 /// Uses `git add -u` (tracked files only) to avoid staging secrets or binaries.
-pub(crate) fn git_auto_commit_if_dirty(message: &str) -> anyhow::Result<Option<String>> {
-    // Find the git root from CWD
-    let toplevel = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output();
-
-    let repo_dir = match toplevel {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
+pub(crate) fn git_auto_commit_if_dirty_in(
+    message: &str,
+    repo_root: Option<&std::path::Path>,
+) -> anyhow::Result<Option<String>> {
+    let repo_dir = if let Some(root) = repo_root {
+        root.to_string_lossy().to_string()
+    } else {
+        // Find the git root from CWD
+        let toplevel = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output();
+        match toplevel {
+            Ok(out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            }
+            _ => return Ok(None), // not a git repo — nothing to commit
         }
-        _ => return Ok(None), // not a git repo — nothing to commit
     };
 
     // Check if working tree is dirty
@@ -1226,6 +1247,11 @@ pub(crate) fn git_auto_commit_if_dirty(message: &str) -> anyhow::Result<Option<S
     Ok(Some(hash))
 }
 
+/// Convenience wrapper — calls `git_auto_commit_if_dirty_in` with CWD-based detection.
+pub(crate) fn git_auto_commit_if_dirty(message: &str) -> anyhow::Result<Option<String>> {
+    git_auto_commit_if_dirty_in(message, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1280,12 +1306,8 @@ mod tests {
             .output()
             .expect("git commit");
 
-        // CWD into the clean repo
-        let original_dir = std::env::current_dir().expect("get cwd");
-        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
-
-        let result = git_auto_commit_if_dirty("test: should not commit");
-        std::env::set_current_dir(original_dir).expect("restore cwd");
+        // Pass explicit repo root — no set_current_dir needed
+        let result = git_auto_commit_if_dirty_in("test: should not commit", Some(&temp_root));
 
         assert!(result.is_ok());
         assert!(result.unwrap().is_none(), "clean tree should return None");
@@ -1335,12 +1357,9 @@ mod tests {
         // Modify the tracked file (makes tree dirty)
         fs::write(&file_path, "modified").expect("modify file");
 
-        // Run auto-commit from within the temp repo
-        let original_dir = std::env::current_dir().expect("get cwd");
-        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
-
-        let result = git_auto_commit_if_dirty("test: auto-commit dirty tree");
-        std::env::set_current_dir(original_dir).expect("restore cwd");
+        // Pass explicit repo root — no set_current_dir needed
+        let result =
+            git_auto_commit_if_dirty_in("test: auto-commit dirty tree", Some(&temp_root));
 
         assert!(result.is_ok());
         let hash = result.unwrap();
@@ -1358,14 +1377,7 @@ mod tests {
         ));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
-        // Init git repo (update_roadmap_state uses git rev-parse)
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(&temp_root)
-            .output()
-            .expect("git init");
-
-        // Write a ROADMAP.md with a state block
+        // Write a ROADMAP.md with a state block (no git needed — pass explicit path)
         let roadmap = r#"# Roadmap
 
 <!-- ROADMAP_STATE
@@ -1379,16 +1391,12 @@ note: O2 done
 "#;
         fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
 
-        let original_dir = std::env::current_dir().expect("get cwd");
-        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
-
         let updates = vec![
             ("current_phase".to_string(), "P2".to_string()),
             ("phase_status".to_string(), "in_progress".to_string()),
         ];
 
-        let result = update_roadmap_state(&updates);
-        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let result = update_roadmap_state_in(&updates, Some(&temp_root));
 
         assert!(result.is_ok());
         assert!(result.unwrap(), "should report changes made");
@@ -1420,21 +1428,11 @@ note: O2 done
         ));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(&temp_root)
-            .output()
-            .expect("git init");
-
         let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";
         fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
 
-        let original_dir = std::env::current_dir().expect("get cwd");
-        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
-
         let updates = vec![("new_key".to_string(), "new_value".to_string())];
-        let result = update_roadmap_state(&updates);
-        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let result = update_roadmap_state_in(&updates, Some(&temp_root));
 
         assert!(result.is_ok());
         assert!(result.unwrap(), "should report changes");
@@ -1457,22 +1455,12 @@ note: O2 done
         ));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(&temp_root)
-            .output()
-            .expect("git init");
-
         let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";
         fs::write(temp_root.join("ROADMAP.md"), roadmap).expect("write roadmap");
 
-        let original_dir = std::env::current_dir().expect("get cwd");
-        std::env::set_current_dir(&temp_root).expect("cd to temp repo");
-
         // Same value — no change
         let updates = vec![("current_phase".to_string(), "O2".to_string())];
-        let result = update_roadmap_state(&updates);
-        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let result = update_roadmap_state_in(&updates, Some(&temp_root));
 
         assert!(result.is_ok());
         assert!(!result.unwrap(), "no changes should return false");
