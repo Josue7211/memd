@@ -1,4 +1,5 @@
 mod atlas;
+mod backup;
 mod errors;
 mod helpers;
 mod inspection;
@@ -499,10 +500,79 @@ fn init_tracing() {
     }
 }
 
+// K2.7: CLI subcommands for operating the on-disk store out-of-band.
+//   memd-server backup [out.db]    -> write a snapshot of $MEMD_DB_PATH
+//   memd-server restore <in.db>    -> restore $MEMD_DB_PATH from a snapshot
+// When no subcommand is supplied we fall through to the HTTP server path.
+// Subcommands deliberately run before binding the listener so no handler
+// is racing the file swap during restore.
+fn handle_cli_subcommand(db_path: &str) -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    let cmd = args.next()?;
+    match cmd.as_str() {
+        "backup" => {
+            let out = args
+                .next()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    let dir = backup::snapshots_dir(std::path::Path::new(db_path));
+                    dir.join(backup::snapshot_filename_now())
+                });
+            let db = std::path::Path::new(db_path);
+            match backup::write_snapshot(db, &out) {
+                Ok(bytes) => {
+                    println!(
+                        "backup: wrote {} ({} bytes) from {}",
+                        out.display(),
+                        bytes,
+                        db.display()
+                    );
+                    if let Some(parent) = out.parent() {
+                        if let Err(e) = backup::rotate_snapshots(parent, 5) {
+                            warn!(error = %format_args!("{e:#}"), "rotate snapshots failed");
+                        }
+                    }
+                    Some(0)
+                }
+                Err(e) => {
+                    error!(error = %format_args!("{e:#}"), "backup failed");
+                    Some(1)
+                }
+            }
+        }
+        "restore" => {
+            let Some(src) = args.next() else {
+                error!("restore requires a snapshot path argument");
+                return Some(2);
+            };
+            match backup::restore_from(
+                std::path::Path::new(&src),
+                std::path::Path::new(db_path),
+            ) {
+                Ok(()) => {
+                    println!("restore: {} -> {}", src, db_path);
+                    Some(0)
+                }
+                Err(e) => {
+                    error!(error = %format_args!("{e:#}"), "restore failed");
+                    Some(1)
+                }
+            }
+        }
+        other => {
+            error!(cmd = %other, "unknown subcommand (expected: backup | restore)");
+            Some(2)
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     init_tracing();
     let db_path = std::env::var("MEMD_DB_PATH").unwrap_or_else(|_| ".memd/memd.db".to_string());
+    if let Some(code) = handle_cli_subcommand(&db_path) {
+        std::process::exit(code);
+    }
     let bind_addr =
         std::env::var("MEMD_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let store = match SqliteStore::open(&db_path) {
@@ -639,6 +709,51 @@ async fn main() {
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
+
+    // K2.7: periodic snapshot loop. MEMD_SNAPSHOT_INTERVAL_SECS=0 disables.
+    // Runs off the hot path in a background tokio task, rotating to keep
+    // the most recent MEMD_SNAPSHOT_KEEP (default 5).
+    let snapshot_interval = std::env::var("MEMD_SNAPSHOT_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300);
+    let snapshot_keep = std::env::var("MEMD_SNAPSHOT_KEEP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(5);
+    if snapshot_interval > 0 {
+        let db_path_bg = db_path.clone();
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(snapshot_interval));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // First tick fires immediately — skip it so startup isn't double-slow.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let db_path = db_path_bg.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let db = std::path::Path::new(&db_path);
+                    let dir = backup::snapshots_dir(db);
+                    let out = dir.join(backup::snapshot_filename_now());
+                    let bytes = backup::write_snapshot(db, &out)?;
+                    let pruned = backup::rotate_snapshots(&dir, snapshot_keep)?;
+                    Ok::<_, anyhow::Error>((out, bytes, pruned.len()))
+                })
+                .await;
+                match result {
+                    Ok(Ok((out, bytes, pruned))) => tracing::info!(
+                        snapshot = %out.display(),
+                        bytes,
+                        pruned,
+                        "periodic snapshot written"
+                    ),
+                    Ok(Err(e)) => warn!(error = %format_args!("{e:#}"), "snapshot task failed"),
+                    Err(e) => warn!(error = %e, "snapshot task panicked"),
+                }
+            }
+        });
+    }
 
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
         Ok(listener) => listener,
