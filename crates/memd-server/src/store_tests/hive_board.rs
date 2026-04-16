@@ -734,3 +734,106 @@ fn open_migrates_legacy_hive_sessions_before_identity_indexes() {
 
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }
+
+#[test]
+fn queen_deny_blocks_subsequent_task_upsert_for_denied_session() {
+    let dir = std::env::temp_dir().join(format!("memd-queen-deny-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
+
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-1".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("seed task");
+
+    store
+        .record_queen_deny("task-alpha", "bee-1", Some("overlap"))
+        .expect("record deny");
+
+    let err = store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha v2".to_string(),
+            description: Some("attempt after deny".to_string()),
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-1".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect_err("denied upsert must fail");
+    assert!(
+        format!("{err:#}").contains("queen_denied:"),
+        "expected queen_denied marker, got: {err:#}"
+    );
+
+    store
+        .upsert_hive_task(&HiveTaskUpsertRequest {
+            task_id: "task-alpha".to_string(),
+            title: "Alpha v2".to_string(),
+            description: None,
+            status: Some("active".to_string()),
+            coordination_mode: Some(CoordinationMode::Solo),
+            session: Some("bee-other".to_string()),
+            agent: None,
+            effective_agent: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            claim_scopes: Vec::new(),
+            help_requested: None,
+            review_requested: None,
+        })
+        .expect("non-denied session upsert should succeed");
+
+    let err = store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-alpha".to_string(),
+            from_session: None,
+            to_session: "bee-1".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect_err("denied assign must fail");
+    assert!(
+        format!("{err:#}").contains("queen_denied:"),
+        "expected queen_denied marker on assign, got: {err:#}"
+    );
+
+    store
+        .clear_queen_deny("task-alpha", "bee-1")
+        .expect("clear deny");
+    store
+        .assign_hive_task(&HiveTaskAssignRequest {
+            task_id: "task-alpha".to_string(),
+            from_session: None,
+            to_session: "bee-1".to_string(),
+            to_agent: None,
+            to_effective_agent: None,
+            note: None,
+        })
+        .expect("assign after clear should succeed");
+
+    std::fs::remove_dir_all(dir).expect("cleanup temp dir");
+}

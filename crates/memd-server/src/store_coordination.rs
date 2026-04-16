@@ -526,6 +526,19 @@ impl SqliteStore {
         &self,
         request: &HiveTaskUpsertRequest,
     ) -> anyhow::Result<HiveTasksResponse> {
+        if let Some(session) = request
+            .session
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            && self.is_task_denied_for_session(request.task_id.trim(), session)?
+        {
+            anyhow::bail!(
+                "queen_denied: task '{}' is blocked for session '{}'",
+                request.task_id.trim(),
+                session
+            );
+        }
         let conn = self.connect()?;
         let existing = conn
             .query_row(
@@ -653,6 +666,15 @@ impl SqliteStore {
         &self,
         request: &HiveTaskAssignRequest,
     ) -> anyhow::Result<HiveTasksResponse> {
+        if self
+            .is_task_denied_for_session(request.task_id.trim(), request.to_session.trim())?
+        {
+            anyhow::bail!(
+                "queen_denied: task '{}' is blocked for session '{}'",
+                request.task_id.trim(),
+                request.to_session.trim()
+            );
+        }
         let conn = self.connect()?;
         let payload = conn
             .query_row(
@@ -877,5 +899,78 @@ impl SqliteStore {
             );
         }
         Ok(HiveCoordinationReceiptsResponse { receipts })
+    }
+
+    /// L2.3: queen-issued deny block keyed by (task_id, session).
+    ///
+    /// After a queen denies a bee on a task, subsequent `upsert_hive_task` or
+    /// `assign_hive_task` calls that target that bee for that task must be
+    /// rejected. The block is persistent (no TTL) — queens clear it
+    /// explicitly via a new handoff or by reassignment.
+    pub fn record_queen_deny(
+        &self,
+        task_id: &str,
+        session: &str,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO hive_queen_denies (task_id, session, denied_at, reason)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(task_id, session) DO UPDATE SET
+              denied_at = excluded.denied_at,
+              reason = excluded.reason
+            "#,
+            params![task_id, session, chrono::Utc::now().to_rfc3339(), reason],
+        )
+        .context("insert queen deny record")?;
+        Ok(())
+    }
+
+    pub fn is_task_denied_for_session(
+        &self,
+        task_id: &str,
+        session: &str,
+    ) -> anyhow::Result<bool> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(false);
+        }
+        let conn = self.connect()?;
+        let denied = conn
+            .query_row(
+                "SELECT 1 FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+                params![task_id, session],
+                |_| Ok(()),
+            )
+            .optional()
+            .context("check queen deny")?
+            .is_some();
+        Ok(denied)
+    }
+
+    /// L2.3: clear a queen deny when the task ownership changes (handoff,
+    /// reassignment, retire). Keeps the deny table from shadowing legitimate
+    /// future assignments after the conflict is resolved upstream.
+    pub fn clear_queen_deny(&self, task_id: &str, session: &str) -> anyhow::Result<()> {
+        let task_id = task_id.trim();
+        let session = session.trim();
+        if task_id.is_empty() || session.is_empty() {
+            return Ok(());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM hive_queen_denies WHERE task_id = ?1 AND session = ?2",
+            params![task_id, session],
+        )
+        .context("delete queen deny")?;
+        Ok(())
     }
 }

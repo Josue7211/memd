@@ -294,6 +294,26 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_hive_coordination_receipts_project_namespace
               ON hive_coordination_receipts(project, namespace, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS hive_queen_denies (
+              task_id TEXT NOT NULL,
+              session TEXT NOT NULL,
+              denied_at TEXT NOT NULL,
+              reason TEXT,
+              PRIMARY KEY (task_id, session)
+            );
+            CREATE INDEX IF NOT EXISTS idx_hive_queen_denies_session
+              ON hive_queen_denies(session, denied_at DESC);
+
+            CREATE TABLE IF NOT EXISTS hive_handoff_locks (
+              task_id TEXT PRIMARY KEY,
+              locked_to_session TEXT NOT NULL,
+              locked_from_session TEXT,
+              locked_at TEXT NOT NULL,
+              version INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_hive_handoff_locks_to_session
+              ON hive_handoff_locks(locked_to_session, locked_at DESC);
+
             CREATE TABLE IF NOT EXISTS skill_policy_apply_receipts (
               id TEXT PRIMARY KEY,
               project TEXT,

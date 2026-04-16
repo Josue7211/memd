@@ -538,6 +538,10 @@ pub(crate) fn consolidation_tags(entity: &MemoryEntityRecord, event_count: usize
 }
 
 pub(crate) fn internal_error(error: anyhow::Error) -> (StatusCode, String) {
+    let message = format!("{error:#}");
+    if message.contains("queen_denied:") || message.contains("queen_handoff_locked:") {
+        return crate::errors::MemdError::conflict(message).into();
+    }
     crate::errors::MemdError::from(error).into()
 }
 

@@ -1105,6 +1105,10 @@ pub struct HiveQueenActionRequest {
     pub workspace: Option<String>,
     pub scope: Option<String>,
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_lane: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
