@@ -126,8 +126,22 @@ pub(crate) fn correct_item(
         status: Some(MemoryStatus::Active),
         lane: old_item.lane.clone(),
     };
-    let (new_item, _duplicate) = state
+    let (mut new_item, _duplicate) = state
         .store_item(store_req, MemoryStage::Canonical)
+        .map_err(internal_error)?;
+
+    // Corrections outrank the original in retrieval
+    new_item.preferred = true;
+    new_item.updated_at = Utc::now();
+    let pref_canonical = canonical_key(&new_item);
+    let pref_redundancy = redundancy_key(&new_item);
+    let new_item = MemoryItem {
+        redundancy_key: Some(pref_redundancy.clone()),
+        ..new_item
+    };
+    state
+        .store
+        .update(&new_item, &pref_canonical, &pref_redundancy)
         .map_err(internal_error)?;
 
     if let Err(e) = record_lifecycle_event(
@@ -143,39 +157,41 @@ pub(crate) fn correct_item(
         eprintln!("warn: record_lifecycle_event (correction_created): {e:#}");
     }
 
-    // 3. Contradiction detection: check for active items with same redundancy_key
-    let new_redundancy = new_item
-        .redundancy_key
-        .as_deref()
-        .unwrap_or("")
-        .to_string();
+    // 3. Contradiction detection: entity-based matching.
+    //    Look up the OLD item's entity (not new — new has different content so
+    //    canonical_key yields a different entity). The old item's entity is the
+    //    one that siblings share. Mark Active siblings with different content Contested.
     let mut contested = Vec::new();
-    if !new_redundancy.is_empty() {
-        let all_items = state.snapshot().map_err(internal_error)?;
-        for mut sibling in all_items {
-            if sibling.id == new_item.id || sibling.id == old_item.id {
-                continue;
-            }
-            if sibling.status != MemoryStatus::Active {
-                continue;
-            }
-            if sibling.redundancy_key.as_deref() != Some(new_redundancy.as_str()) {
-                continue;
-            }
-            if sibling.content != new_item.content {
-                sibling.status = MemoryStatus::Contested;
-                sibling.updated_at = Utc::now();
-                let sib_canonical = canonical_key(&sibling);
-                let sib_redundancy = redundancy_key(&sibling);
-                let sibling = MemoryItem {
-                    redundancy_key: Some(sib_redundancy.clone()),
-                    ..sibling
-                };
-                state
-                    .store
-                    .update(&sibling, &sib_canonical, &sib_redundancy)
-                    .map_err(internal_error)?;
-                contested.push(sibling.id);
+    if let Ok(Some(entity)) = state.store.entity_for_item(old_item.id) {
+        if let Ok(siblings) = state.store.items_for_entity(entity.id) {
+            for mut sibling in siblings {
+                if sibling.id == new_item.id || sibling.id == old_item.id {
+                    continue;
+                }
+                if sibling.status != MemoryStatus::Active {
+                    continue;
+                }
+                if sibling.kind != new_item.kind
+                    || sibling.scope != new_item.scope
+                    || sibling.project != new_item.project
+                {
+                    continue;
+                }
+                if sibling.content != new_item.content {
+                    sibling.status = MemoryStatus::Contested;
+                    sibling.updated_at = Utc::now();
+                    let sib_canonical = canonical_key(&sibling);
+                    let sib_redundancy = redundancy_key(&sibling);
+                    let sibling = MemoryItem {
+                        redundancy_key: Some(sib_redundancy.clone()),
+                        ..sibling
+                    };
+                    state
+                        .store
+                        .update(&sibling, &sib_canonical, &sib_redundancy)
+                        .map_err(internal_error)?;
+                    contested.push(sibling.id);
+                }
             }
         }
     }

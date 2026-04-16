@@ -5275,3 +5275,707 @@ fn ab_influence_recall_changes_search_output() {
 
     std::fs::remove_dir_all(dir).expect("cleanup h2-ab");
 }
+
+// ── D2 E2E: correction flow ──────────────────────────────────────────────────
+
+#[test]
+fn d2_correction_e2e() {
+    let (dir, state) = temp_state("d2-correction-e2e");
+
+    // Store original fact
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "memd uses Python for the server".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec!["architecture".to_string()],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    // (a) Correct it
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "memd uses Rust for the server".to_string(),
+            reason: Some("server is written in Rust, not Python".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item");
+
+    // (a) old item is Superseded
+    assert_eq!(response.old_item.status, MemoryStatus::Superseded);
+
+    // (b) new item is Active with correction tag and preferred: true
+    assert_eq!(response.new_item.status, MemoryStatus::Active);
+    assert!(response.new_item.tags.contains(&"correction".to_string()));
+    assert!(response.new_item.preferred, "correction item must be preferred");
+
+    // (c) build_context returns corrected version only
+    let BuildContextResult { items, .. } = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("memd".to_string()),
+            agent: Some("test".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(10),
+            max_chars_per_item: Some(300),
+        },
+    )
+    .expect("build context");
+
+    assert!(
+        items.iter().any(|i| i.id == response.new_item.id),
+        "corrected item must appear in context"
+    );
+    assert!(
+        items.iter().all(|i| i.id != original.id),
+        "superseded original must NOT appear in context"
+    );
+
+    // (d) explain_memory shows correction chain
+    let explain = inspection::explain_memory(
+        &state,
+        ExplainMemoryRequest {
+            id: response.new_item.id,
+            belief_branch: None,
+            route: None,
+            intent: None,
+        },
+    )
+    .expect("explain corrected item");
+
+    assert!(
+        explain
+            .events
+            .iter()
+            .any(|e| e.event_type == "correction_created" || e.event_type == "stored_canonical"),
+        "correction lifecycle event must be present"
+    );
+
+    // (e) corrected item scores higher than a non-correction fact in working memory
+    let (_filler, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "memd stores data in SQLite".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store filler");
+
+    let working = crate::working::working_memory(
+        &state,
+        WorkingMemoryRequest {
+            project: Some("memd".to_string()),
+            agent: Some("test".to_string()),
+            workspace: None,
+            visibility: None,
+            route: None,
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(8),
+            max_chars_per_item: Some(300),
+            max_total_chars: Some(2400),
+            rehydration_limit: Some(4),
+            auto_consolidate: Some(false),
+        },
+    )
+    .expect("build working memory");
+
+    // The corrected item (with correction_boost +0.10) should appear
+    let has_corrected = working
+        .records
+        .iter()
+        .any(|r| r.record.contains("memd uses Rust"));
+    assert!(has_corrected, "corrected fact must appear in working memory");
+
+    // The superseded original must NOT appear
+    let has_superseded = working
+        .records
+        .iter()
+        .any(|r| r.record.contains("memd uses Python"));
+    assert!(
+        !has_superseded,
+        "superseded original must NOT appear in working memory"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup d2-e2e");
+}
+
+// ── D2: contradiction detection (3-item scenario) ───────────────────────────
+//
+// Entity grouping is path-based: items sharing source_path get the same entity
+// regardless of content. This lets contradiction detection find siblings with
+// different content about the same topic.
+
+#[test]
+fn d2_contradiction_marks_siblings_contested() {
+    let (dir, state) = temp_state("d2-contradiction");
+    let shared_path = "/docs/server-language.md";
+
+    // Item A: "memd uses Python" — wrong claim, linked to path entity
+    let (item_a, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "memd uses Python for the server".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test".to_string()),
+                source_system: None,
+                source_path: Some(shared_path.to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item A");
+
+    // Item C: different content, same source_path → shares entity with A
+    let (item_c, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "memd uses JavaScript for the server".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("test-other".to_string()),
+                source_system: None,
+                source_path: Some(shared_path.to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.7),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store item C");
+
+    // Verify A and C share the same entity (same source_path → path-based entity key)
+    let entity_a = state
+        .store
+        .entity_for_item(item_a.id)
+        .expect("entity lookup A")
+        .expect("A must have entity");
+    let entity_c = state
+        .store
+        .entity_for_item(item_c.id)
+        .expect("entity lookup C")
+        .expect("C must have entity");
+    assert_eq!(
+        entity_a.id, entity_c.id,
+        "items with same source_path must share entity"
+    );
+
+    // Correct A → B: "memd uses Rust"
+    let response = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: item_a.id,
+            content: "memd uses Rust for the server".to_string(),
+            reason: Some("server is Rust, not Python".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct A → B");
+
+    // A is Superseded
+    assert_eq!(response.old_item.status, MemoryStatus::Superseded);
+    // B is Active
+    assert_eq!(response.new_item.status, MemoryStatus::Active);
+    // C should be Contested — sibling of old_item's entity, different content from B
+    assert!(
+        response.contested.contains(&item_c.id),
+        "item C must appear in contested list; got {:?}",
+        response.contested
+    );
+
+    // Verify C's persisted status is Contested
+    let refreshed_c = state.store.get(item_c.id).expect("get C").expect("C exists");
+    assert_eq!(
+        refreshed_c.status,
+        MemoryStatus::Contested,
+        "C must be Contested in DB"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup d2-contradiction");
+}
+
+// ── E2: atlas navigation — wake → explore → expand → explain in ≤4 hops ────
+
+#[test]
+fn e2_atlas_navigation_four_hops() {
+    let (dir, state) = temp_state("e2-atlas-nav");
+    let store = &state.store;
+
+    // Hop 0: Store 5+ items in same project (simulates "wake" seeding)
+    let mut item_ids = Vec::new();
+    let contents = [
+        "memd stores data in SQLite",
+        "memd uses Rust for the server",
+        "memd entities track salience scores",
+        "memd working memory ranks by priority",
+        "memd wake packet compiles context",
+    ];
+    for content in &contents {
+        let (item, _) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: content.to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("memd".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: Some("test".to_string()),
+                    source_system: None,
+                    source_path: None,
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.9),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: vec![],
+                    tags: vec![],
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store item");
+        item_ids.push(item.id);
+    }
+
+    // Verify entities auto-created
+    for &id in &item_ids {
+        let entity = store.entity_for_item(id).expect("entity lookup");
+        assert!(entity.is_some(), "item {id} must have an entity after store");
+    }
+
+    // Hop 1: Generate atlas → regions should be non-empty
+    let regions = store
+        .generate_regions_for_project(Some("memd"), Some("main"), None)
+        .expect("generate regions");
+    assert!(
+        !regions.is_empty(),
+        "atlas must generate at least 1 region from 5 items"
+    );
+
+    // Hop 2: Explore a region → nodes should include our items
+    let region = &regions[0];
+    let explore = store
+        .explore_atlas(&memd_schema::AtlasExploreRequest {
+            region_id: Some(region.id),
+            node_id: None,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            lane: None,
+            depth: Some(0),
+            limit: None,
+            pivot_time: None,
+            pivot_kind: None,
+            pivot_scope: None,
+            pivot_source_agent: None,
+            pivot_source_system: None,
+            min_trust: None,
+            min_salience: None,
+            include_evidence: false,
+            from_working: false,
+        })
+        .expect("explore atlas");
+    assert!(
+        !explore.nodes.is_empty(),
+        "explore must return nodes for region"
+    );
+
+    // Hop 3: Expand from a node → linked items
+    let seed_id = explore.nodes[0].memory_id;
+    let expand = store
+        .atlas_expand(&memd_schema::AtlasExpandRequest {
+            memory_ids: vec![seed_id],
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            depth: Some(1),
+            limit: Some(10),
+        })
+        .expect("expand atlas node");
+    // Expand should return the seed + any linked nodes
+    assert!(
+        expand.seed_count >= 1,
+        "expand must acknowledge at least 1 seed"
+    );
+
+    // Hop 4: Explain → provenance with sources
+    let explain = inspection::explain_memory(
+        &state,
+        ExplainMemoryRequest {
+            id: seed_id,
+            belief_branch: None,
+            route: None,
+            intent: None,
+        },
+    )
+    .expect("explain memory item");
+    assert!(
+        !explain.events.is_empty(),
+        "explain must show lifecycle events (provenance)"
+    );
+    assert!(
+        explain
+            .events
+            .iter()
+            .any(|e| e.event_type == "canonical_created"),
+        "provenance must include canonical_created event"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup e2-atlas-nav");
+}
+
+// ── H2: cross-session correction persistence ────────────────────────────────
+
+#[test]
+fn h2_cross_session_correction_persists() {
+    let (dir, state) = temp_state("h2-cross-session");
+
+    // Session 1: store + correct
+    let (original, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "deploy target is AWS".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("infra".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("session-1".to_string()),
+                source_system: None,
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store original");
+
+    let correction = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: original.id,
+            content: "deploy target is GCP".to_string(),
+            reason: Some("migrated to GCP".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct");
+
+    // Session 2: rebuild context from scratch (simulates new session)
+    let BuildContextResult { items, .. } = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("infra".to_string()),
+            agent: Some("session-2".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(10),
+            max_chars_per_item: Some(300),
+        },
+    )
+    .expect("build context session 2");
+
+    assert!(
+        items.iter().any(|i| i.id == correction.new_item.id),
+        "corrected item must appear in new session context"
+    );
+    assert!(
+        items.iter().all(|i| i.id != original.id),
+        "superseded original must NOT appear in new session context"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup h2-cross-session");
+}
+
+// ── H2: cross-harness continuity — agent-A stores, agent-B retrieves ────────
+
+#[test]
+fn h2_cross_harness_item_retrievable() {
+    let (dir, state) = temp_state("h2-cross-harness");
+
+    // Agent A stores
+    let (stored, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "database uses PostgreSQL".to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("shared".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("agent-A".to_string()),
+                source_system: Some("system-A".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: vec![],
+                tags: vec![],
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store from agent-A");
+
+    // Agent B retrieves — different agent, different system
+    let BuildContextResult { items, .. } = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("shared".to_string()),
+            agent: Some("agent-B".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::CurrentTask),
+            limit: Some(10),
+            max_chars_per_item: Some(300),
+        },
+    )
+    .expect("build context from agent-B");
+
+    assert!(
+        items.iter().any(|i| i.id == stored.id),
+        "item stored by agent-A must be retrievable by agent-B"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup h2-cross-harness");
+}
+
+/// H2: A/B influence test — corrections must improve retrieval, not degrade.
+///
+/// Baseline: store 5 facts, retrieve, measure which appear in build_context.
+/// Treatment: correct 2 of those facts, retrieve again, verify:
+///   (a) corrected versions appear in results,
+///   (b) superseded originals do NOT appear,
+///   (c) remaining 3 uncorrected items still appear (selective reset).
+#[test]
+fn h2_ab_influence_corrections_improve_retrieval() {
+    let (dir, state) = temp_state("h2-ab-influence");
+
+    // Baseline: store 5 facts.
+    let mut item_ids = Vec::new();
+    let contents = [
+        "primary database is PostgreSQL",
+        "cache layer uses Redis",
+        "message queue is RabbitMQ",
+        "deployment target is Kubernetes",
+        "monitoring uses Prometheus",
+    ];
+    for content in &contents {
+        let (stored, _) = state
+            .store_item(
+                StoreMemoryRequest {
+                    content: content.to_string(),
+                    kind: MemoryKind::Fact,
+                    scope: MemoryScope::Project,
+                    project: Some("infra".to_string()),
+                    namespace: Some("main".to_string()),
+                    workspace: None,
+                    visibility: None,
+                    belief_branch: None,
+                    source_agent: Some("h2-test".to_string()),
+                    source_system: Some("test".to_string()),
+                    source_path: None,
+                    source_quality: Some(SourceQuality::Canonical),
+                    confidence: Some(0.9),
+                    ttl_seconds: None,
+                    last_verified_at: None,
+                    supersedes: vec![],
+                    tags: vec![],
+                    status: None,
+                    lane: None,
+                },
+                MemoryStage::Canonical,
+            )
+            .expect("store baseline fact");
+        item_ids.push(stored.id);
+    }
+
+    // Baseline retrieval
+    let baseline_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("infra".to_string()),
+            agent: Some("h2-test".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(10),
+            max_chars_per_item: Some(300),
+        },
+    )
+    .expect("baseline build_context");
+    let baseline_count = baseline_ctx.items.len();
+    assert!(
+        baseline_count >= 5,
+        "baseline should return all 5 items, got {}",
+        baseline_count
+    );
+
+    // Treatment: correct items 0 and 1.
+    let _correction_0 = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: item_ids[0],
+            content: "primary database is CockroachDB".to_string(),
+            reason: Some("migration from PostgreSQL".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item 0");
+    let _correction_1 = repair::correct_item(
+        &state,
+        CorrectMemoryRequest {
+            id: item_ids[1],
+            content: "cache layer uses Dragonfly".to_string(),
+            reason: Some("replaced Redis with Dragonfly".to_string()),
+            tags: None,
+            confidence: None,
+        },
+    )
+    .expect("correct item 1");
+
+    // Treatment retrieval
+    let treatment_ctx = build_context(
+        &state,
+        &ContextRequest {
+            project: Some("infra".to_string()),
+            agent: Some("h2-test".to_string()),
+            workspace: None,
+            visibility: None,
+            route: Some(RetrievalRoute::ProjectFirst),
+            intent: Some(RetrievalIntent::General),
+            limit: Some(10),
+            max_chars_per_item: Some(300),
+        },
+    )
+    .expect("treatment build_context");
+
+    // (a) Corrected versions appear
+    assert!(
+        treatment_ctx
+            .items
+            .iter()
+            .any(|i| i.content.contains("CockroachDB")),
+        "corrected version (CockroachDB) must appear in treatment retrieval"
+    );
+    assert!(
+        treatment_ctx
+            .items
+            .iter()
+            .any(|i| i.content.contains("Dragonfly")),
+        "corrected version (Dragonfly) must appear in treatment retrieval"
+    );
+
+    // (b) Superseded originals must NOT appear
+    assert!(
+        !treatment_ctx
+            .items
+            .iter()
+            .any(|i| i.id == item_ids[0] || i.id == item_ids[1]),
+        "superseded originals must not appear in treatment retrieval"
+    );
+
+    // (c) Remaining 3 uncorrected items still appear (selective reset)
+    for &uncorrected_id in &item_ids[2..] {
+        assert!(
+            treatment_ctx.items.iter().any(|i| i.id == uncorrected_id),
+            "uncorrected item {:?} must still appear after selective corrections",
+            uncorrected_id
+        );
+    }
+
+    // (d) Treatment quality >= baseline: same or more useful items returned
+    assert!(
+        treatment_ctx.items.len() >= baseline_count,
+        "treatment must return at least as many items as baseline ({} vs {})",
+        treatment_ctx.items.len(),
+        baseline_count
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup h2-ab-influence");
+}

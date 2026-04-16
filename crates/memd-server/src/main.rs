@@ -267,7 +267,8 @@ impl AppState {
             .filter(|e| {
                 e.context.as_ref().and_then(|ctx| ctx.project.as_deref()) == Some(project.as_str())
             })
-            .filter(|e| e.salience_score > 0.1)
+            // E2: no salience gate — link on co-occurrence, not salience.
+            // New entities start at 0.0 salience; gating blocked all links.
             .take(3)
             .collect();
 

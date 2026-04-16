@@ -1546,7 +1546,47 @@ impl AppState {
         &self,
         req: &MaintainReportRequest,
     ) -> anyhow::Result<MaintainReport> {
-        self.store.maintain_runtime(req)
+        let mut report = self.store.maintain_runtime(req)?;
+        // E2: backfill entity links on full/repair maintain
+        let mode = req.mode.trim();
+        let mode = if mode.is_empty() { "scan" } else { mode };
+        if req.apply && (mode == "full" || mode == "repair") {
+            let linked = self.backfill_entity_links().unwrap_or(0);
+            if linked > 0 {
+                report
+                    .findings
+                    .push(format!("entity_links: backfilled {linked} links"));
+            }
+        }
+        Ok(report)
+    }
+
+    /// Re-run auto_link_entity for each entity to backfill missing links.
+    fn backfill_entity_links(&self) -> anyhow::Result<usize> {
+        let entities = self.store.list_entities()?;
+        let mut created = 0usize;
+        for entity in &entities {
+            // Find one representative item for this entity to get project context
+            let items = self.store.items_for_entity(entity.id)?;
+            let Some(item) = items.first() else {
+                continue;
+            };
+            let before = self
+                .store
+                .links_for_entity(&memd_schema::EntityLinksRequest {
+                    entity_id: entity.id,
+                })?
+                .len();
+            self.auto_link_entity(entity, item)?;
+            let after = self
+                .store
+                .links_for_entity(&memd_schema::EntityLinksRequest {
+                    entity_id: entity.id,
+                })?
+                .len();
+            created += after.saturating_sub(before);
+        }
+        Ok(created)
     }
 
     pub(crate) fn entity_view(

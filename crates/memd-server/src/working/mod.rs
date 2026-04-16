@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error};
+use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error, store_entities::trust_rank};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, ContextRequest, MemoryConsolidationRequest,
     MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation, MemoryPolicyDecay,
@@ -115,7 +115,23 @@ pub(crate) fn working_memory(
         })
         .collect::<Vec<_>>();
 
+    // G2: lane diversity — track lane counts, defer items from overrepresented lanes.
+    let lane_diversity_cap = 5usize; // max items from a single lane before deferral
+    let mut lane_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut deferred: Vec<(usize, &str, &str)> = Vec::new(); // (index, record, reasons)
+
     for (index, (item_id, record, reasons)) in compacted_records.iter().enumerate() {
+        // Check lane diversity: if this lane already has lane_diversity_cap items, defer it
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
+            if let Some(lane) = &item.lane {
+                let count = lane_counts.get(lane.as_str()).copied().unwrap_or(0);
+                if count >= lane_diversity_cap && records.len() < admission_limit {
+                    deferred.push((index, record, reasons));
+                    continue;
+                }
+            }
+        }
+
         let record_chars = record.chars().count();
         if used_chars + record_chars > budget_chars {
             truncated = true;
@@ -131,9 +147,37 @@ pub(crate) fn working_memory(
             id: *item_id,
             record: record.clone(),
         });
+
+        // Track lane counts for admitted items
+        if let Some(item) = selected_items.iter().find(|i| i.id == *item_id) {
+            if let Some(lane) = &item.lane {
+                *lane_counts.entry(lane.clone()).or_insert(0) += 1;
+            }
+        }
+
         if index + 1 >= admission_limit {
             truncated = compacted_records.len() > records.len();
         }
+    }
+
+    // Admit deferred items if there's still room
+    for (index, record, reasons) in deferred {
+        let (item_id, _, _) = &compacted_records[index];
+        let record_chars = record.chars().count();
+        if records.len() >= admission_limit || used_chars + record_chars > budget_chars {
+            evicted.push(WorkingMemoryEvictionRecord {
+                id: *item_id,
+                record: record.to_string(),
+                reason: format!("evicted_by_lane_diversity;{reasons}"),
+            });
+            truncated = true;
+            continue;
+        }
+        used_chars += record_chars;
+        records.push(CompactMemoryRecord {
+            id: *item_id,
+            record: record.to_string(),
+        });
     }
 
     if records.len() > admission_limit {
@@ -428,6 +472,14 @@ fn working_item_priority(
         }
     };
     let lane_score = if item.lane.is_some() { 0.06 } else { 0.0 };
+    let correction_boost = if item.tags.iter().any(|t| t == "correction") {
+        0.10
+    } else {
+        0.0
+    };
+    // Trust hierarchy tiebreaker: rank 0-4 × 0.012 = max 0.048.
+    // Only matters when items score within ~0.05 of each other.
+    let trust_hierarchy_score = trust_rank(item) as f32 * 0.012;
     let trust_score = if source_trust_score < source_trust_floor * 0.6 {
         -0.18
     } else if source_trust_score < source_trust_floor * 0.83 {
@@ -473,6 +525,12 @@ fn working_item_priority(
     if item.lane.is_some() {
         reasons.push(format!("lane={}", item.lane.as_deref().unwrap_or("?")));
     }
+    if correction_boost > 0.0 {
+        reasons.push("correction_boost".to_string());
+    }
+    if trust_hierarchy_score > 0.0 {
+        reasons.push(format!("trust_rank={}", trust_rank(item)));
+    }
     (
         // B2: reduced confidence weight (0.35 from 0.48) so kind_score dominates.
         (confidence * 0.35
@@ -487,7 +545,9 @@ fn working_item_priority(
             + rehearsal_score
             + trust_score
             + contradiction_score
-            + lane_score)
+            + lane_score
+            + correction_boost
+            + trust_hierarchy_score)
             .clamp(0.0, 1.0),
         reasons,
     )

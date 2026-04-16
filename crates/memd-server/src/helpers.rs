@@ -514,6 +514,9 @@ pub(crate) fn compact_record(item: &MemoryItem) -> String {
     {
         parts.push(format!("agent={}", sanitize_value(agent)));
     }
+    if let Some(lane) = &item.lane {
+        parts.push(format!("lane={}", sanitize_value(lane)));
+    }
     if !item.tags.is_empty() {
         let tags = item
             .tags

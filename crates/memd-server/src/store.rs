@@ -916,6 +916,35 @@ impl SqliteStore {
         }
     }
 
+    /// Return all memory items linked to a given entity (via memory_events).
+    pub fn items_for_entity(&self, entity_id: Uuid) -> anyhow::Result<Vec<MemoryItem>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT DISTINCT mi.payload_json
+                FROM memory_items mi
+                JOIN memory_events ev ON ev.memory_item_id = mi.id
+                WHERE ev.entity_id = ?1
+                ORDER BY mi.updated_at DESC
+                "#,
+            )
+            .context("prepare items_for_entity query")?;
+
+        let rows = stmt
+            .query_map([entity_id.to_string()], |row| row.get::<_, String>(0))
+            .context("query items for entity")?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row.context("read item row")?;
+            let item: MemoryItem =
+                serde_json::from_str(&payload).context("deserialize memory item payload")?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
     pub fn entity_by_id(&self, entity_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.connect()?;
         let payload = conn.query_row(

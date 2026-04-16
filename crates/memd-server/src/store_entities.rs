@@ -274,6 +274,20 @@ pub(crate) fn source_trust_score(
     score.clamp(0.0, 1.0)
 }
 
+/// Hard trust ordering: human_correction > canonical > promoted > candidate > synthetic.
+/// Returns 0–4 where higher = more trusted.
+pub(crate) fn trust_rank(item: &memd_schema::MemoryItem) -> u8 {
+    if item.tags.iter().any(|t| t == "correction") {
+        return 4; // human correction — highest trust
+    }
+    match (item.source_quality, item.stage) {
+        (Some(memd_schema::SourceQuality::Canonical), memd_schema::MemoryStage::Canonical) => 3,
+        (_, memd_schema::MemoryStage::Canonical) => 2, // promoted
+        (Some(memd_schema::SourceQuality::Synthetic), _) => 0,
+        _ => 1, // candidate / derived
+    }
+}
+
 pub(crate) fn normalize_search_text(value: &str) -> String {
     value
         .chars()

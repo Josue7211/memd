@@ -98,6 +98,48 @@ pub(crate) async fn eval_bundle_memory(
         findings.push("procedure table is empty; no auto-detected procedures".to_string());
     }
 
+    // H2: correction retention — superseded items must never leak into working memory.
+    let superseded_leak_count = snapshot
+        .working
+        .records
+        .iter()
+        .filter(|r| r.record.contains("status=superseded"))
+        .count();
+    if superseded_leak_count > 0 {
+        score -= 15;
+        findings.push(format!(
+            "H2: {} superseded item(s) leaked into working memory — correction filter broken",
+            superseded_leak_count
+        ));
+    }
+
+    // H2: lane diversity — if working memory has items, check they aren't all from one lane.
+    if total_working >= 4 {
+        let lane_values: Vec<&str> = snapshot
+            .working
+            .records
+            .iter()
+            .filter_map(|r| {
+                r.record
+                    .split(" | ")
+                    .find(|part| part.starts_with("lane="))
+                    .map(|part| part.trim_start_matches("lane="))
+            })
+            .collect();
+        let has_lanes = !lane_values.is_empty();
+        if has_lanes {
+            let unique_lanes: std::collections::HashSet<&&str> = lane_values.iter().collect();
+            if unique_lanes.len() == 1 && lane_values.len() >= 4 {
+                score -= 5;
+                findings.push(format!(
+                    "H2: all {} lane-tagged working records share lane '{}' — lane diversity weak",
+                    lane_values.len(),
+                    lane_values[0]
+                ));
+            }
+        }
+    }
+
     let score = score.clamp(0, 100) as u8;
     let status = if score >= 85 {
         "strong"

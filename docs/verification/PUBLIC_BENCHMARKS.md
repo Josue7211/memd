@@ -3,7 +3,7 @@
 - latest_runs: 4
 - supported_targets: longmemeval, locomo, convomem, membench
 - implemented_adapters: longmemeval, locomo, convomem, membench
-- newest_run: membench mode=raw at 2026-04-15T00:44:25.774394626+00:00
+- newest_run: membench mode=raw at 2026-04-16T01:45:23.461666509+00:00
 
 ## Target Inventory
 - longmemeval: implemented
@@ -16,9 +16,9 @@
 | Benchmark | Version | Mode | Primary Metric | Value | Items | Dataset | Checksum | Artifacts |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ConvoMem | upstream | raw | accuracy (retrieval diagnostic) | 0.000 | 525 | /home/josue/Documents/projects/memd/.memd/benchmarks/datasets/convomem/convomem-evidence-sample.json | sha256:34238ace63b0a5393833bb213696870cef733f3520066f6647f4c7355be5dd07 | `.memd/benchmarks/public/convomem/latest/` |
-| LoCoMo | upstream | raw | evidence_hit_rate@5 (retrieval diagnostic) | 0.415 | 1986 | /home/josue/Documents/projects/memd/.memd/benchmarks/datasets/locomo/locomo10.json | sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4 | `.memd/benchmarks/public/locomo/latest/` |
-| LongMemEval | upstream | raw | session_recall_any@5 (retrieval diagnostic) | 0.960 | 50 | /home/josue/Documents/projects/memd/.memd/benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json | sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442 | `.memd/benchmarks/public/longmemeval/latest/` |
-| MemBench | upstream | raw | target_hit_rate@5 (retrieval diagnostic) | 0.346 | 3000 | /home/josue/Documents/projects/memd/.memd/benchmarks/datasets/membench/membench-firstagent.json | sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a | `.memd/benchmarks/public/membench/latest/` |
+| LoCoMo | upstream | raw | evidence_hit_rate@5 (retrieval diagnostic) | 0.415 | 1986 | .memd/benchmarks/datasets/locomo/locomo10.json | sha256:79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4 | `.memd/benchmarks/public/locomo/latest/` |
+| LongMemEval | upstream | raw | session_recall_any@5 (retrieval diagnostic) | 0.828 | 500 | .memd/benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json | sha256:d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442 | `.memd/benchmarks/public/longmemeval/latest/` |
+| MemBench | upstream | raw | target_hit_rate@5 (retrieval diagnostic) | 0.346 | 3000 | .memd/benchmarks/datasets/membench/membench-firstagent.json | sha256:54bde8259c10ee1cfe5ff16f35a8a25ca9ad5d79e162e0b3a43034ed64115e5a | `.memd/benchmarks/public/membench/latest/` |
 
 ## Artifacts
 - convomem: `.memd/benchmarks/public/convomem/latest/manifest.json`, `.memd/benchmarks/public/convomem/latest/results.json`, `.memd/benchmarks/public/convomem/latest/results.jsonl`, `.memd/benchmarks/public/convomem/latest/report.md`
@@ -529,506 +529,506 @@
 | book::497::0 | What books have you recommended to me before? | raw | false | American Indian Myths and Legends (Pantheon Fairy Tale and Folklore Library), Bitch: In Praise of Difficult Women | 1 |
 | book::498::0 | What books have you recommended to me before? | raw | false | A Rage To Kill and Other True Cases : Anne Rule's Crime Files, Vol. 6 (Ann Rule's Crime Files) | 1 |
 | book::499::0 | What books have you recommended to me before? | raw | false | 8 Weeks to Optimum Health, Prescription for Nutritional Healing: A Practical A-Z Reference to Drug-Free Remedies Using Vitamins, Minerals, Herbs & Food Supplements | 1 |
-| events::0::0 | What seven-day event perfectly aligns with its location? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::1::0 | What time is the event that expects two hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 2 |
-| events::2::0 | What is the timing for the event that lasts seven days? | raw | true | 2024-10-18 Friday 09:00 | 3 |
-| events::3::0 | What is the schedule for the event that lasts six days? | raw | true | nextnext week Tuesday 7:00 PM | 2 |
-| events::4::0 | What time is the event taking place at that location in Washington, DC? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::5::0 | Which venue would be suitable for an event that accommodates nine hundred people? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::6::0 | Which event corresponds to the location described for the activity planned for the week after next Thursday at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::7::0 | What six-day activity corresponds to its location description? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::8::0 | What seven-week activity fits the description of its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::9::0 | Which location description matches the event planned for the week after next Sunday at 2:00 PM? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::10::0 | What is the event location description for the activity scheduled on October 12, 2024, at 19:00? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::11::0 | What activity lasts for eight days and corresponds with its location description? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::12::0 | What time is the event that is expected to have eight hundred people? | raw | true | nextnext week Tuesday 9:00 AM | 2 |
-| events::13::0 | What time is the event at that location in Las Vegas, NV? | raw | true | 2024-10-11 Friday 14:00 | 2 |
-| events::14::0 | What event location description corresponds to the activity scheduled for October 17, 2024, at 9:00? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::15::0 | Which event that hosts four hundred people fits the description of its location? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::16::0 | Which event location corresponds to the activity taking place next week on Sunday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::17::0 | What is the scheduled time for the event that accommodates four hundred people? | raw | false | 2024-10-11 Friday 14:00 | 2 |
-| events::18::0 | Which venue corresponds to the event for nine hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::19::0 | What three-week activity matches the description of its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::20::0 | What time is the event taking place at the location in Austin, TX? | raw | true | nextnext week Tuesday 2:00 PM | 2 |
-| events::21::0 | Which location is set to host an event on October 16, 2024, at 14:00? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::22::0 | What venue would be suitable for an event accommodating six hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::23::0 | What time is the event that will have around seven hundred people? | raw | true | next week Friday 9:00 AM | 2 |
-| events::24::0 | What time will the event take place in Atlanta, GA? | raw | false | next week Saturday 9:00 AM | 2 |
-| events::25::0 | Which event location description corresponds to the activity planned for October 17, 2024, at 19:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::26::0 | What is the timing for the activity that involves three hundred people? | raw | true | nextnext week Thursday 2:00 PM | 2 |
-| events::27::0 | What time is the event that has a scale of eight hundred people? | raw | true | 2024-10-15 Tuesday 14:00 | 2 |
-| events::28::0 | Which location is hosting the event planned for next week on Thursday at 2:00 PM? | raw | true | Known for its history, education, and sports teams. | 3 |
-| events::29::0 | What time is the event that has an expected attendance of eight hundred people? | raw | true | 2024-10-08 Tuesday 09:00 | 2 |
-| events::30::0 | What time is the event for the nine hundred people? | raw | true | 2024-10-09 Wednesday 09:00 | 2 |
-| events::31::0 | What time is the event happening in Boston, MA? | raw | false | 2024-10-17 Thursday 19:00 | 2 |
-| events::32::0 | What is the event location description for the activity scheduled on October 13, 2024, at 7:00 PM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::33::0 | Which venue would be suitable for an event with around three hundred attendees? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::34::0 | What time is the activity scheduled for that lasts five days? | raw | true | nextnext week Monday 7:00 PM | 2 |
-| events::35::0 | Which venue description fits an activity scale of two hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::36::0 | Which venue description would be suitable for an event that accommodates three hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::37::0 | Which venue would be suitable for an event that accommodates five hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::38::0 | Which event venue is suitable for an activity that accommodates seven hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::39::0 | What time is the event taking place at that location in Los Angeles, CA? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::40::0 | What time is the event happening in San Francisco, CA? | raw | true | 2024-10-14 Monday 09:00 | 2 |
-| events::41::0 | What event coincides with the location description for next week Sunday at 2:00 PM? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::42::0 | Which event location description corresponds to the activity planned for the week after next Wednesday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::43::0 | What one-day activity aligns perfectly with its location description? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::44::0 | Which location is designated for the event happening at 2:00 PM the week after next Sunday? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::45::0 | What is the schedule for the event that lasts four days? | raw | true | next week Sunday 9:00 AM | 2 |
-| events::46::0 | What time is the event scheduled for with nine hundred attendees? | raw | true | 2024-10-14 Monday 19:00 | 2 |
-| events::47::0 | What time is the event scheduled for at that location in Las Vegas, NV? | raw | false | next week Saturday 7:00 PM | 2 |
-| events::48::0 | What time is the event that's expected to have around two hundred people? | raw | false | 2024-10-12 Saturday 14:00 | 2 |
-| events::49::0 | When does the activity that lasts nine weeks take place? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::50::0 | Which event description corresponds to the venue that can accommodate eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::51::0 | What is the timeframe for the activity that lasts two weeks? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::52::0 | What activity that lasts five weeks fits the description of its location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::53::0 | What event location would be suitable for an activity involving eight hundred people? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::54::0 | What one-day activity corresponds with the description of its location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| events::55::0 | What time is the event expected to start for a gathering of two hundred people? | raw | true | 2024-10-11 Friday 09:00 | 2 |
-| events::56::0 | What kind of event location would be suitable for an activity with around six hundred people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::57::0 | What event is happening at the location described for the one scheduled for the week after next Saturday at 7:00 PM? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::58::0 | What time does the event start in Austin, TX? | raw | false | nextnext week Tuesday 2:00 PM | 2 |
-| events::59::0 | What is the timeframe for the activity that lasts a week? | raw | true | 2024-10-10 Thursday 19:00 | 2 |
-| events::60::0 | What activity lasts nine weeks and corresponds with the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::61::0 | What time does the event take place in Chicago, IL? | raw | true | 2024-10-18 Friday 09:00 | 2 |
-| events::62::0 | What time does the event that lasts three days start? | raw | false | nextnext week Thursday 7:00 PM | 2 |
-| events::63::0 | What activity that lasts nine weeks matches its location description? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::64::0 | What activity lasts for nine weeks and has a location that fits its description? | raw | true | Known for its historical significance and the Liberty Bell. | 2 |
-| events::65::0 | What time is the event happening in San Francisco, CA? | raw | false | 2024-10-13 Sunday 19:00 | 2 |
-| events::66::0 | What is the timeframe for the activity that lasts seven weeks? | raw | true | 2024-10-12 Saturday 09:00 | 2 |
-| events::67::0 | What time is the event taking place in Seattle, WA? | raw | true | nextnext week Monday 2:00 PM | 2 |
-| events::68::0 | What time is the event for nine hundred people? | raw | false | nextnext week Thursday 2:00 PM | 2 |
-| events::69::0 | What is the timing for the event with two hundred attendees? | raw | false | next week Sunday 2:00 PM | 2 |
-| events::70::0 | What is the event location description for the activity set for October 17, 2024, at 9:00? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::71::0 | What activity matches the description of the location for that two-week event? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::72::0 | What is the event location for the activity planned on October 15, 2024, at 14:00? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::73::0 | Which venue would be suitable for hosting an event with around seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::74::0 | Which venue hosts events for nine hundred people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::75::0 | What time is the event happening in Austin, TX? | raw | true | nextnext week Tuesday 7:00 PM | 2 |
-| events::76::0 | Which venue fits the description for an event with a capacity of seven hundred people? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::77::0 | What time is the event that will have six hundred people attending? | raw | true | 2024-10-08 Tuesday 14:00 | 2 |
-| events::78::0 | What time is the event that will have three hundred people attending? | raw | true | 2024-10-09 Wednesday 14:00 | 2 |
-| events::79::0 | What is the time for the event that will accommodate five hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 2 |
-| events::80::0 | Which event location description corresponds to the activity set for October 12, 2024, at 2:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::81::0 | Which venue would be suitable for an event accommodating around two hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 3 |
-| events::82::0 | Which event corresponds to the location description for the activity planned for the week after next Friday at 7:00 PM? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::83::0 | Which activity lasts for eight days and fits the description of its location? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::84::0 | Is there an activity that lasts six weeks and has a location that matches its description? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::85::0 | Which venue would be suitable for an event that accommodates around seven hundred people? | raw | false | Known for its theme parks, including Walt Disney World. | 2 |
-| events::86::0 | What time is the event expected to take place that will have around seven hundred people attending? | raw | false | 2024-10-18 Friday 19:00 | 2 |
-| events::87::0 | What four-day event fits the description of its location? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::88::0 | Which venue is suitable for an activity involving around one hundred people? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::89::0 | Which nine-day activity aligns with the description of its location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::90::0 | What venue would be suitable for an event with a scale of four hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::91::0 | What time is the event scheduled to start at that location in Los Angeles, CA? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::92::0 | How long is the activity that lasts for nine weeks? | raw | true | 2024-10-11 Friday 14:00 | 2 |
-| events::93::0 | What time does the event in San Francisco, CA start? | raw | true | nextnext week Wednesday 2:00 PM | 2 |
-| events::94::0 | Which event corresponds to the location description for the activity planned for next week on Thursday at 9:00 AM? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::95::0 | What time does the event take place at the location in San Francisco, CA? | raw | false | next week Monday 2:00 PM | 2 |
-| events::96::0 | What event corresponds to the location description for the activity set to take place the week after next Saturday at 9:00 AM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::97::0 | Which five-day event corresponds to the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::98::0 | What time is the event that will have around six hundred people? | raw | true | 2024-10-11 Friday 09:00 | 2 |
-| events::99::0 | Which event location would be suitable for an activity that accommodates around five thousand people? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::100::0 | Which location aligns with an event that accommodates seven hundred people? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| events::101::0 | When does an event that lasts for nine days take place? | raw | true | next week Friday 2:00 PM | 2 |
-| events::102::0 | How long does the activity that lasts for eight weeks take? | raw | true | nextnext week Tuesday 2:00 PM | 2 |
-| events::103::0 | What time does the event in Boston, MA start? | raw | true | next week Monday 2:00 PM | 2 |
-| events::104::0 | Which venue description is suitable for an event with three hundred attendees? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::105::0 | Which location is designated for the event taking place at 9:00 AM the week after next Saturday? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::106::0 | What time does the event take place in Orlando, FL? | raw | true |  week Sunday 2:00 PM | 2 |
-| events::107::0 | What time is the event taking place at that location in Portland, OR? | raw | true | nextnext week Thursday 2:00 PM | 3 |
-| events::108::0 | What time does the event start at that location in Portland, OR? | raw | true | 2024-10-16 Wednesday 09:00 | 2 |
-| events::109::0 | Which venue description would be suitable for an event with around five thousand attendees? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::110::0 | How long does an activity that lasts for seven days take? | raw | true | nextnext week Thursday 2:00 PM | 2 |
-| events::111::0 | Which event location description corresponds to the activity planned for October 14, 2024, at 19:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::112::0 | What activity lasts nine days and corresponds to its described location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::113::0 | Which venue is suitable for an event with two hundred people? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::114::0 | What time does the event take place in Portland, OR? | raw | true | 2024-10-13 Sunday 14:00 | 2 |
-| events::115::0 | What time does the event start in Chicago, IL? | raw | false | nextnext week Monday 2:00 PM | 2 |
-| events::116::0 | What is an activity with a one-day duration that fits the description of its location? | raw | false | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::117::0 | What time is the event for five hundred attendees? | raw | false | nextnext week Thursday 2:00 PM | 2 |
-| events::118::0 | Which location description fits the event happening on October 17, 2024, at 14:00? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::119::0 | What time is the event happening in Orlando, FL? | raw | true | next week Sunday 2:00 PM | 2 |
-| events::120::0 | What location would work for an event expecting around five hundred people? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::121::0 | What event matches the description of the location for the activity planned for the week after next Friday at 9:00 AM? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::122::0 | What is the timeframe for the activity that lasts six days? | raw | true | next week Sunday 2:00 PM | 2 |
-| events::123::0 | What time is the event that can accommodate four thousand people? | raw | true | 2024-10-08 Tuesday 19:00 | 2 |
-| events::124::0 | What is the timeframe for the event that lasts five days? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::125::0 | What event with a capacity of seven thousand people fits the description of its venue? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::126::0 | What time is the event that expects seven hundred attendees? | raw | true | 2024-10-18 Friday 19:00 | 2 |
-| events::127::0 | Which event location description corresponds to the activity planned for October 16, 2024, at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::128::0 | What time is the event that has nine hundred people? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::129::0 | What time is the event taking place in Los Angeles, CA? | raw | true | 2024-10-26 Saturday 14:00 | 2 |
-| events::130::0 | What eight-day activity matches the description of its location? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::131::0 | What time is the event that has a scale of three hundred people? | raw | true | next week Friday 9:00 AM | 2 |
-| events::132::0 | What event is happening next Saturday at 2:00 PM, and where will it take place? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::133::0 | What time is the event expected to accommodate eight hundred people? | raw | false | 2024-10-15 Tuesday 09:00 | 3 |
-| events::134::0 | Which venue would be suitable for an event with six hundred attendees? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::135::0 | How long does the activity that lasts three weeks take? | raw | true | next week Monday 2:00 PM | 2 |
-| events::136::0 | What time is the event that will host eight hundred people? | raw | true | 2024-10-17 Thursday 14:00 | 2 |
-| events::137::0 | What activity has a duration of six weeks that matches its location description? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::138::0 | How long does the activity that lasts seven days take? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::139::0 | What time is the event taking place in Miami, FL? | raw | true | 2024-10-08 Tuesday 09:00 | 2 |
-| events::140::0 | What time does the event start in Seattle, WA? | raw | true |  week Friday 2:00 PM | 2 |
-| events::141::0 | At what time is the event that will have nine hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 2 |
-| events::142::0 | Which activity that lasts three weeks fits the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::143::0 | What time is the event happening in Austin, TX? | raw | false | 2024-10-11 Friday 14:00 | 2 |
-| events::144::0 | What type of event venue would be suitable for an activity with a capacity of five hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::145::0 | What five-day activity corresponds with the description of its location? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 3 |
-| events::146::0 | What time marks the start of an event that lasts for four days? | raw | true | 2024-10-18 Friday 19:00 | 3 |
-| events::147::0 | What is the schedule for the event that lasts three days? | raw | true | next week Sunday 9:00 AM | 3 |
-| events::148::0 | What activity lasts seven weeks and matches the description of the event location? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| events::149::0 | What time is the event that will have eight hundred people attending? | raw | false | 2024-10-14 Monday 14:00 | 3 |
-| events::150::0 | What time does the event in Austin, TX start? | raw | false | 2024-10-16 Wednesday 09:00 | 3 |
-| events::151::0 | What time is the event scheduled for that will have around four hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 3 |
-| events::152::0 | What is the timeframe for an activity that lasts one week? | raw | true | 2024-10-16 Wednesday 09:00 | 3 |
-| events::153::0 | What event location description corresponds to the activity planned for October 14, 2024, at 9:00 AM? | raw | true | Known for its history, education, and sports teams. | 3 |
-| events::154::0 | What time is the event that will host eight hundred people? | raw | true | next week Saturday 7:00 PM | 3 |
-| events::155::0 | Which venue would be suitable for hosting an event with around five hundred people? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| events::156::0 | What time will the event take place in Portland, OR? | raw | true | 2024-10-17 Thursday 14:00 | 3 |
-| events::157::0 | What time is the event that will host eight hundred people? | raw | true | 2024-10-08 Tuesday 19:00 | 2 |
-| events::158::0 | Which event location would be suitable for an activity designed for one hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::159::0 | Which two-day activity aligns with its described location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::160::0 | What time is the event that's expected to have seven hundred people? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::161::0 | What time is the event happening in Washington, DC? | raw | false | nextnext week Thursday 2:00 PM | 2 |
-| events::162::0 | Which venue description is suitable for an event with three hundred attendees? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::163::0 | What venue would be suitable for an event with a scale of four hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::164::0 | Which venue would be suitable for an event expecting around two hundred people? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::165::0 | What is the timeline for the activity that lasts three weeks? | raw | true | 2024-10-08 Tuesday 19:00 | 2 |
-| events::166::0 | Which event corresponds to the location for the activity planned for the week after next Saturday at 2:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::167::0 | How long does an activity that lasts four weeks take? | raw | true | 2024-10-18 Friday 19:00 | 2 |
-| events::168::0 | What time is the event scheduled to take place at that location in Washington, DC? | raw | true | nextnext week Tuesday 7:00 PM | 2 |
-| events::169::0 | What is the activity location description for the event set on October 14, 2024, at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::170::0 | What time is the event taking place in San Francisco, CA? | raw | true | 2024-10-13 Sunday 19:00 | 2 |
-| events::171::0 | What time is the event happening in Denver, CO? | raw | false | next week Saturday 2:00 PM | 2 |
-| events::172::0 | What time will the event take place in Los Angeles, CA? | raw | true | 2024-10-14 Monday 19:00 | 2 |
-| events::173::0 | What time is the event taking place in Chicago, IL? | raw | true | 2024-10-08 Tuesday 09:00 | 2 |
-| events::174::0 | Which three-day event corresponds with the description of its location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::175::0 | Which venue would be suitable for an event with nine hundred attendees? | raw | false | Known for its theme parks, including Walt Disney World. | 2 |
-| events::176::0 | What time is the event that involves three hundred people? | raw | false | next week Friday 2:00 PM | 2 |
-| events::177::0 | What two-week activity aligns with the description of the activity location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::178::0 | Which event location fits the activity planned for October 17, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::179::0 | Which venue fits the description for an event accommodating around five hundred people? | raw | false | Known for its history, education, and sports teams. | 2 |
-| events::180::0 | Which venue would be suitable for an event with seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::181::0 | What time is the event taking place in Austin, TX? | raw | false | nextnext week Tuesday 7:00 PM | 3 |
-| events::182::0 | What time is the event that will have four hundred people attending? | raw | true | 2024-10-10 Thursday 19:00 | 2 |
-| events::183::0 | Which venue would be suitable for an event with nine hundred attendees? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::184::0 | What three-day event corresponds with the description of its location? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::185::0 | How long does the activity that lasts for three weeks take? | raw | true | 2024-10-24 Thursday 19:00 | 2 |
-| events::186::0 | What is the event location description for the activity planned on 2024-10-13 at 19:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::187::0 | When does the event that lasts three weeks start? | raw | true | 2024-10-17 Thursday 09:00 | 2 |
-| events::188::0 | Which event location description corresponds to the event planned for October 12, 2024, at 9:00? | raw | true | A major business and cultural hub in Texas, known for its skyline. | 2 |
-| events::189::0 | What time does the event start in New York, NY? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::190::0 | What venue fits the description of an event with a scale of one thousand people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::191::0 | What activity lasts seven days and fits the description of its location? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::192::0 | Which event location description corresponds to the activity planned for October 12, 2024, at 19:00? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::193::0 | What is the timeframe for the activity that lasts five weeks? | raw | true | next week Sunday 9:00 AM | 2 |
-| events::194::0 | What time is the event taking place in New York, NY? | raw | true | next week Saturday 9:00 AM | 2 |
-| events::195::0 | What time is the event happening in Philadelphia, PA? | raw | false | 2024-10-18 Friday 09:00 | 2 |
-| events::196::0 | What event lasts for nine days and fits the description of its activity location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::197::0 | How long does the activity that lasts seven days take? | raw | true | 2024-10-18 Friday 14:00 | 2 |
-| events::198::0 | What time is the event taking place in Orlando, FL? | raw | false | 2024-10-10 Thursday 14:00 | 2 |
-| events::199::0 | Which six-week activity aligns perfectly with its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::200::0 | What time does the event start at that location in Portland, OR? | raw | false | next week Saturday 7:00 PM | 2 |
-| events::201::0 | How long is the activity that lasts for five weeks? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::202::0 | Which event description aligns with the location for the activity planned on October 13, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::203::0 | How long is the activity that lasts for four weeks? | raw | true | next week Friday 7:00 PM | 2 |
-| events::204::0 | Which venue would be suitable for an event accommodating nine hundred people? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::205::0 | What time is the event that will have four hundred attendees? | raw | true | next week Friday 7:00 PM | 2 |
-| events::206::0 | What time is the event that will accommodate five hundred people? | raw | true | 2024-10-07 Monday 09:00 | 2 |
-| events::207::0 | What time is the event expected to start that will have around three hundred people in attendance? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::208::0 | What six-week activity fits the description of its location? | raw | false | A major cultural and economic center in the southeastern U.S. | 3 |
-| events::209::0 | What type of venue would work well for an event with around two hundred people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::210::0 | Which venue is suitable for an event that accommodates five hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::211::0 | What event lasts for six days and fits the description of its location? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::212::0 | What is the timeframe for an activity that lasts for seven weeks? | raw | true | 2024-10-17 Thursday 14:00 | 2 |
-| events::213::0 | What event description corresponds to the location for the activity set to take place on October 17, 2024, at 2:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| events::214::0 | What time does the event start in Los Angeles, CA? | raw | true | next week Saturday 9:00 AM | 2 |
-| events::215::0 | Which venue is suitable for an event with about one hundred people? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::216::0 | Which event location corresponds to the activity planned for next Saturday at 2:00 PM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::217::0 | Which venue would be suitable for an event with around four hundred attendees? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::218::0 | What time does the event in Chicago, IL start? | raw | true | 2024-10-20 Sunday 19:00 | 2 |
-| events::219::0 | What time is the event happening in Portland, OR? | raw | true | next week Friday 2:00 PM | 2 |
-| events::220::0 | What time does an event that lasts for two days start? | raw | true | next week Monday 9:00 AM | 2 |
-| events::221::0 | Which event's location description aligns with the activity planned for next Wednesday at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::222::0 | Which venue would be suitable for an event scaled for seven hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::223::0 | When does the activity that lasts for three weeks take place? | raw | true | 2024-10-07 Monday 19:00 | 2 |
-| events::224::0 | Which event corresponds to the location description for the activity planned for the week after next Friday at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::225::0 | Which venue fits the description for the activity that accommodates one hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::226::0 | Which location is hosting the event that’s taking place the week after next Sunday at 7:00 PM? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::227::0 | Which venue is suitable for an event that accommodates around seven hundred people? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::228::0 | What time does the event take place at that location in Washington, DC? | raw | true | nextnext week Monday 9:00 AM | 2 |
-| events::229::0 | At what time is the event taking place in Seattle, WA? | raw | true | 2024-10-18 Friday 19:00 | 2 |
-| events::230::0 | What is the event location description for the activity scheduled on October 12, 2024, at 14:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::231::0 | What event location would be suitable for an activity with a scale of one hundred people? | raw | false | Known for its theme parks, including Walt Disney World. | 2 |
-| events::232::0 | How long is the activity that lasts for eight weeks? | raw | true | nextnext week Thursday 7:00 PM | 2 |
-| events::233::0 | What time is the event that will have seven hundred people attending? | raw | true | 2024-10-10 Thursday 19:00 | 2 |
-| events::234::0 | What two-day event corresponds to the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::235::0 | Which event location corresponds to the activity planned for 19:00 on October 13, 2024? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::236::0 | What type of venue would be suitable for an event with around five hundred attendees? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::237::0 | Which venue would be suitable for an event with about three hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::238::0 | For an event expecting around three hundred people, what kind of location would be the best fit? | raw | false | The capital of Arizona, known for its hot desert climate. | 2 |
-| events::239::0 | Which venue fits the description for the event that accommodates seven hundred people? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::240::0 | What six-week activity fits the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::241::0 | Which event corresponds to the location of the activity planned for the week after next Monday at 2:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::242::0 | What time is the event that will have six hundred people attending? | raw | false | next week Friday 2:00 PM | 2 |
-| events::243::0 | Which event scheduled for October 13, 2024, at 9:00 matches the description of its location? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::244::0 | What time is the event with four hundred people? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::245::0 | What is the scheduled time for the event that accommodates two hundred people? | raw | true | 2024-10-20 Sunday 19:00 | 2 |
-| events::246::0 | What event lasts for nine days and has a location that matches its description? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::247::0 | How long will the activity that lasts for eight days take? | raw | true | next week Sunday 9:00 AM | 2 |
-| events::248::0 | Which three-week activity aligns with the description of its location? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::249::0 | Is there an event that lasts for seven days and has a description that fits its location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::250::0 | Which description of the event location corresponds to the activity planned for October 12, 2024, at 9:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::251::0 | Which location corresponds to the event with nine hundred attendees? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::252::0 | Which event location corresponds to the activity planned for the week after next Tuesday at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::253::0 | What time is the event that is expected to have six hundred people? | raw | true | next week Sunday 2:00 PM | 2 |
-| events::254::0 | What time is the event taking place in New York, NY? | raw | true | 2024-10-11 Friday 14:00 | 2 |
-| events::255::0 | What time is the event taking place in Orlando, FL? | raw | false | 2024-10-20 Sunday 09:00 | 2 |
-| events::256::0 | What event location description fits the activity planned for 2024-10-14 at 9:00? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::257::0 | What time is the event happening in New York, NY? | raw | true | 2024-10-07 Monday 19:00 | 2 |
-| events::258::0 | What time is the event that is expected to have two hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 2 |
-| events::259::0 | How long does an activity that lasts eight weeks take? | raw | true | 2024-10-07 Monday 14:00 | 2 |
-| events::260::0 | What kind of venue would be suitable for an event that expects around three thousand attendees? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::261::0 | Which location description suits the event that was attended by eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::262::0 | What time is the event scheduled for with three hundred people attending? | raw | false | nextnext week Tuesday 9:00 AM | 2 |
-| events::263::0 | Which event location corresponds to the activity planned for the week after next Friday at 7:00 PM? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::264::0 | What time is the event scheduled for, considering it has a scale of four hundred people? | raw | true | nextnext week Tuesday 2:00 PM | 2 |
-| events::265::0 | What time is the event that will host five hundred people? | raw | false | 2024-10-09 Wednesday 09:00 | 2 |
-| events::266::0 | What three-week activity fits the description of its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::267::0 | Which event corresponds to the location description for the activity scheduled for the week after next Monday at 2:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::268::0 | What time is the event happening at that location in Washington, DC? | raw | true | 2024-10-10 Thursday 19:00 | 2 |
-| events::269::0 | What venue would be suitable for an event accommodating eight hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::270::0 | What time is the event happening in San Francisco, CA? | raw | false | 2024-10-14 Monday 14:00 | 2 |
-| events::271::0 | What four-day event can be identified by its location? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::272::0 | What time is the event taking place in Boston, MA? | raw | true | 2024-10-07 Monday 09:00 | 2 |
-| events::273::0 | What time is the event that involves two hundred people? | raw | false | next week Saturday 2:00 PM | 2 |
-| events::274::0 | Which venue fits the description of an event that can accommodate eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::275::0 | What time does the event take place in Washington, DC? | raw | false | 2024-10-13 Sunday 14:00 | 2 |
-| events::276::0 | What is the event location for the activity scheduled next week on Friday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::277::0 | What time is the event for eight hundred people? | raw | false | nextnext week Wednesday 7:00 PM | 2 |
-| events::278::0 | What time is the event for eight hundred people? | raw | false | 2024-10-13 Sunday 19:00 | 2 |
-| events::279::0 | At what time does the activity that lasts for one day take place? | raw | true | 2024-10-08 Tuesday 14:00 | 2 |
-| events::280::0 | Is there an activity that lasts one day and matches the description of its location? | raw | false | Known for its beautiful beaches and mild climate. | 2 |
-| events::281::0 | What is the event location for the scheduled event on October 16, 2024, at 7:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::282::0 | Which location description corresponds to the event planned for October 14, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::283::0 | How much time does an activity that lasts five weeks take? | raw | true | 2024-10-13 Sunday 09:00 | 2 |
-| events::284::0 | What time is the event happening in Chicago, IL? | raw | false | 2024-10-20 Sunday 14:00 | 2 |
-| events::285::0 | What venue would be suitable for an event that accommodates five hundred people? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::286::0 | Can someone name an event that lasts for seven days and fits its described location? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::287::0 | What is the schedule for the nine-day activity? | raw | true | nextnext week Wednesday 9:00 AM | 2 |
-| events::288::0 | Which venue would be suitable for an event that accommodates eight hundred people? | raw | true | The heart of Silicon Valley, known for its tech industry. | 2 |
-| events::289::0 | What five-day event matches the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::290::0 | What time is the event that will have a hundred people? | raw | false | nextnext week Wednesday 2:00 PM | 2 |
-| events::291::0 | What activity that lasts four weeks aligns with the description of its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::292::0 | Is there an event that lasts two days and fits its location description? | raw | true | The capital of Arizona, known for its hot desert climate. | 2 |
-| events::293::0 | What time is the event taking place in Miami, FL? | raw | true | nextnext week Monday 9:00 AM | 2 |
-| events::294::0 | What three-week activity aligns with the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::295::0 | What event fits the location description for the activity planned for next Sunday at 7:00 PM? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::296::0 | What time does the event start in Atlanta, GA? | raw | false | 2024-10-18 Friday 14:00 | 2 |
-| events::297::0 | What time is the event that expects a crowd of six thousand people? | raw | true | next week Friday 9:00 AM | 2 |
-| events::298::0 | Which venue corresponds to the event designed for six hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::299::0 | What time is the event happening in San Francisco, CA? | raw | true | 2024-10-18 Friday 09:00 | 2 |
-| events::300::0 | What six-week activity matches the description of its location? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::301::0 | When does the activity that lasts for three weeks take place? | raw | true | nextnext week Tuesday 9:00 AM | 2 |
-| events::302::0 | When does the activity that lasts one week take place? | raw | true | next week Friday 7:00 PM | 2 |
-| events::303::0 | What time does the event start in Portland, OR? | raw | true | nextnext week Monday 2:00 PM | 2 |
-| events::304::0 | Which venue would be suitable for an event that can accommodate four hundred people? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::305::0 | Which event location description would be suitable for accommodating two hundred people? | raw | true | The capital of Arizona, known for its hot desert climate. | 2 |
-| events::306::0 | What activity lasts six weeks and matches the description of its location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::307::0 | What time is the event for three hundred people? | raw | false | 2024-10-20 Sunday 09:00 | 2 |
-| events::308::0 | What kind of venue would be suitable for an event with about seven hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::309::0 | What time is the event that will have about two hundred people attending? | raw | false | next week Sunday 2:00 PM | 2 |
-| events::310::0 | Which venue description corresponds to the activity planned for the week after next Friday at 2:00 PM? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::311::0 | What time does the event start in Seattle, WA? | raw | true | next week Saturday 2:00 PM | 2 |
-| events::312::0 | What time is the event for four hundred people being held? | raw | true | next week Friday 2:00 PM | 2 |
-| events::313::0 | Which event takes place at the location for the activity on the week after next Tuesday at 7:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::314::0 | Which venue would be suitable for an event hosting around two hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::315::0 | Which event location would be suitable for an activity designed for five hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::316::0 | What time does the event start at that location in Denver, CO? | raw | false | nextnext week Monday 9:00 AM | 2 |
-| events::317::0 | What time is the event expected to start that will have nine hundred people attending? | raw | true | nextnext week Wednesday 2:00 PM | 2 |
-| events::318::0 | What activity lasts eight days and aligns with its location description? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::319::0 | What venue would be suitable for an event with around six hundred people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::320::0 | What time is the event that involves six hundred people? | raw | true | 2024-10-16 Wednesday 09:00 | 2 |
-| events::321::0 | Which event location matches the activity scheduled for next week on Monday at 7:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::322::0 | What time is the event happening in Los Angeles, CA? | raw | false | 2024-10-09 Wednesday 09:00 | 2 |
-| events::323::0 | What event corresponds to the location for the activity planned for the week after next Tuesday at 2:00 PM? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::324::0 | What kind of venue would be suitable for hosting an event for two hundred people? | raw | false | Known for its history, education, and sports teams. | 2 |
-| events::325::0 | What week-long activity matches the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::326::0 | Which event location would be suitable for an activity with around one hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::327::0 | What time is the event expected to take place that will have around four thousand attendees? | raw | false | nextnext week Monday 2:00 PM | 2 |
-| events::328::0 | What time is the event happening in Houston, TX? | raw | true | next week Saturday 9:00 AM | 2 |
-| events::329::0 | What is the time for an event that lasts for two days? | raw | false | 2024-10-19 Saturday 19:00 | 2 |
-| events::330::0 | Which venue would be suitable for an event with around three hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::331::0 | What are the scheduled times for the event that lasts two days? | raw | true | nextnext week Tuesday 9:00 AM | 2 |
-| events::332::0 | What four-day event corresponds with the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::333::0 | When does the activity that lasts for two weeks take place? | raw | true | 2024-10-17 Thursday 09:00 | 2 |
-| events::334::0 | What time is the event that will have three hundred people attending? | raw | false | nextnext week Wednesday 2:00 PM | 2 |
-| events::335::0 | What time will the event take place in Boston, MA? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::336::0 | What time is the event taking place in Miami, FL? | raw | true | 2024-10-12 Saturday 09:00 | 2 |
-| events::337::0 | What is the timeframe for an event that lasts three days? | raw | true | 2024-10-20 Sunday 19:00 | 2 |
-| events::338::0 | Which location coincides with the event scheduled for 9:00 AM on the Saturday after next? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::339::0 | Which event corresponds to the location details for the activity planned on October 12, 2024, at 19:00? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::340::0 | What time is the event taking place in Austin, TX? | raw | true | 2024-10-11 Friday 09:00 | 2 |
-| events::341::0 | What is the time for an event that lasts one day? | raw | true | 2024-10-08 Tuesday 14:00 | 2 |
-| events::342::0 | Which venue fits the description for an event that can accommodate seven hundred people? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::343::0 | What time is the event that has a scale of six hundred people? | raw | true | 2024-10-18 Friday 14:00 | 2 |
-| events::344::0 | What three-week-long event corresponds with its described location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::345::0 | What time does the event take place in Seattle, WA? | raw | false | 2024-10-11 Friday 09:00 | 2 |
-| events::346::0 | Which location description fits the event scheduled for October 12, 2024, at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::347::0 | What seven-day event matches the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::348::0 | Which activity that lasts four days fits the description of its location? | raw | true | The heart of Silicon Valley, known for its tech industry. | 2 |
-| events::349::0 | What is the event location for the activity planned on October 17, 2024, at 14:00? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::350::0 | How long does the activity that lasts four weeks take? | raw | true | next week Monday 9:00 AM | 2 |
-| events::351::0 | What time will the event take place in Washington, DC? | raw | false | nextnext week Thursday 9:00 AM | 2 |
-| events::352::0 | What time does the event that lasts four days start? | raw | false | next week Sunday 2:00 PM | 2 |
-| events::353::0 | What time does the event that lasts for two days start? | raw | false | next week Friday 9:00 AM | 2 |
-| events::354::0 | Which venue would be suitable for an event with around five hundred attendees? | raw | false | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::355::0 | What time is the event happening at that location in San Francisco, CA? | raw | true | next week Friday 2:00 PM | 2 |
-| events::356::0 | What time is the event that will have seven hundred attendees? | raw | true | next week Thursday 2:00 PM | 2 |
-| events::357::0 | What time is the event that will accommodate seven hundred people? | raw | true | 2024-10-19 Saturday 09:00 | 2 |
-| events::358::0 | What two-week event fits the description of its location? | raw | false | Known for its history, education, and sports teams. | 2 |
-| events::359::0 | Is there an event that lasts for eight days and has a name that reflects its location? | raw | true | A major business and cultural hub in Texas, known for its skyline. | 2 |
-| events::360::0 | How long is an activity that lasts for one day? | raw | true | nextnext week Thursday 7:00 PM | 2 |
-| events::361::0 | What time is the four-day activity scheduled to start? | raw | false | nextnext week Thursday 2:00 PM | 2 |
-| events::362::0 | What time is the event taking place in Houston, TX? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::363::0 | What time is the event in Boston, MA? | raw | false | nextnext week Monday 9:00 AM | 2 |
-| events::364::0 | Which event is associated with the location for the activity planned on 2024-10-12 at 9:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::365::0 | What time is the event taking place in San Francisco, CA? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::366::0 | What time is the event that has nine hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 2 |
-| events::367::0 | Which venue would be suitable for an event with about three hundred attendees? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::368::0 | What activity lasts six days and matches the description of its location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::369::0 | What time will the event with nine hundred people take place? | raw | false | 2024-10-16 Wednesday 14:00 | 2 |
-| events::370::0 | What time is the event happening in Washington, DC? | raw | true | next week Wednesday 7:00 PM | 2 |
-| events::371::0 | What time does the event start in Atlanta, GA? | raw | true | 2024-10-14 Monday 09:00 | 2 |
-| events::372::0 | Which event location corresponds to the activity planned for the week after next Monday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::373::0 | What time does the event lasting nine days start? | raw | false | nextnext week Thursday 9:00 AM | 2 |
-| events::374::0 | Which venue is suitable for an event with around nine hundred people? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::375::0 | Is there an event that lasts for seven days and corresponds with its location's description? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::376::0 | When does the two-week activity take place? | raw | false | 2024-10-20 Sunday 19:00 | 2 |
-| events::377::0 | Which venue description matches the activity planned for October 15, 2024, at 9:00? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::378::0 | What time is the event taking place at that location in Las Vegas, NV? | raw | true | nextnext week Tuesday 2:00 PM | 2 |
-| events::379::0 | What time is the event expected to start with a scale of six hundred people? | raw | true | 2024-10-10 Thursday 14:00 | 2 |
-| events::380::0 | What two-week-long activity fits the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::381::0 | What time is the event that will have seven hundred people? | raw | true | 2024-10-11 Friday 19:00 | 2 |
-| events::382::0 | What one-week activity corresponds with its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::383::0 | Which event location would be suitable for an activity with two hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::384::0 | What seven-day activity fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::385::0 | When does the event that lasts six months take place? | raw | true | 2024-10-14 Monday 19:00 | 2 |
-| events::386::0 | What time does the event that lasts for three days start? | raw | true | 2024-10-10 Thursday 09:00 | 2 |
-| events::387::0 | What time is the event expected to have around five thousand people? | raw | true | nextnext week Wednesday 2:00 PM | 2 |
-| events::388::0 | Which location is set to host the event scheduled for the week after next Monday at 2:00 PM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::389::0 | What kind of event location would be suitable for an activity with around eight thousand people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::390::0 | What kind of venue would be suitable for an event with four hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::391::0 | How long is the activity that lasts for nine days? | raw | true | next week Saturday 7:00 PM | 2 |
-| events::392::0 | What venue would be suitable for an event with nine hundred attendees? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::393::0 | What time is the event happening at the location in Miami, FL? | raw | false | nextnext week Wednesday 2:00 PM | 2 |
-| events::394::0 | Is there a three-day event that fits the description of its location? | raw | false | Known for its history, education, and sports teams. | 2 |
-| events::395::0 | What is the time for the event that will host four hundred people? | raw | false | 2024-10-09 Wednesday 09:00 | 2 |
-| events::396::0 | Which event venue would be suitable for an activity with nine hundred attendees? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::397::0 | What event is happening on October 17, 2024, at 19:00 that matches the description of its venue? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::398::0 | How long does the activity that lasts eight weeks take? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::399::0 | How long will an activity that lasts nine weeks take? | raw | true | nextnext week Wednesday 7:00 PM | 2 |
-| events::400::0 | Which one-day event corresponds to the description of its location? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::401::0 | What location corresponds to the event planned for next Monday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::402::0 | What time is the event that will have two hundred people in attendance? | raw | true | 2024-10-08 Tuesday 14:00 | 2 |
-| events::403::0 | What time does the event start at that location in Los Angeles, CA? | raw | false | 2024-10-10 Thursday 19:00 | 2 |
-| events::404::0 | What event location description corresponds to the activity scheduled for October 12, 2024, at 9:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::405::0 | What time does the event in Washington, DC start? | raw | false | nextnext week Thursday 7:00 PM | 2 |
-| events::406::0 | How long will the activity that lasts seven days take? | raw | true | 2024-10-07 Monday 09:00 | 2 |
-| events::407::0 | What is the event location description that corresponds to the activity planned for 9:00 on October 14, 2024? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::408::0 | What is the date for the event that lasts three weeks? | raw | true | next week Saturday 2:00 PM | 2 |
-| events::409::0 | What activity has a duration of nine weeks based on its location description? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::410::0 | What event location description matches the activity planned for October 15, 2024, at 9:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::411::0 | Which type of event location would be suitable for an activity involving five hundred people? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::412::0 | What event lasts four days and fits the description of its location? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::413::0 | What’s a venue that can accommodate an event with around six thousand people? | raw | true | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::414::0 | What time is the event that involves four hundred people? | raw | true | next week Saturday 9:00 AM | 2 |
-| events::415::0 | What is the time for an event that lasts for nine days? | raw | true | 2024-10-16 Wednesday 09:00 | 2 |
-| events::416::0 | Which location will host the event taking place the week after next Wednesday at 2:00 PM? | raw | true | Famous for the Alamo and its rich Texan culture. | 2 |
-| events::417::0 | What activity lasts for six weeks and fits the description of its location? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::418::0 | What time is the event taking place in Portland, OR? | raw | false | nextnext week Wednesday 9:00 AM | 2 |
-| events::419::0 | What time does the event take place at the location in Atlanta, GA? | raw | true | next week Wednesday 7:00 PM | 2 |
-| events::420::0 | What is the time for an event that lasts two days? | raw | true | 2024-10-19 Saturday 19:00 | 2 |
-| events::421::0 | Which event location corresponds to the activity scheduled for 2:00 PM on the weekend after next Saturday? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::422::0 | What is the scheduled time for the event that accommodates one hundred people? | raw | false | 2024-10-12 Saturday 19:00 | 2 |
-| events::423::0 | What is the timeframe for an event that lasts nine days? | raw | true | 2024-10-10 Thursday 14:00 | 2 |
-| events::424::0 | What time is the event happening in Washington, DC? | raw | false | nextnext week Thursday 2:00 PM | 2 |
-| events::425::0 | Which activity location is associated with the event taking place on October 17, 2024, at 19:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::426::0 | How long does an activity that lasts eight weeks take? | raw | true | 2024-10-08 Tuesday 19:00 | 2 |
-| events::427::0 | Which description of the event location fits the activity planned for October 13, 2024, at 9:00 AM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::428::0 | Which six-day activity fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::429::0 | What kind of event location would be suitable for an activity with about one hundred people? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::430::0 | What time is the event planned for five hundred people? | raw | false | 2024-10-09 Wednesday 19:00 | 2 |
-| events::431::0 | Which event location description fits the activity planned for October 13, 2024, at 9:00? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::432::0 | What is the schedule for the activity that lasts nine weeks? | raw | true | 2024-10-14 Monday 19:00 | 2 |
-| events::433::0 | What event location corresponds to the activity planned for the week after next Sunday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 2 |
-| events::434::0 | Which event location matches the description of the event scheduled for October 16, 2024, at 7:00 PM? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::435::0 | Which event location description corresponds to the activity planned for October 17, 2024, at 14:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::436::0 | Which event designed for nine hundred people aligns with the description of its venue? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::437::0 | Which event venue would be suitable for an activity involving around two hundred people? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::438::0 | What time is the event that is expected to have eight hundred attendees? | raw | true | 2024-10-16 Wednesday 19:00 | 2 |
-| events::439::0 | What event lasts for seven days and matches the description of its location? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::440::0 | What time is the event that has a scale of seven hundred people? | raw | true | 2024-10-19 Saturday 19:00 | 2 |
-| events::441::0 | What time is the event expected to start for a gathering of three hundred people? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::442::0 | Which location is set for the event happening at 7:00 PM the week after next Wednesday? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::443::0 | Is there an event that lasts seven days that fits the description of its location? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::444::0 | What venue would be suitable for an event with around five hundred people? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::445::0 | What description of the activity location corresponds to the event on October 13, 2024, at 19:00? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 2 |
-| events::446::0 | What time is the event scheduled for four hundred people? | raw | false | next week Saturday 2:00 PM | 2 |
-| events::447::0 | Which venue fits the description for the event that can accommodate three hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::448::0 | What time is the event taking place in New York, NY? | raw | false | 2024-10-13 Sunday 19:00 | 2 |
-| events::449::0 | What event lasts four days and matches the description of its location? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::450::0 | What kind of event location would be suitable for an activity with around four hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 2 |
-| events::451::0 | When does the activity that lasts eight weeks take place? | raw | true | nextnext week Wednesday 7:00 PM | 2 |
-| events::452::0 | Which venue fits the description of an event accommodating eight hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 2 |
-| events::453::0 | What time is the one-day activity scheduled for? | raw | false | nextnext week Monday 9:00 AM | 2 |
-| events::454::0 | What event location matches the activity scheduled for October 16, 2024, at 9:00 AM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::455::0 | What venue would be suitable for an event that accommodates eight hundred people? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::456::0 | What seven-day event fits the description of its location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::457::0 | What time does the one-day activity take place? | raw | false | next week Friday 2:00 PM | 2 |
-| events::458::0 | What time is the event scheduled for at that location in Denver, CO? | raw | false | 2024-10-08 Tuesday 09:00 | 2 |
-| events::459::0 | What time does the event take place in Atlanta, GA? | raw | true | 2024-10-16 Wednesday 09:00 | 2 |
-| events::460::0 | Which venue can accommodate six hundred people for the event? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 2 |
-| events::461::0 | What eight-day activity fits the description of its location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::462::0 | What time does the event start in Miami, FL? | raw | false | nextnext week Wednesday 7:00 PM | 2 |
-| events::463::0 | Which location would be suitable for an event with around seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::464::0 | Which venue corresponds to the event planned for next Monday at 9:00 AM? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::465::0 | What is the time frame for an activity that lasts one day? | raw | false | 2024-10-18 Friday 14:00 | 2 |
-| events::466::0 | Which event location fits the description for the activity planned for next week on Friday at 7:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::467::0 | What time does the event that lasts six days start? | raw | true | 2024-10-17 Thursday 14:00 | 2 |
-| events::468::0 | What time is the event taking place in New York, NY? | raw | true | 2024-10-18 Friday 14:00 | 2 |
-| events::469::0 | When does the activity that lasts four weeks take place? | raw | true | 2024-10-11 Friday 14:00 | 2 |
-| events::470::0 | What time does the event take place in Miami, FL? | raw | true | 2024-10-20 Sunday 14:00 | 2 |
-| events::471::0 | What time is the event that is expecting five hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 2 |
-| events::472::0 | Which event location description corresponds to the activity planned for October 15, 2024, at 9:00 AM? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 2 |
-| events::473::0 | How long does the activity that lasts for four weeks take? | raw | true | 2024-10-08 Tuesday 09:00 | 2 |
-| events::474::0 | Which event location would be suitable for a gathering of around one hundred people? | raw | true | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::475::0 | Which event location corresponds to the activity planned for October 14, 2024, at 2:00 PM? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 2 |
-| events::476::0 | What event lasts for five days and corresponds to the description of its location? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::477::0 | What time is the event that is expected to have eight hundred people? | raw | false | 2024-10-19 Saturday 09:00 | 2 |
-| events::478::0 | What time is the event in Portland, OR? | raw | true | 2024-10-07 Monday 14:00 | 2 |
-| events::479::0 | What time does the event in Atlanta, GA start? | raw | true | next week Friday 7:00 PM | 2 |
-| events::480::0 | Which event location description corresponds to the activity planned for October 12, 2024, at 14:00? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::481::0 | What activity lasting eight days fits the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 2 |
-| events::482::0 | How long will the activity that lasts for six days take? | raw | true | next week Sunday 7:00 PM | 2 |
-| events::483::0 | Which event location corresponds to the activity planned for October 11, 2024, at 7:00 PM? | raw | true | Known for its theme parks, including Walt Disney World. | 2 |
-| events::484::0 | Which eight-day activity aligns with the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 2 |
-| events::485::0 | What is the ending time for an event that lasts for five days? | raw | true | 2024-10-20 Sunday 09:00 | 2 |
-| events::486::0 | What type of activity location would be suitable for an event with around two hundred people? | raw | false | A major cultural and economic center in the southeastern U.S. | 2 |
-| events::487::0 | Which venue corresponds to the event planned for the week after next Monday at 2:00 PM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::488::0 | What time does the event that lasts for two days start? | raw | true | next week Sunday 2:00 PM | 2 |
-| events::489::0 | Which event location corresponds to the activity that is scheduled for the week after next Monday at 2:00 PM? | raw | true | Known for its history, education, and sports teams. | 2 |
-| events::490::0 | What is the time for the event that involves three hundred people? | raw | true | nextnext week Wednesday 7:00 PM | 2 |
-| events::491::0 | What is the time allocated for an activity that lasts one day? | raw | false | nextnext week Wednesday 2:00 PM | 2 |
-| events::492::0 | Which venue is suitable for an event that accommodates nine hundred people? | raw | true | Known for its beautiful beaches and mild climate. | 2 |
-| events::493::0 | Which event location description corresponds to the activity planned for the week after next Tuesday at 2:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 2 |
-| events::494::0 | What is the time frame for an event that lasts four days? | raw | true | 2024-10-09 Wednesday 14:00 | 2 |
-| events::495::0 | What five-day event fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 2 |
-| events::496::0 | What time does the five-day event start? | raw | false |  week Friday 7:00 PM | 2 |
-| events::497::0 | What time is the event that will have eight hundred people attending? | raw | false | 2024-10-20 Sunday 14:00 | 2 |
-| events::498::0 | For an event with eight hundred attendees, which location would be suitable? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 2 |
-| events::499::0 | What is the date for the event that lasts five weeks? | raw | true | 2024-10-18 Friday 09:00 | 2 |
+| events::0::0 | What seven-day event perfectly aligns with its location? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::1::0 | What time is the event that expects two hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 1 |
+| events::2::0 | What is the timing for the event that lasts seven days? | raw | true | 2024-10-18 Friday 09:00 | 1 |
+| events::3::0 | What is the schedule for the event that lasts six days? | raw | true | nextnext week Tuesday 7:00 PM | 1 |
+| events::4::0 | What time is the event taking place at that location in Washington, DC? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::5::0 | Which venue would be suitable for an event that accommodates nine hundred people? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::6::0 | Which event corresponds to the location described for the activity planned for the week after next Thursday at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::7::0 | What six-day activity corresponds to its location description? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::8::0 | What seven-week activity fits the description of its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::9::0 | Which location description matches the event planned for the week after next Sunday at 2:00 PM? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::10::0 | What is the event location description for the activity scheduled on October 12, 2024, at 19:00? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::11::0 | What activity lasts for eight days and corresponds with its location description? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::12::0 | What time is the event that is expected to have eight hundred people? | raw | true | nextnext week Tuesday 9:00 AM | 1 |
+| events::13::0 | What time is the event at that location in Las Vegas, NV? | raw | true | 2024-10-11 Friday 14:00 | 1 |
+| events::14::0 | What event location description corresponds to the activity scheduled for October 17, 2024, at 9:00? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::15::0 | Which event that hosts four hundred people fits the description of its location? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::16::0 | Which event location corresponds to the activity taking place next week on Sunday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::17::0 | What is the scheduled time for the event that accommodates four hundred people? | raw | false | 2024-10-11 Friday 14:00 | 1 |
+| events::18::0 | Which venue corresponds to the event for nine hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::19::0 | What three-week activity matches the description of its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::20::0 | What time is the event taking place at the location in Austin, TX? | raw | true | nextnext week Tuesday 2:00 PM | 1 |
+| events::21::0 | Which location is set to host an event on October 16, 2024, at 14:00? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::22::0 | What venue would be suitable for an event accommodating six hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::23::0 | What time is the event that will have around seven hundred people? | raw | true | next week Friday 9:00 AM | 1 |
+| events::24::0 | What time will the event take place in Atlanta, GA? | raw | false | next week Saturday 9:00 AM | 1 |
+| events::25::0 | Which event location description corresponds to the activity planned for October 17, 2024, at 19:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::26::0 | What is the timing for the activity that involves three hundred people? | raw | true | nextnext week Thursday 2:00 PM | 1 |
+| events::27::0 | What time is the event that has a scale of eight hundred people? | raw | true | 2024-10-15 Tuesday 14:00 | 1 |
+| events::28::0 | Which location is hosting the event planned for next week on Thursday at 2:00 PM? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::29::0 | What time is the event that has an expected attendance of eight hundred people? | raw | true | 2024-10-08 Tuesday 09:00 | 1 |
+| events::30::0 | What time is the event for the nine hundred people? | raw | true | 2024-10-09 Wednesday 09:00 | 1 |
+| events::31::0 | What time is the event happening in Boston, MA? | raw | false | 2024-10-17 Thursday 19:00 | 1 |
+| events::32::0 | What is the event location description for the activity scheduled on October 13, 2024, at 7:00 PM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::33::0 | Which venue would be suitable for an event with around three hundred attendees? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::34::0 | What time is the activity scheduled for that lasts five days? | raw | true | nextnext week Monday 7:00 PM | 1 |
+| events::35::0 | Which venue description fits an activity scale of two hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::36::0 | Which venue description would be suitable for an event that accommodates three hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::37::0 | Which venue would be suitable for an event that accommodates five hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::38::0 | Which event venue is suitable for an activity that accommodates seven hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::39::0 | What time is the event taking place at that location in Los Angeles, CA? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::40::0 | What time is the event happening in San Francisco, CA? | raw | true | 2024-10-14 Monday 09:00 | 1 |
+| events::41::0 | What event coincides with the location description for next week Sunday at 2:00 PM? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::42::0 | Which event location description corresponds to the activity planned for the week after next Wednesday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::43::0 | What one-day activity aligns perfectly with its location description? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::44::0 | Which location is designated for the event happening at 2:00 PM the week after next Sunday? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::45::0 | What is the schedule for the event that lasts four days? | raw | true | next week Sunday 9:00 AM | 1 |
+| events::46::0 | What time is the event scheduled for with nine hundred attendees? | raw | true | 2024-10-14 Monday 19:00 | 1 |
+| events::47::0 | What time is the event scheduled for at that location in Las Vegas, NV? | raw | false | next week Saturday 7:00 PM | 1 |
+| events::48::0 | What time is the event that's expected to have around two hundred people? | raw | false | 2024-10-12 Saturday 14:00 | 1 |
+| events::49::0 | When does the activity that lasts nine weeks take place? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::50::0 | Which event description corresponds to the venue that can accommodate eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::51::0 | What is the timeframe for the activity that lasts two weeks? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::52::0 | What activity that lasts five weeks fits the description of its location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::53::0 | What event location would be suitable for an activity involving eight hundred people? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::54::0 | What one-day activity corresponds with the description of its location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::55::0 | What time is the event expected to start for a gathering of two hundred people? | raw | true | 2024-10-11 Friday 09:00 | 1 |
+| events::56::0 | What kind of event location would be suitable for an activity with around six hundred people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::57::0 | What event is happening at the location described for the one scheduled for the week after next Saturday at 7:00 PM? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::58::0 | What time does the event start in Austin, TX? | raw | false | nextnext week Tuesday 2:00 PM | 1 |
+| events::59::0 | What is the timeframe for the activity that lasts a week? | raw | true | 2024-10-10 Thursday 19:00 | 1 |
+| events::60::0 | What activity lasts nine weeks and corresponds with the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::61::0 | What time does the event take place in Chicago, IL? | raw | true | 2024-10-18 Friday 09:00 | 1 |
+| events::62::0 | What time does the event that lasts three days start? | raw | false | nextnext week Thursday 7:00 PM | 1 |
+| events::63::0 | What activity that lasts nine weeks matches its location description? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::64::0 | What activity lasts for nine weeks and has a location that fits its description? | raw | true | Known for its historical significance and the Liberty Bell. | 1 |
+| events::65::0 | What time is the event happening in San Francisco, CA? | raw | false | 2024-10-13 Sunday 19:00 | 1 |
+| events::66::0 | What is the timeframe for the activity that lasts seven weeks? | raw | true | 2024-10-12 Saturday 09:00 | 1 |
+| events::67::0 | What time is the event taking place in Seattle, WA? | raw | true | nextnext week Monday 2:00 PM | 1 |
+| events::68::0 | What time is the event for nine hundred people? | raw | false | nextnext week Thursday 2:00 PM | 1 |
+| events::69::0 | What is the timing for the event with two hundred attendees? | raw | false | next week Sunday 2:00 PM | 1 |
+| events::70::0 | What is the event location description for the activity set for October 17, 2024, at 9:00? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::71::0 | What activity matches the description of the location for that two-week event? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::72::0 | What is the event location for the activity planned on October 15, 2024, at 14:00? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::73::0 | Which venue would be suitable for hosting an event with around seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::74::0 | Which venue hosts events for nine hundred people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::75::0 | What time is the event happening in Austin, TX? | raw | true | nextnext week Tuesday 7:00 PM | 1 |
+| events::76::0 | Which venue fits the description for an event with a capacity of seven hundred people? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::77::0 | What time is the event that will have six hundred people attending? | raw | true | 2024-10-08 Tuesday 14:00 | 1 |
+| events::78::0 | What time is the event that will have three hundred people attending? | raw | true | 2024-10-09 Wednesday 14:00 | 1 |
+| events::79::0 | What is the time for the event that will accommodate five hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::80::0 | Which event location description corresponds to the activity set for October 12, 2024, at 2:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::81::0 | Which venue would be suitable for an event accommodating around two hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::82::0 | Which event corresponds to the location description for the activity planned for the week after next Friday at 7:00 PM? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::83::0 | Which activity lasts for eight days and fits the description of its location? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::84::0 | Is there an activity that lasts six weeks and has a location that matches its description? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::85::0 | Which venue would be suitable for an event that accommodates around seven hundred people? | raw | false | Known for its theme parks, including Walt Disney World. | 1 |
+| events::86::0 | What time is the event expected to take place that will have around seven hundred people attending? | raw | false | 2024-10-18 Friday 19:00 | 1 |
+| events::87::0 | What four-day event fits the description of its location? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::88::0 | Which venue is suitable for an activity involving around one hundred people? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::89::0 | Which nine-day activity aligns with the description of its location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::90::0 | What venue would be suitable for an event with a scale of four hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::91::0 | What time is the event scheduled to start at that location in Los Angeles, CA? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::92::0 | How long is the activity that lasts for nine weeks? | raw | true | 2024-10-11 Friday 14:00 | 1 |
+| events::93::0 | What time does the event in San Francisco, CA start? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::94::0 | Which event corresponds to the location description for the activity planned for next week on Thursday at 9:00 AM? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::95::0 | What time does the event take place at the location in San Francisco, CA? | raw | false | next week Monday 2:00 PM | 1 |
+| events::96::0 | What event corresponds to the location description for the activity set to take place the week after next Saturday at 9:00 AM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::97::0 | Which five-day event corresponds to the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::98::0 | What time is the event that will have around six hundred people? | raw | true | 2024-10-11 Friday 09:00 | 1 |
+| events::99::0 | Which event location would be suitable for an activity that accommodates around five thousand people? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::100::0 | Which location aligns with an event that accommodates seven hundred people? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::101::0 | When does an event that lasts for nine days take place? | raw | true | next week Friday 2:00 PM | 1 |
+| events::102::0 | How long does the activity that lasts for eight weeks take? | raw | true | nextnext week Tuesday 2:00 PM | 1 |
+| events::103::0 | What time does the event in Boston, MA start? | raw | true | next week Monday 2:00 PM | 1 |
+| events::104::0 | Which venue description is suitable for an event with three hundred attendees? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::105::0 | Which location is designated for the event taking place at 9:00 AM the week after next Saturday? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::106::0 | What time does the event take place in Orlando, FL? | raw | true |  week Sunday 2:00 PM | 1 |
+| events::107::0 | What time is the event taking place at that location in Portland, OR? | raw | true | nextnext week Thursday 2:00 PM | 1 |
+| events::108::0 | What time does the event start at that location in Portland, OR? | raw | true | 2024-10-16 Wednesday 09:00 | 1 |
+| events::109::0 | Which venue description would be suitable for an event with around five thousand attendees? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::110::0 | How long does an activity that lasts for seven days take? | raw | true | nextnext week Thursday 2:00 PM | 1 |
+| events::111::0 | Which event location description corresponds to the activity planned for October 14, 2024, at 19:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::112::0 | What activity lasts nine days and corresponds to its described location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::113::0 | Which venue is suitable for an event with two hundred people? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::114::0 | What time does the event take place in Portland, OR? | raw | true | 2024-10-13 Sunday 14:00 | 1 |
+| events::115::0 | What time does the event start in Chicago, IL? | raw | false | nextnext week Monday 2:00 PM | 1 |
+| events::116::0 | What is an activity with a one-day duration that fits the description of its location? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::117::0 | What time is the event for five hundred attendees? | raw | false | nextnext week Thursday 2:00 PM | 1 |
+| events::118::0 | Which location description fits the event happening on October 17, 2024, at 14:00? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::119::0 | What time is the event happening in Orlando, FL? | raw | true | next week Sunday 2:00 PM | 1 |
+| events::120::0 | What location would work for an event expecting around five hundred people? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::121::0 | What event matches the description of the location for the activity planned for the week after next Friday at 9:00 AM? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::122::0 | What is the timeframe for the activity that lasts six days? | raw | true | next week Sunday 2:00 PM | 1 |
+| events::123::0 | What time is the event that can accommodate four thousand people? | raw | true | 2024-10-08 Tuesday 19:00 | 1 |
+| events::124::0 | What is the timeframe for the event that lasts five days? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::125::0 | What event with a capacity of seven thousand people fits the description of its venue? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::126::0 | What time is the event that expects seven hundred attendees? | raw | true | 2024-10-18 Friday 19:00 | 1 |
+| events::127::0 | Which event location description corresponds to the activity planned for October 16, 2024, at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::128::0 | What time is the event that has nine hundred people? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::129::0 | What time is the event taking place in Los Angeles, CA? | raw | true | 2024-10-26 Saturday 14:00 | 1 |
+| events::130::0 | What eight-day activity matches the description of its location? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::131::0 | What time is the event that has a scale of three hundred people? | raw | true | next week Friday 9:00 AM | 1 |
+| events::132::0 | What event is happening next Saturday at 2:00 PM, and where will it take place? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::133::0 | What time is the event expected to accommodate eight hundred people? | raw | false | 2024-10-15 Tuesday 09:00 | 1 |
+| events::134::0 | Which venue would be suitable for an event with six hundred attendees? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::135::0 | How long does the activity that lasts three weeks take? | raw | true | next week Monday 2:00 PM | 1 |
+| events::136::0 | What time is the event that will host eight hundred people? | raw | true | 2024-10-17 Thursday 14:00 | 1 |
+| events::137::0 | What activity has a duration of six weeks that matches its location description? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::138::0 | How long does the activity that lasts seven days take? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::139::0 | What time is the event taking place in Miami, FL? | raw | true | 2024-10-08 Tuesday 09:00 | 1 |
+| events::140::0 | What time does the event start in Seattle, WA? | raw | true |  week Friday 2:00 PM | 1 |
+| events::141::0 | At what time is the event that will have nine hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 1 |
+| events::142::0 | Which activity that lasts three weeks fits the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::143::0 | What time is the event happening in Austin, TX? | raw | false | 2024-10-11 Friday 14:00 | 1 |
+| events::144::0 | What type of event venue would be suitable for an activity with a capacity of five hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::145::0 | What five-day activity corresponds with the description of its location? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::146::0 | What time marks the start of an event that lasts for four days? | raw | true | 2024-10-18 Friday 19:00 | 1 |
+| events::147::0 | What is the schedule for the event that lasts three days? | raw | true | next week Sunday 9:00 AM | 1 |
+| events::148::0 | What activity lasts seven weeks and matches the description of the event location? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::149::0 | What time is the event that will have eight hundred people attending? | raw | false | 2024-10-14 Monday 14:00 | 1 |
+| events::150::0 | What time does the event in Austin, TX start? | raw | false | 2024-10-16 Wednesday 09:00 | 1 |
+| events::151::0 | What time is the event scheduled for that will have around four hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::152::0 | What is the timeframe for an activity that lasts one week? | raw | true | 2024-10-16 Wednesday 09:00 | 1 |
+| events::153::0 | What event location description corresponds to the activity planned for October 14, 2024, at 9:00 AM? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::154::0 | What time is the event that will host eight hundred people? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::155::0 | Which venue would be suitable for hosting an event with around five hundred people? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::156::0 | What time will the event take place in Portland, OR? | raw | true | 2024-10-17 Thursday 14:00 | 1 |
+| events::157::0 | What time is the event that will host eight hundred people? | raw | true | 2024-10-08 Tuesday 19:00 | 1 |
+| events::158::0 | Which event location would be suitable for an activity designed for one hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::159::0 | Which two-day activity aligns with its described location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::160::0 | What time is the event that's expected to have seven hundred people? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::161::0 | What time is the event happening in Washington, DC? | raw | false | nextnext week Thursday 2:00 PM | 1 |
+| events::162::0 | Which venue description is suitable for an event with three hundred attendees? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::163::0 | What venue would be suitable for an event with a scale of four hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::164::0 | Which venue would be suitable for an event expecting around two hundred people? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::165::0 | What is the timeline for the activity that lasts three weeks? | raw | true | 2024-10-08 Tuesday 19:00 | 1 |
+| events::166::0 | Which event corresponds to the location for the activity planned for the week after next Saturday at 2:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::167::0 | How long does an activity that lasts four weeks take? | raw | true | 2024-10-18 Friday 19:00 | 1 |
+| events::168::0 | What time is the event scheduled to take place at that location in Washington, DC? | raw | true | nextnext week Tuesday 7:00 PM | 1 |
+| events::169::0 | What is the activity location description for the event set on October 14, 2024, at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::170::0 | What time is the event taking place in San Francisco, CA? | raw | true | 2024-10-13 Sunday 19:00 | 1 |
+| events::171::0 | What time is the event happening in Denver, CO? | raw | false | next week Saturday 2:00 PM | 1 |
+| events::172::0 | What time will the event take place in Los Angeles, CA? | raw | true | 2024-10-14 Monday 19:00 | 1 |
+| events::173::0 | What time is the event taking place in Chicago, IL? | raw | true | 2024-10-08 Tuesday 09:00 | 1 |
+| events::174::0 | Which three-day event corresponds with the description of its location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::175::0 | Which venue would be suitable for an event with nine hundred attendees? | raw | false | Known for its theme parks, including Walt Disney World. | 1 |
+| events::176::0 | What time is the event that involves three hundred people? | raw | false | next week Friday 2:00 PM | 1 |
+| events::177::0 | What two-week activity aligns with the description of the activity location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::178::0 | Which event location fits the activity planned for October 17, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::179::0 | Which venue fits the description for an event accommodating around five hundred people? | raw | false | Known for its history, education, and sports teams. | 1 |
+| events::180::0 | Which venue would be suitable for an event with seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::181::0 | What time is the event taking place in Austin, TX? | raw | false | nextnext week Tuesday 7:00 PM | 1 |
+| events::182::0 | What time is the event that will have four hundred people attending? | raw | true | 2024-10-10 Thursday 19:00 | 1 |
+| events::183::0 | Which venue would be suitable for an event with nine hundred attendees? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::184::0 | What three-day event corresponds with the description of its location? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::185::0 | How long does the activity that lasts for three weeks take? | raw | true | 2024-10-24 Thursday 19:00 | 1 |
+| events::186::0 | What is the event location description for the activity planned on 2024-10-13 at 19:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::187::0 | When does the event that lasts three weeks start? | raw | true | 2024-10-17 Thursday 09:00 | 1 |
+| events::188::0 | Which event location description corresponds to the event planned for October 12, 2024, at 9:00? | raw | true | A major business and cultural hub in Texas, known for its skyline. | 1 |
+| events::189::0 | What time does the event start in New York, NY? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::190::0 | What venue fits the description of an event with a scale of one thousand people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::191::0 | What activity lasts seven days and fits the description of its location? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::192::0 | Which event location description corresponds to the activity planned for October 12, 2024, at 19:00? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::193::0 | What is the timeframe for the activity that lasts five weeks? | raw | true | next week Sunday 9:00 AM | 1 |
+| events::194::0 | What time is the event taking place in New York, NY? | raw | true | next week Saturday 9:00 AM | 1 |
+| events::195::0 | What time is the event happening in Philadelphia, PA? | raw | false | 2024-10-18 Friday 09:00 | 1 |
+| events::196::0 | What event lasts for nine days and fits the description of its activity location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::197::0 | How long does the activity that lasts seven days take? | raw | true | 2024-10-18 Friday 14:00 | 1 |
+| events::198::0 | What time is the event taking place in Orlando, FL? | raw | false | 2024-10-10 Thursday 14:00 | 1 |
+| events::199::0 | Which six-week activity aligns perfectly with its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::200::0 | What time does the event start at that location in Portland, OR? | raw | false | next week Saturday 7:00 PM | 1 |
+| events::201::0 | How long is the activity that lasts for five weeks? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::202::0 | Which event description aligns with the location for the activity planned on October 13, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::203::0 | How long is the activity that lasts for four weeks? | raw | true | next week Friday 7:00 PM | 1 |
+| events::204::0 | Which venue would be suitable for an event accommodating nine hundred people? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::205::0 | What time is the event that will have four hundred attendees? | raw | true | next week Friday 7:00 PM | 1 |
+| events::206::0 | What time is the event that will accommodate five hundred people? | raw | true | 2024-10-07 Monday 09:00 | 1 |
+| events::207::0 | What time is the event expected to start that will have around three hundred people in attendance? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::208::0 | What six-week activity fits the description of its location? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::209::0 | What type of venue would work well for an event with around two hundred people? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::210::0 | Which venue is suitable for an event that accommodates five hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::211::0 | What event lasts for six days and fits the description of its location? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::212::0 | What is the timeframe for an activity that lasts for seven weeks? | raw | true | 2024-10-17 Thursday 14:00 | 1 |
+| events::213::0 | What event description corresponds to the location for the activity set to take place on October 17, 2024, at 2:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::214::0 | What time does the event start in Los Angeles, CA? | raw | true | next week Saturday 9:00 AM | 1 |
+| events::215::0 | Which venue is suitable for an event with about one hundred people? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::216::0 | Which event location corresponds to the activity planned for next Saturday at 2:00 PM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::217::0 | Which venue would be suitable for an event with around four hundred attendees? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::218::0 | What time does the event in Chicago, IL start? | raw | true | 2024-10-20 Sunday 19:00 | 1 |
+| events::219::0 | What time is the event happening in Portland, OR? | raw | true | next week Friday 2:00 PM | 1 |
+| events::220::0 | What time does an event that lasts for two days start? | raw | true | next week Monday 9:00 AM | 1 |
+| events::221::0 | Which event's location description aligns with the activity planned for next Wednesday at 9:00 AM? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::222::0 | Which venue would be suitable for an event scaled for seven hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::223::0 | When does the activity that lasts for three weeks take place? | raw | true | 2024-10-07 Monday 19:00 | 1 |
+| events::224::0 | Which event corresponds to the location description for the activity planned for the week after next Friday at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::225::0 | Which venue fits the description for the activity that accommodates one hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::226::0 | Which location is hosting the event that’s taking place the week after next Sunday at 7:00 PM? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::227::0 | Which venue is suitable for an event that accommodates around seven hundred people? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::228::0 | What time does the event take place at that location in Washington, DC? | raw | true | nextnext week Monday 9:00 AM | 1 |
+| events::229::0 | At what time is the event taking place in Seattle, WA? | raw | true | 2024-10-18 Friday 19:00 | 1 |
+| events::230::0 | What is the event location description for the activity scheduled on October 12, 2024, at 14:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::231::0 | What event location would be suitable for an activity with a scale of one hundred people? | raw | false | Known for its theme parks, including Walt Disney World. | 1 |
+| events::232::0 | How long is the activity that lasts for eight weeks? | raw | true | nextnext week Thursday 7:00 PM | 1 |
+| events::233::0 | What time is the event that will have seven hundred people attending? | raw | true | 2024-10-10 Thursday 19:00 | 1 |
+| events::234::0 | What two-day event corresponds to the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::235::0 | Which event location corresponds to the activity planned for 19:00 on October 13, 2024? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::236::0 | What type of venue would be suitable for an event with around five hundred attendees? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::237::0 | Which venue would be suitable for an event with about three hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::238::0 | For an event expecting around three hundred people, what kind of location would be the best fit? | raw | false | The capital of Arizona, known for its hot desert climate. | 1 |
+| events::239::0 | Which venue fits the description for the event that accommodates seven hundred people? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::240::0 | What six-week activity fits the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::241::0 | Which event corresponds to the location of the activity planned for the week after next Monday at 2:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::242::0 | What time is the event that will have six hundred people attending? | raw | false | next week Friday 2:00 PM | 1 |
+| events::243::0 | Which event scheduled for October 13, 2024, at 9:00 matches the description of its location? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::244::0 | What time is the event with four hundred people? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::245::0 | What is the scheduled time for the event that accommodates two hundred people? | raw | true | 2024-10-20 Sunday 19:00 | 1 |
+| events::246::0 | What event lasts for nine days and has a location that matches its description? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::247::0 | How long will the activity that lasts for eight days take? | raw | true | next week Sunday 9:00 AM | 1 |
+| events::248::0 | Which three-week activity aligns with the description of its location? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::249::0 | Is there an event that lasts for seven days and has a description that fits its location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::250::0 | Which description of the event location corresponds to the activity planned for October 12, 2024, at 9:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::251::0 | Which location corresponds to the event with nine hundred attendees? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::252::0 | Which event location corresponds to the activity planned for the week after next Tuesday at 9:00 AM? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::253::0 | What time is the event that is expected to have six hundred people? | raw | true | next week Sunday 2:00 PM | 1 |
+| events::254::0 | What time is the event taking place in New York, NY? | raw | true | 2024-10-11 Friday 14:00 | 1 |
+| events::255::0 | What time is the event taking place in Orlando, FL? | raw | false | 2024-10-20 Sunday 09:00 | 1 |
+| events::256::0 | What event location description fits the activity planned for 2024-10-14 at 9:00? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::257::0 | What time is the event happening in New York, NY? | raw | true | 2024-10-07 Monday 19:00 | 1 |
+| events::258::0 | What time is the event that is expected to have two hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 1 |
+| events::259::0 | How long does an activity that lasts eight weeks take? | raw | true | 2024-10-07 Monday 14:00 | 1 |
+| events::260::0 | What kind of venue would be suitable for an event that expects around three thousand attendees? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::261::0 | Which location description suits the event that was attended by eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::262::0 | What time is the event scheduled for with three hundred people attending? | raw | false | nextnext week Tuesday 9:00 AM | 1 |
+| events::263::0 | Which event location corresponds to the activity planned for the week after next Friday at 7:00 PM? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::264::0 | What time is the event scheduled for, considering it has a scale of four hundred people? | raw | true | nextnext week Tuesday 2:00 PM | 1 |
+| events::265::0 | What time is the event that will host five hundred people? | raw | false | 2024-10-09 Wednesday 09:00 | 1 |
+| events::266::0 | What three-week activity fits the description of its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::267::0 | Which event corresponds to the location description for the activity scheduled for the week after next Monday at 2:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::268::0 | What time is the event happening at that location in Washington, DC? | raw | true | 2024-10-10 Thursday 19:00 | 1 |
+| events::269::0 | What venue would be suitable for an event accommodating eight hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::270::0 | What time is the event happening in San Francisco, CA? | raw | false | 2024-10-14 Monday 14:00 | 1 |
+| events::271::0 | What four-day event can be identified by its location? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::272::0 | What time is the event taking place in Boston, MA? | raw | true | 2024-10-07 Monday 09:00 | 1 |
+| events::273::0 | What time is the event that involves two hundred people? | raw | false | next week Saturday 2:00 PM | 1 |
+| events::274::0 | Which venue fits the description of an event that can accommodate eight hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::275::0 | What time does the event take place in Washington, DC? | raw | false | 2024-10-13 Sunday 14:00 | 1 |
+| events::276::0 | What is the event location for the activity scheduled next week on Friday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::277::0 | What time is the event for eight hundred people? | raw | false | nextnext week Wednesday 7:00 PM | 1 |
+| events::278::0 | What time is the event for eight hundred people? | raw | false | 2024-10-13 Sunday 19:00 | 1 |
+| events::279::0 | At what time does the activity that lasts for one day take place? | raw | true | 2024-10-08 Tuesday 14:00 | 1 |
+| events::280::0 | Is there an activity that lasts one day and matches the description of its location? | raw | false | Known for its beautiful beaches and mild climate. | 1 |
+| events::281::0 | What is the event location for the scheduled event on October 16, 2024, at 7:00 PM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::282::0 | Which location description corresponds to the event planned for October 14, 2024, at 9:00? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::283::0 | How much time does an activity that lasts five weeks take? | raw | true | 2024-10-13 Sunday 09:00 | 1 |
+| events::284::0 | What time is the event happening in Chicago, IL? | raw | false | 2024-10-20 Sunday 14:00 | 1 |
+| events::285::0 | What venue would be suitable for an event that accommodates five hundred people? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::286::0 | Can someone name an event that lasts for seven days and fits its described location? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::287::0 | What is the schedule for the nine-day activity? | raw | true | nextnext week Wednesday 9:00 AM | 1 |
+| events::288::0 | Which venue would be suitable for an event that accommodates eight hundred people? | raw | true | The heart of Silicon Valley, known for its tech industry. | 1 |
+| events::289::0 | What five-day event matches the description of its location? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::290::0 | What time is the event that will have a hundred people? | raw | false | nextnext week Wednesday 2:00 PM | 1 |
+| events::291::0 | What activity that lasts four weeks aligns with the description of its location? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::292::0 | Is there an event that lasts two days and fits its location description? | raw | true | The capital of Arizona, known for its hot desert climate. | 1 |
+| events::293::0 | What time is the event taking place in Miami, FL? | raw | true | nextnext week Monday 9:00 AM | 1 |
+| events::294::0 | What three-week activity aligns with the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::295::0 | What event fits the location description for the activity planned for next Sunday at 7:00 PM? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::296::0 | What time does the event start in Atlanta, GA? | raw | false | 2024-10-18 Friday 14:00 | 1 |
+| events::297::0 | What time is the event that expects a crowd of six thousand people? | raw | true | next week Friday 9:00 AM | 1 |
+| events::298::0 | Which venue corresponds to the event designed for six hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::299::0 | What time is the event happening in San Francisco, CA? | raw | true | 2024-10-18 Friday 09:00 | 1 |
+| events::300::0 | What six-week activity matches the description of its location? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::301::0 | When does the activity that lasts for three weeks take place? | raw | true | nextnext week Tuesday 9:00 AM | 1 |
+| events::302::0 | When does the activity that lasts one week take place? | raw | true | next week Friday 7:00 PM | 1 |
+| events::303::0 | What time does the event start in Portland, OR? | raw | true | nextnext week Monday 2:00 PM | 1 |
+| events::304::0 | Which venue would be suitable for an event that can accommodate four hundred people? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::305::0 | Which event location description would be suitable for accommodating two hundred people? | raw | true | The capital of Arizona, known for its hot desert climate. | 1 |
+| events::306::0 | What activity lasts six weeks and matches the description of its location? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::307::0 | What time is the event for three hundred people? | raw | false | 2024-10-20 Sunday 09:00 | 1 |
+| events::308::0 | What kind of venue would be suitable for an event with about seven hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::309::0 | What time is the event that will have about two hundred people attending? | raw | false | next week Sunday 2:00 PM | 1 |
+| events::310::0 | Which venue description corresponds to the activity planned for the week after next Friday at 2:00 PM? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::311::0 | What time does the event start in Seattle, WA? | raw | true | next week Saturday 2:00 PM | 1 |
+| events::312::0 | What time is the event for four hundred people being held? | raw | true | next week Friday 2:00 PM | 1 |
+| events::313::0 | Which event takes place at the location for the activity on the week after next Tuesday at 7:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::314::0 | Which venue would be suitable for an event hosting around two hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::315::0 | Which event location would be suitable for an activity designed for five hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::316::0 | What time does the event start at that location in Denver, CO? | raw | false | nextnext week Monday 9:00 AM | 1 |
+| events::317::0 | What time is the event expected to start that will have nine hundred people attending? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::318::0 | What activity lasts eight days and aligns with its location description? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::319::0 | What venue would be suitable for an event with around six hundred people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::320::0 | What time is the event that involves six hundred people? | raw | true | 2024-10-16 Wednesday 09:00 | 1 |
+| events::321::0 | Which event location matches the activity scheduled for next week on Monday at 7:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::322::0 | What time is the event happening in Los Angeles, CA? | raw | false | 2024-10-09 Wednesday 09:00 | 1 |
+| events::323::0 | What event corresponds to the location for the activity planned for the week after next Tuesday at 2:00 PM? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::324::0 | What kind of venue would be suitable for hosting an event for two hundred people? | raw | false | Known for its history, education, and sports teams. | 1 |
+| events::325::0 | What week-long activity matches the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::326::0 | Which event location would be suitable for an activity with around one hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::327::0 | What time is the event expected to take place that will have around four thousand attendees? | raw | false | nextnext week Monday 2:00 PM | 1 |
+| events::328::0 | What time is the event happening in Houston, TX? | raw | true | next week Saturday 9:00 AM | 1 |
+| events::329::0 | What is the time for an event that lasts for two days? | raw | false | 2024-10-19 Saturday 19:00 | 1 |
+| events::330::0 | Which venue would be suitable for an event with around three hundred people? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::331::0 | What are the scheduled times for the event that lasts two days? | raw | true | nextnext week Tuesday 9:00 AM | 1 |
+| events::332::0 | What four-day event corresponds with the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::333::0 | When does the activity that lasts for two weeks take place? | raw | true | 2024-10-17 Thursday 09:00 | 1 |
+| events::334::0 | What time is the event that will have three hundred people attending? | raw | false | nextnext week Wednesday 2:00 PM | 1 |
+| events::335::0 | What time will the event take place in Boston, MA? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::336::0 | What time is the event taking place in Miami, FL? | raw | true | 2024-10-12 Saturday 09:00 | 1 |
+| events::337::0 | What is the timeframe for an event that lasts three days? | raw | true | 2024-10-20 Sunday 19:00 | 1 |
+| events::338::0 | Which location coincides with the event scheduled for 9:00 AM on the Saturday after next? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::339::0 | Which event corresponds to the location details for the activity planned on October 12, 2024, at 19:00? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::340::0 | What time is the event taking place in Austin, TX? | raw | true | 2024-10-11 Friday 09:00 | 1 |
+| events::341::0 | What is the time for an event that lasts one day? | raw | true | 2024-10-08 Tuesday 14:00 | 1 |
+| events::342::0 | Which venue fits the description for an event that can accommodate seven hundred people? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::343::0 | What time is the event that has a scale of six hundred people? | raw | true | 2024-10-18 Friday 14:00 | 1 |
+| events::344::0 | What three-week-long event corresponds with its described location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::345::0 | What time does the event take place in Seattle, WA? | raw | false | 2024-10-11 Friday 09:00 | 1 |
+| events::346::0 | Which location description fits the event scheduled for October 12, 2024, at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::347::0 | What seven-day event matches the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::348::0 | Which activity that lasts four days fits the description of its location? | raw | true | The heart of Silicon Valley, known for its tech industry. | 1 |
+| events::349::0 | What is the event location for the activity planned on October 17, 2024, at 14:00? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::350::0 | How long does the activity that lasts four weeks take? | raw | true | next week Monday 9:00 AM | 1 |
+| events::351::0 | What time will the event take place in Washington, DC? | raw | false | nextnext week Thursday 9:00 AM | 1 |
+| events::352::0 | What time does the event that lasts four days start? | raw | false | next week Sunday 2:00 PM | 1 |
+| events::353::0 | What time does the event that lasts for two days start? | raw | false | next week Friday 9:00 AM | 1 |
+| events::354::0 | Which venue would be suitable for an event with around five hundred attendees? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::355::0 | What time is the event happening at that location in San Francisco, CA? | raw | true | next week Friday 2:00 PM | 1 |
+| events::356::0 | What time is the event that will have seven hundred attendees? | raw | true | next week Thursday 2:00 PM | 1 |
+| events::357::0 | What time is the event that will accommodate seven hundred people? | raw | true | 2024-10-19 Saturday 09:00 | 1 |
+| events::358::0 | What two-week event fits the description of its location? | raw | false | Known for its history, education, and sports teams. | 1 |
+| events::359::0 | Is there an event that lasts for eight days and has a name that reflects its location? | raw | true | A major business and cultural hub in Texas, known for its skyline. | 1 |
+| events::360::0 | How long is an activity that lasts for one day? | raw | true | nextnext week Thursday 7:00 PM | 1 |
+| events::361::0 | What time is the four-day activity scheduled to start? | raw | false | nextnext week Thursday 2:00 PM | 1 |
+| events::362::0 | What time is the event taking place in Houston, TX? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::363::0 | What time is the event in Boston, MA? | raw | false | nextnext week Monday 9:00 AM | 1 |
+| events::364::0 | Which event is associated with the location for the activity planned on 2024-10-12 at 9:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::365::0 | What time is the event taking place in San Francisco, CA? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::366::0 | What time is the event that has nine hundred people? | raw | true | nextnext week Wednesday 9:00 AM | 1 |
+| events::367::0 | Which venue would be suitable for an event with about three hundred attendees? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::368::0 | What activity lasts six days and matches the description of its location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::369::0 | What time will the event with nine hundred people take place? | raw | false | 2024-10-16 Wednesday 14:00 | 1 |
+| events::370::0 | What time is the event happening in Washington, DC? | raw | true | next week Wednesday 7:00 PM | 1 |
+| events::371::0 | What time does the event start in Atlanta, GA? | raw | true | 2024-10-14 Monday 09:00 | 1 |
+| events::372::0 | Which event location corresponds to the activity planned for the week after next Monday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::373::0 | What time does the event lasting nine days start? | raw | false | nextnext week Thursday 9:00 AM | 1 |
+| events::374::0 | Which venue is suitable for an event with around nine hundred people? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::375::0 | Is there an event that lasts for seven days and corresponds with its location's description? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::376::0 | When does the two-week activity take place? | raw | false | 2024-10-20 Sunday 19:00 | 1 |
+| events::377::0 | Which venue description matches the activity planned for October 15, 2024, at 9:00? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::378::0 | What time is the event taking place at that location in Las Vegas, NV? | raw | true | nextnext week Tuesday 2:00 PM | 1 |
+| events::379::0 | What time is the event expected to start with a scale of six hundred people? | raw | true | 2024-10-10 Thursday 14:00 | 1 |
+| events::380::0 | What two-week-long activity fits the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::381::0 | What time is the event that will have seven hundred people? | raw | true | 2024-10-11 Friday 19:00 | 1 |
+| events::382::0 | What one-week activity corresponds with its location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::383::0 | Which event location would be suitable for an activity with two hundred people? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::384::0 | What seven-day activity fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::385::0 | When does the event that lasts six months take place? | raw | true | 2024-10-14 Monday 19:00 | 1 |
+| events::386::0 | What time does the event that lasts for three days start? | raw | true | 2024-10-10 Thursday 09:00 | 1 |
+| events::387::0 | What time is the event expected to have around five thousand people? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::388::0 | Which location is set to host the event scheduled for the week after next Monday at 2:00 PM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::389::0 | What kind of event location would be suitable for an activity with around eight thousand people? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::390::0 | What kind of venue would be suitable for an event with four hundred people? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::391::0 | How long is the activity that lasts for nine days? | raw | true | next week Saturday 7:00 PM | 1 |
+| events::392::0 | What venue would be suitable for an event with nine hundred attendees? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::393::0 | What time is the event happening at the location in Miami, FL? | raw | false | nextnext week Wednesday 2:00 PM | 1 |
+| events::394::0 | Is there a three-day event that fits the description of its location? | raw | false | Known for its history, education, and sports teams. | 1 |
+| events::395::0 | What is the time for the event that will host four hundred people? | raw | false | 2024-10-09 Wednesday 09:00 | 1 |
+| events::396::0 | Which event venue would be suitable for an activity with nine hundred attendees? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::397::0 | What event is happening on October 17, 2024, at 19:00 that matches the description of its venue? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::398::0 | How long does the activity that lasts eight weeks take? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::399::0 | How long will an activity that lasts nine weeks take? | raw | true | nextnext week Wednesday 7:00 PM | 1 |
+| events::400::0 | Which one-day event corresponds to the description of its location? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::401::0 | What location corresponds to the event planned for next Monday at 9:00 AM? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::402::0 | What time is the event that will have two hundred people in attendance? | raw | true | 2024-10-08 Tuesday 14:00 | 1 |
+| events::403::0 | What time does the event start at that location in Los Angeles, CA? | raw | false | 2024-10-10 Thursday 19:00 | 1 |
+| events::404::0 | What event location description corresponds to the activity scheduled for October 12, 2024, at 9:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::405::0 | What time does the event in Washington, DC start? | raw | false | nextnext week Thursday 7:00 PM | 1 |
+| events::406::0 | How long will the activity that lasts seven days take? | raw | true | 2024-10-07 Monday 09:00 | 1 |
+| events::407::0 | What is the event location description that corresponds to the activity planned for 9:00 on October 14, 2024? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::408::0 | What is the date for the event that lasts three weeks? | raw | true | next week Saturday 2:00 PM | 1 |
+| events::409::0 | What activity has a duration of nine weeks based on its location description? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::410::0 | What event location description matches the activity planned for October 15, 2024, at 9:00? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::411::0 | Which type of event location would be suitable for an activity involving five hundred people? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::412::0 | What event lasts four days and fits the description of its location? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::413::0 | What’s a venue that can accommodate an event with around six thousand people? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::414::0 | What time is the event that involves four hundred people? | raw | true | next week Saturday 9:00 AM | 1 |
+| events::415::0 | What is the time for an event that lasts for nine days? | raw | true | 2024-10-16 Wednesday 09:00 | 1 |
+| events::416::0 | Which location will host the event taking place the week after next Wednesday at 2:00 PM? | raw | true | Famous for the Alamo and its rich Texan culture. | 1 |
+| events::417::0 | What activity lasts for six weeks and fits the description of its location? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::418::0 | What time is the event taking place in Portland, OR? | raw | false | nextnext week Wednesday 9:00 AM | 1 |
+| events::419::0 | What time does the event take place at the location in Atlanta, GA? | raw | true | next week Wednesday 7:00 PM | 1 |
+| events::420::0 | What is the time for an event that lasts two days? | raw | true | 2024-10-19 Saturday 19:00 | 1 |
+| events::421::0 | Which event location corresponds to the activity scheduled for 2:00 PM on the weekend after next Saturday? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::422::0 | What is the scheduled time for the event that accommodates one hundred people? | raw | false | 2024-10-12 Saturday 19:00 | 1 |
+| events::423::0 | What is the timeframe for an event that lasts nine days? | raw | true | 2024-10-10 Thursday 14:00 | 1 |
+| events::424::0 | What time is the event happening in Washington, DC? | raw | false | nextnext week Thursday 2:00 PM | 1 |
+| events::425::0 | Which activity location is associated with the event taking place on October 17, 2024, at 19:00? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::426::0 | How long does an activity that lasts eight weeks take? | raw | true | 2024-10-08 Tuesday 19:00 | 1 |
+| events::427::0 | Which description of the event location fits the activity planned for October 13, 2024, at 9:00 AM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::428::0 | Which six-day activity fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::429::0 | What kind of event location would be suitable for an activity with about one hundred people? | raw | false | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::430::0 | What time is the event planned for five hundred people? | raw | false | 2024-10-09 Wednesday 19:00 | 1 |
+| events::431::0 | Which event location description fits the activity planned for October 13, 2024, at 9:00? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::432::0 | What is the schedule for the activity that lasts nine weeks? | raw | true | 2024-10-14 Monday 19:00 | 1 |
+| events::433::0 | What event location corresponds to the activity planned for the week after next Sunday at 2:00 PM? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| events::434::0 | Which event location matches the description of the event scheduled for October 16, 2024, at 7:00 PM? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::435::0 | Which event location description corresponds to the activity planned for October 17, 2024, at 14:00? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::436::0 | Which event designed for nine hundred people aligns with the description of its venue? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::437::0 | Which event venue would be suitable for an activity involving around two hundred people? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::438::0 | What time is the event that is expected to have eight hundred attendees? | raw | true | 2024-10-16 Wednesday 19:00 | 1 |
+| events::439::0 | What event lasts for seven days and matches the description of its location? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::440::0 | What time is the event that has a scale of seven hundred people? | raw | true | 2024-10-19 Saturday 19:00 | 1 |
+| events::441::0 | What time is the event expected to start for a gathering of three hundred people? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::442::0 | Which location is set for the event happening at 7:00 PM the week after next Wednesday? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::443::0 | Is there an event that lasts seven days that fits the description of its location? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::444::0 | What venue would be suitable for an event with around five hundred people? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::445::0 | What description of the activity location corresponds to the event on October 13, 2024, at 19:00? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| events::446::0 | What time is the event scheduled for four hundred people? | raw | false | next week Saturday 2:00 PM | 1 |
+| events::447::0 | Which venue fits the description for the event that can accommodate three hundred people? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::448::0 | What time is the event taking place in New York, NY? | raw | false | 2024-10-13 Sunday 19:00 | 1 |
+| events::449::0 | What event lasts four days and matches the description of its location? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::450::0 | What kind of event location would be suitable for an activity with around four hundred people? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| events::451::0 | When does the activity that lasts eight weeks take place? | raw | true | nextnext week Wednesday 7:00 PM | 1 |
+| events::452::0 | Which venue fits the description of an event accommodating eight hundred people? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| events::453::0 | What time is the one-day activity scheduled for? | raw | false | nextnext week Monday 9:00 AM | 1 |
+| events::454::0 | What event location matches the activity scheduled for October 16, 2024, at 9:00 AM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::455::0 | What venue would be suitable for an event that accommodates eight hundred people? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::456::0 | What seven-day event fits the description of its location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::457::0 | What time does the one-day activity take place? | raw | false | next week Friday 2:00 PM | 1 |
+| events::458::0 | What time is the event scheduled for at that location in Denver, CO? | raw | false | 2024-10-08 Tuesday 09:00 | 1 |
+| events::459::0 | What time does the event take place in Atlanta, GA? | raw | true | 2024-10-16 Wednesday 09:00 | 1 |
+| events::460::0 | Which venue can accommodate six hundred people for the event? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| events::461::0 | What eight-day activity fits the description of its location? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::462::0 | What time does the event start in Miami, FL? | raw | false | nextnext week Wednesday 7:00 PM | 1 |
+| events::463::0 | Which location would be suitable for an event with around seven hundred attendees? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::464::0 | Which venue corresponds to the event planned for next Monday at 9:00 AM? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::465::0 | What is the time frame for an activity that lasts one day? | raw | false | 2024-10-18 Friday 14:00 | 1 |
+| events::466::0 | Which event location fits the description for the activity planned for next week on Friday at 7:00 PM? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::467::0 | What time does the event that lasts six days start? | raw | true | 2024-10-17 Thursday 14:00 | 1 |
+| events::468::0 | What time is the event taking place in New York, NY? | raw | true | 2024-10-18 Friday 14:00 | 1 |
+| events::469::0 | When does the activity that lasts four weeks take place? | raw | true | 2024-10-11 Friday 14:00 | 1 |
+| events::470::0 | What time does the event take place in Miami, FL? | raw | true | 2024-10-20 Sunday 14:00 | 1 |
+| events::471::0 | What time is the event that is expecting five hundred people? | raw | true | nextnext week Wednesday 2:00 PM | 1 |
+| events::472::0 | Which event location description corresponds to the activity planned for October 15, 2024, at 9:00 AM? | raw | true | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| events::473::0 | How long does the activity that lasts for four weeks take? | raw | true | 2024-10-08 Tuesday 09:00 | 1 |
+| events::474::0 | Which event location would be suitable for a gathering of around one hundred people? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::475::0 | Which event location corresponds to the activity planned for October 14, 2024, at 2:00 PM? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| events::476::0 | What event lasts for five days and corresponds to the description of its location? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::477::0 | What time is the event that is expected to have eight hundred people? | raw | false | 2024-10-19 Saturday 09:00 | 1 |
+| events::478::0 | What time is the event in Portland, OR? | raw | true | 2024-10-07 Monday 14:00 | 1 |
+| events::479::0 | What time does the event in Atlanta, GA start? | raw | true | next week Friday 7:00 PM | 1 |
+| events::480::0 | Which event location description corresponds to the activity planned for October 12, 2024, at 14:00? | raw | true | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::481::0 | What activity lasting eight days fits the description of its location? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| events::482::0 | How long will the activity that lasts for six days take? | raw | true | next week Sunday 7:00 PM | 1 |
+| events::483::0 | Which event location corresponds to the activity planned for October 11, 2024, at 7:00 PM? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| events::484::0 | Which eight-day activity aligns with the description of its location? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| events::485::0 | What is the ending time for an event that lasts for five days? | raw | true | 2024-10-20 Sunday 09:00 | 1 |
+| events::486::0 | What type of activity location would be suitable for an event with around two hundred people? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| events::487::0 | Which venue corresponds to the event planned for the week after next Monday at 2:00 PM? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::488::0 | What time does the event that lasts for two days start? | raw | true | next week Sunday 2:00 PM | 1 |
+| events::489::0 | Which event location corresponds to the activity that is scheduled for the week after next Monday at 2:00 PM? | raw | true | Known for its history, education, and sports teams. | 1 |
+| events::490::0 | What is the time for the event that involves three hundred people? | raw | true | nextnext week Wednesday 7:00 PM | 1 |
+| events::491::0 | What is the time allocated for an activity that lasts one day? | raw | false | nextnext week Wednesday 2:00 PM | 1 |
+| events::492::0 | Which venue is suitable for an event that accommodates nine hundred people? | raw | true | Known for its beautiful beaches and mild climate. | 1 |
+| events::493::0 | Which event location description corresponds to the activity planned for the week after next Tuesday at 2:00 PM? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| events::494::0 | What is the time frame for an event that lasts four days? | raw | true | 2024-10-09 Wednesday 14:00 | 1 |
+| events::495::0 | What five-day event fits the description of its location? | raw | false | The capital of Texas, known for its music scene and cultural events. | 1 |
+| events::496::0 | What time does the five-day event start? | raw | false |  week Friday 7:00 PM | 1 |
+| events::497::0 | What time is the event that will have eight hundred people attending? | raw | false | 2024-10-20 Sunday 14:00 | 1 |
+| events::498::0 | For an event with eight hundred attendees, which location would be suitable? | raw | false | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| events::499::0 | What is the date for the event that lasts five weeks? | raw | true | 2024-10-18 Friday 09:00 | 1 |
 | food::0::0 | What dishes have you recommended to me before? | raw | false | Chocolate Cake | 1 |
 | food::1::0 | What dishes have you recommended to me before? | raw | true | Apple Pie | 1 |
 | food::2::0 | What dishes have you recommended to me before? | raw | false | Fruit | 1 |
@@ -2529,503 +2529,503 @@
 | multi_agent::497::0 | What movies, books and dishes have you recommended to me? | raw | false | Gone with the Wind (1939), Cyrano de Bergerac (1990), Salted Lassi, Maple Bacon, American Indian Myths and Legends (Pantheon Fairy Tale and Folklore Library), There Are No Children Here: The Story of Two Boys Growing Up in the Other America | 1 |
 | multi_agent::498::0 | What movies, books and dishes have you recommended to me? | raw | false | Wings of the Dove, The (1997), Maple Bacon, Bitter Harvest | 1 |
 | multi_agent::499::0 | What movies, books and dishes have you recommended to me? | raw | false | Raging Bull (1980), As Good As It Gets (1997), Salted Maple Ice Cream, Salted Peanut Butter Cookies, What to Expect When You're Expecting (Revised Edition), Your Pregnancy: Week by Week (Your Pregnancy Series) | 1 |
-| roles::0::0 | What are the main responsibilities of a person born on August 23rd? | raw | true | Handle financial transactions and serve clients | 3 |
-| roles::1::0 | What email address suffix do people with a high school education typically use? | raw | true | @pioneerconstructiongroup.com | 3 |
-| roles::2::0 | What is the sum of the last three digits of Sophia Reed's contact number? | raw | false | 7 | 3 |
-| roles::3::0 | What season is someone’s birthday if they work in Boston, MA? | raw | false | Winter | 3 |
-| roles::4::0 | What is the email address suffix for a person who is 152 cm tall? | raw | false | @innovativelearningsystems.com | 3 |
-| roles::5::0 | In which season does the person with the contact number 61908301896 celebrate their birthday? | raw | false | Winter | 3 |
-| roles::6::0 | If someone is from Portland, OR, what is the sum of the last four digits of their contact number? | raw | true | 19 | 3 |
-| roles::7::0 | What are the main interests and hobbies of the people who work at Innovative Learning Technologies LLC? | raw | true | Appreciate films and experience different lives | 3 |
-| roles::8::0 | How many letters are in the name of a person from San Jose, CA? | raw | true | 13 characters | 3 |
-| roles::9::0 | Which of these descriptions best fits the work location of someone who is based in Las Vegas, NV? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 3 |
-| roles::10::0 | What would the email address suffix be for someone who is from Miami, FL? | raw | false | @creativewavestudios.com | 3 |
-| roles::11::0 | What are the main responsibilities of someone from Denver, CO? | raw | true | Assist customers and promote products in retail environments | 3 |
-| roles::12::0 | In which season does Nora Whitfield, who has the email address nora.whitfield@wrmc.com, celebrate their birthday? | raw | true | Summer | 3 |
-| roles::13::0 | What is the email address suffix for someone who works as a Professor? | raw | true | @innovativelearningtech.com | 3 |
-| roles::14::0 | What is the sum of the last two digits of the contact number for a person who holds a PhD in education? | raw | false | 13 | 3 |
-| roles::15::0 | What is the email address domain for people who have a hobby in theater? | raw | false | @compassionatecareservices.com | 3 |
-| roles::16::0 | What are the main interests and hobbies of the person with the contact number 41502166387? | raw | false | Practice calligraphy and inherit culture | 3 |
-| roles::17::0 | What are the main interests and hobbies of someone from Jacksonville, FL? | raw | true | Challenge oneself and conquer peaks | 3 |
-| roles::18::0 | What is the sum of the last four digits of a contact number for someone whose birthday is on June 10th? | raw | true | 18 | 3 |
-| roles::19::0 | For someone who works in Washington, DC, how would you describe their workplace? | raw | true | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::20::0 | What are the main responsibilities of someone's occupation if their hometown is San Jose, CA? | raw | true | Conduct research and experiments to advance scientific understanding | 3 |
-| roles::21::0 | What’s the email address suffix for someone who works as a pilot? | raw | true | @skylineaviation.com | 3 |
-| roles::22::0 | For someone working in Washington, DC, what would describe their workplace? | raw | true | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::23::0 | What are the main responsibilities of someone whose hobby involves playing musical instruments? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 3 |
-| roles::24::0 | If someone is from Atlanta, GA, what would the suffix of their email address be? | raw | true | @innovatechresearchgroup.com | 3 |
-| roles::25::0 | What are the last three digits of the contact number for the person who works as a salesperson, and what is their sum? | raw | true | 15 | 3 |
-| roles::26::0 | What are the main responsibilities of a 31-year-old in their profession? | raw | false | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 3 |
-| roles::27::0 | What are some descriptions that apply to someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::28::0 | What is the primary responsibility of a 32-year-old in their job? | raw | false | Provide financial planning and investment advice | 3 |
-| roles::29::0 | What would be the email address suffix for someone who enjoys collecting antiques? | raw | true | @bostonhealthinnovations.com | 3 |
-| roles::30::0 | In which season does a person with a PhD celebrate their birthday? | raw | true | Spring | 3 |
-| roles::31::0 | What are the key responsibilities of a person working in Atlanta, GA? | raw | false | Deliver goods swiftly | 3 |
-| roles::32::0 | In which season does the birthday of a person who works in Las Vegas, NV fall? | raw | true | Autumn | 3 |
-| roles::33::0 | In which season does someone from San Diego, CA celebrate their birthday? | raw | true | Spring | 3 |
-| roles::34::0 | What is the email address suffix for people working in Portland, OR? | raw | false | @innovativebioresearchlabs.com | 3 |
-| roles::35::0 | What are the primary responsibilities of those whose workplace is located in Atlanta, GA? | raw | false | Drive sales growth and manage sales teams | 3 |
-| roles::36::0 | For someone who works in Atlanta, GA, how would you describe their work environment? | raw | true | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::37::0 | Which of the following descriptions best fits a person whose workplace is located in Orlando, FL? | raw | false | Known for its theme parks, including Walt Disney World. | 3 |
-| roles::38::0 | What are the main responsibilities of someone from Jacksonville, FL? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 3 |
-| roles::39::0 | What is the sum of the last six digits in the contact number for the Retail Sales Associate position? | raw | false | 27 | 3 |
-| roles::40::0 | What are the main interests and hobbies of people living and working in Portland, OR? | raw | false | Use weights and push-ups to shape the body | 3 |
-| roles::41::0 | What would be the email address suffix for someone from San Francisco, CA? | raw | true | @linguisticbridgetranslations.com | 3 |
-| roles::42::0 | What would be the email address suffix for someone whose birthday falls on March 11th? | raw | true | @sunnyshoresbank.com | 3 |
-| roles::43::0 | In which season does Maxwell Grayson, who has the email address maxwell.grayson@premierelectricalservices.com, celebrate his birthday? | raw | false | Summer | 3 |
-| roles::44::0 | What is the sum of the last three digits of the contact number for Skyward Aviation Services? | raw | false | 11 | 3 |
-| roles::45::0 | What are the main interests and hobbies of the team at Rapid Express Couriers? | raw | false | Water-based exercise that trains the whole body | 3 |
-| roles::46::0 | How many letters are there in the name of the person with the email address briar.whittaker@quantuminnovationslabs.com? | raw | true | 14 characters | 3 |
-| roles::47::0 | What are the main interests and hobbies of someone who has a Bachelor's degree? | raw | true | Gather historical items and appreciate their value | 3 |
-| roles::48::0 | What are some common interests and hobbies for a 24-year-old? | raw | false | Ride the waves and enjoy the sea | 3 |
-| roles::49::0 | Which of the following descriptions applies to someone who works in Houston, TX? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 3 |
-| roles::50::0 | What are the primary responsibilities of a 28-year-old in their profession? | raw | false | Handle financial transactions and serve clients | 3 |
-| roles::51::0 | In which season does someone with a high school education have their birthday? | raw | true | Spring | 4 |
-| roles::52::0 | What is the email address suffix of someone who is 166 cm tall? | raw | false | @capitalcitycouriers.com | 3 |
-| roles::53::0 | What are the main responsibilities for someone working in Denver, CO? | raw | false | Educate and guide students | 3 |
-| roles::54::0 | What are the main interests and hobbies of the person with the phone number 51001095939? | raw | true | Practice calligraphy and inherit culture | 3 |
-| roles::55::0 | What are the main interests and hobbies of a Cabin Crew Member? | raw | true | Practice calligraphy and inherit culture | 3 |
-| roles::56::0 | How many letters does the name of the person from Bay State Builders LLC have? | raw | true | 11 characters | 3 |
-| roles::57::0 | What is the sum of the last six digits of a contact number for someone from Las Vegas, NV? | raw | true | 26 | 3 |
-| roles::58::0 | What is the email address suffix for a Real Estate Agent? | raw | false | @urbannestrealty.com | 3 |
-| roles::59::0 | What are the main interests and hobbies of a person with a Bachelor's degree? | raw | false | Relax the body and mind, cultivate oneself | 3 |
-| roles::60::0 | What is the email address suffix for the Community Outreach Coordinator position? | raw | true | @pacificcitylaw.gov | 3 |
-| roles::61::0 | How many letters are in the names of individuals who have a Master's degree? | raw | false | 11 characters | 4 |
-| roles::62::0 | Which option describes the work location for a person based in Atlanta, GA? | raw | false | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::63::0 | What are the main interests and hobbies of the person who has the email address kieran.shaw@codecrafters.com? | raw | true | Relax and feel the beauty of melodies | 3 |
-| roles::64::0 | For a person whose workplace is in Los Angeles, CA, which of the following descriptions best fits their job location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| roles::65::0 | What are the main interests and hobbies of a person who is 163 cm tall? | raw | false | Explore the outdoors on a bike | 3 |
-| roles::66::0 | What are the main responsibilities of a person who is 168cm tall? | raw | false | Provide financial planning and investment advice | 3 |
-| roles::67::0 | What are the last two digits of Owen Prescott's contact number, and what do they add up to? | raw | false | 7 | 3 |
-| roles::68::0 | How many letters are there in the names of people who have a Bachelor’s degree? | raw | false | 12 characters | 3 |
-| roles::69::0 | What are some common interests and hobbies for someone from Jacksonville, FL? | raw | true | Ride the waves and enjoy the sea | 4 |
-| roles::70::0 | What is the email address suffix for a 35-year-old? | raw | false | @sunshinehaulers.com | 3 |
-| roles::71::0 | In which season does someone who is 163 cm tall celebrate their birthday? | raw | false | Autumn | 3 |
-| roles::72::0 | For someone who works as a chef, what would the suffix of their email address be? | raw | false | @savorydelights.com | 3 |
-| roles::73::0 | What season does someone whose hobby is knitting celebrate their birthday? | raw | false | Summer | 3 |
-| roles::74::0 | What are the main responsibilities of someone whose hobby is model making? | raw | true | Cure patients and ensure public health | 3 |
-| roles::75::0 | How many letters are in the name of someone whose occupation is a nurse? | raw | true | 11 characters | 3 |
-| roles::76::0 | What are the main responsibilities of the person with the contact number 65003215995 in their job? | raw | true | Cultivate crops and raise livestock | 3 |
-| roles::77::0 | What are the main responsibilities of the individual associated with the contact number 61904027161? | raw | true | Cultivate crops and raise livestock | 3 |
-| roles::78::0 | What would be the email address suffix for a person who is 32 years old? | raw | true | @compassionatecare.com | 3 |
-| roles::79::0 | What does the work location look like for someone based in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 3 |
-| roles::80::0 | During which season does the person with the email address madeline.hayes@capitalcitybank.com celebrate their birthday? | raw | true | Summer | 3 |
-| roles::81::0 | How many letters are in the name of a person from Miami, FL? | raw | true | 12 characters | 3 |
-| roles::82::0 | What is the email address suffix for someone named Chloe Merritt? | raw | true | @houstonrealtygroup.com | 3 |
-| roles::83::0 | Which of these descriptions fits someone who works in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::84::0 | During which season does Landon Chase celebrate their birthday? | raw | true | Summer | 3 |
-| roles::85::0 | What is the email address suffix for a Journeyman Electrician position? | raw | true | @voltagepros.com | 3 |
-| roles::86::0 | For someone who works in New York, NY, which of the following options would best describe their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::87::0 | During which season does the person with the contact number 31004592259 celebrate their birthday? | raw | false | Spring | 3 |
-| roles::88::0 | What are the typical interests and hobbies of someone from Las Vegas, NV? | raw | true | Observe and identify different bird species | 3 |
-| roles::89::0 | What is the sum of the last three digits of the contact number for the person who is 35 years old? | raw | true | 21 | 3 |
-| roles::90::0 | What is the email address domain for someone working in Las Vegas, NV? | raw | false | @silverstategrocers.com | 3 |
-| roles::91::0 | What are the last two digits of the contact number for the person with the email address sofia.mitchell@rockymountainhealthcaregroup.com, and what is their sum? | raw | true | 6 | 4 |
-| roles::92::0 | What are the main interests and hobbies of someone who works as a translator? | raw | false | Make delicious dishes and enjoy cooking | 3 |
-| roles::93::0 | What are the main responsibilities of someone who holds a Bachelor's degree in their profession? | raw | false | Uphold the law and provide legal services | 3 |
-| roles::94::0 | What would the email address suffix be for someone from Charlotte, NC? | raw | false | @evergreenconstruction.com | 3 |
-| roles::95::0 | For a teacher, in which season does their birthday fall? | raw | false | Summer | 3 |
-| roles::96::0 | What do most 35-year-olds typically enjoy doing in their free time? | raw | false | Make delicious dishes and enjoy cooking | 3 |
-| roles::97::0 | What are the main responsibilities for a 23-year-old in their job? | raw | false | Design, develop, and maintain systems and structures | 3 |
-| roles::98::0 | What is the sum of the last four digits of the contact number for the person whose birthday is on December 24th? | raw | true | 15 | 3 |
-| roles::99::0 | What are Zara Whitfield's main interests and hobbies? | raw | true | Express oneself through music | 3 |
-| roles::100::0 | Which of these descriptions would best fit someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::101::0 | How many letters are in the name of a person whose birthday falls on October 25th? | raw | false | 13 characters | 3 |
-| roles::102::0 | What is the email address suffix for a person who is 170 cm tall? | raw | false | @innovativeresearchlabs.com | 3 |
-| roles::103::0 | How many letters are in the name of a person who works as an electrician? | raw | true | 9 characters | 3 |
-| roles::104::0 | For someone who works in San Francisco, CA, how would you describe their workplace? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 3 |
-| roles::105::0 | What are the main interests and hobbies of someone who holds an Associate Degree? | raw | false | Aerobic exercise to improve cardiovascular health | 3 |
-| roles::106::0 | What are the key responsibilities for someone working in Austin, TX? | raw | false | Facilitate communication across languages | 3 |
-| roles::107::0 | In which season does the birthday of the Wealth Management Specialist fall? | raw | false | Autumn | 3 |
-| roles::108::0 | What is the total of the last four digits of the contact number for the individual whose workplace is in Las Vegas, NV? | raw | false | 11 | 3 |
-| roles::109::0 | What is the email address suffix for someone who is 29 years old? | raw | false | @emeraldcityrealtygroup.com | 3 |
-| roles::110::0 | What is the sum of the last three digits of the contact number for someone from Orlando, FL? | raw | true | 13 | 3 |
-| roles::111::0 | In which season does someone from Indianapolis, IN celebrate their birthday? | raw | true | Winter | 3 |
-| roles::112::0 | What is the sum of the last five digits of the contact number for the person who is 159 centimeters tall? | raw | true | 18 | 3 |
-| roles::113::0 | What season is it for someone who is 39 years old on their birthday? | raw | true | Autumn | 3 |
-| roles::114::0 | In which season do lawyers typically celebrate their birthdays? | raw | true | Summer | 3 |
-| roles::115::0 | What are the main interests and hobbies of a person born on February 15th? | raw | false | A graceful sport that enhances coordination | 3 |
-| roles::116::0 | What are the main responsibilities of a person born on January 12th? | raw | true | Prepare delicious food for customers | 3 |
-| roles::117::0 | What are the main interests and hobbies of a police officer? | raw | true | Observe and identify different bird species | 3 |
-| roles::118::0 | What is the email address domain for someone named Avery Sinclair? | raw | true | @creativecanvasstudios.com | 3 |
-| roles::119::0 | How many letters are there in the name of a person whose birthday is on February 23rd? | raw | false | 11 characters | 3 |
-| roles::120::0 | How many letters are in the name of the person at Harborview Medical Group? | raw | true | 10 characters | 3 |
-| roles::121::0 | During which season does the birthday of the Senior Software Architect occur? | raw | true | Winter | 3 |
-| roles::122::0 | What are the main interests and hobbies of people who work in Los Angeles, CA? | raw | true | Master new languages to broaden horizons | 3 |
-| roles::123::0 | During which season does Lila Monroe celebrate her birthday? | raw | false | Summer | 3 |
-| roles::124::0 | What are the main interests and hobbies of the individual with the contact number 85801168355? | raw | false | Express oneself through music | 3 |
-| roles::125::0 | In which season does the person in the position of Line Cook celebrate their birthday? | raw | true | Winter | 3 |
-| roles::126::0 | What is the sum of the last six digits of Clara Bennett's contact number? | raw | true | 27 | 3 |
-| roles::127::0 | For someone working in Las Vegas, NV, which of these descriptions fits their workplace? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 3 |
-| roles::128::0 | What are the primary responsibilities of the person associated with the contact number 65005637311? | raw | true | Cure patients and ensure public health | 3 |
-| roles::129::0 | What is the email address suffix for the person with the contact number 61901137151? | raw | true | @voltagevision.com | 3 |
-| roles::130::0 | What are the main responsibilities of someone born on January 28th? | raw | true | Drive sales growth and manage sales teams | 3 |
-| roles::131::0 | What is the sum of the last four digits of the phone number for someone who is from Philadelphia, PA? | raw | true | 13 | 3 |
-| roles::132::0 | What are the main interests and hobbies of the person with the contact number 61701099427? | raw | true | Patiently wait and enjoy the pleasure of fishing | 3 |
-| roles::133::0 | What is the email address suffix for the individual with the contact number 61708800234? | raw | true | @tropicalculinarycreations.com | 4 |
-| roles::134::0 | How many letters are in the name of someone who is 30 years old? | raw | true | 14 characters | 3 |
-| roles::135::0 | What is the total of the last three digits of the contact number for the individual with the email address julian.hayes@harmonysoundproductions.com? | raw | true | 11 | 3 |
-| roles::136::0 | What is the email domain for the people at Innovatech Systems LLC? | raw | true | @innovatechsystems.com | 3 |
-| roles::137::0 | In which season do people who enjoy playing video games typically have their birthdays? | raw | true | Winter | 3 |
-| roles::138::0 | What are the main interests and hobbies of a Research Scientist? | raw | true | Appreciate theater and experience the variety of life | 3 |
-| roles::139::0 | What email address suffix would someone who is 157 cm tall use? | raw | false | @techwaveinnovations.com | 3 |
-| roles::140::0 | How many letters are in the name of a person from Miami, FL? | raw | false | 12 characters | 3 |
-| roles::141::0 | During which season does a person with a Master's degree celebrate their birthday? | raw | false | Autumn | 3 |
-| roles::142::0 | What is the email address suffix for a person who has a Bachelor's degree? | raw | false | @skywardaviation.com | 3 |
-| roles::143::0 | What are the main responsibilities of someone whose birthday is on December 14th? | raw | true | Fly and navigate aircraft safely | 3 |
-| roles::144::0 | What are the typical interests and hobbies of someone who holds a Bachelor's degree? | raw | true | Explore nature on foot and enjoy the scenery | 3 |
-| roles::145::0 | How many letters are there in the name of the individual from Summit Financial Group? | raw | true | 9 characters | 3 |
-| roles::146::0 | Which of these descriptions describes someone who works in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 3 |
-| roles::147::0 | What are the key responsibilities of someone with a high school education in their job? | raw | false | Transport goods safely and punctually to designated locations | 3 |
-| roles::148::0 | How many letters are in the names of people who have a high school education? | raw | true | 11 characters | 3 |
-| roles::149::0 | How many letters are in the name of the person who has the email address jackson.reed@mountainviewmedicalgroup.com? | raw | true | 11 characters | 3 |
-| roles::150::0 | Which of these descriptions fits the work location of someone who is based in Portland, OR? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 3 |
-| roles::151::0 | How many letters are in the name of someone who has the occupation of Professor? | raw | false | 12 characters | 3 |
-| roles::152::0 | What is the sum of the last two digits of the contact number for the Research Scientist position in Cognitive Neuroscience? | raw | true | 4 | 3 |
-| roles::153::0 | What is the total of the last four digits of the contact number for the person whose workplace is in Boston, MA? | raw | true | 22 | 3 |
-| roles::154::0 | What are the primary interests and hobbies of someone who holds a PhD in education? | raw | false | Reading thousands of books is not as good as traveling thousands of miles | 3 |
-| roles::155::0 | What is the total of the last six digits of the contact number for the person who is 26 years old? | raw | true | 25 | 4 |
-| roles::156::0 | How many letters are in the name of the person who has the contact number 61706916032? | raw | false | 11 characters | 3 |
-| roles::157::0 | In which season does the person with the contact number 31004664417 celebrate their birthday? | raw | false | Spring | 3 |
-| roles::158::0 | If someone works in Chicago, IL, during which season does their birthday fall? | raw | true | Spring | 3 |
-| roles::159::0 | What is the sum of the last four digits of Tessa Monroe's contact number? | raw | false | 13 | 4 |
-| roles::160::0 | What are the main responsibilities of the person with the contact number 70702604687? | raw | false | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 3 |
-| roles::161::0 | What are the main responsibilities of the person with the contact number 858-061-8289? | raw | true | Assist customers and promote products in retail environments | 3 |
-| roles::162::0 | What are the main job responsibilities for someone working in Atlanta, GA? | raw | false | Educate and guide students | 3 |
-| roles::163::0 | In which season does someone whose work location is Chicago, IL, have their birthday? | raw | true | Spring | 3 |
-| roles::164::0 | What season do people who work in Boston, MA, have their birthdays in? | raw | false | Winter | 3 |
-| roles::165::0 | How many letters are in the name of the person who has the email address silas.grant@emeraldcityengineering.com? | raw | true | 10 characters | 3 |
-| roles::166::0 | In which season does a Programmer celebrate their birthday? | raw | false | Summer | 3 |
-| roles::167::0 | What are the main interests and hobbies of a 39-year-old person? | raw | true | Observe and identify different bird species | 3 |
-| roles::168::0 | What is the email address suffix for a person born on October 6th? | raw | true | @innovativeresearchdynamics.com | 3 |
-| roles::169::0 | What would be the work location for someone who is based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| roles::170::0 | What are the main responsibilities of a 35-year-old in their job? | raw | false | Deliver goods swiftly | 3 |
-| roles::171::0 | In which season is the birthday of the person from Innovation Dynamics LLC? | raw | true | Autumn | 3 |
-| roles::172::0 | What are the main responsibilities of someone from Indianapolis, IN? | raw | true | Maintain public safety and security | 3 |
-| roles::173::0 | How many letters are in the name of the person who has the contact number 61906878803? | raw | false | 15 characters | 3 |
-| roles::174::0 | For someone who hails from Las Vegas, NV, what would be the sum of the last three digits of their contact number? | raw | true | 14 | 3 |
-| roles::175::0 | In which season does Zoe Harper, who has the email address zoe.harper@precisionfinancial.com, celebrate her birthday? | raw | true | Autumn | 3 |
-| roles::176::0 | What is the email address suffix for someone at Gold Crest Bank? | raw | true | @goldcrestbank.com | 3 |
-| roles::177::0 | What season is the birthday of someone who has an Associate Degree? | raw | false | Spring | 3 |
-| roles::178::0 | How many letters are in the name of a person whose birthday is on February 25th? | raw | true | 11 characters | 3 |
-| roles::179::0 | For someone working in Miami, FL, which of the following descriptions accurately represents their workplace? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::180::0 | What are the primary responsibilities of someone employed at Houston Shield Security Services? | raw | true | Maintain public safety and security | 3 |
-| roles::181::0 | What describes the work location for someone based in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::182::0 | What does the work location look like for someone based in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 3 |
-| roles::183::0 | What is the sum of the last six digits of the contact number for the individual associated with Precision Accounting Services LLC? | raw | true | 22 | 4 |
-| roles::184::0 | How many letters are in the name of a person who is 171 cm tall? | raw | true | 15 characters | 3 |
-| roles::185::0 | What would be the appropriate description of a workplace for someone whose job is based in Las Vegas, NV? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 3 |
-| roles::186::0 | How many letters are in the names of people who work in Austin, TX? | raw | false | 13 characters | 3 |
-| roles::187::0 | What are the options that describe the work location for someone who is based in Boston, MA? | raw | false | Known for its history, education, and sports teams. | 3 |
-| roles::188::0 | What are the main interests and hobbies of the person at Harmony Sound Studios? | raw | true | Explore nature on foot and enjoy the scenery | 4 |
-| roles::189::0 | What are the main interests and hobbies of people working in Miami, FL? | raw | false | Relax and feel the beauty of melodies | 3 |
-| roles::190::0 | What season does someone with a Bachelor's degree have their birthday in? | raw | false | Summer | 3 |
-| roles::191::0 | What would be the email address suffix for someone named Hannah Brooks? | raw | true | @innovativeresearchdynamics.com | 3 |
-| roles::192::0 | In what season does someone who works in Washington, DC have their birthday? | raw | true | Winter | 3 |
-| roles::193::0 | What are the last two digits of the contact number for the person with the email address clara.whitmore@linguisticbridgetranslations.com, and what is their sum? | raw | true | 6 | 3 |
-| roles::194::0 | In what season does someone who is 163 cm tall celebrate their birthday? | raw | false | Autumn | 3 |
-| roles::195::0 | What are the main responsibilities of the person with the contact number 20202201042 in their job? | raw | false | Maintain public safety and security | 3 |
-| roles::196::0 | In what season does a person who is 161 cm tall celebrate their birthday? | raw | true | Winter | 3 |
-| roles::197::0 | For individuals holding a Master's degree, what is the total of the last four digits in their contact number? | raw | false | 18 | 3 |
-| roles::198::0 | Which of these descriptions fits a person who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::199::0 | What are Finn Caldwell's main interests and hobbies? | raw | false | Patiently wait and enjoy the pleasure of fishing | 3 |
-| roles::200::0 | What is the work location like for people in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::201::0 | If someone has a birthday on June 26th, what would be the sum of the last three digits of their contact number? | raw | true | 11 | 3 |
-| roles::202::0 | What is the total of the last three digits of the contact number for the individual whose hobby is watching movies? | raw | false | 14 | 3 |
-| roles::203::0 | In which season does Cassandra Rivers have her birthday? | raw | false | Winter | 3 |
-| roles::204::0 | How many letters are in the name of the person who has the email address avery.quinn@innovationhubcollaborative.edu? | raw | true | 10 characters | 3 |
-| roles::205::0 | What is the email domain for someone named Isabella Cruz? | raw | true | @melodymakersproductions.com | 3 |
-| roles::206::0 | In which season does the birthday of the person from Golden Gate Bank and Trust fall? | raw | true | Autumn | 3 |
-| roles::207::0 | What are the key responsibilities of a Medical Researcher? | raw | false | Cure patients and ensure public health | 3 |
-| roles::208::0 | What is the total of the last five digits of the contact number for the person whose workplace is located in Chicago, IL? | raw | false | 35 | 3 |
-| roles::209::0 | What are the main responsibilities of the person with the contact number 41507174653 in their job? | raw | false | Handle financial transactions and serve clients | 3 |
-| roles::210::0 | How many letters are in the name of a person who has a Bachelor's degree? | raw | false | 12 characters | 3 |
-| roles::211::0 | For someone working in New York, NY, which of the following descriptions best fits their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::212::0 | How many letters are in the name of the person who has the contact number 85805898224? | raw | true | 13 characters | 3 |
-| roles::213::0 | What is the total of the last six digits of the contact number for individuals whose work location is in Chicago, IL? | raw | false | 27 | 3 |
-| roles::214::0 | What would describe the work location for someone in Miami, FL? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::215::0 | How many letters are in the name of a person whose birthday falls on September 4th? | raw | true | 14 characters | 3 |
-| roles::216::0 | What would be the email address suffix for someone from Miami, FL? | raw | true | @communitycarenetworkoregon.org | 3 |
-| roles::217::0 | What are the main responsibilities of someone from Orlando, FL? | raw | true | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 3 |
-| roles::218::0 | Which of these descriptions fits the work location of someone who is based in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 3 |
-| roles::219::0 | How many letters do the names of people from Miami, FL have? | raw | false | 11 characters | 3 |
-| roles::220::0 | What are the main interests and hobbies of a 32-year-old? | raw | false | Aerobic exercise to improve cardiovascular health | 3 |
-| roles::221::0 | What are the main interests and hobbies of someone born on July 20th? | raw | false | Collect stamps and learn about history | 3 |
-| roles::222::0 | What is the sum of the last three digits of the contact number for the person who works as a Professor? | raw | false | 25 | 3 |
-| roles::223::0 | During which season is the birthday of a 35-year-old? | raw | true | Spring | 3 |
-| roles::224::0 | What are the primary duties of someone working at Silver State Accounting Group? | raw | true | Manage finances and ensure compliance | 3 |
-| roles::225::0 | What season is the birthday of the Sales Representative? | raw | true | Spring | 3 |
-| roles::226::0 | What is the total of the last five digits of Savannah Cole's contact number? | raw | true | 30 | 4 |
-| roles::227::0 | What is the sum of the last two digits of the contact number for the Independent Music Producer position? | raw | true | 10 | 3 |
-| roles::228::0 | What season does someone with a Bachelor's degree celebrate their birthday? | raw | false | Winter | 3 |
-| roles::229::0 | What does it mean for someone based in Seattle, WA when it comes to their work location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| roles::230::0 | What are the primary hobbies and interests of a Cabin Crew Member? | raw | true | Create with your hands and experience craftsmanship | 3 |
-| roles::231::0 | What are the main interests and hobbies of a person with a high school education? | raw | true | Express oneself through music | 3 |
-| roles::232::0 | What is the sum of the last two digits of the contact number for someone whose birthday is on April 5th? | raw | true | 12 | 3 |
-| roles::233::0 | What are the main interests and hobbies of engineers? | raw | false | Use weights and push-ups to shape the body | 3 |
-| roles::234::0 | What would the email address suffix be for someone whose hobby is hiking? | raw | false | @linguisticlinkages.com | 3 |
-| roles::235::0 | What email address suffix would someone from Miami, FL have? | raw | false | @techwaveinnovations.com | 3 |
-| roles::236::0 | What is the sum of the last three digits of a contact number for someone from Denver, CO? | raw | true | 13 | 3 |
-| roles::237::0 | Which of these descriptions best describes the work location for someone who is based in Denver, CO? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::238::0 | What would be the email address suffix for someone from San Jose, CA? | raw | true | @miamiledgerpartners.com | 3 |
-| roles::239::0 | What are the main interests and hobbies of a person with a high school education? | raw | false | Gather historical items and appreciate their value | 3 |
-| roles::240::0 | How many letters are in the name of a person who is 173 cm tall? | raw | true | 10 characters | 3 |
-| roles::241::0 | What is the email address suffix for someone from Washington, DC? | raw | true | @swiftdeliveriesco.com | 3 |
-| roles::242::0 | For someone whose workplace is in Denver, CO, which of the following accurately describes their work location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::243::0 | What is the total of the last six digits of the contact number for the individual who is 28 years old? | raw | false | 18 | 3 |
-| roles::244::0 | What is the email address domain for someone at Skyward Travel Services? | raw | false | @skywardtravel.com | 3 |
-| roles::245::0 | How many letters are in the name of the person who is 39 years old? | raw | true | 9 characters | 3 |
-| roles::246::0 | What is the email address suffix for someone who is 29 years old? | raw | true | @texanfinancialservices.com | 3 |
-| roles::247::0 | What are the main responsibilities of someone born on May 30th? | raw | true | Conduct research and experiments to advance scientific understanding | 3 |
-| roles::248::0 | What are the main interests and hobbies of a person who holds an Associate Degree? | raw | true | Help others and contribute to the community | 3 |
-| roles::249::0 | What season is the birthday of the person with the email address mira.caldwell@culinarydelightsbistro.com? | raw | true | Autumn | 3 |
-| roles::250::0 | What is the email address suffix for individuals with a Master's degree? | raw | false | @manhattanhealthpartners.com | 3 |
-| roles::251::0 | For someone who is 165 cm tall, what is the sum of the last four digits of their contact number? | raw | false | 22 | 3 |
-| roles::252::0 | What kind of work location would someone in Denver, CO have? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::253::0 | During which season does the person with the email address natalie.monroe@sunshinefreight.com celebrate their birthday? | raw | true | Autumn | 3 |
-| roles::254::0 | What are the main responsibilities of someone who is 156 cm tall? | raw | true | Cultivate crops and raise livestock | 3 |
-| roles::255::0 | How many letters are in the name of a person whose job is Doctor? | raw | false | 15 characters | 3 |
-| roles::256::0 | What is the total of the last six digits in the contact number for the person at Inspire Learning Academy? | raw | false | 31 | 3 |
-| roles::257::0 | What would be the email address suffix for someone from Atlanta, GA? | raw | true | @southernshieldsecurity.com | 3 |
-| roles::258::0 | What are the primary interests and hobbies of someone working as a Music Program Coordinator? | raw | false | Express yourself through dance and enjoy the rhythm | 3 |
-| roles::259::0 | What are the main responsibilities of a person working at Culinary Creations Orlando? | raw | false | Prepare delicious food for customers | 3 |
-| roles::260::0 | What are the typical interests and hobbies of someone in the role of Sergeant? | raw | false | Collect stamps and learn about history | 3 |
-| roles::261::0 | For someone who works in Orlando, FL, what would be a fitting description of their workplace? | raw | true | Known for its theme parks, including Walt Disney World. | 4 |
-| roles::262::0 | How would you describe the work location for someone who is based in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::263::0 | What is the email address suffix for someone who is 147 cm tall? | raw | true | @silvervalleymedicalgroup.com | 3 |
-| roles::264::0 | What’s a good description for someone whose work location is in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 3 |
-| roles::265::0 | What are the main responsibilities of someone who has dancing as a hobby? | raw | false | Provide financial planning and investment advice | 3 |
-| roles::266::0 | What are the main responsibilities of the person with the email address olivia.grant@skywardtravels.com in her profession? | raw | true | Provide quality service to passengers | 3 |
-| roles::267::0 | What season does a doctor celebrate their birthday in? | raw | true | Summer | 3 |
-| roles::268::0 | How many letters are in the name of a person who has an Associate Degree? | raw | true | 11 characters | 3 |
-| roles::269::0 | For someone whose work location is in San Francisco, CA, which of the following descriptions best fits their workplace? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 4 |
-| roles::270::0 | What season does a 43-year-old's birthday fall into? | raw | true | Summer | 3 |
-| roles::271::0 | If someone's birthday is on August 17th, what is the sum of the last three digits of their contact number? | raw | true | 17 | 3 |
-| roles::272::0 | Which option describes the work location for someone based in Orlando, FL? | raw | false | Known for its theme parks, including Walt Disney World. | 3 |
-| roles::273::0 | In which season does someone with a Bachelor’s degree celebrate their birthday? | raw | false | Spring | 3 |
-| roles::274::0 | What would the suffix of an email address be for someone whose hobby is surfing? | raw | true | @csshouston.org | 3 |
-| roles::275::0 | How many letters do the names of people from Indianapolis, IN contain? | raw | true | 14 characters | 3 |
-| roles::276::0 | How many letters are in the name of the person who holds the position of Associate Professor of Cognitive Science? | raw | true | 10 characters | 4 |
-| roles::277::0 | What is the sum of the last six digits of the contact number for a person who is 178 cm tall? | raw | false | 35 | 3 |
-| roles::278::0 | Which of these descriptions fits the work location of someone who is based in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 3 |
-| roles::279::0 | What are the main interests and hobbies of the person with the contact number 65008255902? | raw | false | Help others and contribute to the community | 3 |
-| roles::280::0 | During which season does Landon Pierce celebrate his birthday? | raw | false | Spring | 3 |
-| roles::281::0 | What are the main interests and hobbies of the people who work at Innovative Research Partners LLC? | raw | true | Relax and feel the beauty of melodies | 3 |
-| roles::282::0 | Which of these descriptions best matches the work location of a person based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| roles::283::0 | What are the main interests and hobbies of a 27-year-old? | raw | true | Water-based exercise that trains the whole body | 3 |
-| roles::284::0 | For a person who is 159 cm tall, what is the sum of the last three digits of their contact number? | raw | true | 8 | 3 |
-| roles::285::0 | How many letters are in the name of the person who has the email address lucas.bennett@emeraldcityelectronics.com? | raw | true | 12 characters | 3 |
-| roles::286::0 | What is the domain of the email address for the person at Lone Star Sales Agency? | raw | true | @lonestarsalesagency.com | 3 |
-| roles::287::0 | What are the main interests and hobbies of the person with the email address marigold.hayes@peachtreesales.com? | raw | true | Express emotions with a brush and create beauty | 3 |
-| roles::288::0 | What does the work location look like for someone based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| roles::289::0 | In which season does someone whose hobby is fitness celebrate their birthday? | raw | false | Summer | 3 |
-| roles::290::0 | What are the main responsibilities for someone working in Denver, CO? | raw | false | Install, repair, and maintain electrical systems | 3 |
-| roles::291::0 | What are the main interests and hobbies of the person who has the email address carter.hayes@houstonledgerpartners.com? | raw | true | Patiently wait and enjoy the pleasure of fishing | 3 |
-| roles::292::0 | During which season does a musician celebrate their birthday? | raw | true | Autumn | 3 |
-| roles::293::0 | For someone who is 174 cm tall, what is the sum of the last five digits of their contact number? | raw | false | 19 | 3 |
-| roles::294::0 | What is the total of the last five digits of the contact number for a person whose hometown is Austin, TX? | raw | true | 12 | 3 |
-| roles::295::0 | Which of these descriptions fits the work location for someone who is based in Seattle, WA? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| roles::296::0 | For someone who works in Orlando, FL, which of the following descriptions best fits their workplace? | raw | true | Known for its theme parks, including Walt Disney World. | 3 |
-| roles::297::0 | Which of these descriptions would apply to someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 3 |
-| roles::298::0 | What is the email address suffix for someone whose birthday falls on October 8th? | raw | true | @peakperformancesales.com | 3 |
-| roles::299::0 | How many letters are in the name of the person who holds the position of Customer Service Representative? | raw | true | 13 characters | 3 |
-| roles::300::0 | What are the main interests and hobbies of a Software Development Engineer? | raw | true | Gather historical items and appreciate their value | 3 |
-| roles::301::0 | What are the key responsibilities of a Journeyman Electrician? | raw | true | Install, repair, and maintain electrical systems | 3 |
-| roles::302::0 | What are the main interests and hobbies of someone whose birthday is on September 21? | raw | false | Listen to live music and enjoy the artistic atmosphere | 3 |
-| roles::303::0 | What is the email address suffix for a person who is 167 cm tall? | raw | false | @melodymakersstudios.com | 3 |
-| roles::304::0 | What is the email suffix for the person who enjoys painting? | raw | true | @orlandofinancialstrategies.com | 3 |
-| roles::305::0 | What does the work location look like for someone based in Seattle, WA? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| roles::306::0 | What is the email address domain for someone working at Skyward Airlines Ltd.? | raw | true | @skywardairlines.com | 3 |
-| roles::307::0 | What is the email address suffix for someone who holds the position of Police Lieutenant? | raw | true | @miamilawenforcement.com | 3 |
-| roles::308::0 | For someone who works in New York, NY, how would you best describe their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::309::0 | For a person who is 163 cm tall, what is the total of the last four digits of their phone number? | raw | true | 19 | 3 |
-| roles::310::0 | Which of the following descriptions best fits the work location for someone who is based in Boston, MA? | raw | true | Known for its history, education, and sports teams. | 3 |
-| roles::311::0 | What is the total of the last five digits of the contact number for the person in the Sales Support Specialist position? | raw | false | 19 | 3 |
-| roles::312::0 | How many letters are in the name of a person from Columbus, OH? | raw | true | 13 characters | 3 |
-| roles::313::0 | How many letters are in the name of a person whose birthday is on July 9th? | raw | true | 12 characters | 3 |
-| roles::314::0 | What are the typical interests and hobbies of a person with a Bachelor's degree? | raw | true | Explore nature on foot and enjoy the scenery | 3 |
-| roles::315::0 | For someone whose job is in Las Vegas, NV, which of the following options accurately describes their workplace? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 3 |
-| roles::316::0 | In which season does a person who is 170 cm tall celebrate their birthday? | raw | true | Winter | 3 |
-| roles::317::0 | During which season does the Retail Sales Associate celebrate their birthday? | raw | true | Spring | 3 |
-| roles::318::0 | What is the sum of the last six digits of the contact number for the person who has the email address elena.sinclair@goldengatesecurity.com? | raw | true | 28 | 3 |
-| roles::319::0 | What are the main interests and hobbies of people who work as farmers? | raw | false | Stay outdoors and enjoy the simplicity of nature | 3 |
-| roles::320::0 | What is the sum of the last three digits of the contact number for the person whose birthday falls on March 1st? | raw | true | 12 | 3 |
-| roles::321::0 | How many letters are in the name of a 27-year-old person? | raw | false | 14 characters | 3 |
-| roles::322::0 | For someone who is 168 cm tall, what are the last two digits of their contact number when added together? | raw | false | 9 | 3 |
-| roles::323::0 | During which season does the birthday of the person with the email address jasper.lane@skywardtravels.com fall? | raw | true | Summer | 3 |
-| roles::324::0 | What is the total of the last five digits of the contact number for the individual whose work location is Boston, MA? | raw | true | 25 | 3 |
-| roles::325::0 | What is the sum of the last five digits of the contact number for the person who has the email address oliver.grant@healthcarepartnersny.com? | raw | true | 29 | 4 |
-| roles::326::0 | What is the email address suffix for a person who has a Bachelor's degree? | raw | false | @creativevisionsstudio.com | 3 |
-| roles::327::0 | What are Tessa Langley's main interests and hobbies? | raw | true | Delicate crafting that showcases creativity | 3 |
-| roles::328::0 | What is the sum of the last two digits of a contact number for someone who has a PhD in education? | raw | true | 7 | 3 |
-| roles::329::0 | What is the sum of the last two digits of the contact number for individuals with a High School education level? | raw | true | 6 | 3 |
-| roles::330::0 | What is the email address suffix for someone from San Jose, CA? | raw | true | @culinarycreationsla.com | 3 |
-| roles::331::0 | What’s the email address suffix for someone whose birthday is on December 17th? | raw | true | @communitycarepartnersinc.com | 3 |
-| roles::332::0 | How many letters are in the names of people who work in Denver, CO? | raw | true | 11 characters | 3 |
-| roles::333::0 | What is the email address suffix for a Medical Research Scientist? | raw | true | @pacifichealthmg.com | 3 |
-| roles::334::0 | What is the total of the last four digits of the contact number for the individual with the email address ethan.carter@pioneersalesinnovations.com? | raw | true | 19 | 3 |
-| roles::335::0 | What is the email address suffix for someone who has a High School education? | raw | true | @emeraldcitybank.com | 3 |
-| roles::336::0 | In which season does someone with a Master's degree celebrate their birthday? | raw | false | Summer | 3 |
-| roles::337::0 | If someone is from San Jose, CA, what would the suffix of their email address be? | raw | true | @innovativesciencetech.com | 3 |
-| roles::338::0 | Which of these descriptions fits the workplace of someone in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::339::0 | What are the primary responsibilities of someone working in Los Angeles, CA? | raw | true | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 3 |
-| roles::340::0 | What is the email address suffix for the individual with the contact number 71807165411? | raw | false | @capitalvisionadvisors.com | 3 |
-| roles::341::0 | During which season does the birthday of the individual from Innovative Research Technologies, LLC fall? | raw | true | Spring | 3 |
-| roles::342::0 | What is the email address suffix for a person who works as a courier? | raw | true | @urbanexpresscouriers.com | 3 |
-| roles::343::0 | How many letters are in the name of a person who enjoys model making as a hobby? | raw | true | 14 characters | 4 |
-| roles::344::0 | What are the main interests and hobbies of someone born on February 15th? | raw | false | Water-based exercise that trains the whole body | 3 |
-| roles::345::0 | What are the main responsibilities of a person whose hobby is programming? | raw | false | Maintain public safety and security | 3 |
-| roles::346::0 | What are the main responsibilities of a 27-year-old in their profession? | raw | true | Cure patients and ensure public health | 3 |
-| roles::347::0 | What are the main job responsibilities for a 27-year-old? | raw | false | Teach and conduct research at a university level | 3 |
-| roles::348::0 | What are the key responsibilities of a 23-year-old in their profession? | raw | true | Cure patients and ensure public health | 3 |
-| roles::349::0 | What are the main interests and hobbies of a person named Natalie Brooks? | raw | false | Relax the body and mind, cultivate oneself | 3 |
-| roles::350::0 | What are the typical interests and hobbies of a 25-year-old? | raw | false | Stay outdoors and enjoy the simplicity of nature | 3 |
-| roles::351::0 | What are the main interests and hobbies of someone from Dallas, TX? | raw | true | Reading thousands of books is not as good as traveling thousands of miles | 3 |
-| roles::352::0 | What are the main interests and hobbies of people who work in San Francisco, CA? | raw | false | Create functional or artistic pieces with wood | 3 |
-| roles::353::0 | For a person who is 160 cm tall, what would be the sum of the last six digits of their contact number? | raw | false | 28 | 3 |
-| roles::354::0 | What is the total of the last three digits of the contact number for the Store Supervisor position? | raw | true | 15 | 3 |
-| roles::355::0 | What are the main responsibilities of someone who enjoys collecting antiques? | raw | false | Drive sales growth and manage sales teams | 3 |
-| roles::356::0 | What are the main interests and hobbies of a Sales Manager? | raw | true | Collect stamps and learn about history | 3 |
-| roles::357::0 | In which season does a 39-year-old's birthday fall? | raw | false | Autumn | 3 |
-| roles::358::0 | What are the main interests and hobbies of the team at Innovative Learning Technologies LLC? | raw | true | Express thoughts and record life through writing | 3 |
-| roles::359::0 | What are the primary interests and hobbies of people who work in Las Vegas, NV? | raw | false | Make delicious dishes and enjoy cooking | 3 |
-| roles::360::0 | What are the main interests and hobbies of a person who is 169 cm tall? | raw | false | Experience fun in the virtual gaming world | 3 |
-| roles::361::0 | How many letters are in the name of the person associated with Liberty Legal Group LLC? | raw | true | 13 characters | 3 |
-| roles::362::0 | For a person who is 171 cm tall, what is the sum of the last two digits of their contact number? | raw | true | 8 | 3 |
-| roles::363::0 | How many letters are in the name of someone who is 161 cm tall? | raw | false | 9 characters | 3 |
-| roles::364::0 | During which season does the person with the email address owen.sinclair@communitycare.net celebrate their birthday? | raw | true | Summer | 3 |
-| roles::365::0 | What is the email address suffix for the individual with the contact number 70700338876? | raw | true | @peakperformancesalesgroup.com | 3 |
-| roles::366::0 | For someone based in Chicago, IL, what's the sum of the last three digits of their phone number? | raw | false | 12 | 3 |
-| roles::367::0 | In which season does someone who is 177 cm tall celebrate their birthday? | raw | false | Spring | 3 |
-| roles::368::0 | If a person is 23 years old, during which season does their birthday fall? | raw | true | Spring | 3 |
-| roles::369::0 | What are the main interests and hobbies of a person born on September 6th? | raw | true | Create functional or artistic pieces with wood | 3 |
-| roles::370::0 | What would the email address suffix be for someone named Lila Prescott? | raw | true | @chicagoinvestigative.com | 3 |
-| roles::371::0 | What is the sum of the last six digits of the contact number for the person who works as a farmer? | raw | true | 33 | 3 |
-| roles::372::0 | What are the primary responsibilities of someone with a Bachelor's degree in their field? | raw | false | Develop, test, and maintain software applications | 3 |
-| roles::373::0 | What season does the person with a woodworking hobby celebrate their birthday? | raw | true | Winter | 3 |
-| roles::374::0 | Which of these descriptions matches the work location of someone in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::375::0 | What is the sum of the last six digits of the contact number for the individual associated with Hudson Legal Advisors LLP? | raw | true | 32 | 3 |
-| roles::376::0 | What is the sum of the last three digits of the contact number for a Flight Attendant? | raw | true | 13 | 4 |
-| roles::377::0 | In which season does the birthday of the Music Production Specialist fall? | raw | true | Summer | 3 |
-| roles::378::0 | What email address suffix would someone from Phoenix, AZ use? | raw | true | @desertskyeducationgroup.com | 3 |
-| roles::379::0 | How many letters are in the name of the person who has the contact number 85805154334? | raw | false | 16 characters | 3 |
-| roles::380::0 | What are the main interests and hobbies of a person with a Master's degree? | raw | true | Observe and identify different bird species | 3 |
-| roles::381::0 | What are the primary job responsibilities for someone who comes from Las Vegas, NV? | raw | true | Prepare delicious food for customers | 3 |
-| roles::382::0 | How many letters are in the name of the person who has the contact number 71805276749? | raw | false | 15 characters | 3 |
-| roles::383::0 | What are the main interests and hobbies of someone born on August 14th? | raw | false | Experience fun in the virtual gaming world | 3 |
-| roles::384::0 | What are the main interests and hobbies of the person who has the email address landon.fairchild@neoninnovationlabs.com? | raw | true | Master new languages to broaden horizons | 3 |
-| roles::385::0 | How many letters are in the name of the person who holds the position of Clinical Social Worker? | raw | true | 11 characters | 3 |
-| roles::386::0 | What is the total of the last six digits of the contact number for the person whose job is Chef? | raw | false | 30 | 3 |
-| roles::387::0 | How many letters are in the names of individuals who work in Los Angeles, CA? | raw | true | 11 characters | 3 |
-| roles::388::0 | In which season does a musician have their birthday? | raw | false | Spring | 3 |
-| roles::389::0 | What are the main interests and hobbies of a person who is 162 cm tall? | raw | true | A game of intellect that sharpens logical thinking | 3 |
-| roles::390::0 | How many letters are in the name of the person from Harmony Heights Music Co.? | raw | true | 11 characters | 3 |
-| roles::391::0 | What is the sum of the last two digits of the contact number for a person with an Associate Degree? | raw | false | 2 | 3 |
-| roles::392::0 | What are the main responsibilities of a person whose birthday is on July 10th? | raw | true | Transport goods safely and punctually to designated locations | 3 |
-| roles::393::0 | Which of these descriptions would apply to someone who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::394::0 | What are the main interests and hobbies of a person born on January 20th? | raw | true | Experience fun in the virtual gaming world | 3 |
-| roles::395::0 | What are the main responsibilities of a person who is 164 cm tall? | raw | false | Assist clients in buying and selling properties | 3 |
-| roles::396::0 | What are the main responsibilities of the person with the email address landon.pierce@skylinerealtygroup.com in their job? | raw | true | Assist clients in buying and selling properties | 3 |
-| roles::397::0 | What is the sum of the last four digits of the contact number for the person at Desert Oasis Medical Center? | raw | true | 20 | 3 |
-| roles::398::0 | How many letters are in the names of individuals who work in Denver, CO? | raw | false | 14 characters | 3 |
-| roles::399::0 | What is the sum of the last three digits of Maya Sullivan's contact number? | raw | true | 20 | 3 |
-| roles::400::0 | What season is the birthday of the person with the contact number 70706380342? | raw | true | Winter | 3 |
-| roles::401::0 | What are the key responsibilities of Ava Thompson in her profession? | raw | false | Compose and perform music | 3 |
-| roles::402::0 | What are the main interests and hobbies of a person named Sophia Thompson? | raw | false | Listen to live music and enjoy the artistic atmosphere | 3 |
-| roles::403::0 | What are the key responsibilities of the person with the email address jacob.lawson@urbanharvestfarms.com? | raw | true | Cultivate crops and raise livestock | 3 |
-| roles::404::0 | What is the email address domain for the person at Sunny Days Grocery Market? | raw | true | @sunnydaysmarket.com | 3 |
-| roles::405::0 | What is the sum of the last three digits of the contact number for the person who works as a Flight Attendant? | raw | true | 10 | 3 |
-| roles::406::0 | How many letters are in the name of the person who is the Engineering Manager? | raw | true | 10 characters | 3 |
-| roles::407::0 | How many letters are in the names of people who have a Bachelor's degree? | raw | true | 14 characters | 3 |
-| roles::408::0 | What is the email address suffix for the Medical Director? | raw | true | @silversandshealthgroup.com | 3 |
-| roles::409::0 | How many letters are in the name of the person who has the contact number 81801759570? | raw | true | 14 characters | 3 |
-| roles::410::0 | What season does someone who is 140cm tall have their birthday in? | raw | false | Winter | 3 |
-| roles::411::0 | For someone working in Atlanta, GA, which of the following options corresponds to their work location? | raw | false | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::412::0 | What are the main responsibilities of the person with the email address gavin.mercer@guardiansecurity.com? | raw | true | Maintain public safety and security | 3 |
-| roles::413::0 | Which of the following descriptions would suit someone working in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::414::0 | In which season does the birthday of the person from Guardian Shield Security Services occur? | raw | true | Autumn | 3 |
-| roles::415::0 | Which of these descriptions best fits someone who works in Seattle, WA? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| roles::416::0 | What are the primary responsibilities of someone with a Master's degree in their field? | raw | false | Manage finances and ensure compliance | 3 |
-| roles::417::0 | What is the email address suffix for the person who has the contact number 85803031545? | raw | true | @horizonmedicalgroup.com | 3 |
-| roles::418::0 | What are the primary responsibilities of the person who has the email address elena.hart@emeraldcitymedicalgroup.com? | raw | true | Cure patients and ensure public health | 3 |
-| roles::419::0 | For someone who works in Atlanta, GA, which of the following descriptions best fits their workplace? | raw | true | A major cultural and economic center in the southeastern U.S. | 3 |
-| roles::420::0 | Which description fits the work location of someone in Seattle, WA? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 3 |
-| roles::421::0 | How many letters are in the name of a person whose hobby is knitting? | raw | false | 9 characters | 3 |
-| roles::422::0 | What are the main interests and hobbies of the person with the contact number 65002084084? | raw | false | Patiently wait and enjoy the pleasure of fishing | 3 |
-| roles::423::0 | What would be the email address suffix for someone born on July 21st? | raw | true | @desertoasishealthcare.com | 3 |
-| roles::424::0 | What does the work location look like for someone based in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::425::0 | What are the typical interests and hobbies of a 30-year-old? | raw | true | Write software to solve problems | 3 |
-| roles::426::0 | What is the email address suffix for someone who works in Miami, FL? | raw | true | @sunshinesalesgroup.com | 3 |
-| roles::427::0 | If someone is from San Antonio, TX, what season would their birthday fall in? | raw | false | Spring | 3 |
-| roles::428::0 | During which season does the birthday of the person holding the position of Attending Physician occur? | raw | false | Winter | 3 |
-| roles::429::0 | What are the main job responsibilities for someone with a high school education? | raw | false | Cultivate crops and raise livestock | 3 |
-| roles::430::0 | What are the typical interests and hobbies of a person with a Bachelor's degree? | raw | false | A graceful sport that enhances coordination | 3 |
-| roles::431::0 | For someone from Austin, TX, what would the sum of the last three digits of their phone number be? | raw | true | 13 | 3 |
-| roles::432::0 | What is the sum of the last six digits of the contact number for the person who has the email address elijah.sawyer@urbanexcellencesg.com? | raw | true | 26 | 3 |
-| roles::433::0 | What is the email address suffix for someone born on May 7th? | raw | true | @globallingServices.com | 3 |
-| roles::434::0 | In which season does someone with a PhD celebrate their birthday? | raw | true | Autumn | 3 |
-| roles::435::0 | What are the main responsibilities for someone whose birthday is on January 19th? | raw | true | Educate and guide students | 3 |
-| roles::436::0 | How many letters are in the names of people who work in Austin, TX? | raw | false | 13 characters | 3 |
-| roles::437::0 | What are Silas Bennett's main interests and hobbies? | raw | true | Nurture plants and get close to nature | 3 |
-| roles::438::0 | What is the email address suffix used by members of the Austin Innovators Group? | raw | true | @austininnovatorsgroup.com | 3 |
-| roles::439::0 | What is the email address suffix for people working in Boston, MA? | raw | true | @skywardhorizons.com | 3 |
-| roles::440::0 | What would be the email address suffix for someone from Miami, FL? | raw | true | @silvercityhealthclinic.com | 3 |
-| roles::441::0 | How many letters are in the name of the person who has the email address logan.carter@northeastfinancial.com? | raw | true | 11 characters | 3 |
-| roles::442::0 | What is the sum of the last four digits of the contact number for the person who is 156 centimeters tall? | raw | false | 14 | 3 |
-| roles::443::0 | What are the main interests and hobbies of someone who is a professional musician and composer? | raw | true | Aerobic exercise to improve cardiovascular health | 3 |
-| roles::444::0 | What email address suffix would someone who is 158 cm tall use? | raw | true | @innovativesystemsengineering.com | 3 |
-| roles::445::0 | What is the sum of the last two digits of the contact number for someone whose birthday is December 5th? | raw | true | 7 | 3 |
-| roles::446::0 | What are the main responsibilities of someone who has swimming as a hobby? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 3 |
-| roles::447::0 | Which of the following descriptions accurately represents the workplace of someone who works in Washington, DC? | raw | true | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::448::0 | What are the key responsibilities of a 30-year-old person in their job? | raw | false | Provide quality service to passengers | 3 |
-| roles::449::0 | Which of the following descriptions applies to someone who works in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::450::0 | Which of the following descriptions fits the work location of someone based in Washington, DC? | raw | true | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::451::0 | What is the sum of the last three digits of the contact number for the person who is 29 years old? | raw | true | 15 | 4 |
-| roles::452::0 | What are the primary responsibilities of someone with a high school diploma in their job? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 3 |
-| roles::453::0 | What are Clara Whitman's main interests and hobbies? | raw | true | Experience fun in the virtual gaming world | 3 |
-| roles::454::0 | What are the main responsibilities of a 28-year-old in their profession? | raw | false | Create innovative designs | 3 |
-| roles::455::0 | In which season do Software Engineers usually celebrate their birthdays? | raw | false | Winter | 3 |
-| roles::456::0 | When is the birthday of the person from Skyline Airways Inc., and what season does it fall in? | raw | false | Summer | 3 |
-| roles::457::0 | What is the email address domain for a Police Officer? | raw | false | @guardiansafetyservices.com | 3 |
-| roles::458::0 | Which of the following descriptions best describes the work location for someone located in Boston, MA? | raw | true | Known for its history, education, and sports teams. | 3 |
-| roles::459::0 | What are the main responsibilities of an employee at Creative Canvas Studios? | raw | true | Create innovative designs | 4 |
-| roles::460::0 | What describes the work location for someone who is based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 3 |
-| roles::461::0 | What is the sum of the last two digits of the contact number for a person whose birthday is March 12th? | raw | true | 7 | 3 |
-| roles::462::0 | During which season do Graphic Designers usually celebrate their birthdays? | raw | false | Spring | 3 |
-| roles::463::0 | What would be a fitting description for someone who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::464::0 | What would the email address suffix be for someone whose hobby is yoga? | raw | false | @neoninnovationslab.com | 3 |
-| roles::465::0 | What is the email address suffix for a person who holds a PhD? | raw | false | @innovativeminds.edu | 3 |
-| roles::466::0 | What are the primary interests and hobbies of a Creative Director? | raw | true | Appreciate theater and experience the variety of life | 3 |
-| roles::467::0 | What are the main responsibilities of Lila Hawthorne in her profession? | raw | true | Teach and conduct research at a university level | 3 |
-| roles::468::0 | Which of the following descriptions would apply to someone whose workplace is located in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 3 |
-| roles::469::0 | What kind of work location would be suitable for someone based in Orlando, FL? | raw | true | Known for its theme parks, including Walt Disney World. | 3 |
-| roles::470::0 | What is the sum of the last four digits of the contact number for the person from the Sunshine Sales Group? | raw | false | 15 | 3 |
-| roles::471::0 | For someone whose workplace is in Washington, DC, which of the following descriptions applies to their job location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 3 |
-| roles::472::0 | What is the work location like for someone based in Portland, OR? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 3 |
-| roles::473::0 | What are the main responsibilities of someone who practices yoga as a hobby? | raw | false | Educate and guide students | 3 |
-| roles::474::0 | What are the primary duties of a 39-year-old in their profession? | raw | false | Create innovative designs | 3 |
-| roles::475::0 | How many letters are there in the name of someone who is a professor? | raw | false | 11 characters | 3 |
-| roles::476::0 | What is the sum of the last four digits of a golf enthusiast's contact number? | raw | false | 12 | 3 |
-| roles::477::0 | In what season does a 29-year-old celebrate their birthday? | raw | false | Spring | 3 |
-| roles::478::0 | What are the main responsibilities of someone born on March 9th? | raw | true | Uphold the law and provide legal services | 3 |
-| roles::479::0 | What is the sum of the last four digits of the contact number for someone whose hobby is camping? | raw | false | 15 | 3 |
-| roles::480::0 | How many letters are in the name of someone who is 157 cm tall? | raw | false | 13 characters | 3 |
-| roles::481::0 | In which season does Gideon Cross have his birthday? | raw | false | Autumn | 3 |
-| roles::482::0 | During which season does a doctor celebrate their birthday? | raw | true | Summer | 3 |
-| roles::483::0 | What are the main responsibilities of a 25-year-old in their job? | raw | false | Maintain public safety and security | 3 |
-| roles::484::0 | What are Ember Lawson's main interests and hobbies? | raw | true | Patiently wait and enjoy the pleasure of fishing | 3 |
-| roles::485::0 | How many letters are there in the names of individuals who work in Austin, TX? | raw | false | 10 characters | 3 |
-| roles::486::0 | What is the sum of the last three digits of the contact number for the person who is 24 years old? | raw | false | 19 | 3 |
-| roles::487::0 | Which of the following descriptions would be a good fit for someone working in Miami, FL? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 3 |
-| roles::488::0 | How many letters are in the name of a person who is 168 cm tall? | raw | true | 14 characters | 3 |
-| roles::489::0 | What are the main responsibilities of the person with the contact number 85805107619? | raw | false | Promote products and achieve sales goals | 3 |
-| roles::490::0 | What are the main interests and hobbies of a person who is 166 cm tall? | raw | true | Enhance fitness and maintain health | 3 |
-| roles::491::0 | What are the main responsibilities of the person who has the email address elena.drake@lonestARretailgroup.com? | raw | true | Assist customers and promote products in retail environments | 4 |
-| roles::492::0 | What season is the birthday of a person who is 158 cm tall? | raw | true | Summer | 3 |
-| roles::493::0 | What would be the email address suffix for someone who is 151 cm tall? | raw | false | @orlandojusticepartners.com | 3 |
-| roles::494::0 | What is the total of the last five digits of the contact number for a person whose birthday falls on February 15th? | raw | true | 25 | 3 |
-| roles::495::0 | In which season does a 28-year-old celebrate their birthday? | raw | false | Autumn | 3 |
-| roles::496::0 | How many letters are in the names of people who have a birthday on May 28th? | raw | true | 14 characters | 3 |
-| roles::497::0 | If someone works in Chicago, IL, what season does their birthday fall in? | raw | true | Summer | 3 |
-| roles::498::0 | What would be the email address suffix for someone named Dylan Carter? | raw | true | @harborviewmedicalcenter.org | 3 |
-| roles::499::0 | What is the total of the last four digits of the contact number for a person whose birthday is on August 25th? | raw | true | 21 | 3 |
+| roles::0::0 | What are the main responsibilities of a person born on August 23rd? | raw | true | Handle financial transactions and serve clients | 1 |
+| roles::1::0 | What email address suffix do people with a high school education typically use? | raw | true | @pioneerconstructiongroup.com | 1 |
+| roles::2::0 | What is the sum of the last three digits of Sophia Reed's contact number? | raw | false | 7 | 1 |
+| roles::3::0 | What season is someone’s birthday if they work in Boston, MA? | raw | false | Winter | 1 |
+| roles::4::0 | What is the email address suffix for a person who is 152 cm tall? | raw | false | @innovativelearningsystems.com | 1 |
+| roles::5::0 | In which season does the person with the contact number 61908301896 celebrate their birthday? | raw | false | Winter | 1 |
+| roles::6::0 | If someone is from Portland, OR, what is the sum of the last four digits of their contact number? | raw | true | 19 | 1 |
+| roles::7::0 | What are the main interests and hobbies of the people who work at Innovative Learning Technologies LLC? | raw | true | Appreciate films and experience different lives | 1 |
+| roles::8::0 | How many letters are in the name of a person from San Jose, CA? | raw | true | 13 characters | 1 |
+| roles::9::0 | Which of these descriptions best fits the work location of someone who is based in Las Vegas, NV? | raw | false | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| roles::10::0 | What would the email address suffix be for someone who is from Miami, FL? | raw | false | @creativewavestudios.com | 1 |
+| roles::11::0 | What are the main responsibilities of someone from Denver, CO? | raw | true | Assist customers and promote products in retail environments | 1 |
+| roles::12::0 | In which season does Nora Whitfield, who has the email address nora.whitfield@wrmc.com, celebrate their birthday? | raw | true | Summer | 1 |
+| roles::13::0 | What is the email address suffix for someone who works as a Professor? | raw | true | @innovativelearningtech.com | 1 |
+| roles::14::0 | What is the sum of the last two digits of the contact number for a person who holds a PhD in education? | raw | false | 13 | 1 |
+| roles::15::0 | What is the email address domain for people who have a hobby in theater? | raw | false | @compassionatecareservices.com | 1 |
+| roles::16::0 | What are the main interests and hobbies of the person with the contact number 41502166387? | raw | false | Practice calligraphy and inherit culture | 1 |
+| roles::17::0 | What are the main interests and hobbies of someone from Jacksonville, FL? | raw | true | Challenge oneself and conquer peaks | 1 |
+| roles::18::0 | What is the sum of the last four digits of a contact number for someone whose birthday is on June 10th? | raw | true | 18 | 1 |
+| roles::19::0 | For someone who works in Washington, DC, how would you describe their workplace? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::20::0 | What are the main responsibilities of someone's occupation if their hometown is San Jose, CA? | raw | true | Conduct research and experiments to advance scientific understanding | 1 |
+| roles::21::0 | What’s the email address suffix for someone who works as a pilot? | raw | true | @skylineaviation.com | 1 |
+| roles::22::0 | For someone working in Washington, DC, what would describe their workplace? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::23::0 | What are the main responsibilities of someone whose hobby involves playing musical instruments? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 1 |
+| roles::24::0 | If someone is from Atlanta, GA, what would the suffix of their email address be? | raw | true | @innovatechresearchgroup.com | 1 |
+| roles::25::0 | What are the last three digits of the contact number for the person who works as a salesperson, and what is their sum? | raw | true | 15 | 1 |
+| roles::26::0 | What are the main responsibilities of a 31-year-old in their profession? | raw | false | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 1 |
+| roles::27::0 | What are some descriptions that apply to someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::28::0 | What is the primary responsibility of a 32-year-old in their job? | raw | false | Provide financial planning and investment advice | 1 |
+| roles::29::0 | What would be the email address suffix for someone who enjoys collecting antiques? | raw | true | @bostonhealthinnovations.com | 1 |
+| roles::30::0 | In which season does a person with a PhD celebrate their birthday? | raw | true | Spring | 1 |
+| roles::31::0 | What are the key responsibilities of a person working in Atlanta, GA? | raw | false | Deliver goods swiftly | 1 |
+| roles::32::0 | In which season does the birthday of a person who works in Las Vegas, NV fall? | raw | true | Autumn | 1 |
+| roles::33::0 | In which season does someone from San Diego, CA celebrate their birthday? | raw | true | Spring | 1 |
+| roles::34::0 | What is the email address suffix for people working in Portland, OR? | raw | false | @innovativebioresearchlabs.com | 1 |
+| roles::35::0 | What are the primary responsibilities of those whose workplace is located in Atlanta, GA? | raw | false | Drive sales growth and manage sales teams | 1 |
+| roles::36::0 | For someone who works in Atlanta, GA, how would you describe their work environment? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::37::0 | Which of the following descriptions best fits a person whose workplace is located in Orlando, FL? | raw | false | Known for its theme parks, including Walt Disney World. | 1 |
+| roles::38::0 | What are the main responsibilities of someone from Jacksonville, FL? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 1 |
+| roles::39::0 | What is the sum of the last six digits in the contact number for the Retail Sales Associate position? | raw | false | 27 | 1 |
+| roles::40::0 | What are the main interests and hobbies of people living and working in Portland, OR? | raw | false | Use weights and push-ups to shape the body | 1 |
+| roles::41::0 | What would be the email address suffix for someone from San Francisco, CA? | raw | true | @linguisticbridgetranslations.com | 1 |
+| roles::42::0 | What would be the email address suffix for someone whose birthday falls on March 11th? | raw | true | @sunnyshoresbank.com | 1 |
+| roles::43::0 | In which season does Maxwell Grayson, who has the email address maxwell.grayson@premierelectricalservices.com, celebrate his birthday? | raw | false | Summer | 1 |
+| roles::44::0 | What is the sum of the last three digits of the contact number for Skyward Aviation Services? | raw | false | 11 | 1 |
+| roles::45::0 | What are the main interests and hobbies of the team at Rapid Express Couriers? | raw | false | Water-based exercise that trains the whole body | 1 |
+| roles::46::0 | How many letters are there in the name of the person with the email address briar.whittaker@quantuminnovationslabs.com? | raw | true | 14 characters | 1 |
+| roles::47::0 | What are the main interests and hobbies of someone who has a Bachelor's degree? | raw | true | Gather historical items and appreciate their value | 1 |
+| roles::48::0 | What are some common interests and hobbies for a 24-year-old? | raw | false | Ride the waves and enjoy the sea | 1 |
+| roles::49::0 | Which of the following descriptions applies to someone who works in Houston, TX? | raw | true | A major city in Texas, known for its energy industry and space exploration. | 1 |
+| roles::50::0 | What are the primary responsibilities of a 28-year-old in their profession? | raw | false | Handle financial transactions and serve clients | 1 |
+| roles::51::0 | In which season does someone with a high school education have their birthday? | raw | true | Spring | 1 |
+| roles::52::0 | What is the email address suffix of someone who is 166 cm tall? | raw | false | @capitalcitycouriers.com | 1 |
+| roles::53::0 | What are the main responsibilities for someone working in Denver, CO? | raw | false | Educate and guide students | 1 |
+| roles::54::0 | What are the main interests and hobbies of the person with the phone number 51001095939? | raw | true | Practice calligraphy and inherit culture | 1 |
+| roles::55::0 | What are the main interests and hobbies of a Cabin Crew Member? | raw | true | Practice calligraphy and inherit culture | 1 |
+| roles::56::0 | How many letters does the name of the person from Bay State Builders LLC have? | raw | true | 11 characters | 1 |
+| roles::57::0 | What is the sum of the last six digits of a contact number for someone from Las Vegas, NV? | raw | true | 26 | 1 |
+| roles::58::0 | What is the email address suffix for a Real Estate Agent? | raw | false | @urbannestrealty.com | 1 |
+| roles::59::0 | What are the main interests and hobbies of a person with a Bachelor's degree? | raw | false | Relax the body and mind, cultivate oneself | 1 |
+| roles::60::0 | What is the email address suffix for the Community Outreach Coordinator position? | raw | true | @pacificcitylaw.gov | 1 |
+| roles::61::0 | How many letters are in the names of individuals who have a Master's degree? | raw | false | 11 characters | 1 |
+| roles::62::0 | Which option describes the work location for a person based in Atlanta, GA? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::63::0 | What are the main interests and hobbies of the person who has the email address kieran.shaw@codecrafters.com? | raw | true | Relax and feel the beauty of melodies | 1 |
+| roles::64::0 | For a person whose workplace is in Los Angeles, CA, which of the following descriptions best fits their job location? | raw | false | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| roles::65::0 | What are the main interests and hobbies of a person who is 163 cm tall? | raw | false | Explore the outdoors on a bike | 1 |
+| roles::66::0 | What are the main responsibilities of a person who is 168cm tall? | raw | false | Provide financial planning and investment advice | 1 |
+| roles::67::0 | What are the last two digits of Owen Prescott's contact number, and what do they add up to? | raw | false | 7 | 1 |
+| roles::68::0 | How many letters are there in the names of people who have a Bachelor’s degree? | raw | false | 12 characters | 1 |
+| roles::69::0 | What are some common interests and hobbies for someone from Jacksonville, FL? | raw | true | Ride the waves and enjoy the sea | 1 |
+| roles::70::0 | What is the email address suffix for a 35-year-old? | raw | false | @sunshinehaulers.com | 1 |
+| roles::71::0 | In which season does someone who is 163 cm tall celebrate their birthday? | raw | false | Autumn | 1 |
+| roles::72::0 | For someone who works as a chef, what would the suffix of their email address be? | raw | false | @savorydelights.com | 1 |
+| roles::73::0 | What season does someone whose hobby is knitting celebrate their birthday? | raw | false | Summer | 1 |
+| roles::74::0 | What are the main responsibilities of someone whose hobby is model making? | raw | true | Cure patients and ensure public health | 1 |
+| roles::75::0 | How many letters are in the name of someone whose occupation is a nurse? | raw | true | 11 characters | 1 |
+| roles::76::0 | What are the main responsibilities of the person with the contact number 65003215995 in their job? | raw | true | Cultivate crops and raise livestock | 1 |
+| roles::77::0 | What are the main responsibilities of the individual associated with the contact number 61904027161? | raw | true | Cultivate crops and raise livestock | 1 |
+| roles::78::0 | What would be the email address suffix for a person who is 32 years old? | raw | true | @compassionatecare.com | 1 |
+| roles::79::0 | What does the work location look like for someone based in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| roles::80::0 | During which season does the person with the email address madeline.hayes@capitalcitybank.com celebrate their birthday? | raw | true | Summer | 1 |
+| roles::81::0 | How many letters are in the name of a person from Miami, FL? | raw | true | 12 characters | 1 |
+| roles::82::0 | What is the email address suffix for someone named Chloe Merritt? | raw | true | @houstonrealtygroup.com | 1 |
+| roles::83::0 | Which of these descriptions fits someone who works in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::84::0 | During which season does Landon Chase celebrate their birthday? | raw | true | Summer | 1 |
+| roles::85::0 | What is the email address suffix for a Journeyman Electrician position? | raw | true | @voltagepros.com | 1 |
+| roles::86::0 | For someone who works in New York, NY, which of the following options would best describe their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::87::0 | During which season does the person with the contact number 31004592259 celebrate their birthday? | raw | false | Spring | 1 |
+| roles::88::0 | What are the typical interests and hobbies of someone from Las Vegas, NV? | raw | true | Observe and identify different bird species | 1 |
+| roles::89::0 | What is the sum of the last three digits of the contact number for the person who is 35 years old? | raw | true | 21 | 1 |
+| roles::90::0 | What is the email address domain for someone working in Las Vegas, NV? | raw | false | @silverstategrocers.com | 1 |
+| roles::91::0 | What are the last two digits of the contact number for the person with the email address sofia.mitchell@rockymountainhealthcaregroup.com, and what is their sum? | raw | true | 6 | 1 |
+| roles::92::0 | What are the main interests and hobbies of someone who works as a translator? | raw | false | Make delicious dishes and enjoy cooking | 1 |
+| roles::93::0 | What are the main responsibilities of someone who holds a Bachelor's degree in their profession? | raw | false | Uphold the law and provide legal services | 1 |
+| roles::94::0 | What would the email address suffix be for someone from Charlotte, NC? | raw | false | @evergreenconstruction.com | 1 |
+| roles::95::0 | For a teacher, in which season does their birthday fall? | raw | false | Summer | 1 |
+| roles::96::0 | What do most 35-year-olds typically enjoy doing in their free time? | raw | false | Make delicious dishes and enjoy cooking | 1 |
+| roles::97::0 | What are the main responsibilities for a 23-year-old in their job? | raw | false | Design, develop, and maintain systems and structures | 1 |
+| roles::98::0 | What is the sum of the last four digits of the contact number for the person whose birthday is on December 24th? | raw | true | 15 | 1 |
+| roles::99::0 | What are Zara Whitfield's main interests and hobbies? | raw | true | Express oneself through music | 1 |
+| roles::100::0 | Which of these descriptions would best fit someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::101::0 | How many letters are in the name of a person whose birthday falls on October 25th? | raw | false | 13 characters | 1 |
+| roles::102::0 | What is the email address suffix for a person who is 170 cm tall? | raw | false | @innovativeresearchlabs.com | 1 |
+| roles::103::0 | How many letters are in the name of a person who works as an electrician? | raw | true | 9 characters | 1 |
+| roles::104::0 | For someone who works in San Francisco, CA, how would you describe their workplace? | raw | true | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| roles::105::0 | What are the main interests and hobbies of someone who holds an Associate Degree? | raw | false | Aerobic exercise to improve cardiovascular health | 1 |
+| roles::106::0 | What are the key responsibilities for someone working in Austin, TX? | raw | false | Facilitate communication across languages | 1 |
+| roles::107::0 | In which season does the birthday of the Wealth Management Specialist fall? | raw | false | Autumn | 1 |
+| roles::108::0 | What is the total of the last four digits of the contact number for the individual whose workplace is in Las Vegas, NV? | raw | false | 11 | 1 |
+| roles::109::0 | What is the email address suffix for someone who is 29 years old? | raw | false | @emeraldcityrealtygroup.com | 1 |
+| roles::110::0 | What is the sum of the last three digits of the contact number for someone from Orlando, FL? | raw | true | 13 | 1 |
+| roles::111::0 | In which season does someone from Indianapolis, IN celebrate their birthday? | raw | true | Winter | 1 |
+| roles::112::0 | What is the sum of the last five digits of the contact number for the person who is 159 centimeters tall? | raw | true | 18 | 1 |
+| roles::113::0 | What season is it for someone who is 39 years old on their birthday? | raw | true | Autumn | 1 |
+| roles::114::0 | In which season do lawyers typically celebrate their birthdays? | raw | true | Summer | 1 |
+| roles::115::0 | What are the main interests and hobbies of a person born on February 15th? | raw | false | A graceful sport that enhances coordination | 1 |
+| roles::116::0 | What are the main responsibilities of a person born on January 12th? | raw | true | Prepare delicious food for customers | 1 |
+| roles::117::0 | What are the main interests and hobbies of a police officer? | raw | true | Observe and identify different bird species | 1 |
+| roles::118::0 | What is the email address domain for someone named Avery Sinclair? | raw | true | @creativecanvasstudios.com | 1 |
+| roles::119::0 | How many letters are there in the name of a person whose birthday is on February 23rd? | raw | false | 11 characters | 1 |
+| roles::120::0 | How many letters are in the name of the person at Harborview Medical Group? | raw | true | 10 characters | 1 |
+| roles::121::0 | During which season does the birthday of the Senior Software Architect occur? | raw | true | Winter | 1 |
+| roles::122::0 | What are the main interests and hobbies of people who work in Los Angeles, CA? | raw | true | Master new languages to broaden horizons | 1 |
+| roles::123::0 | During which season does Lila Monroe celebrate her birthday? | raw | false | Summer | 1 |
+| roles::124::0 | What are the main interests and hobbies of the individual with the contact number 85801168355? | raw | false | Express oneself through music | 1 |
+| roles::125::0 | In which season does the person in the position of Line Cook celebrate their birthday? | raw | true | Winter | 1 |
+| roles::126::0 | What is the sum of the last six digits of Clara Bennett's contact number? | raw | true | 27 | 1 |
+| roles::127::0 | For someone working in Las Vegas, NV, which of these descriptions fits their workplace? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| roles::128::0 | What are the primary responsibilities of the person associated with the contact number 65005637311? | raw | true | Cure patients and ensure public health | 1 |
+| roles::129::0 | What is the email address suffix for the person with the contact number 61901137151? | raw | true | @voltagevision.com | 1 |
+| roles::130::0 | What are the main responsibilities of someone born on January 28th? | raw | true | Drive sales growth and manage sales teams | 1 |
+| roles::131::0 | What is the sum of the last four digits of the phone number for someone who is from Philadelphia, PA? | raw | true | 13 | 1 |
+| roles::132::0 | What are the main interests and hobbies of the person with the contact number 61701099427? | raw | true | Patiently wait and enjoy the pleasure of fishing | 1 |
+| roles::133::0 | What is the email address suffix for the individual with the contact number 61708800234? | raw | true | @tropicalculinarycreations.com | 1 |
+| roles::134::0 | How many letters are in the name of someone who is 30 years old? | raw | true | 14 characters | 1 |
+| roles::135::0 | What is the total of the last three digits of the contact number for the individual with the email address julian.hayes@harmonysoundproductions.com? | raw | true | 11 | 1 |
+| roles::136::0 | What is the email domain for the people at Innovatech Systems LLC? | raw | true | @innovatechsystems.com | 1 |
+| roles::137::0 | In which season do people who enjoy playing video games typically have their birthdays? | raw | true | Winter | 1 |
+| roles::138::0 | What are the main interests and hobbies of a Research Scientist? | raw | true | Appreciate theater and experience the variety of life | 1 |
+| roles::139::0 | What email address suffix would someone who is 157 cm tall use? | raw | false | @techwaveinnovations.com | 1 |
+| roles::140::0 | How many letters are in the name of a person from Miami, FL? | raw | false | 12 characters | 1 |
+| roles::141::0 | During which season does a person with a Master's degree celebrate their birthday? | raw | false | Autumn | 1 |
+| roles::142::0 | What is the email address suffix for a person who has a Bachelor's degree? | raw | false | @skywardaviation.com | 1 |
+| roles::143::0 | What are the main responsibilities of someone whose birthday is on December 14th? | raw | true | Fly and navigate aircraft safely | 1 |
+| roles::144::0 | What are the typical interests and hobbies of someone who holds a Bachelor's degree? | raw | true | Explore nature on foot and enjoy the scenery | 1 |
+| roles::145::0 | How many letters are there in the name of the individual from Summit Financial Group? | raw | true | 9 characters | 1 |
+| roles::146::0 | Which of these descriptions describes someone who works in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| roles::147::0 | What are the key responsibilities of someone with a high school education in their job? | raw | false | Transport goods safely and punctually to designated locations | 1 |
+| roles::148::0 | How many letters are in the names of people who have a high school education? | raw | true | 11 characters | 1 |
+| roles::149::0 | How many letters are in the name of the person who has the email address jackson.reed@mountainviewmedicalgroup.com? | raw | true | 11 characters | 1 |
+| roles::150::0 | Which of these descriptions fits the work location of someone who is based in Portland, OR? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| roles::151::0 | How many letters are in the name of someone who has the occupation of Professor? | raw | false | 12 characters | 1 |
+| roles::152::0 | What is the sum of the last two digits of the contact number for the Research Scientist position in Cognitive Neuroscience? | raw | true | 4 | 1 |
+| roles::153::0 | What is the total of the last four digits of the contact number for the person whose workplace is in Boston, MA? | raw | true | 22 | 1 |
+| roles::154::0 | What are the primary interests and hobbies of someone who holds a PhD in education? | raw | false | Reading thousands of books is not as good as traveling thousands of miles | 1 |
+| roles::155::0 | What is the total of the last six digits of the contact number for the person who is 26 years old? | raw | true | 25 | 1 |
+| roles::156::0 | How many letters are in the name of the person who has the contact number 61706916032? | raw | false | 11 characters | 1 |
+| roles::157::0 | In which season does the person with the contact number 31004664417 celebrate their birthday? | raw | false | Spring | 1 |
+| roles::158::0 | If someone works in Chicago, IL, during which season does their birthday fall? | raw | true | Spring | 1 |
+| roles::159::0 | What is the sum of the last four digits of Tessa Monroe's contact number? | raw | false | 13 | 1 |
+| roles::160::0 | What are the main responsibilities of the person with the contact number 70702604687? | raw | false | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 1 |
+| roles::161::0 | What are the main responsibilities of the person with the contact number 858-061-8289? | raw | true | Assist customers and promote products in retail environments | 1 |
+| roles::162::0 | What are the main job responsibilities for someone working in Atlanta, GA? | raw | false | Educate and guide students | 1 |
+| roles::163::0 | In which season does someone whose work location is Chicago, IL, have their birthday? | raw | true | Spring | 1 |
+| roles::164::0 | What season do people who work in Boston, MA, have their birthdays in? | raw | false | Winter | 1 |
+| roles::165::0 | How many letters are in the name of the person who has the email address silas.grant@emeraldcityengineering.com? | raw | true | 10 characters | 1 |
+| roles::166::0 | In which season does a Programmer celebrate their birthday? | raw | false | Summer | 1 |
+| roles::167::0 | What are the main interests and hobbies of a 39-year-old person? | raw | true | Observe and identify different bird species | 1 |
+| roles::168::0 | What is the email address suffix for a person born on October 6th? | raw | true | @innovativeresearchdynamics.com | 1 |
+| roles::169::0 | What would be the work location for someone who is based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| roles::170::0 | What are the main responsibilities of a 35-year-old in their job? | raw | false | Deliver goods swiftly | 1 |
+| roles::171::0 | In which season is the birthday of the person from Innovation Dynamics LLC? | raw | true | Autumn | 1 |
+| roles::172::0 | What are the main responsibilities of someone from Indianapolis, IN? | raw | true | Maintain public safety and security | 1 |
+| roles::173::0 | How many letters are in the name of the person who has the contact number 61906878803? | raw | false | 15 characters | 1 |
+| roles::174::0 | For someone who hails from Las Vegas, NV, what would be the sum of the last three digits of their contact number? | raw | true | 14 | 1 |
+| roles::175::0 | In which season does Zoe Harper, who has the email address zoe.harper@precisionfinancial.com, celebrate her birthday? | raw | true | Autumn | 1 |
+| roles::176::0 | What is the email address suffix for someone at Gold Crest Bank? | raw | true | @goldcrestbank.com | 1 |
+| roles::177::0 | What season is the birthday of someone who has an Associate Degree? | raw | false | Spring | 1 |
+| roles::178::0 | How many letters are in the name of a person whose birthday is on February 25th? | raw | true | 11 characters | 1 |
+| roles::179::0 | For someone working in Miami, FL, which of the following descriptions accurately represents their workplace? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::180::0 | What are the primary responsibilities of someone employed at Houston Shield Security Services? | raw | true | Maintain public safety and security | 1 |
+| roles::181::0 | What describes the work location for someone based in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::182::0 | What does the work location look like for someone based in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| roles::183::0 | What is the sum of the last six digits of the contact number for the individual associated with Precision Accounting Services LLC? | raw | true | 22 | 1 |
+| roles::184::0 | How many letters are in the name of a person who is 171 cm tall? | raw | true | 15 characters | 1 |
+| roles::185::0 | What would be the appropriate description of a workplace for someone whose job is based in Las Vegas, NV? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| roles::186::0 | How many letters are in the names of people who work in Austin, TX? | raw | false | 13 characters | 1 |
+| roles::187::0 | What are the options that describe the work location for someone who is based in Boston, MA? | raw | false | Known for its history, education, and sports teams. | 1 |
+| roles::188::0 | What are the main interests and hobbies of the person at Harmony Sound Studios? | raw | true | Explore nature on foot and enjoy the scenery | 1 |
+| roles::189::0 | What are the main interests and hobbies of people working in Miami, FL? | raw | false | Relax and feel the beauty of melodies | 1 |
+| roles::190::0 | What season does someone with a Bachelor's degree have their birthday in? | raw | false | Summer | 1 |
+| roles::191::0 | What would be the email address suffix for someone named Hannah Brooks? | raw | true | @innovativeresearchdynamics.com | 1 |
+| roles::192::0 | In what season does someone who works in Washington, DC have their birthday? | raw | true | Winter | 1 |
+| roles::193::0 | What are the last two digits of the contact number for the person with the email address clara.whitmore@linguisticbridgetranslations.com, and what is their sum? | raw | true | 6 | 1 |
+| roles::194::0 | In what season does someone who is 163 cm tall celebrate their birthday? | raw | false | Autumn | 1 |
+| roles::195::0 | What are the main responsibilities of the person with the contact number 20202201042 in their job? | raw | false | Maintain public safety and security | 1 |
+| roles::196::0 | In what season does a person who is 161 cm tall celebrate their birthday? | raw | true | Winter | 1 |
+| roles::197::0 | For individuals holding a Master's degree, what is the total of the last four digits in their contact number? | raw | false | 18 | 1 |
+| roles::198::0 | Which of these descriptions fits a person who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::199::0 | What are Finn Caldwell's main interests and hobbies? | raw | false | Patiently wait and enjoy the pleasure of fishing | 1 |
+| roles::200::0 | What is the work location like for people in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::201::0 | If someone has a birthday on June 26th, what would be the sum of the last three digits of their contact number? | raw | true | 11 | 1 |
+| roles::202::0 | What is the total of the last three digits of the contact number for the individual whose hobby is watching movies? | raw | false | 14 | 1 |
+| roles::203::0 | In which season does Cassandra Rivers have her birthday? | raw | false | Winter | 1 |
+| roles::204::0 | How many letters are in the name of the person who has the email address avery.quinn@innovationhubcollaborative.edu? | raw | true | 10 characters | 1 |
+| roles::205::0 | What is the email domain for someone named Isabella Cruz? | raw | true | @melodymakersproductions.com | 1 |
+| roles::206::0 | In which season does the birthday of the person from Golden Gate Bank and Trust fall? | raw | true | Autumn | 1 |
+| roles::207::0 | What are the key responsibilities of a Medical Researcher? | raw | false | Cure patients and ensure public health | 1 |
+| roles::208::0 | What is the total of the last five digits of the contact number for the person whose workplace is located in Chicago, IL? | raw | false | 35 | 1 |
+| roles::209::0 | What are the main responsibilities of the person with the contact number 41507174653 in their job? | raw | false | Handle financial transactions and serve clients | 1 |
+| roles::210::0 | How many letters are in the name of a person who has a Bachelor's degree? | raw | false | 12 characters | 1 |
+| roles::211::0 | For someone working in New York, NY, which of the following descriptions best fits their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::212::0 | How many letters are in the name of the person who has the contact number 85805898224? | raw | true | 13 characters | 1 |
+| roles::213::0 | What is the total of the last six digits of the contact number for individuals whose work location is in Chicago, IL? | raw | false | 27 | 1 |
+| roles::214::0 | What would describe the work location for someone in Miami, FL? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::215::0 | How many letters are in the name of a person whose birthday falls on September 4th? | raw | true | 14 characters | 1 |
+| roles::216::0 | What would be the email address suffix for someone from Miami, FL? | raw | true | @communitycarenetworkoregon.org | 1 |
+| roles::217::0 | What are the main responsibilities of someone from Orlando, FL? | raw | true | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 1 |
+| roles::218::0 | Which of these descriptions fits the work location of someone who is based in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| roles::219::0 | How many letters do the names of people from Miami, FL have? | raw | false | 11 characters | 1 |
+| roles::220::0 | What are the main interests and hobbies of a 32-year-old? | raw | false | Aerobic exercise to improve cardiovascular health | 1 |
+| roles::221::0 | What are the main interests and hobbies of someone born on July 20th? | raw | false | Collect stamps and learn about history | 1 |
+| roles::222::0 | What is the sum of the last three digits of the contact number for the person who works as a Professor? | raw | false | 25 | 1 |
+| roles::223::0 | During which season is the birthday of a 35-year-old? | raw | true | Spring | 1 |
+| roles::224::0 | What are the primary duties of someone working at Silver State Accounting Group? | raw | true | Manage finances and ensure compliance | 1 |
+| roles::225::0 | What season is the birthday of the Sales Representative? | raw | true | Spring | 1 |
+| roles::226::0 | What is the total of the last five digits of Savannah Cole's contact number? | raw | true | 30 | 1 |
+| roles::227::0 | What is the sum of the last two digits of the contact number for the Independent Music Producer position? | raw | true | 10 | 1 |
+| roles::228::0 | What season does someone with a Bachelor's degree celebrate their birthday? | raw | false | Winter | 1 |
+| roles::229::0 | What does it mean for someone based in Seattle, WA when it comes to their work location? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| roles::230::0 | What are the primary hobbies and interests of a Cabin Crew Member? | raw | true | Create with your hands and experience craftsmanship | 1 |
+| roles::231::0 | What are the main interests and hobbies of a person with a high school education? | raw | true | Express oneself through music | 1 |
+| roles::232::0 | What is the sum of the last two digits of the contact number for someone whose birthday is on April 5th? | raw | true | 12 | 1 |
+| roles::233::0 | What are the main interests and hobbies of engineers? | raw | false | Use weights and push-ups to shape the body | 1 |
+| roles::234::0 | What would the email address suffix be for someone whose hobby is hiking? | raw | false | @linguisticlinkages.com | 1 |
+| roles::235::0 | What email address suffix would someone from Miami, FL have? | raw | false | @techwaveinnovations.com | 1 |
+| roles::236::0 | What is the sum of the last three digits of a contact number for someone from Denver, CO? | raw | true | 13 | 1 |
+| roles::237::0 | Which of these descriptions best describes the work location for someone who is based in Denver, CO? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::238::0 | What would be the email address suffix for someone from San Jose, CA? | raw | true | @miamiledgerpartners.com | 1 |
+| roles::239::0 | What are the main interests and hobbies of a person with a high school education? | raw | false | Gather historical items and appreciate their value | 1 |
+| roles::240::0 | How many letters are in the name of a person who is 173 cm tall? | raw | true | 10 characters | 1 |
+| roles::241::0 | What is the email address suffix for someone from Washington, DC? | raw | true | @swiftdeliveriesco.com | 1 |
+| roles::242::0 | For someone whose workplace is in Denver, CO, which of the following accurately describes their work location? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::243::0 | What is the total of the last six digits of the contact number for the individual who is 28 years old? | raw | false | 18 | 1 |
+| roles::244::0 | What is the email address domain for someone at Skyward Travel Services? | raw | false | @skywardtravel.com | 1 |
+| roles::245::0 | How many letters are in the name of the person who is 39 years old? | raw | true | 9 characters | 1 |
+| roles::246::0 | What is the email address suffix for someone who is 29 years old? | raw | true | @texanfinancialservices.com | 1 |
+| roles::247::0 | What are the main responsibilities of someone born on May 30th? | raw | true | Conduct research and experiments to advance scientific understanding | 1 |
+| roles::248::0 | What are the main interests and hobbies of a person who holds an Associate Degree? | raw | true | Help others and contribute to the community | 1 |
+| roles::249::0 | What season is the birthday of the person with the email address mira.caldwell@culinarydelightsbistro.com? | raw | true | Autumn | 1 |
+| roles::250::0 | What is the email address suffix for individuals with a Master's degree? | raw | false | @manhattanhealthpartners.com | 1 |
+| roles::251::0 | For someone who is 165 cm tall, what is the sum of the last four digits of their contact number? | raw | false | 22 | 1 |
+| roles::252::0 | What kind of work location would someone in Denver, CO have? | raw | false | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::253::0 | During which season does the person with the email address natalie.monroe@sunshinefreight.com celebrate their birthday? | raw | true | Autumn | 1 |
+| roles::254::0 | What are the main responsibilities of someone who is 156 cm tall? | raw | true | Cultivate crops and raise livestock | 1 |
+| roles::255::0 | How many letters are in the name of a person whose job is Doctor? | raw | false | 15 characters | 1 |
+| roles::256::0 | What is the total of the last six digits in the contact number for the person at Inspire Learning Academy? | raw | false | 31 | 1 |
+| roles::257::0 | What would be the email address suffix for someone from Atlanta, GA? | raw | true | @southernshieldsecurity.com | 1 |
+| roles::258::0 | What are the primary interests and hobbies of someone working as a Music Program Coordinator? | raw | false | Express yourself through dance and enjoy the rhythm | 1 |
+| roles::259::0 | What are the main responsibilities of a person working at Culinary Creations Orlando? | raw | false | Prepare delicious food for customers | 1 |
+| roles::260::0 | What are the typical interests and hobbies of someone in the role of Sergeant? | raw | false | Collect stamps and learn about history | 1 |
+| roles::261::0 | For someone who works in Orlando, FL, what would be a fitting description of their workplace? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| roles::262::0 | How would you describe the work location for someone who is based in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::263::0 | What is the email address suffix for someone who is 147 cm tall? | raw | true | @silvervalleymedicalgroup.com | 1 |
+| roles::264::0 | What’s a good description for someone whose work location is in Chicago, IL? | raw | false | Known for its architecture, museums, and deep-dish pizza. | 1 |
+| roles::265::0 | What are the main responsibilities of someone who has dancing as a hobby? | raw | false | Provide financial planning and investment advice | 1 |
+| roles::266::0 | What are the main responsibilities of the person with the email address olivia.grant@skywardtravels.com in her profession? | raw | true | Provide quality service to passengers | 1 |
+| roles::267::0 | What season does a doctor celebrate their birthday in? | raw | true | Summer | 1 |
+| roles::268::0 | How many letters are in the name of a person who has an Associate Degree? | raw | true | 11 characters | 1 |
+| roles::269::0 | For someone whose work location is in San Francisco, CA, which of the following descriptions best fits their workplace? | raw | false | Known for the Golden Gate Bridge and its tech industry. | 1 |
+| roles::270::0 | What season does a 43-year-old's birthday fall into? | raw | true | Summer | 1 |
+| roles::271::0 | If someone's birthday is on August 17th, what is the sum of the last three digits of their contact number? | raw | true | 17 | 1 |
+| roles::272::0 | Which option describes the work location for someone based in Orlando, FL? | raw | false | Known for its theme parks, including Walt Disney World. | 1 |
+| roles::273::0 | In which season does someone with a Bachelor’s degree celebrate their birthday? | raw | false | Spring | 1 |
+| roles::274::0 | What would the suffix of an email address be for someone whose hobby is surfing? | raw | true | @csshouston.org | 1 |
+| roles::275::0 | How many letters do the names of people from Indianapolis, IN contain? | raw | true | 14 characters | 1 |
+| roles::276::0 | How many letters are in the name of the person who holds the position of Associate Professor of Cognitive Science? | raw | true | 10 characters | 1 |
+| roles::277::0 | What is the sum of the last six digits of the contact number for a person who is 178 cm tall? | raw | false | 35 | 1 |
+| roles::278::0 | Which of these descriptions fits the work location of someone who is based in Austin, TX? | raw | true | The capital of Texas, known for its music scene and cultural events. | 1 |
+| roles::279::0 | What are the main interests and hobbies of the person with the contact number 65008255902? | raw | false | Help others and contribute to the community | 1 |
+| roles::280::0 | During which season does Landon Pierce celebrate his birthday? | raw | false | Spring | 1 |
+| roles::281::0 | What are the main interests and hobbies of the people who work at Innovative Research Partners LLC? | raw | true | Relax and feel the beauty of melodies | 1 |
+| roles::282::0 | Which of these descriptions best matches the work location of a person based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| roles::283::0 | What are the main interests and hobbies of a 27-year-old? | raw | true | Water-based exercise that trains the whole body | 1 |
+| roles::284::0 | For a person who is 159 cm tall, what is the sum of the last three digits of their contact number? | raw | true | 8 | 1 |
+| roles::285::0 | How many letters are in the name of the person who has the email address lucas.bennett@emeraldcityelectronics.com? | raw | true | 12 characters | 1 |
+| roles::286::0 | What is the domain of the email address for the person at Lone Star Sales Agency? | raw | true | @lonestarsalesagency.com | 1 |
+| roles::287::0 | What are the main interests and hobbies of the person with the email address marigold.hayes@peachtreesales.com? | raw | true | Express emotions with a brush and create beauty | 1 |
+| roles::288::0 | What does the work location look like for someone based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| roles::289::0 | In which season does someone whose hobby is fitness celebrate their birthday? | raw | false | Summer | 1 |
+| roles::290::0 | What are the main responsibilities for someone working in Denver, CO? | raw | false | Install, repair, and maintain electrical systems | 1 |
+| roles::291::0 | What are the main interests and hobbies of the person who has the email address carter.hayes@houstonledgerpartners.com? | raw | true | Patiently wait and enjoy the pleasure of fishing | 1 |
+| roles::292::0 | During which season does a musician celebrate their birthday? | raw | true | Autumn | 1 |
+| roles::293::0 | For someone who is 174 cm tall, what is the sum of the last five digits of their contact number? | raw | false | 19 | 1 |
+| roles::294::0 | What is the total of the last five digits of the contact number for a person whose hometown is Austin, TX? | raw | true | 12 | 1 |
+| roles::295::0 | Which of these descriptions fits the work location for someone who is based in Seattle, WA? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| roles::296::0 | For someone who works in Orlando, FL, which of the following descriptions best fits their workplace? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| roles::297::0 | Which of these descriptions would apply to someone who works in Denver, CO? | raw | true | Known for its proximity to the Rocky Mountains and outdoor activities. | 1 |
+| roles::298::0 | What is the email address suffix for someone whose birthday falls on October 8th? | raw | true | @peakperformancesales.com | 1 |
+| roles::299::0 | How many letters are in the name of the person who holds the position of Customer Service Representative? | raw | true | 13 characters | 1 |
+| roles::300::0 | What are the main interests and hobbies of a Software Development Engineer? | raw | true | Gather historical items and appreciate their value | 1 |
+| roles::301::0 | What are the key responsibilities of a Journeyman Electrician? | raw | true | Install, repair, and maintain electrical systems | 1 |
+| roles::302::0 | What are the main interests and hobbies of someone whose birthday is on September 21? | raw | false | Listen to live music and enjoy the artistic atmosphere | 1 |
+| roles::303::0 | What is the email address suffix for a person who is 167 cm tall? | raw | false | @melodymakersstudios.com | 1 |
+| roles::304::0 | What is the email suffix for the person who enjoys painting? | raw | true | @orlandofinancialstrategies.com | 1 |
+| roles::305::0 | What does the work location look like for someone based in Seattle, WA? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| roles::306::0 | What is the email address domain for someone working at Skyward Airlines Ltd.? | raw | true | @skywardairlines.com | 1 |
+| roles::307::0 | What is the email address suffix for someone who holds the position of Police Lieutenant? | raw | true | @miamilawenforcement.com | 1 |
+| roles::308::0 | For someone who works in New York, NY, how would you best describe their workplace? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::309::0 | For a person who is 163 cm tall, what is the total of the last four digits of their phone number? | raw | true | 19 | 1 |
+| roles::310::0 | Which of the following descriptions best fits the work location for someone who is based in Boston, MA? | raw | true | Known for its history, education, and sports teams. | 1 |
+| roles::311::0 | What is the total of the last five digits of the contact number for the person in the Sales Support Specialist position? | raw | false | 19 | 1 |
+| roles::312::0 | How many letters are in the name of a person from Columbus, OH? | raw | true | 13 characters | 1 |
+| roles::313::0 | How many letters are in the name of a person whose birthday is on July 9th? | raw | true | 12 characters | 1 |
+| roles::314::0 | What are the typical interests and hobbies of a person with a Bachelor's degree? | raw | true | Explore nature on foot and enjoy the scenery | 1 |
+| roles::315::0 | For someone whose job is in Las Vegas, NV, which of the following options accurately describes their workplace? | raw | true | Famous for its entertainment, casinos, and vibrant nightlife. | 1 |
+| roles::316::0 | In which season does a person who is 170 cm tall celebrate their birthday? | raw | true | Winter | 1 |
+| roles::317::0 | During which season does the Retail Sales Associate celebrate their birthday? | raw | true | Spring | 1 |
+| roles::318::0 | What is the sum of the last six digits of the contact number for the person who has the email address elena.sinclair@goldengatesecurity.com? | raw | true | 28 | 1 |
+| roles::319::0 | What are the main interests and hobbies of people who work as farmers? | raw | false | Stay outdoors and enjoy the simplicity of nature | 1 |
+| roles::320::0 | What is the sum of the last three digits of the contact number for the person whose birthday falls on March 1st? | raw | true | 12 | 1 |
+| roles::321::0 | How many letters are in the name of a 27-year-old person? | raw | false | 14 characters | 1 |
+| roles::322::0 | For someone who is 168 cm tall, what are the last two digits of their contact number when added together? | raw | false | 9 | 1 |
+| roles::323::0 | During which season does the birthday of the person with the email address jasper.lane@skywardtravels.com fall? | raw | true | Summer | 1 |
+| roles::324::0 | What is the total of the last five digits of the contact number for the individual whose work location is Boston, MA? | raw | true | 25 | 1 |
+| roles::325::0 | What is the sum of the last five digits of the contact number for the person who has the email address oliver.grant@healthcarepartnersny.com? | raw | true | 29 | 1 |
+| roles::326::0 | What is the email address suffix for a person who has a Bachelor's degree? | raw | false | @creativevisionsstudio.com | 1 |
+| roles::327::0 | What are Tessa Langley's main interests and hobbies? | raw | true | Delicate crafting that showcases creativity | 1 |
+| roles::328::0 | What is the sum of the last two digits of a contact number for someone who has a PhD in education? | raw | true | 7 | 1 |
+| roles::329::0 | What is the sum of the last two digits of the contact number for individuals with a High School education level? | raw | true | 6 | 1 |
+| roles::330::0 | What is the email address suffix for someone from San Jose, CA? | raw | true | @culinarycreationsla.com | 1 |
+| roles::331::0 | What’s the email address suffix for someone whose birthday is on December 17th? | raw | true | @communitycarepartnersinc.com | 1 |
+| roles::332::0 | How many letters are in the names of people who work in Denver, CO? | raw | true | 11 characters | 1 |
+| roles::333::0 | What is the email address suffix for a Medical Research Scientist? | raw | true | @pacifichealthmg.com | 1 |
+| roles::334::0 | What is the total of the last four digits of the contact number for the individual with the email address ethan.carter@pioneersalesinnovations.com? | raw | true | 19 | 1 |
+| roles::335::0 | What is the email address suffix for someone who has a High School education? | raw | true | @emeraldcitybank.com | 1 |
+| roles::336::0 | In which season does someone with a Master's degree celebrate their birthday? | raw | false | Summer | 1 |
+| roles::337::0 | If someone is from San Jose, CA, what would the suffix of their email address be? | raw | true | @innovativesciencetech.com | 1 |
+| roles::338::0 | Which of these descriptions fits the workplace of someone in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::339::0 | What are the primary responsibilities of someone working in Los Angeles, CA? | raw | true | Conduct studies and experiments to gain new knowledge and develop solutions in specific fields | 1 |
+| roles::340::0 | What is the email address suffix for the individual with the contact number 71807165411? | raw | false | @capitalvisionadvisors.com | 1 |
+| roles::341::0 | During which season does the birthday of the individual from Innovative Research Technologies, LLC fall? | raw | true | Spring | 1 |
+| roles::342::0 | What is the email address suffix for a person who works as a courier? | raw | true | @urbanexpresscouriers.com | 1 |
+| roles::343::0 | How many letters are in the name of a person who enjoys model making as a hobby? | raw | true | 14 characters | 1 |
+| roles::344::0 | What are the main interests and hobbies of someone born on February 15th? | raw | false | Water-based exercise that trains the whole body | 1 |
+| roles::345::0 | What are the main responsibilities of a person whose hobby is programming? | raw | false | Maintain public safety and security | 1 |
+| roles::346::0 | What are the main responsibilities of a 27-year-old in their profession? | raw | true | Cure patients and ensure public health | 1 |
+| roles::347::0 | What are the main job responsibilities for a 27-year-old? | raw | false | Teach and conduct research at a university level | 1 |
+| roles::348::0 | What are the key responsibilities of a 23-year-old in their profession? | raw | true | Cure patients and ensure public health | 1 |
+| roles::349::0 | What are the main interests and hobbies of a person named Natalie Brooks? | raw | false | Relax the body and mind, cultivate oneself | 1 |
+| roles::350::0 | What are the typical interests and hobbies of a 25-year-old? | raw | false | Stay outdoors and enjoy the simplicity of nature | 1 |
+| roles::351::0 | What are the main interests and hobbies of someone from Dallas, TX? | raw | true | Reading thousands of books is not as good as traveling thousands of miles | 1 |
+| roles::352::0 | What are the main interests and hobbies of people who work in San Francisco, CA? | raw | false | Create functional or artistic pieces with wood | 1 |
+| roles::353::0 | For a person who is 160 cm tall, what would be the sum of the last six digits of their contact number? | raw | false | 28 | 1 |
+| roles::354::0 | What is the total of the last three digits of the contact number for the Store Supervisor position? | raw | true | 15 | 1 |
+| roles::355::0 | What are the main responsibilities of someone who enjoys collecting antiques? | raw | false | Drive sales growth and manage sales teams | 1 |
+| roles::356::0 | What are the main interests and hobbies of a Sales Manager? | raw | true | Collect stamps and learn about history | 1 |
+| roles::357::0 | In which season does a 39-year-old's birthday fall? | raw | false | Autumn | 1 |
+| roles::358::0 | What are the main interests and hobbies of the team at Innovative Learning Technologies LLC? | raw | true | Express thoughts and record life through writing | 1 |
+| roles::359::0 | What are the primary interests and hobbies of people who work in Las Vegas, NV? | raw | false | Make delicious dishes and enjoy cooking | 1 |
+| roles::360::0 | What are the main interests and hobbies of a person who is 169 cm tall? | raw | false | Experience fun in the virtual gaming world | 1 |
+| roles::361::0 | How many letters are in the name of the person associated with Liberty Legal Group LLC? | raw | true | 13 characters | 1 |
+| roles::362::0 | For a person who is 171 cm tall, what is the sum of the last two digits of their contact number? | raw | true | 8 | 1 |
+| roles::363::0 | How many letters are in the name of someone who is 161 cm tall? | raw | false | 9 characters | 1 |
+| roles::364::0 | During which season does the person with the email address owen.sinclair@communitycare.net celebrate their birthday? | raw | true | Summer | 1 |
+| roles::365::0 | What is the email address suffix for the individual with the contact number 70700338876? | raw | true | @peakperformancesalesgroup.com | 1 |
+| roles::366::0 | For someone based in Chicago, IL, what's the sum of the last three digits of their phone number? | raw | false | 12 | 1 |
+| roles::367::0 | In which season does someone who is 177 cm tall celebrate their birthday? | raw | false | Spring | 1 |
+| roles::368::0 | If a person is 23 years old, during which season does their birthday fall? | raw | true | Spring | 1 |
+| roles::369::0 | What are the main interests and hobbies of a person born on September 6th? | raw | true | Create functional or artistic pieces with wood | 1 |
+| roles::370::0 | What would the email address suffix be for someone named Lila Prescott? | raw | true | @chicagoinvestigative.com | 1 |
+| roles::371::0 | What is the sum of the last six digits of the contact number for the person who works as a farmer? | raw | true | 33 | 1 |
+| roles::372::0 | What are the primary responsibilities of someone with a Bachelor's degree in their field? | raw | false | Develop, test, and maintain software applications | 1 |
+| roles::373::0 | What season does the person with a woodworking hobby celebrate their birthday? | raw | true | Winter | 1 |
+| roles::374::0 | Which of these descriptions matches the work location of someone in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::375::0 | What is the sum of the last six digits of the contact number for the individual associated with Hudson Legal Advisors LLP? | raw | true | 32 | 1 |
+| roles::376::0 | What is the sum of the last three digits of the contact number for a Flight Attendant? | raw | true | 13 | 1 |
+| roles::377::0 | In which season does the birthday of the Music Production Specialist fall? | raw | true | Summer | 1 |
+| roles::378::0 | What email address suffix would someone from Phoenix, AZ use? | raw | true | @desertskyeducationgroup.com | 1 |
+| roles::379::0 | How many letters are in the name of the person who has the contact number 85805154334? | raw | false | 16 characters | 1 |
+| roles::380::0 | What are the main interests and hobbies of a person with a Master's degree? | raw | true | Observe and identify different bird species | 1 |
+| roles::381::0 | What are the primary job responsibilities for someone who comes from Las Vegas, NV? | raw | true | Prepare delicious food for customers | 1 |
+| roles::382::0 | How many letters are in the name of the person who has the contact number 71805276749? | raw | false | 15 characters | 1 |
+| roles::383::0 | What are the main interests and hobbies of someone born on August 14th? | raw | false | Experience fun in the virtual gaming world | 1 |
+| roles::384::0 | What are the main interests and hobbies of the person who has the email address landon.fairchild@neoninnovationlabs.com? | raw | true | Master new languages to broaden horizons | 1 |
+| roles::385::0 | How many letters are in the name of the person who holds the position of Clinical Social Worker? | raw | true | 11 characters | 1 |
+| roles::386::0 | What is the total of the last six digits of the contact number for the person whose job is Chef? | raw | false | 30 | 1 |
+| roles::387::0 | How many letters are in the names of individuals who work in Los Angeles, CA? | raw | true | 11 characters | 1 |
+| roles::388::0 | In which season does a musician have their birthday? | raw | false | Spring | 1 |
+| roles::389::0 | What are the main interests and hobbies of a person who is 162 cm tall? | raw | true | A game of intellect that sharpens logical thinking | 1 |
+| roles::390::0 | How many letters are in the name of the person from Harmony Heights Music Co.? | raw | true | 11 characters | 1 |
+| roles::391::0 | What is the sum of the last two digits of the contact number for a person with an Associate Degree? | raw | false | 2 | 1 |
+| roles::392::0 | What are the main responsibilities of a person whose birthday is on July 10th? | raw | true | Transport goods safely and punctually to designated locations | 1 |
+| roles::393::0 | Which of these descriptions would apply to someone who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::394::0 | What are the main interests and hobbies of a person born on January 20th? | raw | true | Experience fun in the virtual gaming world | 1 |
+| roles::395::0 | What are the main responsibilities of a person who is 164 cm tall? | raw | false | Assist clients in buying and selling properties | 1 |
+| roles::396::0 | What are the main responsibilities of the person with the email address landon.pierce@skylinerealtygroup.com in their job? | raw | true | Assist clients in buying and selling properties | 1 |
+| roles::397::0 | What is the sum of the last four digits of the contact number for the person at Desert Oasis Medical Center? | raw | true | 20 | 1 |
+| roles::398::0 | How many letters are in the names of individuals who work in Denver, CO? | raw | false | 14 characters | 1 |
+| roles::399::0 | What is the sum of the last three digits of Maya Sullivan's contact number? | raw | true | 20 | 1 |
+| roles::400::0 | What season is the birthday of the person with the contact number 70706380342? | raw | true | Winter | 1 |
+| roles::401::0 | What are the key responsibilities of Ava Thompson in her profession? | raw | false | Compose and perform music | 1 |
+| roles::402::0 | What are the main interests and hobbies of a person named Sophia Thompson? | raw | false | Listen to live music and enjoy the artistic atmosphere | 1 |
+| roles::403::0 | What are the key responsibilities of the person with the email address jacob.lawson@urbanharvestfarms.com? | raw | true | Cultivate crops and raise livestock | 1 |
+| roles::404::0 | What is the email address domain for the person at Sunny Days Grocery Market? | raw | true | @sunnydaysmarket.com | 1 |
+| roles::405::0 | What is the sum of the last three digits of the contact number for the person who works as a Flight Attendant? | raw | true | 10 | 1 |
+| roles::406::0 | How many letters are in the name of the person who is the Engineering Manager? | raw | true | 10 characters | 1 |
+| roles::407::0 | How many letters are in the names of people who have a Bachelor's degree? | raw | true | 14 characters | 1 |
+| roles::408::0 | What is the email address suffix for the Medical Director? | raw | true | @silversandshealthgroup.com | 1 |
+| roles::409::0 | How many letters are in the name of the person who has the contact number 81801759570? | raw | true | 14 characters | 1 |
+| roles::410::0 | What season does someone who is 140cm tall have their birthday in? | raw | false | Winter | 1 |
+| roles::411::0 | For someone working in Atlanta, GA, which of the following options corresponds to their work location? | raw | false | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::412::0 | What are the main responsibilities of the person with the email address gavin.mercer@guardiansecurity.com? | raw | true | Maintain public safety and security | 1 |
+| roles::413::0 | Which of the following descriptions would suit someone working in Atlanta, GA? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::414::0 | In which season does the birthday of the person from Guardian Shield Security Services occur? | raw | true | Autumn | 1 |
+| roles::415::0 | Which of these descriptions best fits someone who works in Seattle, WA? | raw | true | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| roles::416::0 | What are the primary responsibilities of someone with a Master's degree in their field? | raw | false | Manage finances and ensure compliance | 1 |
+| roles::417::0 | What is the email address suffix for the person who has the contact number 85803031545? | raw | true | @horizonmedicalgroup.com | 1 |
+| roles::418::0 | What are the primary responsibilities of the person who has the email address elena.hart@emeraldcitymedicalgroup.com? | raw | true | Cure patients and ensure public health | 1 |
+| roles::419::0 | For someone who works in Atlanta, GA, which of the following descriptions best fits their workplace? | raw | true | A major cultural and economic center in the southeastern U.S. | 1 |
+| roles::420::0 | Which description fits the work location of someone in Seattle, WA? | raw | false | Famous for its coffee culture, tech industry, and the Space Needle. | 1 |
+| roles::421::0 | How many letters are in the name of a person whose hobby is knitting? | raw | false | 9 characters | 1 |
+| roles::422::0 | What are the main interests and hobbies of the person with the contact number 65002084084? | raw | false | Patiently wait and enjoy the pleasure of fishing | 1 |
+| roles::423::0 | What would be the email address suffix for someone born on July 21st? | raw | true | @desertoasishealthcare.com | 1 |
+| roles::424::0 | What does the work location look like for someone based in Washington, DC? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::425::0 | What are the typical interests and hobbies of a 30-year-old? | raw | true | Write software to solve problems | 1 |
+| roles::426::0 | What is the email address suffix for someone who works in Miami, FL? | raw | true | @sunshinesalesgroup.com | 1 |
+| roles::427::0 | If someone is from San Antonio, TX, what season would their birthday fall in? | raw | false | Spring | 1 |
+| roles::428::0 | During which season does the birthday of the person holding the position of Attending Physician occur? | raw | false | Winter | 1 |
+| roles::429::0 | What are the main job responsibilities for someone with a high school education? | raw | false | Cultivate crops and raise livestock | 1 |
+| roles::430::0 | What are the typical interests and hobbies of a person with a Bachelor's degree? | raw | false | A graceful sport that enhances coordination | 1 |
+| roles::431::0 | For someone from Austin, TX, what would the sum of the last three digits of their phone number be? | raw | true | 13 | 1 |
+| roles::432::0 | What is the sum of the last six digits of the contact number for the person who has the email address elijah.sawyer@urbanexcellencesg.com? | raw | true | 26 | 1 |
+| roles::433::0 | What is the email address suffix for someone born on May 7th? | raw | true | @globallingServices.com | 1 |
+| roles::434::0 | In which season does someone with a PhD celebrate their birthday? | raw | true | Autumn | 1 |
+| roles::435::0 | What are the main responsibilities for someone whose birthday is on January 19th? | raw | true | Educate and guide students | 1 |
+| roles::436::0 | How many letters are in the names of people who work in Austin, TX? | raw | false | 13 characters | 1 |
+| roles::437::0 | What are Silas Bennett's main interests and hobbies? | raw | true | Nurture plants and get close to nature | 1 |
+| roles::438::0 | What is the email address suffix used by members of the Austin Innovators Group? | raw | true | @austininnovatorsgroup.com | 1 |
+| roles::439::0 | What is the email address suffix for people working in Boston, MA? | raw | true | @skywardhorizons.com | 1 |
+| roles::440::0 | What would be the email address suffix for someone from Miami, FL? | raw | true | @silvercityhealthclinic.com | 1 |
+| roles::441::0 | How many letters are in the name of the person who has the email address logan.carter@northeastfinancial.com? | raw | true | 11 characters | 1 |
+| roles::442::0 | What is the sum of the last four digits of the contact number for the person who is 156 centimeters tall? | raw | false | 14 | 1 |
+| roles::443::0 | What are the main interests and hobbies of someone who is a professional musician and composer? | raw | true | Aerobic exercise to improve cardiovascular health | 1 |
+| roles::444::0 | What email address suffix would someone who is 158 cm tall use? | raw | true | @innovativesystemsengineering.com | 1 |
+| roles::445::0 | What is the sum of the last two digits of the contact number for someone whose birthday is December 5th? | raw | true | 7 | 1 |
+| roles::446::0 | What are the main responsibilities of someone who has swimming as a hobby? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 1 |
+| roles::447::0 | Which of the following descriptions accurately represents the workplace of someone who works in Washington, DC? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::448::0 | What are the key responsibilities of a 30-year-old person in their job? | raw | false | Provide quality service to passengers | 1 |
+| roles::449::0 | Which of the following descriptions applies to someone who works in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::450::0 | Which of the following descriptions fits the work location of someone based in Washington, DC? | raw | true | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::451::0 | What is the sum of the last three digits of the contact number for the person who is 29 years old? | raw | true | 15 | 1 |
+| roles::452::0 | What are the primary responsibilities of someone with a high school diploma in their job? | raw | true | Perform various tasks on construction sites, including building, repairing, and maintaining structures | 1 |
+| roles::453::0 | What are Clara Whitman's main interests and hobbies? | raw | true | Experience fun in the virtual gaming world | 1 |
+| roles::454::0 | What are the main responsibilities of a 28-year-old in their profession? | raw | false | Create innovative designs | 1 |
+| roles::455::0 | In which season do Software Engineers usually celebrate their birthdays? | raw | false | Winter | 1 |
+| roles::456::0 | When is the birthday of the person from Skyline Airways Inc., and what season does it fall in? | raw | false | Summer | 1 |
+| roles::457::0 | What is the email address domain for a Police Officer? | raw | false | @guardiansafetyservices.com | 1 |
+| roles::458::0 | Which of the following descriptions best describes the work location for someone located in Boston, MA? | raw | true | Known for its history, education, and sports teams. | 1 |
+| roles::459::0 | What are the main responsibilities of an employee at Creative Canvas Studios? | raw | true | Create innovative designs | 1 |
+| roles::460::0 | What describes the work location for someone who is based in Los Angeles, CA? | raw | true | Famous for Hollywood, beaches, and a vibrant arts scene. | 1 |
+| roles::461::0 | What is the sum of the last two digits of the contact number for a person whose birthday is March 12th? | raw | true | 7 | 1 |
+| roles::462::0 | During which season do Graphic Designers usually celebrate their birthdays? | raw | false | Spring | 1 |
+| roles::463::0 | What would be a fitting description for someone who works in Miami, FL? | raw | true | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::464::0 | What would the email address suffix be for someone whose hobby is yoga? | raw | false | @neoninnovationslab.com | 1 |
+| roles::465::0 | What is the email address suffix for a person who holds a PhD? | raw | false | @innovativeminds.edu | 1 |
+| roles::466::0 | What are the primary interests and hobbies of a Creative Director? | raw | true | Appreciate theater and experience the variety of life | 1 |
+| roles::467::0 | What are the main responsibilities of Lila Hawthorne in her profession? | raw | true | Teach and conduct research at a university level | 1 |
+| roles::468::0 | Which of the following descriptions would apply to someone whose workplace is located in New York, NY? | raw | true | The largest city in the U.S., known for its iconic skyline and diverse culture. | 1 |
+| roles::469::0 | What kind of work location would be suitable for someone based in Orlando, FL? | raw | true | Known for its theme parks, including Walt Disney World. | 1 |
+| roles::470::0 | What is the sum of the last four digits of the contact number for the person from the Sunshine Sales Group? | raw | false | 15 | 1 |
+| roles::471::0 | For someone whose workplace is in Washington, DC, which of the following descriptions applies to their job location? | raw | false | The capital of the U.S., known for its national monuments and museums. | 1 |
+| roles::472::0 | What is the work location like for someone based in Portland, OR? | raw | false | Famous for its eco-friendliness and vibrant arts scene. | 1 |
+| roles::473::0 | What are the main responsibilities of someone who practices yoga as a hobby? | raw | false | Educate and guide students | 1 |
+| roles::474::0 | What are the primary duties of a 39-year-old in their profession? | raw | false | Create innovative designs | 1 |
+| roles::475::0 | How many letters are there in the name of someone who is a professor? | raw | false | 11 characters | 1 |
+| roles::476::0 | What is the sum of the last four digits of a golf enthusiast's contact number? | raw | false | 12 | 1 |
+| roles::477::0 | In what season does a 29-year-old celebrate their birthday? | raw | false | Spring | 1 |
+| roles::478::0 | What are the main responsibilities of someone born on March 9th? | raw | true | Uphold the law and provide legal services | 1 |
+| roles::479::0 | What is the sum of the last four digits of the contact number for someone whose hobby is camping? | raw | false | 15 | 1 |
+| roles::480::0 | How many letters are in the name of someone who is 157 cm tall? | raw | false | 13 characters | 1 |
+| roles::481::0 | In which season does Gideon Cross have his birthday? | raw | false | Autumn | 1 |
+| roles::482::0 | During which season does a doctor celebrate their birthday? | raw | true | Summer | 1 |
+| roles::483::0 | What are the main responsibilities of a 25-year-old in their job? | raw | false | Maintain public safety and security | 1 |
+| roles::484::0 | What are Ember Lawson's main interests and hobbies? | raw | true | Patiently wait and enjoy the pleasure of fishing | 1 |
+| roles::485::0 | How many letters are there in the names of individuals who work in Austin, TX? | raw | false | 10 characters | 1 |
+| roles::486::0 | What is the sum of the last three digits of the contact number for the person who is 24 years old? | raw | false | 19 | 1 |
+| roles::487::0 | Which of the following descriptions would be a good fit for someone working in Miami, FL? | raw | false | Known for its beaches, nightlife, and multicultural atmosphere. | 1 |
+| roles::488::0 | How many letters are in the name of a person who is 168 cm tall? | raw | true | 14 characters | 1 |
+| roles::489::0 | What are the main responsibilities of the person with the contact number 85805107619? | raw | false | Promote products and achieve sales goals | 1 |
+| roles::490::0 | What are the main interests and hobbies of a person who is 166 cm tall? | raw | true | Enhance fitness and maintain health | 1 |
+| roles::491::0 | What are the main responsibilities of the person who has the email address elena.drake@lonestARretailgroup.com? | raw | true | Assist customers and promote products in retail environments | 1 |
+| roles::492::0 | What season is the birthday of a person who is 158 cm tall? | raw | true | Summer | 1 |
+| roles::493::0 | What would be the email address suffix for someone who is 151 cm tall? | raw | false | @orlandojusticepartners.com | 1 |
+| roles::494::0 | What is the total of the last five digits of the contact number for a person whose birthday falls on February 15th? | raw | true | 25 | 1 |
+| roles::495::0 | In which season does a 28-year-old celebrate their birthday? | raw | false | Autumn | 1 |
+| roles::496::0 | How many letters are in the names of people who have a birthday on May 28th? | raw | true | 14 characters | 1 |
+| roles::497::0 | If someone works in Chicago, IL, what season does their birthday fall in? | raw | true | Summer | 1 |
+| roles::498::0 | What would be the email address suffix for someone named Dylan Carter? | raw | true | @harborviewmedicalcenter.org | 1 |
+| roles::499::0 | What is the total of the last four digits of the contact number for a person whose birthday is on August 25th? | raw | true | 21 | 1 |

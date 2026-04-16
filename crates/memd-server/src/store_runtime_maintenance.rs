@@ -9,7 +9,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::SqliteStore;
+use crate::{SqliteStore, canonical_key, detect_content_lane, redundancy_key};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MaintainReportRecordPayload {
@@ -136,6 +136,15 @@ impl SqliteStore {
         if gc_removed > 0 {
             findings.push(format!("gc: removed {gc_removed} expired items"));
         }
+        // Lane backfill: apply lanes to items stored before lane detection existed
+        let lanes_backfilled = if request.apply && (mode == "full" || mode == "repair") {
+            self.backfill_null_lanes().unwrap_or(0)
+        } else {
+            0
+        };
+        if lanes_backfilled > 0 {
+            findings.push(format!("lanes: backfilled {lanes_backfilled} items"));
+        }
         findings.extend(
             highlights
                 .into_iter()
@@ -237,6 +246,37 @@ impl SqliteStore {
             }
         }
         Ok(count)
+    }
+
+    /// Backfill lane column on items where lane IS NULL.
+    /// Runs detect_content_lane on each and updates items that get a lane.
+    /// Returns the number of items backfilled.
+    pub fn backfill_null_lanes(&self) -> anyhow::Result<usize> {
+        let items = self.list()?;
+        let mut backfilled = 0usize;
+        for mut item in items {
+            if item.lane.is_some() {
+                continue;
+            }
+            let detected = detect_content_lane(
+                &item.content,
+                item.source_path.as_deref(),
+                &item.tags,
+            );
+            if let Some(lane) = detected {
+                item.lane = Some(lane);
+                item.updated_at = chrono::Utc::now();
+                let ck = canonical_key(&item);
+                let rk = redundancy_key(&item);
+                let item = memd_schema::MemoryItem {
+                    redundancy_key: Some(rk.clone()),
+                    ..item
+                };
+                self.update(&item, &ck, &rk)?;
+                backfilled += 1;
+            }
+        }
+        Ok(backfilled)
     }
 
     /// Delete expired memory items older than `grace_seconds` from the DB.
