@@ -3,7 +3,8 @@
 - created: `2026-04-16`
 - branch: `research/mining`
 - scope: full worktree checkpoint
-- status: ready for commit
+- status: committed
+- commit: `8c5ce5a`
 
 ## What this checkpoint captures
 
