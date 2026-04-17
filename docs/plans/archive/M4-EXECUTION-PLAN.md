@@ -1,3 +1,10 @@
+---
+status: superseded
+milestone: M4
+superseded_by: ROADMAP.md + individual phase docs
+superseded_date: 2026-04-17
+---
+
 # M4 Execution Plan: Make It 10-Star
 
 > This plan tells the next code session exactly what to do. No theory reading needed.

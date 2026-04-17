@@ -10,156 +10,156 @@
 
 ### Phase `A3`
 
-- **[critical]** [Promote / Expire / Archive Lifecycle Does Not Execute Reliably](2026-04-16-pipeline-lifecycle-broken.md) — `open` · opened 2026-04-16
-- **[critical]** [Working Memory Holds Stale Records After Phase Completion](2026-04-16-working-memory-stale-records.md) — `open` · opened 2026-04-16
-- **[critical]** [Memory Lifecycle Not Auto-Managed](2026-04-14-memory-lifecycle-not-auto-managed.md) — `open` · opened 2026-04-14
-- **[high]** [memd File Structure Not Enforced In Code](2026-04-17-memd-file-structure-not-enforced-in-code.md) — `open` · opened 2026-04-17
-- **[high]** [memd Process Too Soft Across Harnesses](2026-04-17-memd-process-too-soft-cross-harness.md) — `open` · opened 2026-04-17
-- **[high]** [memd Loses File Read/Edit State Across Compaction](2026-04-17-memd-read-state-lost-across-compaction.md) — `open` · opened 2026-04-17
-- **[high]** [No Live Memory Contract](2026-04-14-no-live-memory-contract.md) — `open` · opened 2026-04-14
-- **[medium]** [Codebase Organization Pass](2026-04-17-codebase-organization-pass.md) — `open` · opened 2026-04-17
-- **[medium]** [Hooks Scattered Across Three Directories](2026-04-17-hooks-scattered-across-three-dirs.md) — `open` · opened 2026-04-17
+- **[critical]** [Promote / Expire / Archive Lifecycle Does Not Execute Reliably](v3/2026-04-16-pipeline-lifecycle-broken.md) — `open` · opened 2026-04-16
+- **[critical]** [Working Memory Holds Stale Records After Phase Completion](v3/2026-04-16-working-memory-stale-records.md) — `open` · opened 2026-04-16
+- **[critical]** [Memory Lifecycle Not Auto-Managed](v3/2026-04-14-memory-lifecycle-not-auto-managed.md) — `open` · opened 2026-04-14
+- **[high]** [memd File Structure Not Enforced In Code](v3/2026-04-17-memd-file-structure-not-enforced-in-code.md) — `open` · opened 2026-04-17
+- **[high]** [memd Process Too Soft Across Harnesses](v3/2026-04-17-memd-process-too-soft-cross-harness.md) — `open` · opened 2026-04-17
+- **[high]** [memd Loses File Read/Edit State Across Compaction](v3/2026-04-17-memd-read-state-lost-across-compaction.md) — `open` · opened 2026-04-17
+- **[high]** [No Live Memory Contract](v3/2026-04-14-no-live-memory-contract.md) — `open` · opened 2026-04-14
+- **[medium]** [Codebase Organization Pass](v3/2026-04-17-codebase-organization-pass.md) — `open` · opened 2026-04-17
+- **[medium]** [Hooks Scattered Across Three Directories](v3/2026-04-17-hooks-scattered-across-three-dirs.md) — `open` · opened 2026-04-17
 
 ### Phase `B3`
 
-- **[critical]** [No Behavior-Changing Recall Proof](2026-04-14-no-behavior-changing-recall-proof.md) — `open` · opened 2026-04-14
-- **[critical]** [Status Noise: Runaway Auto-Checkpoint Loop](2026-04-14-status-noise-runaway-checkpoint-loop.md) — `open` · opened 2026-04-14
-- **[medium]** [Memory Dedup Incomplete — Same Fact Stored Multiple Times](2026-04-14-memory-dedup-incomplete.md) — `open` · opened 2026-04-14
-- **[medium]** [No Semantic Search Baseline (RAG Disabled, No Fallback)](2026-04-14-rag-sidecar-disabled-no-fallback.md) — `open` · opened 2026-04-14
+- **[critical]** [No Behavior-Changing Recall Proof](v3/2026-04-14-no-behavior-changing-recall-proof.md) — `open` · opened 2026-04-14
+- **[critical]** [Status Noise: Runaway Auto-Checkpoint Loop](v3/2026-04-14-status-noise-runaway-checkpoint-loop.md) — `open` · opened 2026-04-14
+- **[medium]** [Memory Dedup Incomplete — Same Fact Stored Multiple Times](v3/2026-04-14-memory-dedup-incomplete.md) — `open` · opened 2026-04-14
+- **[medium]** [No Semantic Search Baseline (RAG Disabled, No Fallback)](v3/2026-04-14-rag-sidecar-disabled-no-fallback.md) — `open` · opened 2026-04-14
 
 ### Phase `D3`
 
-- **[high]** [Atlas Fully Built but Completely Dormant](2026-04-14-atlas-fully-built-completely-dormant.md) — `open` · opened 2026-04-14
-- **[high]** [Atlas System Dormant — Never Called from Runtime](2026-04-13-atlas-dormant.md) — `deferred` · opened 2026-04-13
-- **[high]** [Architecture Knowledge Not Stored in Memory Lanes](2026-04-13-architecture-knowledge-not-in-lanes.md) — `open` · opened 2026-04-13
+- **[high]** [Atlas Fully Built but Completely Dormant](v3/2026-04-14-atlas-fully-built-completely-dormant.md) — `open` · opened 2026-04-14
+- **[high]** [Atlas System Dormant — Never Called from Runtime](v3/2026-04-13-atlas-dormant.md) — `deferred` · opened 2026-04-13
+- **[high]** [Architecture Knowledge Not Stored in Memory Lanes](v3/2026-04-13-architecture-knowledge-not-in-lanes.md) — `open` · opened 2026-04-13
 
 ### Phase `E3`
 
-- **[high]** [No Overnight Evolution Loop](2026-04-14-no-overnight-evolution-loop.md) — `open` · opened 2026-04-14
-- **[medium]** [No Consolidation Quality Proof](2026-04-14-no-consolidation-quality-proof.md) — `open` · opened 2026-04-14
-- **[medium]** [No Decay Calibration](2026-04-14-no-decay-calibration.md) — `open` · opened 2026-04-14
+- **[high]** [No Overnight Evolution Loop](v3/2026-04-14-no-overnight-evolution-loop.md) — `open` · opened 2026-04-14
+- **[medium]** [No Consolidation Quality Proof](v3/2026-04-14-no-consolidation-quality-proof.md) — `open` · opened 2026-04-14
+- **[medium]** [No Decay Calibration](v3/2026-04-14-no-decay-calibration.md) — `open` · opened 2026-04-14
 
 ### Phase `F3`
 
-- **[high]** [No Data Recovery Procedure](2026-04-14-no-data-recovery-procedure.md) — `open` · opened 2026-04-14
-- **[high]** [No Public Benchmark Parity](2026-04-14-no-public-benchmark-parity.md) — `open` · opened 2026-04-14
+- **[high]** [No Data Recovery Procedure](v3/2026-04-14-no-data-recovery-procedure.md) — `open` · opened 2026-04-14
+- **[high]** [No Public Benchmark Parity](v3/2026-04-14-no-public-benchmark-parity.md) — `open` · opened 2026-04-14
 
 ## M4
 
 
 ### Phase `I2`
 
-- **[critical]** [React Dashboard Not Served From memd-server](2026-04-15-dashboard-not-served-from-memd-server.md) — `open` · opened 2026-04-15
-- **[critical]** [Ghost Refs in Continuity Capsule](2026-04-14-ghost-refs-in-continuity-capsule.md) — `open` · opened 2026-04-14
-- **[critical]** [No Source Material Ingestion Pipeline](2026-04-14-no-source-ingestion-pipeline.md) — `open` · opened 2026-04-14
-- **[high]** [No Human Surface / Dashboard UI](2026-04-16-no-human-surface-dashboard-ui.md) — `open` · opened 2026-04-16
-- **[high]** [Graph Page Crash — EntitySearchResponse Type Mismatch](2026-04-15-graph-page-crash-entity-search-type-mismatch.md) — `open` · opened 2026-04-15
-- **[high]** [MemoryEntityRecord Frontend Type Does Not Match Server](2026-04-15-memory-entity-record-type-mismatch.md) — `open` · opened 2026-04-15
-- **[high]** [MemoryEntityRecord Frontend Type Does Not Match Server](2026-04-15-memory-entity-record-type-wrong.md) — `open` · opened 2026-04-15
-- **[high]** [Correction Flow Has No User Pathway](2026-04-14-correction-flow-no-user-pathway.md) — `open` · opened 2026-04-14
-- **[high]** [Lane Queries Grep Files Instead of Hitting DB](2026-04-14-lane-queries-grep-files-not-db.md) — `open` · opened 2026-04-14
-- **[high]** [Scope and Visibility Isolation Not Enforced](2026-04-14-scope-visibility-isolation-not-enforced.md) — `open` · opened 2026-04-14
-- **[high]** [Steal From Inspiration Repos: mempalace + supermemory](2026-04-14-steal-from-inspiration-repos.md) — `open` · opened 2026-04-14
-- **[high]** [Theory/Design Docs Not Ingestible as Lane Source Material](2026-04-14-theory-design-docs-not-ingestible.md) — `open` · opened 2026-04-14
-- **[high]** [Session Resume Ignores memd / No Phase Progress in Memory](2026-04-13-session-resume-no-memd-memory.md) — `open` · opened 2026-04-13
-- **[medium]** [Dashboard .env Hardcoded to Tailscale IP](2026-04-15-dashboard-env-hardcoded-tailscale-ip.md) — `open` · opened 2026-04-15
-- **[medium]** [Dashboard .env Hardcoded to Tailscale IP](2026-04-15-dashboard-env-tailscale-ip-hardcoded.md) — `open` · opened 2026-04-15
-- **[medium]** [Event Spine NDJSON Has No Integrity Checks](2026-04-14-event-spine-no-integrity-checks.md) — `open` · opened 2026-04-14
-- **[medium]** [Explain/Drilldown Surfaces Not Wired to CLI](2026-04-14-explain-drilldown-not-wired.md) — `open` · opened 2026-04-14
-- **[medium]** [5 Starter Lanes Have No Source Material](2026-04-14-five-starter-lanes-no-source-material.md) — `open` · opened 2026-04-14
-- **[medium]** [No Change Detection on Source Material](2026-04-14-no-change-detection-on-source-material.md) — `open` · opened 2026-04-14
-- **[medium]** [Obsidian Integration One-Way Only](2026-04-14-obsidian-integration-one-way-only.md) — `open` · opened 2026-04-14
-- **[medium]** [Source Quality Ranking Not Enforced in Retrieval](2026-04-14-source-quality-ranking-not-enforced.md) — `open` · opened 2026-04-14
-- **[medium]** [Tag System Not Searchable or Filterable](2026-04-14-tag-system-not-searchable.md) — `open` · opened 2026-04-14
-- **[medium]** [TTL Enforcement: Items Expire but Never Get Removed](2026-04-14-ttl-enforcement-no-gc.md) — `open` · opened 2026-04-14
+- **[critical]** [React Dashboard Not Served From memd-server](m4/2026-04-15-dashboard-not-served-from-memd-server.md) — `open` · opened 2026-04-15
+- **[critical]** [Ghost Refs in Continuity Capsule](m4/2026-04-14-ghost-refs-in-continuity-capsule.md) — `open` · opened 2026-04-14
+- **[critical]** [No Source Material Ingestion Pipeline](m4/2026-04-14-no-source-ingestion-pipeline.md) — `open` · opened 2026-04-14
+- **[high]** [No Human Surface / Dashboard UI](m4/2026-04-16-no-human-surface-dashboard-ui.md) — `open` · opened 2026-04-16
+- **[high]** [Graph Page Crash — EntitySearchResponse Type Mismatch](m4/2026-04-15-graph-page-crash-entity-search-type-mismatch.md) — `open` · opened 2026-04-15
+- **[high]** [MemoryEntityRecord Frontend Type Does Not Match Server](m4/2026-04-15-memory-entity-record-type-mismatch.md) — `open` · opened 2026-04-15
+- **[high]** [MemoryEntityRecord Frontend Type Does Not Match Server](m4/2026-04-15-memory-entity-record-type-wrong.md) — `open` · opened 2026-04-15
+- **[high]** [Correction Flow Has No User Pathway](m4/2026-04-14-correction-flow-no-user-pathway.md) — `open` · opened 2026-04-14
+- **[high]** [Lane Queries Grep Files Instead of Hitting DB](m4/2026-04-14-lane-queries-grep-files-not-db.md) — `open` · opened 2026-04-14
+- **[high]** [Scope and Visibility Isolation Not Enforced](m4/2026-04-14-scope-visibility-isolation-not-enforced.md) — `open` · opened 2026-04-14
+- **[high]** [Steal From Inspiration Repos: mempalace + supermemory](m4/2026-04-14-steal-from-inspiration-repos.md) — `open` · opened 2026-04-14
+- **[high]** [Theory/Design Docs Not Ingestible as Lane Source Material](m4/2026-04-14-theory-design-docs-not-ingestible.md) — `open` · opened 2026-04-14
+- **[high]** [Session Resume Ignores memd / No Phase Progress in Memory](m4/2026-04-13-session-resume-no-memd-memory.md) — `open` · opened 2026-04-13
+- **[medium]** [Dashboard .env Hardcoded to Tailscale IP](m4/2026-04-15-dashboard-env-hardcoded-tailscale-ip.md) — `open` · opened 2026-04-15
+- **[medium]** [Dashboard .env Hardcoded to Tailscale IP](m4/2026-04-15-dashboard-env-tailscale-ip-hardcoded.md) — `open` · opened 2026-04-15
+- **[medium]** [Event Spine NDJSON Has No Integrity Checks](m4/2026-04-14-event-spine-no-integrity-checks.md) — `open` · opened 2026-04-14
+- **[medium]** [Explain/Drilldown Surfaces Not Wired to CLI](m4/2026-04-14-explain-drilldown-not-wired.md) — `open` · opened 2026-04-14
+- **[medium]** [5 Starter Lanes Have No Source Material](m4/2026-04-14-five-starter-lanes-no-source-material.md) — `open` · opened 2026-04-14
+- **[medium]** [No Change Detection on Source Material](m4/2026-04-14-no-change-detection-on-source-material.md) — `open` · opened 2026-04-14
+- **[medium]** [Obsidian Integration One-Way Only](m4/2026-04-14-obsidian-integration-one-way-only.md) — `open` · opened 2026-04-14
+- **[medium]** [Source Quality Ranking Not Enforced in Retrieval](m4/2026-04-14-source-quality-ranking-not-enforced.md) — `open` · opened 2026-04-14
+- **[medium]** [Tag System Not Searchable or Filterable](m4/2026-04-14-tag-system-not-searchable.md) — `open` · opened 2026-04-14
+- **[medium]** [TTL Enforcement: Items Expire but Never Get Removed](m4/2026-04-14-ttl-enforcement-no-gc.md) — `open` · opened 2026-04-14
 
 ### Phase `K2`
 
-- **[high]** [No Metrics / Tracing / Observability](2026-04-14-no-metrics-tracing-observability.md) — `open` · opened 2026-04-14
-- **[medium]** [No Backward Compatibility Contract](2026-04-14-no-backward-compatibility-contract.md) — `open` · opened 2026-04-14
-- **[medium]** [No Compaction Quality Proof](2026-04-14-no-compaction-quality-proof.md) — `open` · opened 2026-04-14
-- **[medium]** [No Latency / SLA Briefing](2026-04-14-no-latency-briefing.md) — `open` · opened 2026-04-14
-- **[medium]** [No Token Efficiency Measurement](2026-04-14-no-token-efficiency-measurement.md) — `open` · opened 2026-04-14
+- **[high]** [No Metrics / Tracing / Observability](m4/2026-04-14-no-metrics-tracing-observability.md) — `open` · opened 2026-04-14
+- **[medium]** [No Backward Compatibility Contract](m4/2026-04-14-no-backward-compatibility-contract.md) — `open` · opened 2026-04-14
+- **[medium]** [No Compaction Quality Proof](m4/2026-04-14-no-compaction-quality-proof.md) — `open` · opened 2026-04-14
+- **[medium]** [No Latency / SLA Briefing](m4/2026-04-14-no-latency-briefing.md) — `open` · opened 2026-04-14
+- **[medium]** [No Token Efficiency Measurement](m4/2026-04-14-no-token-efficiency-measurement.md) — `open` · opened 2026-04-14
 
 ### Phase `L2`
 
-- **[high]** [No Cross-Harness Continuity Proof](2026-04-14-no-cross-harness-continuity-proof.md) — `open` · opened 2026-04-14
-- **[medium]** [Hive Handoff Accepts Ephemeral Proof / Fixture Sessions As Live Targets](2026-04-16-hive-handoff-accepts-ephemeral-proof-sessions.md) — `open` · opened 2026-04-16
-- **[medium]** [No Handoff Quality Proof](2026-04-14-no-handoff-quality-proof.md) — `open` · opened 2026-04-14
+- **[high]** [No Cross-Harness Continuity Proof](m4/2026-04-14-no-cross-harness-continuity-proof.md) — `open` · opened 2026-04-14
+- **[medium]** [Hive Handoff Accepts Ephemeral Proof / Fixture Sessions As Live Targets](m4/2026-04-16-hive-handoff-accepts-ephemeral-proof-sessions.md) — `open` · opened 2026-04-16
+- **[medium]** [No Handoff Quality Proof](m4/2026-04-14-no-handoff-quality-proof.md) — `open` · opened 2026-04-14
 
 ### Phase `N2`
 
-- **[medium]** [No Admission Control / Rate Limiting](2026-04-14-no-admission-control-rate-limiting.md) — `open` · opened 2026-04-14
-- **[medium]** [No Multi-User / Team Support](2026-04-14-no-multi-user-team-support.md) — `open` · opened 2026-04-14
-- **[medium]** [Skill Gating: Config Flags Only](2026-04-14-skill-gating-config-flags-only.md) — `open` · opened 2026-04-14
+- **[medium]** [No Admission Control / Rate Limiting](m4/2026-04-14-no-admission-control-rate-limiting.md) — `open` · opened 2026-04-14
+- **[medium]** [No Multi-User / Team Support](m4/2026-04-14-no-multi-user-team-support.md) — `open` · opened 2026-04-14
+- **[medium]** [Skill Gating: Config Flags Only](m4/2026-04-14-skill-gating-config-flags-only.md) — `open` · opened 2026-04-14
 
 ## M3
 
 
 ### Phase `J2`
 
-- **[high]** [Trust Hierarchy Unproven](2026-04-14-trust-hierarchy-unproven.md) — `open` · opened 2026-04-14
-- **[medium]** [No Multi-Project Isolation Proof](2026-04-14-no-multi-project-isolation-proof.md) — `open` · opened 2026-04-14
+- **[high]** [Trust Hierarchy Unproven](m3/2026-04-14-trust-hierarchy-unproven.md) — `open` · opened 2026-04-14
+- **[medium]** [No Multi-Project Isolation Proof](m3/2026-04-14-no-multi-project-isolation-proof.md) — `open` · opened 2026-04-14
 
 ## M2
 
 
 ### Phase `B2`
 
-- **[high]** [Stale Working Memory Cache](2026-04-14-stale-working-memory-cache.md) — `open` · opened 2026-04-14
+- **[high]** [Stale Working Memory Cache](m2/2026-04-14-stale-working-memory-cache.md) — `open` · opened 2026-04-14
 
 ### Phase `C2`
 
-- **[critical]** [Concurrent Write: No Retry](2026-04-14-concurrent-write-no-retry.md) — `open` · opened 2026-04-14
-- **[high]** [Incomplete Transaction Rollback](2026-04-14-incomplete-transaction-rollback.md) — `open` · opened 2026-04-14
-- **[high]** [No Session Orphan Detection](2026-04-14-no-session-orphan-detection.md) — `open` · opened 2026-04-14
+- **[critical]** [Concurrent Write: No Retry](m2/2026-04-14-concurrent-write-no-retry.md) — `open` · opened 2026-04-14
+- **[high]** [Incomplete Transaction Rollback](m2/2026-04-14-incomplete-transaction-rollback.md) — `open` · opened 2026-04-14
+- **[high]** [No Session Orphan Detection](m2/2026-04-14-no-session-orphan-detection.md) — `open` · opened 2026-04-14
 
 ### Phase `D2`
 
-- **[high]** [Contradiction Detection Never Triggers](2026-04-14-contradiction-detection-never-triggers.md) — `open` · opened 2026-04-14
-- **[high]** [No Correction Audit Trail](2026-04-14-no-correction-audit-trail.md) — `open` · opened 2026-04-14
-- **[medium]** [No Selective Memory Reset](2026-04-14-no-selective-memory-reset.md) — `open` · opened 2026-04-14
+- **[high]** [Contradiction Detection Never Triggers](m2/2026-04-14-contradiction-detection-never-triggers.md) — `open` · opened 2026-04-14
+- **[high]** [No Correction Audit Trail](m2/2026-04-14-no-correction-audit-trail.md) — `open` · opened 2026-04-14
+- **[medium]** [No Selective Memory Reset](m2/2026-04-14-no-selective-memory-reset.md) — `open` · opened 2026-04-14
 
 ## Unassigned
 
 
 ### Phase `unassigned`
 
-- **[critical]** [Memory Is Not Navigable — Core Product Promise Broken](2026-04-13-memory-not-navigable.md) — `deferred` · opened 2026-04-13
-- **[medium]** [Lane Architecture Gaps](2026-04-13-lane-architecture-gaps.md) — `deferred` · opened 2026-04-13
+- **[critical]** [Memory Is Not Navigable — Core Product Promise Broken](unassigned/2026-04-13-memory-not-navigable.md) — `deferred` · opened 2026-04-13
+- **[medium]** [Lane Architecture Gaps](unassigned/2026-04-13-lane-architecture-gaps.md) — `deferred` · opened 2026-04-13
 
 ## Closed
 
-- **[high]** [Deep Research Not Stored as Shared memd Memory](2026-04-14-research-not-stored-as-shared-memory.md) — `Unassigned / unassigned` · opened 2026-04-14
-- **[critical]** [No Dogfood Verification Gate for Phase Completion](2026-04-13-dogfood-verification-gap.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[critical]** [Inbox Never Drains — Expired Items Accumulate](2026-04-13-inbox-never-drains.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[critical]** [Procedure Detection Never Triggers in Runtime](2026-04-13-procedure-detection-never-triggers.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[critical]** [Continuity Fields Reference Deleted Files](2026-04-13-stale-continuity-ghost-refs.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[critical]** [memd status Reports Healthy While Pipeline Broken](2026-04-13-status-reports-healthy-while-broken.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[critical]** [Wake Packet Structurally Excludes Non-Status Memory Kinds](2026-04-13-wake-packet-kind-coverage.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[high]** [Agent Write Helpers Unreachable from Agents](2026-04-13-agent-write-helpers-unreachable.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[high]** [memd Does Not Remember Codebase Structure Across Sessions](2026-04-13-memd-no-cross-session-codebase-memory.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Checkpoint / Resume Asymmetry](2026-04-13-checkpoint-resume-asymmetry.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Hive Session Upsert Uses DEFERRED Transaction](2026-04-13-hive-deferred-transaction.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Missing Integration Tests Across Multiple Subsystems](2026-04-13-missing-integration-tests.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Multimodal Extraction Stubs](2026-04-13-multimodal-extraction-stubs.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Queen Operations Dead Code — Routes Without Client](2026-04-13-queen-ops-dead-code.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [15 Untested API Routes](2026-04-13-untested-api-routes.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Ambiguous Glob Imports](archive/2026-04-13-ambiguous-glob-imports.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [158 Clippy Warnings](archive/2026-04-13-clippy-warnings.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Dead Code Cleanup](archive/2026-04-13-dead-code-cleanup.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Flaky Handoff Verifier Test](archive/2026-04-13-flaky-handoff-verifier-test.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [healthz Masks Database Errors](archive/2026-04-13-healthz-masks-db-errors.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [.planning/ Ghost References in Tests](archive/2026-04-13-planning-ghost-refs-in-tests.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Server Startup Panics on Failure](archive/2026-04-13-server-startup-panics.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Silent Event Loss](archive/2026-04-13-silent-event-loss.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Silent .ok() Chains Drop Corrupt Data](archive/2026-04-13-silent-ok-chains.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Stale File References in Docs](archive/2026-04-13-stale-doc-refs.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Stale Per-Harness Bundle Files](archive/2026-04-13-stale-per-harness-bundle-files.md) — `Unassigned / unassigned` · opened 2026-04-13
-- **[medium]** [Phase G 10-Star Gaps](2026-04-12-phase-g-10-star-gaps.md) — `Unassigned / unassigned` · opened 2026-04-12
+- **[high]** [Deep Research Not Stored as Shared memd Memory](closed/2026-04-14-research-not-stored-as-shared-memory.md) — `Unassigned / unassigned` · opened 2026-04-14
+- **[critical]** [No Dogfood Verification Gate for Phase Completion](closed/2026-04-13-dogfood-verification-gap.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[critical]** [Inbox Never Drains — Expired Items Accumulate](closed/2026-04-13-inbox-never-drains.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[critical]** [Procedure Detection Never Triggers in Runtime](closed/2026-04-13-procedure-detection-never-triggers.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[critical]** [Continuity Fields Reference Deleted Files](closed/2026-04-13-stale-continuity-ghost-refs.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[critical]** [memd status Reports Healthy While Pipeline Broken](closed/2026-04-13-status-reports-healthy-while-broken.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[critical]** [Wake Packet Structurally Excludes Non-Status Memory Kinds](closed/2026-04-13-wake-packet-kind-coverage.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[high]** [Agent Write Helpers Unreachable from Agents](closed/2026-04-13-agent-write-helpers-unreachable.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[high]** [memd Does Not Remember Codebase Structure Across Sessions](closed/2026-04-13-memd-no-cross-session-codebase-memory.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Ambiguous Glob Imports](closed/2026-04-13-ambiguous-glob-imports.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Checkpoint / Resume Asymmetry](closed/2026-04-13-checkpoint-resume-asymmetry.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [158 Clippy Warnings](closed/2026-04-13-clippy-warnings.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Dead Code Cleanup](closed/2026-04-13-dead-code-cleanup.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Flaky Handoff Verifier Test](closed/2026-04-13-flaky-handoff-verifier-test.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [healthz Masks Database Errors](closed/2026-04-13-healthz-masks-db-errors.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Hive Session Upsert Uses DEFERRED Transaction](closed/2026-04-13-hive-deferred-transaction.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Missing Integration Tests Across Multiple Subsystems](closed/2026-04-13-missing-integration-tests.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Multimodal Extraction Stubs](closed/2026-04-13-multimodal-extraction-stubs.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [.planning/ Ghost References in Tests](closed/2026-04-13-planning-ghost-refs-in-tests.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Queen Operations Dead Code — Routes Without Client](closed/2026-04-13-queen-ops-dead-code.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Server Startup Panics on Failure](closed/2026-04-13-server-startup-panics.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Silent Event Loss](closed/2026-04-13-silent-event-loss.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Silent .ok() Chains Drop Corrupt Data](closed/2026-04-13-silent-ok-chains.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Stale File References in Docs](closed/2026-04-13-stale-doc-refs.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [Stale Per-Harness Bundle Files](closed/2026-04-13-stale-per-harness-bundle-files.md) — `Unassigned / unassigned` · opened 2026-04-13
+- **[medium]** [15 Untested API Routes](closed/2026-04-13-untested-api-routes.md) — `Unassigned / unassigned` · opened 2026-04-13
 - **[medium]** [Claude Code Bootstrap Bridge Gap](closed/2026-04-12-claude-code-bootstrap-bridge-gap.md) — `Unassigned / unassigned` · opened 2026-04-12
+- **[medium]** [Phase G 10-Star Gaps](closed/2026-04-12-phase-g-10-star-gaps.md) — `Unassigned / unassigned` · opened 2026-04-12
 - **[medium]** [Roadmap State Audit-Tail Drift](closed/2026-04-12-roadmap-state-audit-tail-drift.md) — `Unassigned / unassigned` · opened 2026-04-12
 - **[medium]** [Shell-Unsafe memd Env Generation](closed/2026-04-12-shell-unsafe-memd-env-generation.md) — `Unassigned / unassigned` · opened 2026-04-12
-- **[critical]** [memd Preferences and Architecture Knowledge Not Persisted Across Sessions](2026-04-15-memd-preferences-not-persisted-across-sessions.md) — `V3 / A3` · opened 2026-04-15
-- **[critical]** [Status Noise Floods Working Memory](2026-04-13-status-noise-floods-memory.md) — `V3 / B3` · opened 2026-04-13
+- **[critical]** [memd Preferences and Architecture Knowledge Not Persisted Across Sessions](closed/2026-04-15-memd-preferences-not-persisted-across-sessions.md) — `V3 / A3` · opened 2026-04-15
+- **[critical]** [Status Noise Floods Working Memory](closed/2026-04-13-status-noise-floods-memory.md) — `V3 / B3` · opened 2026-04-13
 

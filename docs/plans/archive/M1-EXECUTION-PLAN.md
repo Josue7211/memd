@@ -1,3 +1,10 @@
+---
+status: superseded
+milestone: M1
+superseded_by: ROADMAP.md + individual phase docs
+superseded_date: 2026-04-17
+---
+
 # M1 Execution Plan: Make It Work
 
 > This plan tells the next code session exactly what to do. No theory reading needed.

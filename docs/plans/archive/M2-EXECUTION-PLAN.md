@@ -1,3 +1,10 @@
+---
+status: superseded
+milestone: M2
+superseded_by: ROADMAP.md + individual phase docs
+superseded_date: 2026-04-17
+---
+
 # M2 Execution Plan: Make It Correct
 
 > This plan tells the next code session exactly what to do. No theory reading needed.
