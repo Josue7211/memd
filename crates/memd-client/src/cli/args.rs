@@ -1560,6 +1560,32 @@ pub(crate) enum HookMode {
     Context(HookContextArgs),
     Capture(HookCaptureArgs),
     Spill(HookSpillArgs),
+    FileInteraction(HookFileInteractionArgs),
+    SealLedger(HookSealLedgerArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookFileInteractionArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+
+    #[arg(long)]
+    pub(crate) stdin: bool,
+
+    #[arg(long)]
+    pub(crate) content: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookSealLedgerArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    #[arg(long)]
+    pub(crate) session_id: String,
 }
 
 #[derive(Debug, Clone, Args)]

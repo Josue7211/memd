@@ -1,5 +1,6 @@
 use super::*;
 use crate::append_raw_spine_record;
+use memd_core::file_ledger::{append_file_interaction, seal_session_ledger};
 
 pub(crate) async fn run_hook_mode(
     client: &MemdClient,
@@ -193,6 +194,39 @@ pub(crate) async fn run_hook_mode(
                     "superseded": supersede_responses,
                     "supersede_search": supersede_diagnostics,
                 }))?;
+            }
+        }
+        HookMode::FileInteraction(args) => {
+            let payload = if let Some(content) = &args.content {
+                content.clone()
+            } else if args.stdin {
+                let mut buf = String::new();
+                io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("read file-interaction payload from stdin")?;
+                buf
+            } else {
+                return Ok(());
+            };
+            let payload_trim = payload.trim();
+            if payload_trim.is_empty() {
+                return Ok(());
+            }
+            let value: serde_json::Value = serde_json::from_str(payload_trim)
+                .context("parse file-interaction payload as JSON")?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            append_file_interaction(&value, args.session_id.as_deref(), &args.output, now_ms)
+                .context("append file-interaction ledger")?;
+        }
+        HookMode::SealLedger(args) => {
+            match seal_session_ledger(&args.session_id, &args.output) {
+                Ok(sealed) => {
+                    println!("{}", sealed.display());
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    // No ledger to seal — treat as no-op for idempotent precompact hook.
+                }
+                Err(err) => return Err(anyhow::Error::from(err)),
             }
         }
         HookMode::Spill(args) => {

@@ -1428,6 +1428,7 @@ dependencies = [
  "memd-schema",
  "serde",
  "serde_json",
+ "tempfile",
  "uuid",
 ]
 

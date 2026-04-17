@@ -103,6 +103,64 @@ pub fn seal_session_ledger(session_id: &str, output: &Path) -> io::Result<PathBu
     Ok(dst)
 }
 
+/// Extract `(session_id, op, path)` from a Claude Code hook payload JSON.
+/// Returns `None` if the tool is not a file operation or the path is missing.
+pub fn parse_hook_payload(
+    payload: &serde_json::Value,
+    session_id_override: Option<&str>,
+) -> Option<(String, FileOp, String)> {
+    let session_id = session_id_override
+        .map(str::to_string)
+        .or_else(|| {
+            payload
+                .get("session_id")
+                .and_then(|s| s.as_str().map(str::to_string))
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    let tool = payload.get("tool_name").and_then(|s| s.as_str())?;
+    let op = match tool {
+        "Read" => FileOp::Read,
+        "Edit" | "NotebookEdit" => FileOp::Edit,
+        "Write" => FileOp::Write,
+        _ => return None,
+    };
+    let path = payload
+        .pointer("/tool_input/file_path")
+        .and_then(|s| s.as_str())
+        .or_else(|| {
+            payload
+                .pointer("/tool_input/notebook_path")
+                .and_then(|s| s.as_str())
+        })
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    Some((session_id, op, path))
+}
+
+/// Append a file-interaction entry to the session ledger under `output`.
+/// Creates the session directory if needed. Silently ignores payloads that
+/// don't carry a file operation (matches hook semantics).
+pub fn append_file_interaction(
+    payload: &serde_json::Value,
+    session_id_override: Option<&str>,
+    output: &Path,
+    now_ms: i64,
+) -> io::Result<Option<(String, FileOp, String)>> {
+    let Some((session_id, op, path)) = parse_hook_payload(payload, session_id_override) else {
+        return Ok(None);
+    };
+    let lp = ledger_path(output, &session_id);
+    let mut ledger = if lp.exists() {
+        FileInteractionLedger::load_from_path(&lp)
+            .unwrap_or_else(|_| FileInteractionLedger::new(&session_id))
+    } else {
+        FileInteractionLedger::new(&session_id)
+    };
+    ledger.record(&path, op, now_ms);
+    ledger.save_to_path(&lp)?;
+    Ok(Some((session_id, op, path)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +213,52 @@ mod tests {
         assert_eq!(loaded.session_id, "session-1");
         assert_eq!(loaded.entries.len(), 1);
         assert_eq!(loaded.entries[0].path, "x.rs");
+    }
+
+    #[test]
+    fn append_file_interaction_creates_ledger_from_hook_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path();
+        let payload = serde_json::json!({
+            "session_id": "sess-abc",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "/tmp/foo.rs"}
+        });
+        let recorded = append_file_interaction(&payload, None, output, 1_000).unwrap();
+        assert!(recorded.is_some());
+        let lp = ledger_path(output, "sess-abc");
+        assert!(lp.exists(), "ledger file should be created");
+        let ledger = FileInteractionLedger::load_from_path(&lp).unwrap();
+        assert_eq!(ledger.entries.len(), 1);
+        assert_eq!(ledger.entries[0].path, "/tmp/foo.rs");
+        assert_eq!(ledger.entries[0].op, FileOp::Read);
+    }
+
+    #[test]
+    fn append_file_interaction_maps_notebook_edit_to_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = serde_json::json!({
+            "session_id": "sess-nb",
+            "tool_name": "NotebookEdit",
+            "tool_input": {"notebook_path": "/nb.ipynb"}
+        });
+        let recorded = append_file_interaction(&payload, None, dir.path(), 5).unwrap();
+        let (_, op, path) = recorded.unwrap();
+        assert_eq!(op, FileOp::Edit);
+        assert_eq!(path, "/nb.ipynb");
+    }
+
+    #[test]
+    fn append_file_interaction_ignores_non_file_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = serde_json::json!({
+            "session_id": "sess-x",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"}
+        });
+        let recorded = append_file_interaction(&payload, None, dir.path(), 5).unwrap();
+        assert!(recorded.is_none());
+        assert!(!ledger_path(dir.path(), "sess-x").exists());
     }
 
     #[test]
