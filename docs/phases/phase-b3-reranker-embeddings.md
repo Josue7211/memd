@@ -32,8 +32,9 @@ A3 activates the dense signal. B3 adds the second pass that mempalace uses to re
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.93, LoCoMo=0.55 (post-A3 baseline; if A3 not green, do not start B3)
-- post: **LongMemEval ≥ 0.97**, **LoCoMo ≥ 0.55** (additional bump comes in C3)
+- pre: LongMemEval=0.92, LoCoMo=0.55, MemBench=0.70 (post-A3 baseline; if A3 not green with ≥0.70 MemBench intrinsic, do not start B3)
+- post intrinsic (sidecar OFF, primary): **LongMemEval ≥ 0.95**, **LoCoMo ≥ 0.70** (B3 is where LoCoMo clears the V3 0.70 floor), MemBench no regression below 0.70
+- post accelerated (sidecar ON, bonus): ≥ +0.02 over intrinsic per metric
 - regression budget: no metric drops > 0.02
 - evidence: leaderboard regenerated with rerank=on AND rerank=off, both committed
 - latency: rerank path P95 ≤ 1500ms (Haiku)
@@ -62,7 +63,7 @@ Evidence:
 
 ## Fail Conditions
 
-- LongMemEval < 0.97 with reranker on — diagnose top-N candidate quality before tuning rerank
+- LongMemEval < 0.95 OR LoCoMo < 0.70 intrinsic with reranker on — diagnose top-N candidate quality before tuning rerank; V3 floor on LoCoMo is B3's responsibility
 - BGE-large embedding swap regresses any metric — keep MiniLM as default
 - Reranker latency P95 > 3s — make path async or fall back to dense-only
 

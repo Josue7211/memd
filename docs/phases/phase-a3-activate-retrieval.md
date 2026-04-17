@@ -44,16 +44,17 @@ Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has
 
 ## Pass Gate
 
-Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after with both modes):
+Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after with both modes). V3 completion requires **≥0.70 intrinsic on ALL four metrics**; A3 owns the biggest jump on MemBench and the foundation for LoCoMo / ConvoMem to clear the floor in later phases.
 
 **Intrinsic (sidecar OFF, the primary gate):**
 - pre: LongMemEval=0.860, LoCoMo=0.415, MemBench=0.346, ConvoMem=0.000
-- post: **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.48 intrinsic**, LoCoMo no regression, ConvoMem no regression
-- This is the number that matters — the product must be great without RAG.
+- post (A3 targets): **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.70 intrinsic** (clears floor), **LoCoMo ≥ 0.55 intrinsic** (on path to 0.70 in B3), **ConvoMem ≥ 0.10 intrinsic** (sanity jump off 0.000; adapter fix + ≥0.70 lands in E3)
+- This is the number that matters — the product must be great without RAG. 0.70 floor is bare minimum; stretch above it.
 
 **Accelerated (sidecar ON, the optional bump):**
-- post: **LongMemEval ≥ 0.95**, **MemBench ≥ 0.52**, demonstrable delta over intrinsic
+- post: demonstrable ≥ +0.02 delta per metric over intrinsic (if less, sidecar isn't pulling weight)
 - regression budget: no metric drops > 0.02 vs intrinsic
+- Accelerated column is a bonus, never the gate.
 
 Plus:
 - `cargo test -p memd-server -p memd-client` green
@@ -82,7 +83,8 @@ Evidence (alongside bench-delta):
 
 ## Fail Conditions
 
-- **Intrinsic LongMemEval < 0.92** — the core product is still not good enough; do not proceed to B3 until fixed
+- **Intrinsic LongMemEval < 0.92 OR MemBench < 0.70** — core product is still not good enough; do not proceed to B3 until fixed
+- **Any intrinsic metric regresses** (LoCoMo drops below 0.42, ConvoMem below 0.00) — something in the new SQL path is degrading recall on the unfocused slices; fix before merge
 - Sidecar becomes load-bearing (disabling it tanks the product) — revert; intrinsic path must stand alone
 - Wake packet still status-flooded — admission cap + layering not enforced
 - Bench harness drops the intrinsic column — dual-mode reporting is a hard requirement

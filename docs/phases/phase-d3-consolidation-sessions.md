@@ -34,9 +34,10 @@ LongMemEval's hardest items are >7d-old facts that should still be recallable. M
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.97, LoCoMo=0.65 (post-C3 baseline)
-- post: **LongMemEval ≥ 0.98** (long-tail bump), **LoCoMo ≥ 0.70** (cross-session bump)
+- pre: LongMemEval=0.95, LoCoMo=0.75, MemBench=0.75 (post-C3 baseline; V3 0.70 floor cleared everywhere except ConvoMem, which E3 owns)
+- post intrinsic (sidecar OFF, primary): **LongMemEval ≥ 0.97** (long-tail bump), **LoCoMo ≥ 0.80** (cross-session bump, well above floor)
 - LongMemEval >7d-slice metric: **+0.05 minimum** (broken out separately in leaderboard)
+- post accelerated (sidecar ON, bonus): ≥ +0.02 over intrinsic per metric
 - regression budget: no metric drops > 0.02
 - evidence: leaderboard regenerated with decay calibration sweep table
 

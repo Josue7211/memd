@@ -3,7 +3,7 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-16
+truth_date: 2026-04-17
 version: v3
 version_status: in_progress
 current_milestone: V3
@@ -11,30 +11,30 @@ milestone_status: in_progress
 current_phase: A3
 phase_status: pending
 next_milestone: V3
-next_step: A3.1 wire memd-sidecar into memd-server retrieval
+next_step: A3 Part 1 — intrinsic retrieval wins with sidecar OFF
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant, no-behavior-changing-recall-proof]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
-note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 phase IDs renamed 2026-04-17 to match execution order (A3 Activate Retrieval, B3 Reranker, C3 Atlas, D3 Consolidation, E3 Bench Honesty). V3 entry = A3. Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md.
+note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. 70% = where competition sits = bare minimum. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 phase IDs renamed 2026-04-17 to match execution order (A3 Intrinsic Retrieval, B3 Reranker, C3 Atlas, D3 Consolidation, E3 Bench Honesty). V3 entry = A3 Part 1 (sidecar OFF). Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-17-v3-phase-rename-next-A3.md.
 -->
 
 ## Status Snapshot
 
-- truth date: `2026-04-16`
-- current version: `v3` (product parity — bench delta is necessary but not sufficient) — v2/M4 deferred mid-flight
+- truth date: `2026-04-17`
+- current version: `v3` (FINAL memory OS — above and beyond; ≥0.70 intrinsic on ALL benches without sidecar is the floor) — v2/M4 deferred mid-flight
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
-- current milestone: `V3: Make It Compete` (Tier 5 — bench parity with inspiration repos) — in progress
-- current phase: `A3: Activate Retrieval` (pending) — entry phase, M4 dep relaxed (sidecar wiring orthogonal to dashboard polish)
+- current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
+- current phase: `A3: Intrinsic Retrieval (RAG-Optional)` (pending) — entry phase, sidecar stays OFF through Part 1
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `A3.1` (V3 entry) — wire `memd-sidecar` into `memd-server` retrieval (entity search + lookup paths currently SQL-only). Then bundle config defaults (`rag.enabled=true`), query sanitization, layered context, priority dedup, status admission cap. See [[docs/phases/phase-a3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md`.
+- next step: `A3 Part 1` (V3 entry) — intrinsic retrieval wins with sidecar OFF: FTS5 scoring overhaul, query sanitization+expansion in SQL, layered wake packet, priority dedup, status admission cap, atlas-at-recall SQL path. Target: ≥0.70 intrinsic on ALL benches. Sidecar wiring is Part 2, only after Part 1 ships. See [[docs/phases/phase-a3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-17-v3-phase-rename-next-A3.md`.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
-- V3 targets: LME 0.86→0.95, LoCoMo 0.42→0.65, MemBench 0.35→0.65, ConvoMem 0→0.50. See `## V3` block below.
+- V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
@@ -194,23 +194,23 @@ Product gaps. Dashboard last.
 Dashboard: browse, correct, navigate in browser. Zero console errors. Benchmark ≥ 90%.
 **Demo**: "Store a fact. Correct it. Navigate it. Prove it. All in the UI."
 
-### V3: Make It Compete — Tier 5 (product parity with inspiration repos)
+### V3: Make It Compete — Tier 5 (FINAL memory OS, above and beyond)
 
-V3 ships the **best product**, not the fastest bench score, and it ships a product that is **great without RAG**. Sidecar/RAG is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) — and they do it without treating RAG as a crutch. Memd shouldn't either.
+V3 ships the **FINAL memory OS**. Not a better v1. Not catch-up. The last version anyone needs. That means **≥0.70 intrinsic on ALL benches without the sidecar** (LongMemEval, LoCoMo, MemBench, ConvoMem) as the **floor** — 70% is where competition sits today, that is bare minimum — and every phase should push **above and beyond** the floor toward a stretch target. Sidecar/RAG is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) — and they do it without treating RAG as a crutch. Memd won't either.
 
-Reference ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]) — that is memd's **intrinsic** number and it needs to be much higher before RAG is ever considered primary.
+Reference ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled on LME only — LoCoMo 0.415, MemBench 0.346, ConvoMem 0.000 intrinsic ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Three of four metrics sit below the 70% floor today. The job is to clear the floor on all four without depending on the sidecar.
 
-Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). A3 and every later phase must also report **intrinsic (sidecar-off) score** as the primary number, with an accelerated (sidecar-on) column as a secondary delta. Bench without product-win = benchmaxxing. Rag-dependent score without matching intrinsic score = crutch. No merge on any gate alone.
+Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). Every phase reports **intrinsic (sidecar-off) score** as the primary number, with an accelerated (sidecar-on) column as a secondary delta. Bench without product-win = benchmaxxing. Rag-dependent score without matching intrinsic score = crutch. No merge on any gate alone.
 
 Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from the old B3/F3/E3/C3/A3 naming where IDs did not match order.
 
-| Phase | Name | Status | Targets | Phase Doc |
+| Phase | Name | Status | Intrinsic Targets (sidecar OFF) | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**0.92 intrinsic** / 0.95 accelerated, MemBench 0.35→**0.48 intrinsic** / 0.52 accelerated | [[phase-a3-activate-retrieval]] |
-| B3 | Reranker + Embeddings | `pending` | LME 0.93→0.97, LoCoMo 0.42→0.55 | [[phase-b3-reranker-embeddings]] |
-| C3 | Atlas at Recall | `pending` | LoCoMo 0.55→0.65 | [[phase-c3-atlas-at-recall]] |
-| D3 | Consolidation + Sessions | `pending` | LME long-tail +0.01, LoCoMo +0.05 | [[phase-d3-consolidation-sessions]] |
-| E3 | Bench Honesty | `pending` | ConvoMem 0→0.50, MemPalace cross-baseline live | [[phase-e3-bench-honesty]] |
+| A3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70) | [[phase-a3-activate-retrieval]] |
+| B3 | Reranker + Embeddings | `pending` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-b3-reranker-embeddings]] |
+| C3 | Atlas at Recall | `pending` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-c3-atlas-at-recall]] |
+| D3 | Consolidation + Sessions | `pending` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-d3-consolidation-sessions]] |
+| E3 | Bench Honesty | `pending` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-e3-bench-honesty]] |
 
 **Donor anchors**: [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]] (mempalace pipeline), [[.memd/lanes/architecture/A2-10-embedding-strategy.md]] (model choice), [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]] (priority dedup), [[.memd/lanes/architecture/A2-13-temporal-freshness.md]] (decay calibration), [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]] (full mapping).
 
@@ -219,10 +219,10 @@ Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from th
 - `## Product Win` — qualitative UX/product gain: what a dogfooder feels, how it compares to competitor surface, evidence = recorded session trace / sample outputs / comparison note
 
 **V3 completion gate**:
-- Bench (intrinsic, sidecar OFF): LongMemEval ≥ 0.92, LoCoMo ≥ 0.60, MemBench ≥ 0.55, ConvoMem ≥ 0.50. This is the primary gate — the product must be great without RAG.
-- Bench (accelerated, sidecar ON): LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65. Secondary gate — sidecar is an opt-in bump, not a crutch.
-- No regression > 0.02 on either column.
-- Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as competitive-or-better against mempalace/supermemory/letta/mem0 to a stranger who didn't build it. Stranger test is run with sidecar OFF.
+- **Bench floor (intrinsic, sidecar OFF) — ≥0.70 on ALL four metrics**: LongMemEval ≥ 0.70, LoCoMo ≥ 0.70, MemBench ≥ 0.70, ConvoMem ≥ 0.70. This is the floor, not the goal — 70% is where competition already sits, so it is the bare minimum for a FINAL memory OS. A version that ships with any metric below 0.70 intrinsic is not done.
+- **Bench stretch (intrinsic, sidecar OFF) — above and beyond**: LongMemEval ≥ 0.92, LoCoMo ≥ 0.80, MemBench ≥ 0.75, ConvoMem ≥ 0.75. Goal is clear daylight over the 70% floor, not a hairline pass.
+- Bench (accelerated, sidecar ON): demonstrable positive delta per metric (≥ +0.02 over intrinsic) or the sidecar is not pulling weight. No metric drops > 0.02 accelerated vs intrinsic. Accelerated numbers are a bonus column, never the gate.
+- Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as best-in-class — not parity, better — against mempalace/supermemory/letta/mem0 to a stranger who didn't build it. Stranger test is run with sidecar OFF.
 
 **Demo**: "Same query, before and after — show the score AND hand the user the memory surface. They should want to use it."
 

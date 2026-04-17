@@ -16,13 +16,14 @@ V3 phase IDs were renamed so alphabet matches execution order. V3 reframed: **be
 
 ## V3 framing (read before executing any phase)
 
-V3 is product parity, not benchmaxxing, and the product must be **great without RAG**. Sidecar is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) genuinely out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) and they do it without treating RAG as a crutch. Memd shouldn't either.
+V3 is the **FINAL memory OS**. Not a better v1. Not catch-up. The last version anyone needs. Product must be **great without RAG**. Sidecar is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) and they do it without treating RAG as a crutch. Memd won't either.
 
-Two canonical decisions logged to memd on 2026-04-17:
+**Three canonical decisions logged to memd on 2026-04-17:**
 1. *"not looking for the fastest ship, looking for the best product"* — every phase is dual-gated (bench + product).
 2. *"all the other services don't rely on rag for better benches and truly we shouldn't either, is supposed to be optional and a great product even without"* — A3 reworked to ship intrinsic retrieval wins first; sidecar becomes flag-gated accelerator with measured delta.
+3. *"we need at least 70% on ALL benches WITHOUT the sidecar — that's where our competition is at — that's the bare minimum — this is the FINAL memory OS, we need to go above and beyond"* — V3 completion gate is ≥0.70 intrinsic on LongMemEval, LoCoMo, MemBench, and ConvoMem. Three of four start below 0.70. Floor is minimum, stretch is goal.
 
-Every V3 phase doc now has a `## Product Win` section alongside `## Pass Gate`. Bench reports will carry two columns going forward: **intrinsic** (sidecar off, primary) and **accelerated** (sidecar on, secondary).
+Every V3 phase doc now has a `## Product Win` section alongside `## Pass Gate`. Bench reports will carry two columns going forward: **intrinsic** (sidecar off, primary, 0.70 floor on all four) and **accelerated** (sidecar on, bonus, ≥+0.02 delta required).
 
 ## What happened this session
 
@@ -65,7 +66,7 @@ A3 is now two parts. Part 1 ships **intrinsic wins with sidecar OFF**. Part 2 wi
 5. **Priority dedup (SQL-side)** — canonical > working > search, exact-string dedup after fetch.
 6. **Status admission cap** — kind=Status ≤ 2 in wake output, or TTL hard-cut at 1h.
 
-Part 1 pass gate: **intrinsic LongMemEval ≥ 0.92** with `rag.enabled=false`. If that number does not move, do not start Part 2.
+Part 1 pass gate (updated 2026-04-17 per user directive — FINAL memory OS, 70% intrinsic floor on ALL benches): **intrinsic LongMemEval ≥ 0.92, MemBench ≥ 0.70, LoCoMo ≥ 0.55, ConvoMem ≥ 0.10** with `rag.enabled=false`. MemBench must clear the V3 0.70 floor here; LoCoMo clears it in B3, ConvoMem in E3. If these numbers don't move, do not start Part 2.
 
 **Part 2 (after Part 1 ships):**
 

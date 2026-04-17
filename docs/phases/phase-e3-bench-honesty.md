@@ -33,8 +33,8 @@ Current public leaderboard ships four bench rows but every one carries a "no Mem
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: ConvoMem=0.000, MemPalace cross-baseline=missing
-- post: **ConvoMem ≥ 0.50**, **MemPalace cross-baseline live for all 4 benches**
+- pre: ConvoMem=0.000 (or whatever A3 waypoint produced), MemPalace cross-baseline=missing
+- post: **ConvoMem ≥ 0.70 intrinsic** (V3 floor — 70% on ALL benches is the minimum for the FINAL memory OS), **MemPalace cross-baseline live for all 4 benches**
 - regression budget: no other metric drops > 0.02
 - evidence: leaderboard regenerated with mempalace side-by-side column
 
@@ -63,6 +63,7 @@ Evidence:
 
 ## Fail Conditions
 
+- ConvoMem stays below 0.70 intrinsic — adapter fix alone wasn't enough; this is now retrieval quality, loop back to A3/B3/C3 for the missing gains
 - ConvoMem stays at 0.000 — diagnosis was wrong; likely retrieval issue not adapter; loop back to A3
 - MemPalace replay score lower than memd's claim — retract the claim, surface honestly
 - Leaderboard refresh breaks CI on every PR — gate scope is wrong; narrow to V3-touched PRs only
@@ -87,4 +88,4 @@ Evidence:
 
 ## Why E3 lives last in V3
 
-E3 only makes sense after A3+B3+C3+D3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. ConvoMem fix is parallelizable (it's an adapter bug, not retrieval), so a sub-task can run alongside A3 if convenient — but the formal phase-merge sits at the end of V3 to capture the whole picture.
+E3 only makes sense after A3+B3+C3+D3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. ConvoMem adapter fix is still parallelizable (adapter bug, not retrieval quality), so a sub-task can run alongside A3 to lift the score off 0.000. But clearing the 0.70 intrinsic floor likely requires real retrieval work from earlier phases too, so the formal phase-merge sits at the end of V3 to capture the whole picture.

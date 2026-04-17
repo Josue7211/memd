@@ -33,8 +33,9 @@ Activate the dormant atlas: populate entity edges at ingest, traverse them at re
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.97, LoCoMo=0.55, MemBench=0.50 (post-B3 baseline)
-- post: **LoCoMo ≥ 0.65**, LongMemEval no regression, MemBench no regression
+- pre: LongMemEval=0.95, LoCoMo=0.70, MemBench=0.70 (post-B3 baseline; V3 0.70 floor already cleared on LoCoMo/MemBench, C3 pushes stretch)
+- post intrinsic (sidecar OFF, primary): **LoCoMo ≥ 0.75**, **MemBench ≥ 0.75**, LongMemEval no regression — above-and-beyond on the multi-hop slice
+- post accelerated (sidecar ON, bonus): ≥ +0.02 over intrinsic per metric
 - regression budget: no metric drops > 0.02
 - evidence: leaderboard regenerated; LoCoMo subset broken down by hop-count to show multi-hop wins
 
@@ -63,7 +64,7 @@ Evidence:
 
 ## Fail Conditions
 
-- LoCoMo < 0.65 — diagnose extraction quality (are entities actually being detected?) before traversal tuning
+- LoCoMo < 0.75 intrinsic — diagnose extraction quality (are entities actually being detected?) before traversal tuning; floor already cleared in B3 but C3 must push stretch
 - Atlas edges_total stays at 0 after ingest — extraction pass isn't running
 - Multi-hop expansion adds candidates but rerank still picks wrong — B3 reranker may need atlas-aware prompts
 - 2-hop traversal P95 > 200ms — keep at 1-hop only
