@@ -9,7 +9,7 @@ version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
 current_phase: A3
-phase_status: part1_plan_ready
+phase_status: part1_green
 next_milestone: V3
 next_step: A3 Part 1 — file-interaction ledger + wake Files-Touched block (memd Continuity Foundation, the new V3 entry phase)
 active_blockers: [memd-read-state-lost-across-compaction, hooks-scattered-across-three-dirs, codebase-organization-pass, memd-process-too-soft-cross-harness, pipeline-lifecycle-broken, working-memory-stale-records, memd-preferences-not-persisted-across-sessions, rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
