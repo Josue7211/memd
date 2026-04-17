@@ -11,11 +11,11 @@ milestone_status: in_progress
 current_phase: A3
 phase_status: pending
 next_milestone: V3
-next_step: A3 Part 1 — intrinsic retrieval wins with sidecar OFF
-active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant, no-behavior-changing-recall-proof]
+next_step: A3 Part 1 — file-interaction ledger + wake Files-Touched block (memd Continuity Foundation, the new V3 entry phase)
+active_blockers: [memd-read-state-lost-across-compaction, hooks-scattered-across-three-dirs, codebase-organization-pass, memd-process-too-soft-cross-harness, pipeline-lifecycle-broken, working-memory-stale-records, memd-preferences-not-persisted-across-sessions, rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
-note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. 70% = where competition sits = bare minimum. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 phase IDs renamed 2026-04-17 to match execution order (A3 Intrinsic Retrieval, B3 Reranker, C3 Atlas, D3 Consolidation, E3 Bench Honesty). V3 entry = A3 Part 1 (sidecar OFF). Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-17-v3-phase-rename-next-A3.md.
+note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. User directive 2026-04-17 ("this is a massive issue", "every backlog issue should be in the roadmap for a fix") inserted NEW A3 "memd Continuity Foundation" at V3 entry; old retrieval phases shifted A→B, B→C, C→D, D→E, E→F. Cannot benchmark a memory OS that loses state across compaction. V3 phase order: A3 Continuity Foundation → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty. Handoff: docs/handoff/2026-04-17-v3-phase-rename-next-A3.md (needs refresh to reflect A3 = Continuity).
 -->
 
 ## Status Snapshot
@@ -26,13 +26,13 @@ note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic 
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
-- current phase: `A3: Intrinsic Retrieval (RAG-Optional)` (pending) — entry phase, sidecar stays OFF through Part 1
+- current phase: `A3: memd Continuity Foundation` (pending) — NEW V3 entry inserted 2026-04-17 after user directive made memd core-continuity bugs supersede retrieval tuning. Fix the memory OS before measuring it.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `A3 Part 1` (V3 entry) — intrinsic retrieval wins with sidecar OFF: FTS5 scoring overhaul, query sanitization+expansion in SQL, layered wake packet, priority dedup, status admission cap, atlas-at-recall SQL path. Target: ≥0.70 intrinsic on ALL benches. Sidecar wiring is Part 2, only after Part 1 ships. See [[docs/phases/phase-a3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-17-v3-phase-rename-next-A3.md`.
+- next step: `A3 Part 1` (V3 entry) — memd Continuity Foundation, state-continuity contract: file-interaction ledger persisted across compaction, `memd prime-reads` command, working-memory lifecycle self-test, cross-session preference persistence, `.memd/contract.json`. See [[docs/phases/phase-a3-continuity-foundation.md]]. Retrieval work (old A3) is now B3 and cannot start until A3 clears — cannot benchmark a memory OS that loses state across compaction.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
@@ -183,7 +183,8 @@ Product gaps. Dashboard last.
 **Open backlog map (pending phases + active blockers)**:
 - `I2`: `2026-04-16-no-human-surface-dashboard-ui`, `2026-04-15-dashboard-not-served-from-memd-server`, `2026-04-15-graph-page-crash-entity-search-type-mismatch`, `2026-04-15-memory-entity-record-type-mismatch`, `2026-04-15-dashboard-env-hardcoded-tailscale-ip`, `2026-04-15-memd-preferences-not-persisted-across-sessions`
 - `M2-evo`: `2026-04-14-no-overnight-evolution-loop`, `2026-04-14-no-live-memory-contract`, `2026-04-16-working-memory-stale-records`, `2026-04-16-pipeline-lifecycle-broken`
-- `N2`: `2026-04-14-skill-gating-config-flags-only`, `2026-04-14-rag-sidecar-disabled-no-fallback`, `2026-04-14-no-data-recovery-procedure`, `2026-04-14-no-admission-control-rate-limiting`, `2026-04-17-memd-process-too-soft-cross-harness`
+- `N2`: `2026-04-14-skill-gating-config-flags-only`, `2026-04-14-rag-sidecar-disabled-no-fallback`, `2026-04-14-no-data-recovery-procedure`, `2026-04-14-no-admission-control-rate-limiting`, `2026-04-17-memd-process-too-soft-cross-harness`, `2026-04-17-memd-read-state-lost-across-compaction`, `2026-04-17-hooks-scattered-across-three-dirs`
+- `cross-cutting`: `2026-04-17-codebase-organization-pass` (inter-phase seam, end of A3 or start of B3)
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-4]]
@@ -202,15 +203,18 @@ Reference ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[
 
 Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). Every phase reports **intrinsic (sidecar-off) score** as the primary number, with an accelerated (sidecar-on) column as a secondary delta. Bench without product-win = benchmaxxing. Rag-dependent score without matching intrinsic score = crutch. No merge on any gate alone.
 
-Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from the old B3/F3/E3/C3/A3 naming where IDs did not match order.
+Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to insert `A3 memd Continuity Foundation` at entry after user directive made memd core-continuity bugs a hard precondition to any retrieval phase. Old A3–E3 shifted to B3–F3.
 
-| Phase | Name | Status | Intrinsic Targets (sidecar OFF) | Phase Doc |
+| Phase | Name | Status | Owns (backlog / target) | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70) | [[phase-a3-activate-retrieval]] |
-| B3 | Reranker + Embeddings | `pending` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-b3-reranker-embeddings]] |
-| C3 | Atlas at Recall | `pending` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-c3-atlas-at-recall]] |
-| D3 | Consolidation + Sessions | `pending` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-d3-consolidation-sessions]] |
-| E3 | Bench Honesty | `pending` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-e3-bench-honesty]] |
+| A3 | memd Continuity Foundation | `pending` | read-state-lost-across-compaction, hooks-scattered, codebase-organization, process-too-soft, pipeline-lifecycle-broken, working-memory-stale-records, preferences-not-persisted, no-live-memory-contract | [[phase-a3-continuity-foundation]] |
+| B3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70), ConvoMem→≥0.10 | [[phase-b3-activate-retrieval]] |
+| C3 | Reranker + Embeddings | `pending` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-c3-reranker-embeddings]] |
+| D3 | Atlas at Recall | `pending` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-d3-atlas-at-recall]] |
+| E3 | Consolidation + Sessions | `pending` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-e3-consolidation-sessions]] |
+| F3 | Bench Honesty | `pending` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-f3-bench-honesty]] |
+
+**Roadmap-coverage rule** (user directive 2026-04-17 "every backlog issue should be in the roadmap for a fix"): every backlog item MUST have a `phase:` frontmatter field pointing at the V3 or M4 phase that owns its fix. `docs/backlog/INDEX.md` is regenerated from frontmatter by `make backlog-index`; coverage audit runs in A3 and blocks A3 exit if any item is unassigned.
 
 **Donor anchors**: [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]] (mempalace pipeline), [[.memd/lanes/architecture/A2-10-embedding-strategy.md]] (model choice), [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]] (priority dedup), [[.memd/lanes/architecture/A2-13-temporal-freshness.md]] (decay calibration), [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]] (full mapping).
 

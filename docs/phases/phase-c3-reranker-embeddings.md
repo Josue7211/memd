@@ -1,28 +1,28 @@
 ---
-phase: B3
+phase: C3
 name: Reranker + Embeddings
 version: v3
 status: pending
-depends_on: [A3]
-notes: Renamed from F3 to B3 on 2026-04-17 so phase IDs match execution order.
+depends_on: [A3, B3]
+notes: Renamed B3→C3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry and old A3 (Intrinsic Retrieval) shifted to B3.
 backlog_items:
   - "2026-04-14-no-behavior-changing-recall-proof"
   - "2026-04-14-rag-sidecar-disabled-no-fallback"
 ---
 
-# Phase B3: Reranker + Embeddings
+# Phase C3: Reranker + Embeddings
 
 ## Goal
 
-Squeeze the last 3-5 points out of LongMemEval and bump LoCoMo by adding a reranker on top of A3's dense retrieval and trying a larger embedding model. Mempalace shows pure cosine = 96.6%, **+ Haiku/Sonnet rerank = 100%** ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#no-reranking-in-core-pipeline]]).
+Squeeze the last 3-5 points out of LongMemEval and bump LoCoMo by adding a reranker on top of B3's dense retrieval and trying a larger embedding model. Mempalace shows pure cosine = 96.6%, **+ Haiku/Sonnet rerank = 100%** ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#no-reranking-in-core-pipeline]]).
 
 ## Why this phase exists
 
-A3 activates the dense signal. B3 adds the second pass that mempalace uses to reach the ceiling. Reranker is optional in mempalace — flip on with a flag, score the top-K candidates, return the reordered list. Embedding model swap is a one-line config change (`AllMiniLM-L6-v2` → `BAAI/bge-large-en-v1.5`) with empirical +3.5pp on mempalace's bench ([[.memd/lanes/architecture/A2-10-embedding-strategy.md#benchmarked-alternatives-from-longmemeval_benchpy]]).
+B3 activates the dense signal. C3 adds the second pass that mempalace uses to reach the ceiling. Reranker is optional in mempalace — flip on with a flag, score the top-K candidates, return the reordered list. Embedding model swap is a one-line config change (`AllMiniLM-L6-v2` → `BAAI/bge-large-en-v1.5`) with empirical +3.5pp on mempalace's bench ([[.memd/lanes/architecture/A2-10-embedding-strategy.md#benchmarked-alternatives-from-longmemeval_benchpy]]).
 
 ## Deliver
 
-1. **LLM reranker on top-K** — after A3 dense retrieval returns top-N (default 20), pass to reranker, keep top-K (default 5). Reranker model configurable: `claude-haiku-4-5`, `claude-sonnet-4-6`, or local fallback. Behind `retrieval.rerank=true` flag.
+1. **LLM reranker on top-K** — after B3 dense retrieval returns top-N (default 20), pass to reranker, keep top-K (default 5). Reranker model configurable: `claude-haiku-4-5`, `claude-sonnet-4-6`, or local fallback. Behind `retrieval.rerank=true` flag.
 2. **Reranker as a sidecar route** — `memd-sidecar` exposes `/rerank` endpoint, takes `{query, candidates[]}`, returns scored candidates. Server calls it after dense retrieval, before priority dedup.
 3. **Embedding model swap path** — `MEMD_EMBED_MODEL` env var + bundle config; supported values: `all-minilm-l6-v2` (default), `bge-base-en-v1.5`, `bge-large-en-v1.5`. Migration: re-embed corpus on swap (track via embedding_model column on stored items).
 4. **Query prefix convention** — fastembed wants `"query: " + query` for query-side embedding ([[.memd/lanes/architecture/A2-10-embedding-strategy.md#memd-sidecar-embedding]]). Apply automatically in retrieval path.
@@ -32,8 +32,8 @@ A3 activates the dense signal. B3 adds the second pass that mempalace uses to re
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.92, LoCoMo=0.55, MemBench=0.70 (post-A3 baseline; if A3 not green with ≥0.70 MemBench intrinsic, do not start B3)
-- post intrinsic (sidecar OFF, primary): **LongMemEval ≥ 0.95**, **LoCoMo ≥ 0.70** (B3 is where LoCoMo clears the V3 0.70 floor), MemBench no regression below 0.70
+- pre: LongMemEval=0.92, LoCoMo=0.55, MemBench=0.70 (post-B3 baseline; if B3 not green with ≥0.70 MemBench intrinsic, do not start C3)
+- post intrinsic (sidecar OFF, primary): **LongMemEval ≥ 0.95**, **LoCoMo ≥ 0.70** (C3 is where LoCoMo clears the V3 0.70 floor), MemBench no regression below 0.70
 - post accelerated (sidecar ON, bonus): ≥ +0.02 over intrinsic per metric
 - regression budget: no metric drops > 0.02
 - evidence: leaderboard regenerated with rerank=on AND rerank=off, both committed
@@ -63,25 +63,25 @@ Evidence:
 
 ## Fail Conditions
 
-- LongMemEval < 0.95 OR LoCoMo < 0.70 intrinsic with reranker on — diagnose top-N candidate quality before tuning rerank; V3 floor on LoCoMo is B3's responsibility
+- LongMemEval < 0.95 OR LoCoMo < 0.70 intrinsic with reranker on — diagnose top-N candidate quality before tuning rerank; V3 floor on LoCoMo is C3's responsibility
 - BGE-large embedding swap regresses any metric — keep MiniLM as default
 - Reranker latency P95 > 3s — make path async or fall back to dense-only
 
 ## Donor Anchors
 
-- **B3-D1**: mempalace optional rerank pipeline (96.6 → 100) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#no-reranking-in-core-pipeline]]
-- **B3-D2**: mempalace embedding bench (BGE-large +3.5pp at 1024-dim) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md#benchmarked-alternatives-from-longmemeval_benchpy]]
-- **B3-D3**: fastembed query-prefix convention — [[.memd/lanes/architecture/A2-10-embedding-strategy.md#memd-sidecar-embedding]]
+- **C3-D1**: mempalace optional rerank pipeline (96.6 → 100) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#no-reranking-in-core-pipeline]]
+- **C3-D2**: mempalace embedding bench (BGE-large +3.5pp at 1024-dim) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md#benchmarked-alternatives-from-longmemeval_benchpy]]
+- **C3-D3**: fastembed query-prefix convention — [[.memd/lanes/architecture/A2-10-embedding-strategy.md#memd-sidecar-embedding]]
 
 ## Rollback
 
-- `retrieval.rerank=false` reverts to A3 dense-only behavior
+- `retrieval.rerank=false` reverts to B3 dense-only behavior
 - `MEMD_EMBED_MODEL=all-minilm-l6-v2` reverts to MiniLM if BGE regresses
 - Reranker route can be killed at sidecar level without server restart
 
 ## Out of scope
 
-- Atlas multi-hop (C3)
-- Episode consolidation (D3)
-- ConvoMem adapter (E3)
+- Atlas multi-hop (D3)
+- Episode consolidation (E3)
+- ConvoMem adapter (F3)
 - Cross-encoder local reranker (future, only if Haiku latency unacceptable)

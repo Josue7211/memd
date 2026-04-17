@@ -1,10 +1,10 @@
 ---
-phase: A3
+phase: B3
 name: Intrinsic Retrieval (RAG-Optional)
 version: v3
 status: pending
-depends_on: []
-notes: Renamed from "Activate Retrieval" on 2026-04-17 after framing correction — sidecar/RAG is optional, not load-bearing. Competitor services do not depend on RAG for a great product; neither should memd. Core retrieval must be world-class without any sidecar running; sidecar becomes a flag-gated accelerator with measured delta.
+depends_on: [A3]
+notes: Renamed A3→B3 on 2026-04-17 when new A3 "memd Continuity Foundation" was inserted at V3 entry (continuity bugs supersede retrieval work — can't benchmark a product whose memory leaks state across compaction). Still carries the intrinsic-wins-first / sidecar-optional framing from the 2026-04-17 RAG-optional correction.
 backlog_items:
   - "2026-04-14-rag-sidecar-disabled-no-fallback"
   - "2026-04-14-status-noise-runaway-checkpoint-loop"
@@ -13,7 +13,7 @@ backlog_items:
   - "2026-04-14-no-behavior-changing-recall-proof"
 ---
 
-# Phase A3: Intrinsic Retrieval (RAG-Optional)
+# Phase B3: Intrinsic Retrieval (RAG-Optional)
 
 ## Goal
 
@@ -23,7 +23,7 @@ Make memd's **intrinsic** retrieval (no sidecar, no external vector service) goo
 
 User direction (2026-04-17, canonical in memd): *"all the other services don't rely on RAG for better benches and truly we shouldn't either; it's supposed to be optional and a great product even without."*
 
-Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has zero `memd-rag` imports, bench default is `lexical`. That means **0.860 LongMemEval is memd's intrinsic score** — and it's not competitive. Rather than treat this as "turn on RAG to fix it", A3 treats it as "fix the intrinsic path so the product is great without RAG, then wire RAG as a speed/accuracy booster on top."
+Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has zero `memd-rag` imports, bench default is `lexical`. That means **0.860 LongMemEval is memd's intrinsic score** — and it's not competitive. Rather than treat this as "turn on RAG to fix it", B3 treats it as "fix the intrinsic path so the product is great without RAG, then wire RAG as a speed/accuracy booster on top."
 
 ## Deliver
 
@@ -34,7 +34,7 @@ Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has
 3. **Layered wake packet** — L0 (identity) + L1 (essential story) + L2 (on-demand) + L3 (deep search). All assembled from SQL path; no embeddings required to produce the layered structure.
 4. **Priority dedup at retrieval (SQL-side)** — canonical > working > search, exact-string dedup applied after fetch, before injection ([[.memd/lanes/architecture/A2-11-context-compilation-profile.md#retrieval-time-dedup-priority-based]]).
 5. **Status admission cap** — kind=Status capped at 2 in wake output, or TTL hard-cut at 1h with -0.08 penalty ([[.memd/lanes/architecture/A2-13-temporal-freshness.md#ttl-calibration]]).
-6. **Atlas-at-recall SQL path** — when atlas edges exist, use them as retrieval hints (1-hop entity expansion) without needing vectors. This is lighter than C3's full multi-hop atlas work but picks up easy wins now.
+6. **Atlas-at-recall SQL path** — when atlas edges exist, use them as retrieval hints (1-hop entity expansion) without needing vectors. This is lighter than D3's full multi-hop atlas work but picks up easy wins now.
 
 ### Part 2 — Sidecar as optional accelerator (flag-gated, measured)
 
@@ -44,11 +44,11 @@ Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has
 
 ## Pass Gate
 
-Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after with both modes). V3 completion requires **≥0.70 intrinsic on ALL four metrics**; A3 owns the biggest jump on MemBench and the foundation for LoCoMo / ConvoMem to clear the floor in later phases.
+Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after with both modes). V3 completion requires **≥0.70 intrinsic on ALL four metrics**; B3 owns the biggest jump on MemBench and the foundation for LoCoMo / ConvoMem to clear the floor in later phases.
 
 **Intrinsic (sidecar OFF, the primary gate):**
 - pre: LongMemEval=0.860, LoCoMo=0.415, MemBench=0.346, ConvoMem=0.000
-- post (A3 targets): **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.70 intrinsic** (clears floor), **LoCoMo ≥ 0.55 intrinsic** (on path to 0.70 in B3), **ConvoMem ≥ 0.10 intrinsic** (sanity jump off 0.000; adapter fix + ≥0.70 lands in E3)
+- post (B3 targets): **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.70 intrinsic** (clears floor), **LoCoMo ≥ 0.55 intrinsic** (on path to 0.70 in C3), **ConvoMem ≥ 0.10 intrinsic** (sanity jump off 0.000; adapter fix + ≥0.70 lands in F3)
 - This is the number that matters — the product must be great without RAG. 0.70 floor is bare minimum; stretch above it.
 
 **Accelerated (sidecar ON, the optional bump):**
@@ -83,7 +83,7 @@ Evidence (alongside bench-delta):
 
 ## Fail Conditions
 
-- **Intrinsic LongMemEval < 0.92 OR MemBench < 0.70** — core product is still not good enough; do not proceed to B3 until fixed
+- **Intrinsic LongMemEval < 0.92 OR MemBench < 0.70** — core product is still not good enough; do not proceed to C3 until fixed
 - **Any intrinsic metric regresses** (LoCoMo drops below 0.42, ConvoMem below 0.00) — something in the new SQL path is degrading recall on the unfocused slices; fix before merge
 - Sidecar becomes load-bearing (disabling it tanks the product) — revert; intrinsic path must stand alone
 - Wake packet still status-flooded — admission cap + layering not enforced
@@ -91,11 +91,11 @@ Evidence (alongside bench-delta):
 
 ## Donor Anchors
 
-- **A3-D1**: mempalace retrieval pipeline shape (sanitize → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]. Mempalace uses cosine; we mirror the *pipeline shape* on the SQL path.
-- **A3-D2**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
-- **A3-D3**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
-- **A3-D4**: mempalace embedding choice (reference only — we do NOT adopt in A3; sidecar is optional) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
-- **A3-D5**: FTS5 BM25 tuning — sqlite-FTS5 docs, memd's own FTS config
+- **B3-D1**: mempalace retrieval pipeline shape (sanitize → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]. Mempalace uses cosine; we mirror the *pipeline shape* on the SQL path.
+- **B3-D2**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
+- **B3-D3**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
+- **B3-D4**: mempalace embedding choice (reference only — we do NOT adopt in B3; sidecar is optional) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
+- **B3-D5**: FTS5 BM25 tuning — sqlite-FTS5 docs, memd's own FTS config
 
 ## Rollback
 
@@ -105,8 +105,8 @@ Evidence (alongside bench-delta):
 
 ## Out of scope
 
-- LLM reranker on top of candidates (lands in B3; sidecar-dependent)
-- BGE-large embedding swap (lands in B3; sidecar-dependent)
-- Full multi-hop atlas traversal with valid_from/valid_to windows (lands in C3)
-- Episode consolidation (lands in D3)
-- ConvoMem adapter fix (lands in E3; parallelizable)
+- LLM reranker on top of candidates (lands in C3; sidecar-dependent)
+- BGE-large embedding swap (lands in C3; sidecar-dependent)
+- Full multi-hop atlas traversal with valid_from/valid_to windows (lands in D3)
+- Episode consolidation (lands in E3)
+- ConvoMem adapter fix (lands in F3; parallelizable)

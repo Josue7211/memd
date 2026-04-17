@@ -1,17 +1,17 @@
 ---
-phase: C3
+phase: D3
 name: Atlas at Recall
 version: v3
 status: pending
-depends_on: [A3, B3]
-notes: Renamed from E3 to C3 on 2026-04-17 so phase IDs match execution order.
+depends_on: [A3, B3, C3]
+notes: Renamed C3→D3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry.
 backlog_items:
   - "2026-04-13-atlas-dormant"
   - "2026-04-14-atlas-fully-built-completely-dormant"
   - "2026-04-13-architecture-knowledge-not-in-lanes"
 ---
 
-# Phase C3: Atlas at Recall
+# Phase D3: Atlas at Recall
 
 ## Goal
 
@@ -24,7 +24,7 @@ Activate the dormant atlas: populate entity edges at ingest, traverse them at re
 ## Deliver
 
 1. **Ingest-time entity extraction** — every store/correct call runs an extraction pass: co-occurrence inside the same item, `[[wiki-style]]` links as strong edges, NER for named entities. Edges written with `(subject, predicate, object, valid_from, valid_to, source_item_id, confidence)`.
-2. **Multi-hop traversal at recall** — after dense retrieval (A3) returns candidates, expand each by 1-hop atlas neighbors filtered by valid_from/valid_to. Optionally 2-hop behind a budget cap. Expanded set goes into reranker (B3).
+2. **Multi-hop traversal at recall** — after dense retrieval (B3) returns candidates, expand each by 1-hop atlas neighbors filtered by valid_from/valid_to. Optionally 2-hop behind a budget cap. Expanded set goes into reranker (C3).
 3. **Temporal validity windows** — corrections don't delete edges; old edge gets `valid_to=now()`, new edge inserted with `valid_from=now()`. Time-scoped queries become possible: "what did we believe at T?"
 4. **Atlas health surfaces** — `memd status` shows edge count, region count, dormant/active ratio. If edges_total < expected per stored items, surface as "atlas dormant" warning.
 5. **Region-based retrieval routing** — atlas regions (clusters of densely-linked entities) become first-class filters: `memd lookup --region foo` narrows search before retrieval.
@@ -33,7 +33,7 @@ Activate the dormant atlas: populate entity edges at ingest, traverse them at re
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.95, LoCoMo=0.70, MemBench=0.70 (post-B3 baseline; V3 0.70 floor already cleared on LoCoMo/MemBench, C3 pushes stretch)
+- pre: LongMemEval=0.95, LoCoMo=0.70, MemBench=0.70 (post-C3 baseline; V3 0.70 floor already cleared on LoCoMo/MemBench, D3 pushes stretch)
 - post intrinsic (sidecar OFF, primary): **LoCoMo ≥ 0.75**, **MemBench ≥ 0.75**, LongMemEval no regression — above-and-beyond on the multi-hop slice
 - post accelerated (sidecar ON, bonus): ≥ +0.02 over intrinsic per metric
 - regression budget: no metric drops > 0.02
@@ -64,16 +64,16 @@ Evidence:
 
 ## Fail Conditions
 
-- LoCoMo < 0.75 intrinsic — diagnose extraction quality (are entities actually being detected?) before traversal tuning; floor already cleared in B3 but C3 must push stretch
+- LoCoMo < 0.75 intrinsic — diagnose extraction quality (are entities actually being detected?) before traversal tuning; floor already cleared in C3 but D3 must push stretch
 - Atlas edges_total stays at 0 after ingest — extraction pass isn't running
-- Multi-hop expansion adds candidates but rerank still picks wrong — B3 reranker may need atlas-aware prompts
+- Multi-hop expansion adds candidates but rerank still picks wrong — C3 reranker may need atlas-aware prompts
 - 2-hop traversal P95 > 200ms — keep at 1-hop only
 
 ## Donor Anchors
 
-- **C3-D1**: mempalace knowledge graph schema with valid_from/valid_to triples — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#mempalace-knowledge-graph-schema-sqlite-triples]]
-- **C3-D2**: mempalace pre-graph entity extraction (co-occurrence + wiki links + NER) — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#entity-extraction-pre-graph]]
-- **C3-D3**: temporal correction pattern (insert new + close old, no delete) — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#temporal-filtering]]
+- **D3-D1**: mempalace knowledge graph schema with valid_from/valid_to triples — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#mempalace-knowledge-graph-schema-sqlite-triples]]
+- **D3-D2**: mempalace pre-graph entity extraction (co-occurrence + wiki links + NER) — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#entity-extraction-pre-graph]]
+- **D3-D3**: temporal correction pattern (insert new + close old, no delete) — [[.memd/lanes/architecture/A2-02-atlas-entity-graph.md#temporal-filtering]]
 
 ## Rollback
 
@@ -83,7 +83,7 @@ Evidence:
 
 ## Out of scope
 
-- Episode consolidation (D3)
-- Decay calibration (D3)
-- ConvoMem adapter (E3)
+- Episode consolidation (E3)
+- Decay calibration (E3)
+- ConvoMem adapter (F3)
 - Visual graph rendering in dashboard (already in I2 scope)

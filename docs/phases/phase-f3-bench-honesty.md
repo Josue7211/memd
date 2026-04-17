@@ -1,17 +1,17 @@
 ---
-phase: E3
+phase: F3
 name: Bench Honesty
 version: v3
 status: pending
-depends_on: [A3]
-notes: Renamed from A3 to E3 on 2026-04-17 so phase IDs match execution order. Deliverable 1 (ConvoMem adapter fix) remains parallelizable with A3 since it is an adapter bug, not a retrieval-quality problem.
+depends_on: [A3, B3, C3, D3, E3]
+notes: Renamed E3→F3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry. Deliverable 1 (ConvoMem adapter fix) remains parallelizable with B3 Intrinsic Retrieval since it is an adapter bug, not a retrieval-quality problem.
 backlog_items:
   - "2026-04-14-no-public-benchmark-parity"
   - "2026-04-14-no-behavior-changing-recall-proof"
   - "2026-04-14-no-data-recovery-procedure"
 ---
 
-# Phase E3: Bench Honesty
+# Phase F3: Bench Honesty
 
 ## Goal
 
@@ -27,13 +27,13 @@ Current public leaderboard ships four bench rows but every one carries a "no Mem
 2. **MemPalace cross-baseline replay** — run mempalace's reference benchmark binary on the same fixture, record its score, ship side-by-side comparison in leaderboard. Removes the "dataset-grade / retrieval-local" disclaimer from claim class.
 3. **Per-phase leaderboard refresh** — `make bench` regenerates [[docs/verification/PUBLIC_LEADERBOARD.md]] with timestamp + commit; CI gate on V3 PRs requires leaderboard touch.
 4. **Bench claim governance** — every row in leaderboard carries: (a) claim class, (b) verification status (verified / recorded-unpinned / replay-pending), (c) regression-budget against last verified score, (d) link to commit that produced it.
-5. **Bench rerun on schema drift** — when retrieval pipeline changes (A3/B3/C3/D3 merges), CI regenerates leaderboard automatically. No silent score regression possible.
+5. **Bench rerun on schema drift** — when retrieval pipeline changes (B3/C3/D3/E3 merges), CI regenerates leaderboard automatically. No silent score regression possible.
 
 ## Pass Gate
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: ConvoMem=0.000 (or whatever A3 waypoint produced), MemPalace cross-baseline=missing
+- pre: ConvoMem=0.000 (or whatever B3 waypoint produced), MemPalace cross-baseline=missing
 - post: **ConvoMem ≥ 0.70 intrinsic** (V3 floor — 70% on ALL benches is the minimum for the FINAL memory OS), **MemPalace cross-baseline live for all 4 benches**
 - regression budget: no other metric drops > 0.02
 - evidence: leaderboard regenerated with mempalace side-by-side column
@@ -63,16 +63,16 @@ Evidence:
 
 ## Fail Conditions
 
-- ConvoMem stays below 0.70 intrinsic — adapter fix alone wasn't enough; this is now retrieval quality, loop back to A3/B3/C3 for the missing gains
-- ConvoMem stays at 0.000 — diagnosis was wrong; likely retrieval issue not adapter; loop back to A3
+- ConvoMem stays below 0.70 intrinsic — adapter fix alone wasn't enough; this is now retrieval quality, loop back to B3/C3/D3 for the missing gains
+- ConvoMem stays at 0.000 — diagnosis was wrong; likely retrieval issue not adapter; loop back to B3
 - MemPalace replay score lower than memd's claim — retract the claim, surface honestly
 - Leaderboard refresh breaks CI on every PR — gate scope is wrong; narrow to V3-touched PRs only
 - Side-by-side comparison shows mempalace beating memd on a metric memd claims to lead — retract lead claim
 
 ## Donor Anchors
 
-- **E3-D1**: mempalace benchmark harness (longmemeval_bench.py, multi-model sweep) — [[.memd/lanes/architecture/A2-01-benchmark-harness.md]]
-- **E3-D2**: bench claim governance and verification states — [[docs/verification/PUBLIC_BENCHMARKS.md]]
+- **F3-D1**: mempalace benchmark harness (longmemeval_bench.py, multi-model sweep) — [[.memd/lanes/architecture/A2-01-benchmark-harness.md]]
+- **F3-D2**: bench claim governance and verification states — [[docs/verification/PUBLIC_BENCHMARKS.md]]
 
 ## Rollback
 
@@ -86,6 +86,6 @@ Evidence:
 - LLM-graded retrieval evaluation (already covered by existing benchmark-registry)
 - Internal dogfood metrics (different surface)
 
-## Why E3 lives last in V3
+## Why F3 lives last in V3
 
-E3 only makes sense after A3+B3+C3+D3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. ConvoMem adapter fix is still parallelizable (adapter bug, not retrieval quality), so a sub-task can run alongside A3 to lift the score off 0.000. But clearing the 0.70 intrinsic floor likely requires real retrieval work from earlier phases too, so the formal phase-merge sits at the end of V3 to capture the whole picture.
+F3 only makes sense after B3+C3+D3+E3 have moved the numbers. Refreshing the leaderboard before retrieval is fixed just publishes bad scores faster. ConvoMem adapter fix is still parallelizable (adapter bug, not retrieval quality), so a sub-task can run alongside B3 to lift the score off 0.000. But clearing the 0.70 intrinsic floor likely requires real retrieval work from earlier phases too, so the formal phase-merge sits at the end of V3 to capture the whole picture.
