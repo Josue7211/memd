@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{fs, path::{Path, PathBuf}};
 use crate::file_ledger::{FileInteractionLedger, FileOp, ledger_path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -105,6 +105,31 @@ impl FreshReadIndex {
     }
 }
 
+pub fn load_latest_sealed_paths(output: &Path) -> Vec<String> {
+    let state = output.join("state");
+    let Ok(rd) = fs::read_dir(&state) else { return Vec::new(); };
+    let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in rd.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("session-") { continue; }
+        let sealed = entry.path().join("sealed");
+        let Ok(sd) = fs::read_dir(&sealed) else { continue; };
+        for s in sd.flatten() {
+            let p = s.path();
+            if let Ok(meta) = fs::metadata(&p) {
+                if let Ok(mt) = meta.modified() {
+                    if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
+                        latest = Some((mt, p));
+                    }
+                }
+            }
+        }
+    }
+    latest
+        .and_then(|(_, p)| FileInteractionLedger::load_from_path(&p).ok())
+        .map(|l| l.distinct_paths())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +209,21 @@ mod tests {
         let index = FreshReadIndex::for_session(out, "sess-live");
         assert!(index.contains("a.rs"));
         assert!(!index.contains("b.rs"), "Edit does not count as fresh Read");
+    }
+
+    #[test]
+    fn load_latest_sealed_paths_returns_distinct_paths_across_sessions() {
+        use crate::file_ledger::{FileInteractionLedger, FileOp, seal_session_ledger};
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path();
+        // Session A: seal ledger with a.rs, b.rs
+        let mut la = FileInteractionLedger::new("sess-a");
+        la.record("a.rs", FileOp::Edit, 1);
+        la.record("b.rs", FileOp::Read, 2);
+        la.save_to_path(&ledger_path(out, "sess-a")).unwrap();
+        seal_session_ledger("sess-a", out).unwrap();
+        let loaded = load_latest_sealed_paths(out);
+        assert!(loaded.contains(&"a.rs".to_string()));
+        assert!(loaded.contains(&"b.rs".to_string()));
     }
 }
