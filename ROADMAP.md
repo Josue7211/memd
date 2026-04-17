@@ -31,6 +31,7 @@ note: M4 in progress on research/mining. K2 complete (10/10 on main, last 235d95
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
 - next step: `I2` (Human Dashboard) — fix `EntitySearchResult` and `MemoryEntityRecord` type mismatches first (graph page crashes), then preference persistence round-trip, then dashboard-served-from-server. See `docs/handoff/2026-04-16-L2-complete-next-I2.md`.
+- after M4: `V3: Make It Compete` — bench parity push (LME 0.86→0.95, LoCoMo 0.42→0.65, MemBench 0.35→0.65, ConvoMem 0→0.50). See `## V3` block under M4.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
@@ -189,6 +190,25 @@ Product gaps. Dashboard last.
 **Gate**: All nodes pass M4 tier. Private items don't leak. Evolution proposes procedures.
 Dashboard: browse, correct, navigate in browser. Zero console errors. Benchmark ≥ 90%.
 **Demo**: "Store a fact. Correct it. Navigate it. Prove it. All in the UI."
+
+### V3: Make It Compete — Tier 5 (bench parity with inspiration repos)
+
+Polish (M4) ships visibility. V3 ships **score**. Donors prove the ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Every V3 phase is **bench-delta-gated** — no merge without measured improvement.
+
+| Phase | Name | Status | Targets | Phase Doc |
+| --- | --- | --- | --- | --- |
+| B3 | Activate Retrieval | `pending` | LME 0.86→0.93, MemBench 0.35→0.50 | [[phase-b3-activate-retrieval]] |
+| F3 | Reranker + Embeddings | `pending` | LME 0.93→0.97, LoCoMo 0.42→0.55 | [[phase-f3-reranker-embeddings]] |
+| E3 | Atlas at Recall | `pending` | LoCoMo 0.55→0.65 | [[phase-e3-atlas-at-recall]] |
+| C3 | Consolidation + Sessions | `pending` | LME long-tail +0.01, LoCoMo +0.05 | [[phase-c3-consolidation-sessions]] |
+| A3 | Bench Honesty | `pending` | ConvoMem 0→0.50, MemPalace cross-baseline live | [[phase-a3-bench-honesty]] |
+
+**Donor anchors**: [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]] (mempalace pipeline), [[.memd/lanes/architecture/A2-10-embedding-strategy.md]] (model choice), [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]] (priority dedup), [[.memd/lanes/architecture/A2-13-temporal-freshness.md]] (decay calibration), [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]] (full mapping).
+
+**Bench-delta gate format**: each phase doc records `pre / post / evidence / regression budget`. Evidence = regenerated [[docs/verification/PUBLIC_LEADERBOARD.md]]. No bench delta = no merge.
+
+**Gate**: LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65, ConvoMem ≥ 0.50. No regression > 0.02 on any other metric.
+**Demo**: "Same query, before and after. Show the score. Show the receipts."
 
 ## Benchmarks
 

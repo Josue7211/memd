@@ -31,13 +31,13 @@ blockers: []
 
 | Slice | Status | Note | Detail |
 | --- | --- | --- | --- |
-| Phase A | `verified` | raw truth spine landed | [[phase-a-raw-truth-spine]] |
-| Phase B | `verified` | session continuity landed | [[phase-b-session-continuity]] |
-| Phase C | `verified` | typed memory landed | [[phase-c-typed-memory]] |
+| Phase A | `verified` | raw truth spine landed | [[archive/phase-a-raw-truth-spine]] |
+| Phase B | `verified` | session continuity landed | [[archive/phase-b-session-continuity]] |
+| Phase C | `verified` | typed memory landed | [[archive/phase-c-typed-memory]] |
 | Phase D | `verified` | canonical truth is in place | [[ROADMAP]] |
 | Phase E | `verified` | wake packets landed, audit closed | [[2026-04-12-roadmap-state-audit-tail-drift]] |
-| Phase F | `verified` | memory atlas: 8 routes, 4 tables, 18 atlas tests | [[phase-f-memory-atlas]] |
-| Phase G | `verified` | procedural learning: 7 routes, 9 tests, full lifecycle | [[phase-g-procedural-learning]] |
+| Phase F | `verified` | memory atlas: 8 routes, 4 tables, 18 atlas tests | [[archive/phase-f-memory-atlas]] |
+| Phase G | `verified` | procedural learning: 7 routes, 9 tests, full lifecycle | [[archive/phase-g-procedural-learning]] |
 
 ## Claimed Features
 

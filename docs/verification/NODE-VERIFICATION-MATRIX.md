@@ -82,14 +82,14 @@ The live loop (architecture.md §Live Loop) must pass end-to-end at each tier:
 
 | Node | Primary Phase Doc | V1 Phase Doc |
 |------|------------------|--------------|
-| I1, I2, I3 | [[phase-f2-ingestion-pipeline.md]] | [[phase-a-raw-truth-spine.md]] |
-| P1 | [[phase-b2-signal-vs-noise.md]] | [[phase-e-wake-packet-compiler.md]] |
-| P2 | [[phase-c2-ghost-cleanup.md]] | [[phase-b-session-continuity.md]] |
-| P3 | [[phase-g2-lane-architecture.md]] | [[phase-c-typed-memory.md]] |
-| P4 | [[phase-d2-correction-flow.md]] | [[phase-d-canonical-truth.md]] |
-| M1–M7 | [[phase-b2-signal-vs-noise.md]], [[phase-c2-ghost-cleanup.md]] | [[phase-c-typed-memory.md]] |
-| S1 | [[phase-b2-signal-vs-noise.md]] | [[phase-e-wake-packet-compiler.md]] |
-| S2 | [[phase-e2-atlas-activation.md]] | [[phase-f-memory-atlas.md]] |
+| I1, I2, I3 | [[phase-f2-ingestion-pipeline.md]] | [[archive/phase-a-raw-truth-spine.md]] |
+| P1 | [[phase-b2-signal-vs-noise.md]] | [[archive/phase-e-wake-packet-compiler.md]] |
+| P2 | [[phase-c2-ghost-cleanup.md]] | [[archive/phase-b-session-continuity.md]] |
+| P3 | [[phase-g2-lane-architecture.md]] | [[archive/phase-c-typed-memory.md]] |
+| P4 | [[phase-d2-correction-flow.md]] | [[archive/phase-d-canonical-truth.md]] |
+| M1–M7 | [[phase-b2-signal-vs-noise.md]], [[phase-c2-ghost-cleanup.md]] | [[archive/phase-c-typed-memory.md]] |
+| S1 | [[phase-b2-signal-vs-noise.md]] | [[archive/phase-e-wake-packet-compiler.md]] |
+| S2 | [[phase-e2-atlas-activation.md]] | [[archive/phase-f-memory-atlas.md]] |
 | S5 | [[phase-n2-integrations-polish.md]] | — |
 | S6 | [[phase-l2-hive-hardening.md]] | — |
 
