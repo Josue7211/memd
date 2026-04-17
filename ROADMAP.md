@@ -196,15 +196,17 @@ Dashboard: browse, correct, navigate in browser. Zero console errors. Benchmark 
 
 ### V3: Make It Compete — Tier 5 (product parity with inspiration repos)
 
-V3 ships the **best product**, not the fastest bench score. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure: correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability. Bench parity is necessary but not sufficient.
+V3 ships the **best product**, not the fastest bench score, and it ships a product that is **great without RAG**. Sidecar/RAG is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) — and they do it without treating RAG as a crutch. Memd shouldn't either.
 
-Donors prove the retrieval ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). Bench without product-win = benchmaxxing. No merge on either gate alone.
+Reference ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]) — that is memd's **intrinsic** number and it needs to be much higher before RAG is ever considered primary.
+
+Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). A3 and every later phase must also report **intrinsic (sidecar-off) score** as the primary number, with an accelerated (sidecar-on) column as a secondary delta. Bench without product-win = benchmaxxing. Rag-dependent score without matching intrinsic score = crutch. No merge on any gate alone.
 
 Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from the old B3/F3/E3/C3/A3 naming where IDs did not match order.
 
 | Phase | Name | Status | Targets | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A3 | Activate Retrieval | `pending` | LME 0.86→0.93, MemBench 0.35→0.50 | [[phase-a3-activate-retrieval]] |
+| A3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**0.92 intrinsic** / 0.95 accelerated, MemBench 0.35→**0.48 intrinsic** / 0.52 accelerated | [[phase-a3-activate-retrieval]] |
 | B3 | Reranker + Embeddings | `pending` | LME 0.93→0.97, LoCoMo 0.42→0.55 | [[phase-b3-reranker-embeddings]] |
 | C3 | Atlas at Recall | `pending` | LoCoMo 0.55→0.65 | [[phase-c3-atlas-at-recall]] |
 | D3 | Consolidation + Sessions | `pending` | LME long-tail +0.01, LoCoMo +0.05 | [[phase-d3-consolidation-sessions]] |
@@ -217,8 +219,10 @@ Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from th
 - `## Product Win` — qualitative UX/product gain: what a dogfooder feels, how it compares to competitor surface, evidence = recorded session trace / sample outputs / comparison note
 
 **V3 completion gate**:
-- Bench: LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65, ConvoMem ≥ 0.50. No regression > 0.02.
-- Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as competitive-or-better against mempalace/supermemory/letta/mem0 to a stranger who didn't build it.
+- Bench (intrinsic, sidecar OFF): LongMemEval ≥ 0.92, LoCoMo ≥ 0.60, MemBench ≥ 0.55, ConvoMem ≥ 0.50. This is the primary gate — the product must be great without RAG.
+- Bench (accelerated, sidecar ON): LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65. Secondary gate — sidecar is an opt-in bump, not a crutch.
+- No regression > 0.02 on either column.
+- Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as competitive-or-better against mempalace/supermemory/letta/mem0 to a stranger who didn't build it. Stranger test is run with sidecar OFF.
 
 **Demo**: "Same query, before and after — show the score AND hand the user the memory surface. They should want to use it."
 

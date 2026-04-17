@@ -1,94 +1,110 @@
 ---
 phase: A3
-name: Activate Retrieval
+name: Intrinsic Retrieval (RAG-Optional)
 version: v3
 status: pending
 depends_on: []
-notes: M4 dep relaxed 2026-04-16 — sidecar wiring is orthogonal to M4 dashboard/observability/hive polish. M4 (I2/M2-evo/N2) deferred for V3. Renamed from B3 to A3 on 2026-04-17 so phase IDs match execution order.
+notes: Renamed from "Activate Retrieval" on 2026-04-17 after framing correction — sidecar/RAG is optional, not load-bearing. Competitor services do not depend on RAG for a great product; neither should memd. Core retrieval must be world-class without any sidecar running; sidecar becomes a flag-gated accelerator with measured delta.
 backlog_items:
   - "2026-04-14-rag-sidecar-disabled-no-fallback"
   - "2026-04-14-status-noise-runaway-checkpoint-loop"
   - "2026-04-13-status-noise-floods-memory"
   - "2026-04-14-memory-dedup-incomplete"
+  - "2026-04-14-no-behavior-changing-recall-proof"
 ---
 
-# Phase A3: Activate Retrieval
+# Phase A3: Intrinsic Retrieval (RAG-Optional)
 
 ## Goal
 
-Turn on signal classes that already exist in the codebase but are disabled or not wired. Lift LongMemEval and MemBench by activating dense retrieval, query sanitization, layered context, and priority dedup.
+Make memd's **intrinsic** retrieval (no sidecar, no external vector service) good enough to be a great product by itself. The 0.860 LongMemEval baseline is the **no-sidecar** number today and it is not good enough. Close the gap to competitors on the SQL/FTS path first. Then — and only then — wire the sidecar as an **optional accelerator** with measured deltas, not as the primary load-bearing path.
 
 ## Why this phase exists
 
-Memd scores 0.860 on LongMemEval. Mempalace scores 0.966 with **pure cosine, no hybrid, no rerank** ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#why-it-works]]). The gap is not algorithmic — it is that memd's bench default backend is `lexical` (`crates/memd-client/src/benchmark/public_benchmark.rs:1439`), `.memd/config.json` has `rag.enabled=false`, and `memd-server` does not import `memd-rag` at all. The 0.860 number is keyword-only retrieval. This phase makes embeddings reach the bench path.
+User direction (2026-04-17, canonical in memd): *"all the other services don't rely on RAG for better benches and truly we shouldn't either; it's supposed to be optional and a great product even without."*
+
+Current state: `.memd/config.json:48` → `rag.enabled=false`, `memd-server` has zero `memd-rag` imports, bench default is `lexical`. That means **0.860 LongMemEval is memd's intrinsic score** — and it's not competitive. Rather than treat this as "turn on RAG to fix it", A3 treats it as "fix the intrinsic path so the product is great without RAG, then wire RAG as a speed/accuracy booster on top."
 
 ## Deliver
 
-1. **Sidecar wired into server retrieval** — `memd-server` consumes `memd-rag` for entity search and lookup paths (currently SQL-only).
-2. **Bundle config defaults to enabled** — `rag.enabled=true` in fresh bundles; `MEMD_RAG_URL` resolution chain documented; bench harness defaults to `sidecar` when URL is set.
-3. **Query sanitization pipeline** — port mempalace `query_sanitizer.py` (200/500-char passthrough/extract/tail/truncate) to Rust, applied before every retrieval call ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#query-sanitization-pipeline-query_sanitizerpy]]).
-4. **Layered context in wake packet** — wake assembles L0 (identity) + L1 (essential story) + L2 (on-demand) + L3 (deep search) per mempalace `layers.py` shape ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#4-layer-context-assembly-layerspy]]).
-5. **Priority dedup at retrieval** — supermemory pattern: canonical > working > search, exact-string dedup applied after fetch, before injection ([[.memd/lanes/architecture/A2-11-context-compilation-profile.md#retrieval-time-dedup-priority-based]]).
-6. **Status admission cap** — kind=Status capped at 2 in wake output, or TTL hard-cut at 1h with -0.08 penalty ([[.memd/lanes/architecture/A2-13-temporal-freshness.md#ttl-calibration]]).
+### Part 1 — Intrinsic retrieval wins (no sidecar required)
+
+1. **FTS5 scoring overhaul** — move from default BM25 to tuned parameters (k1, b, per-field weights). Port mempalace query-layering ideas into SQL-side (no embeddings needed to decompose queries).
+2. **Query sanitization + expansion in SQL path** — port mempalace `query_sanitizer.py` (200/500-char passthrough/extract/tail/truncate) to Rust. Add atlas-driven query expansion: when a query names an entity we have edges for, expand synonyms/aliases before the FTS call ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md#query-sanitization-pipeline-query_sanitizerpy]]).
+3. **Layered wake packet** — L0 (identity) + L1 (essential story) + L2 (on-demand) + L3 (deep search). All assembled from SQL path; no embeddings required to produce the layered structure.
+4. **Priority dedup at retrieval (SQL-side)** — canonical > working > search, exact-string dedup applied after fetch, before injection ([[.memd/lanes/architecture/A2-11-context-compilation-profile.md#retrieval-time-dedup-priority-based]]).
+5. **Status admission cap** — kind=Status capped at 2 in wake output, or TTL hard-cut at 1h with -0.08 penalty ([[.memd/lanes/architecture/A2-13-temporal-freshness.md#ttl-calibration]]).
+6. **Atlas-at-recall SQL path** — when atlas edges exist, use them as retrieval hints (1-hop entity expansion) without needing vectors. This is lighter than C3's full multi-hop atlas work but picks up easy wins now.
+
+### Part 2 — Sidecar as optional accelerator (flag-gated, measured)
+
+7. **Sidecar wiring behind `rag.enabled=true`** — `memd-server` imports `memd-rag`, routes dense candidates into the same ranking pipeline Part 1 built. Sidecar contributes candidates; it does not replace the intrinsic path.
+8. **Dual-mode benchmark** — every V3 bench run reports TWO numbers: `intrinsic_score` (sidecar off) and `accelerated_score` (sidecar on). Leaderboard columns split.
+9. **Default stays off** — `.memd/config.json:48` remains `rag.enabled=false` by default. Sidecar is opt-in; great product ships without it.
 
 ## Pass Gate
 
-Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after):
+Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] before/after with both modes):
 
+**Intrinsic (sidecar OFF, the primary gate):**
 - pre: LongMemEval=0.860, LoCoMo=0.415, MemBench=0.346, ConvoMem=0.000
-- post: **LongMemEval ≥ 0.93**, **MemBench ≥ 0.50**, LoCoMo no regression, ConvoMem no regression
-- regression budget: no metric drops > 0.02
-- evidence file: regenerated leaderboard committed alongside merge
+- post: **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.48 intrinsic**, LoCoMo no regression, ConvoMem no regression
+- This is the number that matters — the product must be great without RAG.
+
+**Accelerated (sidecar ON, the optional bump):**
+- post: **LongMemEval ≥ 0.95**, **MemBench ≥ 0.52**, demonstrable delta over intrinsic
+- regression budget: no metric drops > 0.02 vs intrinsic
 
 Plus:
 - `cargo test -p memd-server -p memd-client` green
-- Wake packet inspection: ≤ 2 status items, canonical facts always present
-- Sidecar reachable via `memd status` health probe
+- Wake packet inspection: ≤ 2 status items, canonical facts always present, layered structure visible
+- Sidecar reachable via `memd status` health probe when enabled; absence surfaces cleanly when disabled (no silent fallback)
 
 ## Evidence
 
-- Pre/post leaderboard diff
-- Sample wake packet showing layered structure
-- Sample retrieval trace showing sanitized query, dense candidates, dedup result
-- Sidecar healthz output
+- Pre/post leaderboard with intrinsic / accelerated columns both populated
+- Sample wake packet showing layered structure (produced without sidecar)
+- Sample retrieval trace in intrinsic mode showing FTS5 scoring path + atlas expansion
+- Sample retrieval trace in accelerated mode showing dense candidates joining the ranking pipeline
+- Sidecar healthz output; sidecar-off status output showing clean "intrinsic mode" state
 
 ## Product Win
 
-Bench parity is necessary but not sufficient. The product-quality win A3 must also ship:
-
-- **Wake packet reads like a curated briefing, not a status-flood.** L0/L1/L2/L3 layers make the identity + essential-story visible at a glance; on-demand items obviously on-demand.
-- **Natural-language recall actually works.** Asking memd "what do I believe about X" returns canonical truth even when X never appears as a keyword in stored items. This is the dogfood test supermemory/mempalace pass today and memd fails today.
-- **`memd status` reports dense-path health as a first-class surface.** If sidecar is down, user sees it; no silent lexical fallback.
+- **Great without RAG.** A user running memd with sidecar off gets a product that competes with mempalace/supermemory on recall quality, not a crippled fallback. Stranger test: hand a fresh memd install to someone who has never run a sidecar; they should be impressed.
+- **Wake packet reads like a curated briefing, not a status-flood.** L0/L1/L2/L3 layers make identity + essential-story visible at a glance; on-demand items obviously on-demand.
+- **Natural-language recall actually works on the SQL path.** Asking memd "what do I believe about X" returns canonical truth even when X never appears as a literal keyword, via atlas-driven expansion — no embeddings required.
+- **Sidecar delta is visible, not implicit.** When enabled, user sees "intrinsic X.XX → accelerated X.XX" on every bench row and in `memd status`.
 
 Evidence (alongside bench-delta):
-- Recorded before/after dogfood session on 5 natural-language queries memd fails today; annotate which surface improved
-- Screenshot of wake packet before (status-flooded) vs after (layered)
-- Side-by-side comparison with mempalace running the same fixture queries; note explicit wins and remaining gaps
+- Recorded dogfood session on 10 natural-language queries memd fails today; annotate which intrinsic surface fixed each one
+- Screenshot of wake packet before (status-flooded) vs after (layered) — both produced without sidecar
+- Side-by-side: memd intrinsic vs mempalace (which uses cosine) on the same fixture; note that mempalace uses vectors — our intrinsic target is "close enough that the sidecar is a nice-to-have, not a must-have"
 
 ## Fail Conditions
 
-- LongMemEval < 0.93 after sidecar enabled — diagnose embedding pipeline before ship
-- Wake packet still status-flooded — admission cap not enforced
-- Server still calls SQL-only retrieval — `memd-rag` not actually wired
-- Bench harness still defaults to `lexical` after rag_url configured
+- **Intrinsic LongMemEval < 0.92** — the core product is still not good enough; do not proceed to B3 until fixed
+- Sidecar becomes load-bearing (disabling it tanks the product) — revert; intrinsic path must stand alone
+- Wake packet still status-flooded — admission cap + layering not enforced
+- Bench harness drops the intrinsic column — dual-mode reporting is a hard requirement
 
 ## Donor Anchors
 
-- **A3-D1**: mempalace retrieval pipeline (sanitize → embed → vector → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]
-- **A3-D2**: mempalace embedding choice (all-MiniLM-L6-v2, 384-dim, cosine, L2-normalized) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
-- **A3-D3**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
-- **A3-D4**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
+- **A3-D1**: mempalace retrieval pipeline shape (sanitize → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]. Mempalace uses cosine; we mirror the *pipeline shape* on the SQL path.
+- **A3-D2**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
+- **A3-D3**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
+- **A3-D4**: mempalace embedding choice (reference only — we do NOT adopt in A3; sidecar is optional) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
+- **A3-D5**: FTS5 BM25 tuning — sqlite-FTS5 docs, memd's own FTS config
 
 ## Rollback
 
-- Sidecar disable flag in `.memd/config.json` (`rag.enabled=false`) reverts to lexical-only
-- Layered wake packet behind `wake.layered=false` flag during rollout
-- Priority dedup behind `retrieval.priority_dedup=false` flag
+- Each Part-1 deliverable behind its own flag (`retrieval.priority_dedup`, `wake.layered`, `retrieval.atlas_expansion`, `retrieval.query_sanitize`) so regressions can be isolated without reverting the whole phase
+- Part-2 sidecar wiring behind `rag.enabled` — already the default-off state
+- FTS5 scoring swap behind `retrieval.fts5_tuned=true` — revert to default BM25 if dogfood shows regressions
 
 ## Out of scope
 
-- Reranker (lands in B3)
-- Embedding model swap to BGE-large (lands in B3)
-- Atlas multi-hop expansion (lands in C3)
+- LLM reranker on top of candidates (lands in B3; sidecar-dependent)
+- BGE-large embedding swap (lands in B3; sidecar-dependent)
+- Full multi-hop atlas traversal with valid_from/valid_to windows (lands in C3)
 - Episode consolidation (lands in D3)
-- ConvoMem adapter fix (lands in E3)
+- ConvoMem adapter fix (lands in E3; parallelizable)

@@ -16,9 +16,13 @@ V3 phase IDs were renamed so alphabet matches execution order. V3 reframed: **be
 
 ## V3 framing (read before executing any phase)
 
-V3 is product parity, not benchmaxxing. Competitor services (mempalace, supermemory, letta, mem0) genuinely out-perform memd today on surfaces benches don't measure: correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability. Bench-delta gates are necessary but not sufficient — each phase doc now has a `## Product Win` section alongside `## Pass Gate`. Merge needs both.
+V3 is product parity, not benchmaxxing, and the product must be **great without RAG**. Sidecar is an optional accelerator, not load-bearing. Competitor services (mempalace, supermemory, letta, mem0) genuinely out-perform memd today on surfaces benches don't measure (correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability) and they do it without treating RAG as a crutch. Memd shouldn't either.
 
-User direction (2026-04-17, logged to memd as canonical decision): "not looking for the fastest ship, looking for the best product."
+Two canonical decisions logged to memd on 2026-04-17:
+1. *"not looking for the fastest ship, looking for the best product"* — every phase is dual-gated (bench + product).
+2. *"all the other services don't rely on rag for better benches and truly we shouldn't either, is supposed to be optional and a great product even without"* — A3 reworked to ship intrinsic retrieval wins first; sidecar becomes flag-gated accelerator with measured delta.
+
+Every V3 phase doc now has a `## Product Win` section alongside `## Pass Gate`. Bench reports will carry two columns going forward: **intrinsic** (sidecar off, primary) and **accelerated** (sidecar on, secondary).
 
 ## What happened this session
 
@@ -46,31 +50,32 @@ User direction (2026-04-17, logged to memd as canonical decision): "not looking 
 - `ROADMAP_STATE`: `current_phase=A3`, `phase_status=pending`, `next_step=A3.1 wire memd-sidecar into memd-server retrieval`
 - memd decision logged (rename rationale + supersedes prior ordering)
 
-## Next move — A3.1 (first deliverable of A3)
+## Next move — A3 Part 1 (intrinsic retrieval, sidecar stays off)
 
-Phase doc: [[docs/phases/phase-a3-activate-retrieval.md]]
+Phase doc: [[docs/phases/phase-a3-activate-retrieval.md]] (rewritten 2026-04-17 after the RAG-optional framing correction).
 
-**Deliverable 1**: wire `memd-sidecar` into `memd-server` retrieval.
+A3 is now two parts. Part 1 ships **intrinsic wins with sidecar OFF**. Part 2 wires sidecar as an optional accelerator. The first concrete work is entirely Part 1.
 
-Concrete diagnosis (verified live this session):
+**Part 1 deliverables (start here, no sidecar required):**
 
-- `.memd/config.json:48` → `rag.enabled = false`
-- `memd-server` has **zero** `memd_rag` / `memd-rag` references (Grep confirmed). Compare: `memd-client` consumes it extensively (`RagClient`, `RagIngestRequest`, `RagRetrieveMode`, `RagRetrieveResponse` etc across 10+ files).
-- `crates/memd-client/src/benchmark/public_benchmark.rs:1439` → default backend = `"lexical"` (sidecar option exists but not default).
-- `crates/memd-server/Cargo.toml` — needs `memd-rag = { path = "../memd-rag" }` dep added (by analogy with `memd-client/Cargo.toml:13`).
+1. **FTS5 scoring overhaul** — tune k1, b, per-field weights; move off default BM25 defaults.
+2. **Query sanitization (SQL path)** — port mempalace `query_sanitizer.py` to Rust, applied before every FTS call.
+3. **Atlas-driven query expansion** — when query names an entity with atlas edges, expand synonyms/aliases before FTS. No vectors needed.
+4. **Layered wake packet** — L0/L1/L2/L3 assembled from SQL; no embeddings required.
+5. **Priority dedup (SQL-side)** — canonical > working > search, exact-string dedup after fetch.
+6. **Status admission cap** — kind=Status ≤ 2 in wake output, or TTL hard-cut at 1h.
 
-Concrete execution order:
+Part 1 pass gate: **intrinsic LongMemEval ≥ 0.92** with `rag.enabled=false`. If that number does not move, do not start Part 2.
 
-1. Add `memd-rag` dep to `crates/memd-server/Cargo.toml`
-2. Locate server's entity-search + lookup call sites (likely in `store_entities.rs`, `routes.rs`, `atlas.rs` — inspect before touching)
-3. Inject `RagClient` behind a config flag; route retrieval through it when `rag.enabled=true` AND `rag_url` resolves
-4. Add fallback: if sidecar unreachable, surface error (do NOT silently fall back to lexical — that is how we got 0.86 LME in the first place)
-5. Flip `.memd/config.json:48` default to `true` **after** server code compiles + tests pass
-6. Flip `public_benchmark.rs:1439` default to `"sidecar"` **after** `MEMD_RAG_URL` resolution chain is documented
-7. Run `cargo test -p memd-server -p memd-client`
-8. Regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]] pre/post to prove bench delta reaches harness
+**Part 2 (after Part 1 ships):**
 
-**Do not start deliverables 2–6** (query sanitization, layered wake, priority dedup, status admission cap) before deliverable 1 compiles + benches. Without bench delta proving the dense path reaches harness, every subsequent V3 phase is gambling.
+7. Add `memd-rag` dep to `crates/memd-server/Cargo.toml`. Wire `RagClient` behind `rag.enabled=true` flag. Sidecar contributes candidates into the ranking pipeline Part 1 built; it does not replace the intrinsic path.
+8. Dual-mode benchmark: every run reports `intrinsic_score` and `accelerated_score` side by side.
+9. Default stays off — `rag.enabled=false` remains the shipped default.
+
+Target delta in accelerated mode: +0.03 on LME, +0.04 on MemBench vs intrinsic. If sidecar adds less than +0.02 on any metric, it's not pulling weight and should either be retuned or left disabled.
+
+**Do not wire the sidecar before Part 1 ships.** That would make the sidecar load-bearing and put us right back where we are today — 0.86 without it, "just turn it on" as a crutch. The whole point of A3 is to not be that.
 
 ## Donor anchors (read before code)
 
