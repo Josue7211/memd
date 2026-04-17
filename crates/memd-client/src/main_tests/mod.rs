@@ -189,6 +189,7 @@ mod mock_server_support;
 pub(crate) use self::mock_server_support::*;
 mod autoresearch_evolution_tests;
 mod continuity_foundation_tests;
+pub(crate) mod continuity_enforcement_tests;
 mod awareness_hive_tests;
 mod benchmark_runtime_tests;
 mod bootstrap_harness_tests;

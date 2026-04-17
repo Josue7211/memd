@@ -1623,6 +1623,7 @@ pub(crate) enum HookMode {
     Spill(HookSpillArgs),
     FileInteraction(HookFileInteractionArgs),
     SealLedger(HookSealLedgerArgs),
+    Gate(HookGateArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1647,6 +1648,26 @@ pub(crate) struct HookSealLedgerArgs {
 
     #[arg(long)]
     pub(crate) session_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookGateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Override session id; otherwise read from hook payload.
+    #[arg(long)]
+    pub(crate) session_id: Option<String>,
+
+    /// Policy override; otherwise read from .memd/config.json.
+    #[arg(long)]
+    pub(crate) policy: Option<String>,
+
+    #[arg(long)]
+    pub(crate) stdin: bool,
+
+    #[arg(long)]
+    pub(crate) content: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]

@@ -279,6 +279,9 @@ pub(crate) async fn run_hook_mode(
                 print_json(&spill)?;
             }
         }
+        HookMode::Gate(gate_args) => {
+            cli_gate_runtime::run_gate_cli(&gate_args).await?;
+        }
     }
 
     Ok(())

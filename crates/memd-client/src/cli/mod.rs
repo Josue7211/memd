@@ -24,6 +24,9 @@ pub(crate) use cli_obsidian_runtime::*;
 mod cli_hook_runtime;
 pub(crate) use cli_hook_runtime::*;
 
+pub(crate) mod cli_gate_runtime;
+pub(crate) use cli_gate_runtime::*;
+
 mod cli_rag_runtime;
 pub(crate) use cli_rag_runtime::*;
 
