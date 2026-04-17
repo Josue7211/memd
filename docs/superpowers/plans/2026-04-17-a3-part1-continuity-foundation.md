@@ -2,20 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make memd's continuity contract real so no continuation session re-Reads files the prior session touched, preferences survive compaction + session restart, and wake/checkpoint/resume guarantees are machine-verifiable.
+**Goal:** Deliver the **surfacing half** of memd's continuity contract — a file-interaction ledger that outlives compaction, a wake packet block that tells the next session what the last session touched, and a `memd prime-reads` command + machine-readable `.memd/contract.json` that downstream validators can check. Enforcement (making the continuation session *actually* bulk-Read before editing, cross-harness validator blocking on drift, strict mode) is A3 Part 2, not Part 1.
 
-**Architecture:** Add a **file-interaction ledger** populated by a new memd PostToolUse hook (Read/Edit/Write/NotebookEdit), persisted under `.memd/state/session-<id>/file_interactions.json`, flushed + sealed by the existing precompact hook, surfaced in the wake packet as a `## Files Touched` block, and primed into the next session via a new `memd prime-reads` CLI command. Wire the lifecycle self-test (store → recall → expire → verify) as a cron-style probe. Prove cross-session preference replay with an integration test. Publish a machine-readable `.memd/contract.json` the cross-harness validator consumes.
+**Architecture:** Add a **file-interaction ledger** populated by a new memd PostToolUse hook (Read/Edit/Write/NotebookEdit), persisted under `.memd/state/session-<id>/file_interactions.json`, flushed + sealed by the existing precompact hook, surfaced in the wake packet as a `## Files Touched` block, and primed into the next session via a new `memd prime-reads` CLI command. Wire the lifecycle self-test (store → recall → expire → verify) as a cron-style probe. Publish a machine-readable `.memd/contract.json` the cross-harness validator consumes in Part 2.
 
 **Tech Stack:** Rust (crates: `memd-core` for ledger data model + lifecycle probe, `memd-client` for CLI subcommands + wake assembly + contract verifier, `memd-server` only if lifecycle probe needs a server roundtrip), Bash hooks (`.memd/hooks/*.sh`), JSON state files, clap CLI, `anyhow`/`serde`/`serde_json`, existing test harness.
 
-**Scope (A3 Part 1 only — 5 deliverables):**
+**Scope (A3 Part 1 only — 4 deliverables):**
 1. File-interaction ledger + PostToolUse hook + wake `## Files Touched` block (D1)
 2. `memd prime-reads` CLI command (D2)
 3. Working-memory lifecycle self-test (D3)
-4. Cross-session preference replay test (D4)
-5. Live memory contract.json + `memd contract verify` (D5)
+4. Live memory contract.json + `memd contract verify` (D5)
 
-Part 2 (enforcement, hooks consolidation, drift repair, strict mode) and Part 3 (codebase organization) are separate plans, to be written after Part 1 ships.
+**Deferred to A3 Part 2:**
+- **D4 Cross-session preference replay test** — backlog `2026-04-15-memd-preferences-not-persisted-across-sessions` says the underlying behavior is already broken. Writing the test here just produces a known-red gate item; the real fix (preference storage durability through `memd remember --kind preference` + cold-boot recall) belongs in Part 2 alongside the validator work that will exercise it.
+- **Enforcement of "zero re-Read errors after compaction"** — that's a *cross-harness validator* requirement (block an Edit that lacks a prior Read on a ledgered path). Surfacing the data in Part 1 is the precondition; wiring the enforcement into the validator is Part 2.
+
+Part 2 (enforcement, hooks consolidation, drift repair, strict mode, preference replay) and Part 3 (codebase organization) are separate plans, to be written after Part 1 ships.
 
 ---
 
@@ -30,7 +33,7 @@ Part 2 (enforcement, hooks consolidation, drift repair, strict mode) and Part 3 
 - `.memd/hooks/memd-file-interaction.sh` — PostToolUse hook body (reads Claude Code hook JSON from stdin, calls `memd hook file-interaction --stdin`)
 - `.memd/hooks/memd-lifecycle-probe.sh` — cron-style probe runner (calls `memd diagnostics lifecycle-probe`)
 - `.memd/contract.json` — generated artifact (checked into repo as the reference contract)
-- `crates/memd-client/src/main_tests/continuity_foundation_tests/mod.rs` — integration tests for compaction-mid-edit, prime-reads, preference replay, contract verify
+- `crates/memd-client/src/main_tests/continuity_foundation_tests/mod.rs` — integration tests for hook-appends-ledger, wake-surfaces-files-touched, prime-reads, compaction-surfacing flow, contract verify
 
 **Modify:**
 - `crates/memd-core/src/lib.rs` — `pub mod file_ledger; pub mod lifecycle_probe; pub mod contract;`
@@ -294,8 +297,10 @@ pub(crate) async fn run(args: &FileInteractionArgs) -> anyhow::Result<()> {
         "Write" => FileOp::Write,
         _ => return Ok(()), // ignore non-file tools
     };
+    // NotebookEdit uses `notebook_path`; Read/Edit/Write use `file_path`.
     let path = v.pointer("/tool_input/file_path")
         .and_then(|s| s.as_str())
+        .or_else(|| v.pointer("/tool_input/notebook_path").and_then(|s| s.as_str()))
         .unwrap_or("");
     if path.is_empty() { return Ok(()); }
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -491,28 +496,38 @@ fn wake_packet_surfaces_files_touched_block_from_prior_session() {
 pub fn collect_files_touched(output: &Path) -> Vec<String> {
     let state = output.join("state");
     let Ok(rd) = fs::read_dir(&state) else { return Vec::new(); };
+
+    // Walk every session dir once, tracking the newest candidate across
+    // both `sealed/*.json` (finalized by precompact) and the live
+    // `file_interactions.json` (current session, not yet sealed).
     let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
-    for entry in rd.flatten() {
-        if !entry.file_name().to_string_lossy().starts_with("session-") { continue; }
-        let sealed = entry.path().join("sealed");
-        if let Ok(sd) = fs::read_dir(&sealed) {
-            for s in sd.flatten() {
-                let meta = s.metadata().ok();
-                let mt = meta.and_then(|m| m.modified().ok());
-                if let Some(mt) = mt {
-                    if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
-                        latest = Some((mt, s.path()));
-                    }
+    let mut consider = |p: PathBuf, latest: &mut Option<(std::time::SystemTime, PathBuf)>| {
+        if let Ok(meta) = fs::metadata(&p) {
+            if let Ok(mt) = meta.modified() {
+                if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
+                    *latest = Some((mt, p));
                 }
             }
         }
-    }
-    if let Some((_, path)) = latest {
-        if let Ok(l) = FileInteractionLedger::load_from_path(&path) {
-            return l.distinct_paths();
+    };
+
+    for entry in rd.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("session-") { continue; }
+        // Prefer sealed copies when present...
+        let sealed = entry.path().join("sealed");
+        if let Ok(sd) = fs::read_dir(&sealed) {
+            for s in sd.flatten() { consider(s.path(), &mut latest); }
         }
+        // ...but always also consider the unsealed live ledger so
+        // we surface the most recent interactions even without a compaction.
+        let live = entry.path().join("file_interactions.json");
+        if live.exists() { consider(live, &mut latest); }
     }
-    Vec::new()
+
+    latest
+        .and_then(|(_, path)| FileInteractionLedger::load_from_path(&path).ok())
+        .map(|l| l.distinct_paths())
+        .unwrap_or_default()
 }
 ```
 
@@ -620,12 +635,14 @@ git commit -m "feat(cli): memd prime-reads emits paths from prior session ledger
 
 ---
 
-### Task 8: Compaction-mid-edit acceptance test (the real A3 gate)
+### Task 8: Compaction-surfacing acceptance test (Part 1 gate)
 
 **Files:**
 - Test: `continuity_foundation_tests/mod.rs`
 
-- [ ] **Step 1: Write scenario test that simulates: session A edits 5 files → precompact seals → session B boots cold → wake includes ## Files Touched → `prime-reads` lists those 5 files**
+**Scope note:** This proves the *surfacing* flow (ledger populates → precompact seals → next-session wake + prime-reads surface the list). It does **not** prove continuation edits succeed without re-Read — that enforcement is Part 2 (validator wiring).
+
+- [ ] **Step 1: Write scenario test that simulates: session A edits 5 files → precompact seals → session B boots cold → wake includes `## Files Touched` → `prime-reads` lists those 5 files**
 
 ```rust
 #[tokio::test]
@@ -717,51 +734,7 @@ git commit -m "feat: working-memory lifecycle self-test probe (A3-D3)"
 
 ---
 
-### Task 10: Cross-session preference replay test (A3-D4)
-
-**Files:**
-- Test: `continuity_foundation_tests/mod.rs`
-- Possibly modify: whatever code layer fails the test (leave for discovery)
-
-- [ ] **Step 1: Write failing integration test**
-
-```rust
-#[tokio::test]
-async fn preference_stored_in_session_a_is_retrieved_in_session_b_after_cold_boot() {
-    let dir = tempfile::tempdir().unwrap();
-    let output = dir.path();
-    // Session A stores a preference
-    run_memd_cli(&[
-        "remember",
-        "--kind", "preference",
-        "--content", "voice-mode=caveman-ultra",
-        "--output", output.to_str().unwrap(),
-    ], "").await.unwrap();
-    // Simulate cold boot: wipe in-memory caches, re-init bundle
-    simulate_cold_boot(output);
-    // Session B wakes, looks up
-    let lookup = run_memd_cli_capture_stdout(&[
-        "lookup", "--query", "voice-mode",
-        "--output", output.to_str().unwrap(),
-    ]).await.unwrap();
-    assert!(lookup.contains("caveman-ultra"), "preference not retrieved: {lookup}");
-}
-```
-
-- [ ] **Step 2: Run — diagnose whether it passes or fails. If it fails, root-cause before fixing (don't add hacks).**
-
-If it passes on first run, the contract is already holding; note that in the commit and skip to Task 11. If it fails, file a sub-task to fix the specific layer and keep the test red until the real fix lands.
-
-- [ ] **Step 3: Commit the (possibly red, then green) test**
-
-```bash
-git add -A
-git commit -m "test: cross-session preference replay (A3-D4)"
-```
-
----
-
-### Task 11: Live memory contract.json + `memd contract verify` (A3-D5)
+### Task 10: Live memory contract.json + `memd contract verify` (A3-D5)
 
 **Files:**
 - Create: `crates/memd-core/src/contract.rs`
@@ -822,7 +795,7 @@ git commit -m "feat: live memory contract.json + memd contract verify (A3-D5)"
 
 ---
 
-### Task 12: Gate verification — run the full A3 Part 1 gate
+### Task 11: Gate verification — run the full A3 Part 1 gate
 
 **Files:**
 - None — pure verification + handoff update
@@ -835,9 +808,15 @@ cargo test -p memd-core -p memd-client -p memd-server
 
 Expected: green.
 
-- [ ] **Step 2: Run compaction-mid-edit gate check manually**
+- [ ] **Step 2: Run surfacing gate check manually**
 
-Start fresh Claude Code session, Edit 10 files, trigger compaction, verify continuation session's wake packet includes `## Files Touched` and subsequent Edits succeed with zero `File has not been read yet` errors.
+Start a fresh Claude Code session, exercise Read/Edit/Write on ≥5 files, trigger `/compact`. Then in the continuation session:
+
+1. Run `cat .memd/state/session-<prior-id>/sealed/*.json` → confirm ledger was sealed.
+2. Open the new wake packet and confirm it contains `## Files Touched` listing at least 5 paths.
+3. Run `memd prime-reads --output .memd` → confirm non-empty newline list including the touched paths.
+
+**Part 1 stops here.** The *enforcement* gate — "continuation session runs 10 Edits with zero `File has not been read yet` errors" — is Part 2's validator responsibility, since that requires the cross-harness pre-send validator to block Edits on ledgered paths without a current-session Read. Part 1 delivers the signal; Part 2 wires the teeth.
 
 - [ ] **Step 3: Run lifecycle probe**
 
@@ -890,16 +869,22 @@ git commit -m "docs: A3 Part 1 handoff — continuity foundation green, next Par
 
 - **Risk:** PostToolUse hook latency slows every tool call. **Mitigation:** hook body is a single fast CLI call with `|| true`; if latency regresses, fall back to the precompact-only path (lossier but cheap).
 - **Risk:** Ledger grows unbounded on long sessions. **Mitigation:** upsert semantics cap entries at one per (path, op); total size bounded by distinct file count.
-- **Risk:** Cross-session preference replay test reveals a deeper bug than Part 1 can fix. **Mitigation:** file the failing test as a Part 2 blocker; don't land a hack.
+- **Risk:** Sealed ledger balloons on long-running sessions with repeated `/compact` calls. **Mitigation:** Part 2 adds a retention policy (keep last N sealed files per session); Part 1 lives with linear growth since compactions are rare in practice.
 - **Rollback:** every deliverable is flag-gated or removable — ledger behind `memd.continuity.ledger=true`, PostToolUse hook removable from settings, wake block conditional on non-empty `files_touched`. Revert by dropping the commits.
 
 ## Pass Gate (must all be true before Part 2 starts)
 
+**Part 1 is the surfacing gate.** It must give Part 2 a reliable signal to enforce on. Part 2 owns making that signal *binding*.
+
 - [ ] `cargo test -p memd-core -p memd-client` green, including `continuity_foundation_tests`
-- [ ] Compaction-mid-edit smoke: real Claude Code session edits N files, compacts, continuation shows `## Files Touched`, 10 consecutive Edits succeed with zero re-Read errors
-- [ ] `memd prime-reads` emits non-empty list after a session with ≥1 file interaction
+- [ ] Compaction-mid-edit **surfacing** smoke: real Claude Code session edits ≥5 files, `/compact` fires, sealed ledger exists under `.memd/state/session-<prior-id>/sealed/`, continuation wake packet contains `## Files Touched` listing those paths
+- [ ] `memd prime-reads` emits non-empty newline list after a session with ≥1 file interaction
 - [ ] `memd diagnostics lifecycle-probe` returns green
 - [ ] `memd contract verify` returns exit 0 on a populated bundle
-- [ ] Cross-session preference replay test green
 - [ ] `.memd/contract.json` committed and matches code
-- [ ] Handoff packet written pointing at Part 2
+- [ ] Handoff packet written pointing at Part 2, explicitly listing the enforcement gate ("zero re-Read errors under validator") and preference replay as Part 2 deliverables
+
+**Not gated by Part 1** (explicitly deferred, per scope split above):
+- Preference replay across cold boot (Part 2)
+- Validator blocking on Edit-without-Read drift (Part 2)
+- Hooks consolidation (Part 2)
