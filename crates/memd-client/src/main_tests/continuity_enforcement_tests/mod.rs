@@ -132,3 +132,60 @@ fn render_continuity_gate_block_lists_un_read_paths() {
 fn render_continuity_gate_block_is_empty_when_un_read_list_is_empty() {
     assert_eq!(crate::runtime::render_continuity_gate_block(&[], false), String::new());
 }
+
+fn seed_file_interaction(out: &Path, session: &str, tool: &str, path: &str, ts: i64) {
+    append_file_interaction(
+        &serde_json::json!({
+            "session_id": session,
+            "tool_name": tool,
+            "tool_input": {"file_path": path}
+        }),
+        None,
+        out,
+        ts,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn enforcement_end_to_end_seal_deny_read_allow() {
+    use crate::runtime::collect_un_read_paths;
+    use crate::runtime::render_continuity_gate_block;
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path();
+
+    // Session A: edit 3 files, then seal.
+    for (i, f) in ["a.rs", "b.rs", "c.rs"].iter().enumerate() {
+        seed_file_interaction(out, "sess-A", "Edit", f, (i as i64) + 1);
+    }
+    seal_session_ledger("sess-A", out).unwrap();
+
+    // Session B wake-block should list all three un-read paths.
+    let un_read = collect_un_read_paths(out, "sess-B");
+    let block = render_continuity_gate_block(&un_read, false);
+    assert!(block.contains("## Continuity Gate"));
+    for f in ["a.rs", "b.rs", "c.rs"] {
+        assert!(block.contains(f), "gate block missing {f}");
+    }
+
+    // Gate denies Edit on a.rs in sess-B.
+    let deny_args = gate_args(out, "block", serde_json::json!({
+        "session_id": "sess-B",
+        "tool_name": "Edit",
+        "tool_input": {"file_path": "a.rs"}
+    }));
+    let deny = run_gate(&deny_args).await.unwrap().expect("deny emits JSON");
+    let v: serde_json::Value = serde_json::from_str(&deny).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
+
+    // Simulate Read of a.rs in sess-B.
+    seed_file_interaction(out, "sess-B", "Read", "a.rs", 100);
+
+    // Gate now allows (None = no output).
+    let allow_args = gate_args(out, "block", serde_json::json!({
+        "session_id": "sess-B",
+        "tool_name": "Edit",
+        "tool_input": {"file_path": "a.rs"}
+    }));
+    assert!(run_gate(&allow_args).await.unwrap().is_none());
+}
