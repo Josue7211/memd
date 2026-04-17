@@ -102,6 +102,17 @@ pub(crate) enum Commands {
     Telemetry(TelemetryArgs),
     Autoresearch(AutoresearchArgs),
     Diagnostics(DiagnosticsArgs),
+    #[command(name = "prime-reads")]
+    PrimeReads(PrimeReadsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct PrimeReadsArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+    /// Read a specific session's live ledger instead of the newest sealed.
+    #[arg(long)]
+    pub(crate) since_session: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]

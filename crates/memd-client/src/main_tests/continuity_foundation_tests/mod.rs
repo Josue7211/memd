@@ -4,7 +4,8 @@
 use super::*;
 use crate::MemdClient;
 use crate::cli::{
-    HookArgs, HookFileInteractionArgs, HookMode, HookSealLedgerArgs, run_hook_mode,
+    HookArgs, HookFileInteractionArgs, HookMode, HookSealLedgerArgs, PrimeReadsArgs,
+    run_hook_mode, run_prime_reads,
 };
 use memd_core::file_ledger::{
     FileInteractionLedger, FileOp, append_file_interaction, ledger_path, seal_session_ledger,
@@ -101,6 +102,40 @@ async fn hook_seal_ledger_is_noop_when_no_ledger_exists() {
     run_hook_mode(&dummy_client(), "http://127.0.0.1:1", args)
         .await
         .expect("seal-ledger on missing ledger should succeed silently");
+}
+
+#[test]
+fn prime_reads_runs_with_populated_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+    seed_prior_session_ledger(
+        &output,
+        "sess-prev",
+        &[("a.rs", FileOp::Read), ("b.rs", FileOp::Edit)],
+    );
+    let args = PrimeReadsArgs {
+        output,
+        since_session: None,
+    };
+    run_prime_reads(&args).expect("prime-reads must not error on populated ledger");
+}
+
+#[test]
+fn prime_reads_since_session_reads_live_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+    // seed a live ledger (no seal)
+    let payload = serde_json::json!({
+        "session_id": "sess-live",
+        "tool_name": "Write",
+        "tool_input": {"file_path": "only.rs"},
+    });
+    memd_core::file_ledger::append_file_interaction(&payload, None, &output, 1).unwrap();
+    let args = PrimeReadsArgs {
+        output,
+        since_session: Some("sess-live".into()),
+    };
+    run_prime_reads(&args).expect("prime-reads --since-session must not error");
 }
 
 #[test]

@@ -947,8 +947,31 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Diagnostics(args) => {
             run_diagnostics_command(args).await?;
         }
+        Commands::PrimeReads(args) => {
+            run_prime_reads(&args)?;
+        }
     }
 
+    Ok(())
+}
+
+pub(crate) fn run_prime_reads(args: &PrimeReadsArgs) -> anyhow::Result<()> {
+    use memd_core::file_ledger::FileInteractionLedger;
+    let paths = if let Some(session) = &args.since_session {
+        let p = args
+            .output
+            .join("state")
+            .join(format!("session-{session}"))
+            .join("file_interactions.json");
+        FileInteractionLedger::load_from_path(&p)
+            .map(|l| l.distinct_paths())
+            .unwrap_or_default()
+    } else {
+        crate::runtime::collect_files_touched(&args.output)
+    };
+    for p in paths {
+        println!("{p}");
+    }
     Ok(())
 }
 
