@@ -1,3 +1,5 @@
+pub mod file_ledger;
+
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,
     CompactionPacket, CompactionReference, CompactionSession, CompactionSpillBatch,
