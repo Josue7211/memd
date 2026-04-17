@@ -1,4 +1,5 @@
 pub mod contract;
+pub mod enforcement;
 pub mod file_ledger;
 pub mod lifecycle_probe;
 
