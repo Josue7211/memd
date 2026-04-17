@@ -16,6 +16,7 @@ active_blockers: [memd-read-state-lost-across-compaction, hooks-scattered-across
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. User directive 2026-04-17 ("this is a massive issue", "every backlog issue should be in the roadmap for a fix") inserted NEW A3 "memd Continuity Foundation" at V3 entry; old retrieval phases shifted A→B, B→C, C→D, D→E, E→F. Cannot benchmark a memory OS that loses state across compaction. V3 phase order: A3 Continuity Foundation → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty. Handoff: docs/handoff/2026-04-17-v3-phase-rename-next-A3.md (needs refresh to reflect A3 = Continuity).
+last_handoff: a3_part1_10star_shipped_2026-04-17
 -->
 
 ## Status Snapshot
