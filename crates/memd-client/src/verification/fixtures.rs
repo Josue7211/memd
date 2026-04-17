@@ -240,6 +240,7 @@ pub(crate) fn build_fixture_resume_snapshot(
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     }
 }
 

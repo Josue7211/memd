@@ -831,5 +831,6 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     }
 }

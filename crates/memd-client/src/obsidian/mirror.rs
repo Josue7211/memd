@@ -1153,6 +1153,7 @@ items: 7
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
+            files_touched: Vec::new(),
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -1244,6 +1245,7 @@ items: 7
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
+            files_touched: Vec::new(),
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {

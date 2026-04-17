@@ -203,6 +203,26 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push('\n');
     }
 
+    // A3 Part 1: surface prior-session file interactions so the continuation
+    // can Bulk-Read before first Edit and avoid re-Read errors post-compaction.
+    if !snapshot.files_touched.is_empty() && !claude_strict {
+        prefix.push_str("## Files Touched\n\n");
+        prefix.push_str(
+            "_Prior session Read/Edit/Write. Bulk-Read before first Edit to avoid re-Read errors after compaction._\n\n",
+        );
+        let limit = if verbose { 20 } else { 10 };
+        for p in snapshot.files_touched.iter().take(limit) {
+            prefix.push_str(&format!("- {p}\n"));
+        }
+        if snapshot.files_touched.len() > limit {
+            prefix.push_str(&format!(
+                "- + {} more via `memd prime-reads`\n",
+                snapshot.files_touched.len() - limit
+            ));
+        }
+        prefix.push('\n');
+    }
+
     let continuity = snapshot.continuity_capsule();
     if continuity.current_task.is_some()
         || continuity.resume_point.is_some()
@@ -546,6 +566,7 @@ mod tests {
             refresh_recommended: false,
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
+            files_touched: Vec::new(),
         }
     }
 
@@ -701,6 +722,7 @@ mod tests {
             refresh_recommended: true,
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
+            files_touched: Vec::new(),
         }
     }
 
@@ -718,6 +740,36 @@ mod tests {
         assert!(markdown.contains("Durable truth beats transcript recall."));
         assert!(markdown.contains("Reply in `caveman-lite`"));
         assert!(markdown.contains("If your draft is not in `caveman-lite`"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    #[test]
+    fn wakeup_markdown_surfaces_files_touched_block_when_populated() {
+        let dir =
+            std::env::temp_dir().join(format!("memd-wakeup-ft-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut snapshot = sample_snapshot();
+        snapshot.files_touched = vec![
+            "crates/memd-core/src/lib.rs".to_string(),
+            "ROADMAP.md".to_string(),
+        ];
+
+        let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
+        assert!(
+            markdown.contains("## Files Touched"),
+            "missing heading: {markdown}"
+        );
+        assert!(markdown.contains("crates/memd-core/src/lib.rs"));
+        assert!(markdown.contains("ROADMAP.md"));
+        assert!(markdown.contains("Bulk-Read before first Edit"));
+
+        // empty list omits the block entirely
+        let mut empty = sample_snapshot();
+        empty.files_touched = Vec::new();
+        let empty_md = render_bundle_wakeup_markdown(&dir, &empty, false);
+        assert!(!empty_md.contains("## Files Touched"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }

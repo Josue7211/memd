@@ -159,6 +159,7 @@ fn describes_eval_changes_against_baseline() {
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -375,6 +376,7 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     };
 
     let recommendations = build_eval_recommendations(&snapshot, 62);

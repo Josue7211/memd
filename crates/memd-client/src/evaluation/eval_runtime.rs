@@ -342,6 +342,7 @@ pub(crate) async fn read_bundle_resume(
         refresh_recommended,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     };
 
     sync_resume_state_record(

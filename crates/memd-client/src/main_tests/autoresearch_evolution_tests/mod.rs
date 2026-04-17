@@ -123,6 +123,8 @@ pub(super) fn test_autoresearch_snapshot(
         atlas_region_hints: Vec::new(),
 
         handoff_quality: None,
+
+        files_touched: Vec::new(),
     }
 }
 

@@ -433,6 +433,7 @@ fn resume_prompt_surfaces_current_task_snapshot() {
         refresh_recommended: false,
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
+        files_touched: Vec::new(),
     };
 
     let base = snapshot;

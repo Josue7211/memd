@@ -103,3 +103,24 @@ async fn hook_seal_ledger_is_noop_when_no_ledger_exists() {
         .expect("seal-ledger on missing ledger should succeed silently");
 }
 
+#[test]
+fn collect_files_touched_returns_distinct_paths_from_sealed_ledger() {
+    use crate::runtime::collect_files_touched;
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path();
+    seed_prior_session_ledger(
+        output,
+        "sess-prev",
+        &[
+            ("crates/memd-core/src/lib.rs", FileOp::Read),
+            ("crates/memd-core/src/lib.rs", FileOp::Edit),
+            ("ROADMAP.md", FileOp::Read),
+        ],
+    );
+    let paths = collect_files_touched(output);
+    assert!(paths.contains(&"crates/memd-core/src/lib.rs".to_string()));
+    assert!(paths.contains(&"ROADMAP.md".to_string()));
+    // distinct
+    assert_eq!(paths.len(), 2);
+}
+

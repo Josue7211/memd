@@ -1,8 +1,49 @@
 use super::*;
 use crate::harness::cache;
+use memd_core::file_ledger::FileInteractionLedger;
 use memd_schema::MemoryStatus;
 
 mod wakeup;
+
+pub(crate) fn collect_files_touched(output: &Path) -> Vec<String> {
+    let state = output.join("state");
+    let Ok(rd) = std::fs::read_dir(&state) else {
+        return Vec::new();
+    };
+
+    let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let consider = |p: std::path::PathBuf,
+                    latest: &mut Option<(std::time::SystemTime, std::path::PathBuf)>| {
+        if let Ok(meta) = std::fs::metadata(&p) {
+            if let Ok(mt) = meta.modified() {
+                if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
+                    *latest = Some((mt, p));
+                }
+            }
+        }
+    };
+
+    for entry in rd.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("session-") {
+            continue;
+        }
+        let sealed = entry.path().join("sealed");
+        if let Ok(sd) = std::fs::read_dir(&sealed) {
+            for s in sd.flatten() {
+                consider(s.path(), &mut latest);
+            }
+        }
+        let live = entry.path().join("file_interactions.json");
+        if live.exists() {
+            consider(live, &mut latest);
+        }
+    }
+
+    latest
+        .and_then(|(_, path)| FileInteractionLedger::load_from_path(&path).ok())
+        .map(|l| l.distinct_paths())
+        .unwrap_or_default()
+}
 
 #[allow(unused_imports)]
 pub(crate) use crate::workflow::*;
@@ -341,6 +382,7 @@ pub(crate) async fn read_bundle_resume(
         refresh_recommended,
         atlas_region_hints,
         handoff_quality,
+        files_touched: collect_files_touched(&args.output),
     };
 
     sync_resume_state_record(
@@ -1096,6 +1138,8 @@ mod tests {
             atlas_region_hints: Vec::new(),
 
             handoff_quality: None,
+
+            files_touched: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1276,6 +1320,8 @@ mod tests {
             atlas_region_hints: Vec::new(),
 
             handoff_quality: None,
+
+            files_touched: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1363,6 +1409,8 @@ mod tests {
             atlas_region_hints: Vec::new(),
 
             handoff_quality: None,
+
+            files_touched: Vec::new(),
         };
 
         assert_eq!(
@@ -1603,6 +1651,8 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) atlas_region_hints: Vec<String>,
     #[serde(default)]
     pub(crate) handoff_quality: Option<HandoffQualityScore>,
+    #[serde(default)]
+    pub(crate) files_touched: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
