@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: closed
 severity: medium
 phase: unassigned
 opened: 2026-04-12

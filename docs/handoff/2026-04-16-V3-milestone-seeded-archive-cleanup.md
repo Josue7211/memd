@@ -45,11 +45,11 @@ Five phases, all `pending`, all bench-delta-gated (IDs now in execution order):
 | E3 | Bench Honesty | A3 | ConvoMem 0→0.50, MemPalace cross-baseline live |
 
 Phase docs:
-- [[docs/phases/phase-a3-activate-retrieval.md]]
-- [[docs/phases/phase-b3-reranker-embeddings.md]]
-- [[docs/phases/phase-c3-atlas-at-recall.md]]
-- [[docs/phases/phase-d3-consolidation-sessions.md]]
-- [[docs/phases/phase-e3-bench-honesty.md]]
+- [[docs/phases/phase-b3-activate-retrieval.md]]
+- [[docs/phases/phase-c3-reranker-embeddings.md]]
+- [[docs/phases/phase-d3-atlas-at-recall.md]]
+- [[docs/phases/phase-e3-consolidation-sessions.md]]
+- [[docs/phases/phase-f3-bench-honesty.md]]
 
 Each carries: goal, why-this-phase, deliverables, pass gate (pre/post bench numbers + regression budget + evidence), donor anchors to `.memd/lanes/architecture/A2-*` extraction pack, rollback flags, out-of-scope.
 
@@ -69,7 +69,7 @@ User flip 2026-04-16: M4 polish "doesn't move the score." Score is the goal. V3 
 
 K2 + L2 already done on `main` + `research/mining` — they were the M4 pieces that hardened core surfaces (observability, hive integrity). I2 (dashboard), M2-evo (overnight evo infra), N2 (integrations polish) are paused. Resume after V3.
 
-A3's `depends_on: [M4]` was relaxed to `[]` in this flip — sidecar wiring is orthogonal to dashboard/observability/hive polish. See `docs/phases/phase-a3-activate-retrieval.md` frontmatter `notes` line.
+A3's `depends_on: [M4]` was relaxed to `[]` in this flip — sidecar wiring is orthogonal to dashboard/observability/hive polish. See `docs/phases/phase-b3-activate-retrieval.md` frontmatter `notes` line.
 
 ## V1 + stale V2 archive
 
@@ -124,7 +124,7 @@ User has not asked for commit yet. Hold until asked.
 
 ## A3 entry — first move
 
-`docs/phases/phase-a3-activate-retrieval.md` deliverable 1: **wire `memd-sidecar` into `memd-server` retrieval**.
+`docs/phases/phase-b3-activate-retrieval.md` deliverable 1: **wire `memd-sidecar` into `memd-server` retrieval**.
 
 Concrete starting points (verified diagnosis):
 - `.memd/config.json:48` — `rag.enabled = false` → flip to `true` after server-side import lands
