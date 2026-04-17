@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+use crate::file_ledger::{FileInteractionLedger, FileOp, ledger_path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -71,6 +73,38 @@ pub fn format_gate_output(decision: GateDecision) -> Option<String> {
     }
 }
 
+pub struct FreshReadIndex {
+    paths: Vec<String>,
+}
+
+impl FreshReadIndex {
+    pub fn for_session(output: &Path, session_id: &str) -> Self {
+        let lp = ledger_path(output, session_id);
+        let paths = if lp.exists() {
+            FileInteractionLedger::load_from_path(&lp)
+                .map(|l| {
+                    l.entries
+                        .into_iter()
+                        .filter(|e| e.op == FileOp::Read)
+                        .map(|e| e.path)
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Self { paths }
+    }
+
+    pub fn contains(&self, path: &str) -> bool {
+        self.paths.iter().any(|p| p == path)
+    }
+
+    pub fn paths(&self) -> &[String] {
+        &self.paths
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +170,19 @@ mod tests {
             gate_decision(EnforcementPolicy::Off, "a.rs", sealed, fresh),
             GateDecision::Allow
         );
+    }
+
+    #[test]
+    fn fresh_read_index_surfaces_only_reads_from_live_ledger() {
+        use crate::file_ledger::{FileInteractionLedger, FileOp, ledger_path};
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path();
+        let mut lg = FileInteractionLedger::new("sess-live");
+        lg.record("a.rs", FileOp::Read, 1);
+        lg.record("b.rs", FileOp::Edit, 2);
+        lg.save_to_path(&ledger_path(out, "sess-live")).unwrap();
+        let index = FreshReadIndex::for_session(out, "sess-live");
+        assert!(index.contains("a.rs"));
+        assert!(!index.contains("b.rs"), "Edit does not count as fresh Read");
     }
 }
