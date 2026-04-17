@@ -26,6 +26,7 @@ pub fn run_contract_verify(args: &ContractVerifyArgs) -> anyhow::Result<()> {
         enforcement_policy_configured: enforcement_policy_configured(&args.output),
         enforcement_hook_wired: enforcement_hook_wired(&args.output),
         preference_recall_on_cold_boot_green: preference_recall_evidence(&args.output),
+        file_layout_gate_wired: file_layout_gate_evidence(&args.output),
     };
     let violations = verify_contract(&contract, &evidence);
 
@@ -143,6 +144,14 @@ fn enforcement_hook_wired(output: &Path) -> bool {
 fn preference_recall_evidence(output: &Path) -> Option<bool> {
     let green = output.join("state/preference-replay.green");
     let red = output.join("state/preference-replay.red");
+    if green.exists() { Some(true) }
+    else if red.exists() { Some(false) }
+    else { None }
+}
+
+fn file_layout_gate_evidence(output: &Path) -> Option<bool> {
+    let green = output.join("state/file-layout-gate.green");
+    let red = output.join("state/file-layout-gate.red");
     if green.exists() { Some(true) }
     else if red.exists() { Some(false) }
     else { None }

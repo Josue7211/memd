@@ -51,6 +51,50 @@ pub fn gate_decision(
     }
 }
 
+/// Layered decision for write operations. First runs the continuity check
+/// (same sealed/fresh semantics as `gate_decision`) then, if still Allow,
+/// classifies the target path against the `FileLayoutSchema` from the live
+/// contract. Denylist hits become Deny (under Warn policy they become Warn
+/// + systemMessage nudge); unmanaged / canonical targets pass.
+pub fn gate_write_decision(
+    policy: EnforcementPolicy,
+    target_path: &str,
+    sealed_paths: &[String],
+    fresh_read_paths: &[String],
+    schema: &crate::contract::FileLayoutSchema,
+) -> GateDecision {
+    // Continuity check first — a write to a sealed-but-unread path is
+    // blocked the same way as a continuity Edit gate would.
+    let cont = gate_decision(policy, target_path, sealed_paths, fresh_read_paths);
+    if !matches!(cont, GateDecision::Allow) {
+        return cont;
+    }
+    if matches!(policy, EnforcementPolicy::Off) {
+        return GateDecision::Allow;
+    }
+    match crate::contract::classify_write_path(schema, target_path) {
+        crate::contract::WriteClassification::Denied { canonical_hint } => {
+            let hint = canonical_hint.unwrap_or("canonical docs/ kind");
+            let reason = format!(
+                "file-layout: {target_path} is under a denylisted path. Canonical location: {hint}. See .memd/contract.json file_layout schema."
+            );
+            match policy {
+                EnforcementPolicy::Warn => GateDecision::Warn {
+                    path: target_path.into(),
+                    reason,
+                },
+                EnforcementPolicy::Block => GateDecision::Deny {
+                    path: target_path.into(),
+                    reason,
+                },
+                EnforcementPolicy::Off => unreachable!(),
+            }
+        }
+        crate::contract::WriteClassification::Canonical { .. }
+        | crate::contract::WriteClassification::Unmanaged => GateDecision::Allow,
+    }
+}
+
 /// Render a GateDecision as the JSON string the PreToolUse hook should print,
 /// or `None` when no output is needed (Allow). Extracted so the CLI arm and
 /// tests share the same formatter.
@@ -133,6 +177,107 @@ pub fn load_latest_sealed_paths(output: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::contract::FileLayoutSchema;
+
+    #[test]
+    fn gate_write_block_denies_superpowers_plans_under_block_policy() {
+        let schema = FileLayoutSchema::default();
+        let decision = gate_write_decision(
+            EnforcementPolicy::Block,
+            "docs/superpowers/plans/2026-04-17-foo.md",
+            &[],
+            &[],
+            &schema,
+        );
+        match decision {
+            GateDecision::Deny { reason, .. } => {
+                assert!(reason.contains("file-layout"));
+                assert!(reason.contains("docs/superpowers"));
+            }
+            other => panic!("expected Deny, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gate_write_warn_nudges_on_denylist_under_warn_policy() {
+        let schema = FileLayoutSchema::default();
+        let decision = gate_write_decision(
+            EnforcementPolicy::Warn,
+            "docs/superpowers/plans/foo.md",
+            &[],
+            &[],
+            &schema,
+        );
+        assert!(matches!(decision, GateDecision::Warn { .. }));
+    }
+
+    #[test]
+    fn gate_write_allows_canonical_plans() {
+        let schema = FileLayoutSchema::default();
+        assert_eq!(
+            gate_write_decision(
+                EnforcementPolicy::Block,
+                "docs/plans/A3-EXECUTION-PLAN.md",
+                &[],
+                &[],
+                &schema,
+            ),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn gate_write_allows_unmanaged() {
+        let schema = FileLayoutSchema::default();
+        assert_eq!(
+            gate_write_decision(
+                EnforcementPolicy::Block,
+                "crates/memd-core/src/lib.rs",
+                &[],
+                &[],
+                &schema,
+            ),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn gate_write_off_bypasses_everything() {
+        let schema = FileLayoutSchema::default();
+        assert_eq!(
+            gate_write_decision(
+                EnforcementPolicy::Off,
+                "docs/superpowers/plans/foo.md",
+                &[],
+                &[],
+                &schema,
+            ),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn gate_write_continuity_check_runs_before_layout() {
+        // Sealed-but-unread path AND denylisted — continuity fires first
+        // (same failure class we already warn on).
+        let schema = FileLayoutSchema::default();
+        let sealed: &[String] = &["docs/superpowers/plans/foo.md".into()];
+        let decision = gate_write_decision(
+            EnforcementPolicy::Block,
+            "docs/superpowers/plans/foo.md",
+            sealed,
+            &[],
+            &schema,
+        );
+        match decision {
+            GateDecision::Deny { reason, .. } => {
+                // Continuity message wins (sealed ledger override).
+                assert!(reason.contains("continuity"));
+            }
+            other => panic!("expected continuity Deny, got {other:?}"),
+        }
+    }
 
     #[test]
     fn policy_round_trips_through_serde() {

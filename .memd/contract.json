@@ -1,9 +1,42 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "guarantees": {
     "surfaces_files_touched_when_sealed_ledger_exists": true,
     "seals_session_ledger_on_precompact": true,
     "enforces_continuity_gate_when_configured": true,
-    "replays_preferences_on_cold_boot": true
+    "replays_preferences_on_cold_boot": true,
+    "enforces_file_layout_contract": true
+  },
+  "file_layout": {
+    "plans": [
+      "docs/plans/"
+    ],
+    "specs": [
+      "docs/specs/"
+    ],
+    "backlog": [
+      "docs/backlog/"
+    ],
+    "phases": [
+      "docs/phases/"
+    ],
+    "handoff": [
+      "docs/handoff/"
+    ],
+    "theory": [
+      "docs/theory/"
+    ],
+    "policy": [
+      "docs/policy/"
+    ],
+    "verification": [
+      "docs/verification/"
+    ],
+    "hooks": [
+      ".memd/hooks/"
+    ],
+    "denylist": [
+      "docs/superpowers/"
+    ]
   }
 }
