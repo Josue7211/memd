@@ -104,6 +104,64 @@ async fn hook_seal_ledger_is_noop_when_no_ledger_exists() {
         .expect("seal-ledger on missing ledger should succeed silently");
 }
 
+/// A3 Part 1 acceptance gate: session A edits 5 files → precompact seal →
+/// session B can surface all 5 via `collect_files_touched` + `prime-reads`.
+/// This proves the **surfacing** flow only; enforcement is Part 2.
+#[tokio::test]
+async fn compaction_mid_edit_flow_surfaces_prior_session_files() {
+    use crate::runtime::collect_files_touched;
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+
+    // Session A: 5 file-interaction hook invocations
+    for file in ["a.rs", "b.rs", "c.rs", "d.rs", "e.rs"] {
+        let payload = serde_json::json!({
+            "session_id": "sess-A",
+            "tool_name": "Edit",
+            "tool_input": { "file_path": file },
+        })
+        .to_string();
+        let args = HookArgs {
+            mode: HookMode::FileInteraction(HookFileInteractionArgs {
+                output: output.clone(),
+                session_id: None,
+                stdin: false,
+                content: Some(payload),
+            }),
+        };
+        run_hook_mode(&dummy_client(), "http://127.0.0.1:1", args)
+            .await
+            .expect("file-interaction hook");
+    }
+
+    // Precompact: seal the ledger
+    let seal_args = HookArgs {
+        mode: HookMode::SealLedger(HookSealLedgerArgs {
+            output: output.clone(),
+            session_id: "sess-A".into(),
+        }),
+    };
+    run_hook_mode(&dummy_client(), "http://127.0.0.1:1", seal_args)
+        .await
+        .expect("seal-ledger");
+
+    // Session B: collect_files_touched surfaces all 5
+    let paths = collect_files_touched(&output);
+    for f in ["a.rs", "b.rs", "c.rs", "d.rs", "e.rs"] {
+        assert!(
+            paths.iter().any(|p| p == f),
+            "prior-session file {f} missing from collect_files_touched: {paths:?}"
+        );
+    }
+
+    // prime-reads wires the same data — verify it runs without error
+    let pr_args = PrimeReadsArgs {
+        output,
+        since_session: None,
+    };
+    run_prime_reads(&pr_args).expect("prime-reads after seal");
+}
+
 #[test]
 fn prime_reads_runs_with_populated_ledger() {
     let dir = tempfile::tempdir().unwrap();
