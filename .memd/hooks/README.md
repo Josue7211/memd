@@ -1,3 +1,10 @@
+> **This is the canonical source** for memd's hook scripts. `integrations/hooks/` is
+> an auto-synced copy (via `scripts/sync-integration-hooks.sh`) with project-local paths
+> rewritten to portable placeholders for external installers. Edit here, then run:
+>
+>     bash scripts/sync-integration-hooks.sh
+>
+
 # memd Hook Kit
 
 These scripts are the default agent loop integration for `memd`.
@@ -44,23 +51,7 @@ That also refreshes:
 - `.memd/mem.md`
 - `.memd/wake.md`
 - `.memd/events.md`
-- `.memd/agents/CODEX_WAKEUP.md`
-- `.memd/agents/CODEX_MEMORY.md`
-- `.memd/agents/CODEX_EVENTS.md`
-- `.memd/agents/CLAUDE_CODE_WAKEUP.md`
-- `.memd/agents/CLAUDE_CODE_MEMORY.md`
-- `.memd/agents/CLAUDE_CODE_EVENTS.md`
 - `.memd/agents/CLAUDE_IMPORTS.md`
-- `.memd/agents/AGENT_ZERO_WAKEUP.md`
-- `.memd/agents/AGENT_ZERO_MEMORY.md`
-- `.memd/agents/OPENCLAW_WAKEUP.md`
-- `.memd/agents/OPENCLAW_MEMORY.md`
-- `.memd/agents/OPENCLAW_EVENTS.md`
-- `.memd/agents/OPENCODE_WAKEUP.md`
-- `.memd/agents/OPENCODE_MEMORY.md`
-- `.memd/agents/OPENCODE_EVENTS.md`
-- `.memd/agents/HERMES_WAKEUP.md`
-- `.memd/agents/HERMES_MEMORY.md`
 
 For Codex, that wake path is the pre-turn read step in the harness pack flow.
 It pulls compiled memory first, then refreshes the visible wakeup files after a
@@ -89,7 +80,8 @@ Agent-specific bundle entrypoints are generated under `.memd/agents/`:
 - `hermes.sh`
 
 For Claude Code, import `.memd/agents/CLAUDE_IMPORTS.md` from project
-`CLAUDE.md` and verify it with `/memory`.
+`CLAUDE.md` and verify it with `/memory`. That bridge loads only
+`.memd/wake.md` by default; deeper recall stays explicit.
 
 The same bundle also writes `.memd/COMMANDS.md`, and you can inspect the
 catalog at any time with:
@@ -142,8 +134,9 @@ memory files in the bundle.
 
 For Codex bundles, the wake path also refreshes `.memd/wake.md`,
 `.memd/mem.md`, and the Codex agent copies after a successful backend
-read. If the backend read is unavailable, the existing local bundle markdown is
-used instead of dropping the turn.
+read. Cached local bundle markdown is only trusted after the current session
+has already completed one live wake. A brand-new session must not silently
+bootstrap from stale cache.
 
 The installed `memd-hook-context` shim now routes through this script, so the
 default installed hook path also gets the richer wake-up surface.

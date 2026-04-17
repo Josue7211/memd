@@ -1,3 +1,6 @@
+> **Generated file.** These scripts are synced from `.memd/hooks/` by `scripts/sync-integration-hooks.sh`.
+> Edit the source at `.memd/hooks/` and re-run the script. Do not edit files in this directory directly.
+
 # memd Hook Kit
 
 These scripts are the default agent loop integration for `memd`.
