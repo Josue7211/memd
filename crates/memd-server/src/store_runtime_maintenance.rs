@@ -259,11 +259,8 @@ impl SqliteStore {
             if item.lane.is_some() {
                 continue;
             }
-            let detected = detect_content_lane(
-                &item.content,
-                item.source_path.as_deref(),
-                &item.tags,
-            );
+            let detected =
+                detect_content_lane(&item.content, item.source_path.as_deref(), &item.tags);
             if let Some(lane) = detected {
                 item.lane = Some(lane);
                 item.updated_at = chrono::Utc::now();
@@ -284,8 +281,7 @@ impl SqliteStore {
     /// Returns the number of rows removed.
     pub fn gc_expired_items(&self, grace_seconds: i64) -> anyhow::Result<usize> {
         let conn = self.connect()?;
-        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(grace_seconds))
-            .to_rfc3339();
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(grace_seconds)).to_rfc3339();
         let deleted = conn
             .execute(
                 r#"
@@ -293,10 +289,7 @@ impl SqliteStore {
                 WHERE status = ?1
                   AND updated_at < ?2
                 "#,
-                params![
-                    serde_json::to_string(&MemoryStatus::Expired)?,
-                    cutoff,
-                ],
+                params![serde_json::to_string(&MemoryStatus::Expired)?, cutoff,],
             )
             .context("gc expired memory items")?;
         Ok(deleted)

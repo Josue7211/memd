@@ -675,9 +675,7 @@ impl SqliteStore {
         &self,
         request: &HiveTaskAssignRequest,
     ) -> anyhow::Result<HiveTasksResponse> {
-        if self
-            .is_task_denied_for_session(request.task_id.trim(), request.to_session.trim())?
-        {
+        if self.is_task_denied_for_session(request.task_id.trim(), request.to_session.trim())? {
             anyhow::bail!(
                 "queen_denied: task '{}' is blocked for session '{}'",
                 request.task_id.trim(),
@@ -952,11 +950,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    pub fn is_task_denied_for_session(
-        &self,
-        task_id: &str,
-        session: &str,
-    ) -> anyhow::Result<bool> {
+    pub fn is_task_denied_for_session(&self, task_id: &str, session: &str) -> anyhow::Result<bool> {
         let task_id = task_id.trim();
         let session = session.trim();
         if task_id.is_empty() || session.is_empty() {
@@ -1038,10 +1032,7 @@ impl SqliteStore {
         Ok(next_version)
     }
 
-    pub fn handoff_lock_for_task(
-        &self,
-        task_id: &str,
-    ) -> anyhow::Result<Option<(String, u64)>> {
+    pub fn handoff_lock_for_task(&self, task_id: &str) -> anyhow::Result<Option<(String, u64)>> {
         let task_id = task_id.trim();
         if task_id.is_empty() {
             return Ok(None);

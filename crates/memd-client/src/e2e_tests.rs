@@ -77,8 +77,8 @@ async fn search_memory(
             tags: vec!["repo-b".to_string()],
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         }],
     })
 }
@@ -171,8 +171,8 @@ async fn mock_candidate_memory(
             tags: req.tags,
             status: MemoryStatus::Active,
             stage: MemoryStage::Candidate,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         },
         duplicate_of: None,
     })
@@ -213,8 +213,8 @@ async fn mock_store_memory(
             tags: req.tags,
             status: req.status.unwrap_or(MemoryStatus::Active),
             stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         },
     })
 }
@@ -828,7 +828,8 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
         recent_repo_changes: Vec::new(),
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     }
 }

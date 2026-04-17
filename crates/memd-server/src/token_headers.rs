@@ -6,7 +6,7 @@
 // header gives them the measurement without recomputing it.
 
 use axum::{
-    body::{to_bytes, Body},
+    body::{Body, to_bytes},
     extract::Request,
     http::{HeaderName, HeaderValue},
     middleware::Next,

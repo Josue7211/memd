@@ -79,24 +79,28 @@ impl RateLimiter {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let entry = map
-            .entry(key.to_string())
-            .or_insert(WindowState { started: now, count: 0 });
+        let entry = map.entry(key.to_string()).or_insert(WindowState {
+            started: now,
+            count: 0,
+        });
         if now.duration_since(entry.started) >= self.window {
-            *entry = WindowState { started: now, count: 0 };
+            *entry = WindowState {
+                started: now,
+                count: 0,
+            };
         }
         let elapsed = now.duration_since(entry.started);
-        let retry_after = self
-            .window
-            .saturating_sub(elapsed)
-            .as_secs()
-            .max(1);
+        let retry_after = self.window.saturating_sub(elapsed).as_secs().max(1);
         if entry.count >= self.hard {
-            return Verdict::Hard { retry_after_secs: retry_after };
+            return Verdict::Hard {
+                retry_after_secs: retry_after,
+            };
         }
         if entry.count >= self.soft {
             entry.count += 1;
-            return Verdict::Soft { retry_after_secs: retry_after };
+            return Verdict::Soft {
+                retry_after_secs: retry_after,
+            };
         }
         entry.count += 1;
         Verdict::Allow {
@@ -171,7 +175,10 @@ mod tests {
         let v2 = rl.check("agent-a");
         match (v1, v2) {
             (Verdict::Allow { remaining: r1 }, Verdict::Allow { remaining: r2 }) => {
-                assert!(r1 > r2, "remaining should monotonically decrease: {r1} -> {r2}");
+                assert!(
+                    r1 > r2,
+                    "remaining should monotonically decrease: {r1} -> {r2}"
+                );
             }
             other => panic!("expected two Allow verdicts, got {other:?}"),
         }

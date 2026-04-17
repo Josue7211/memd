@@ -53,10 +53,7 @@ pub(crate) fn ingest_lane_files(
         if !lane_path.is_dir() {
             continue;
         }
-        let lane_name = lane_entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
+        let lane_name = lane_entry.file_name().to_string_lossy().to_string();
 
         let files = fs::read_dir(&lane_path)
             .with_context(|| format!("read lane dir {}", lane_path.display()))?;
@@ -68,10 +65,7 @@ pub(crate) fn ingest_lane_files(
                 continue;
             }
             // Only ingest markdown and text files.
-            let ext = file_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "md" | "txt" | "toml" | "json" | "yaml" | "yml") {
                 continue;
             }
@@ -148,32 +142,33 @@ pub(crate) fn ingest_lane_files(
             state.store.insert_or_get_duplicate(&item, &ck, &rk)?;
 
             // Update manifest.
-            state.store.ingestion_manifest_upsert(&IngestionManifestEntry {
-                source_path: source_path_str,
-                content_hash: hash,
-                mtime_epoch: mtime,
-                lane: Some(lane_name.clone()),
-                project: project.map(String::from),
-                namespace: namespace.map(String::from),
-                last_ingested_at: now.to_rfc3339(),
-                memory_item_id: Some(item.id.to_string()),
-            })?;
+            state
+                .store
+                .ingestion_manifest_upsert(&IngestionManifestEntry {
+                    source_path: source_path_str,
+                    content_hash: hash,
+                    mtime_epoch: mtime,
+                    lane: Some(lane_name.clone()),
+                    project: project.map(String::from),
+                    namespace: namespace.map(String::from),
+                    last_ingested_at: now.to_rfc3339(),
+                    memory_item_id: Some(item.id.to_string()),
+                })?;
 
             ingested += 1;
         }
     }
 
     // Mark stale: manifest entries whose files no longer exist.
-    let all_manifest = state
-        .store
-        .ingestion_manifest_list(project, namespace)?;
+    let all_manifest = state.store.ingestion_manifest_list(project, namespace)?;
     let mut stale = 0usize;
     for entry in &all_manifest {
         if !seen_paths.contains(&entry.source_path) && !Path::new(&entry.source_path).exists() {
             // File was deleted — expire its memory item if present.
             if let Some(item_id) = &entry.memory_item_id {
-                if let Ok(Some(mut item)) =
-                    state.store.get(Uuid::parse_str(item_id).unwrap_or(Uuid::nil()))
+                if let Ok(Some(mut item)) = state
+                    .store
+                    .get(Uuid::parse_str(item_id).unwrap_or(Uuid::nil()))
                 {
                     if item.status == MemoryStatus::Active {
                         item.status = MemoryStatus::Expired;

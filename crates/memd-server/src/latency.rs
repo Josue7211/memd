@@ -4,8 +4,8 @@
 // `BUCKET_COUNT` cells and returns the upper edge of the bucket the
 // target rank falls into, so it's intentionally an overestimate.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use memd_schema::{LatencyBucket, LatencyDiagnosticsResponse};
 

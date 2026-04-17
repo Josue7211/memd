@@ -2120,7 +2120,9 @@ pub struct SalienceHistogram {
 
 impl SalienceHistogram {
     pub fn new() -> Self {
-        Self { buckets: vec![0; 10] }
+        Self {
+            buckets: vec![0; 10],
+        }
     }
 
     pub fn record(&mut self, salience: f32) {
@@ -3573,8 +3575,8 @@ mod tests {
                 tags: vec!["decision".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+                lane: None,
+                version: 1,
             },
             canonical_key: "decision:bundle-first".to_string(),
             redundancy_key: "decision:bundle-first".to_string(),
@@ -4056,8 +4058,8 @@ mod tests {
                 tags: vec!["repair".to_string(), "audit".to_string()],
                 status: MemoryStatus::Active,
                 stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+                lane: None,
+                version: 1,
             },
             mode: request.mode,
             reasons: vec![
@@ -4340,7 +4342,10 @@ mod tests {
             assert_eq!(variant.to_string(), wire);
             assert_eq!(CoordinationMode::from_str(wire).unwrap(), variant);
         }
-        assert_eq!(CoordinationMode::default(), CoordinationMode::ExclusiveWrite);
+        assert_eq!(
+            CoordinationMode::default(),
+            CoordinationMode::ExclusiveWrite
+        );
         assert!(CoordinationMode::from_str("bogus").is_err());
     }
 

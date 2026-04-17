@@ -2,13 +2,13 @@
 // latency_p95_ms + benchmark_gate remain placeholders until K2.6 lands the
 // latency histogram and CI gate wiring.
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use memd_schema::{
     HarnessStatus, LatencyDiagnosticsResponse, MemoryHealthBreakdown, MemoryStage, MemoryStatus,
     SpineVerifyResponse,
 };
 
-use crate::{helpers::internal_error, AppState};
+use crate::{AppState, helpers::internal_error};
 
 pub(crate) async fn get_harness_status(
     State(state): State<AppState>,

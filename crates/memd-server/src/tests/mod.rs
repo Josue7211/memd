@@ -42,7 +42,11 @@ fn temp_state(name: &str) -> (std::path::PathBuf, AppState) {
     let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp state dir");
     let db_path = dir.join("memd.db");
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp store"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp store"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
     (dir, state)
 }
 
@@ -727,7 +731,11 @@ fn verified_canonical_memory_ranks_above_unverified_synthetic_memory() {
 #[test]
 fn live_truth_precedes_project_memory() {
     let db_path = std::env::temp_dir().join(format!("memd-live-truth-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let _ = state
         .store_item(
@@ -750,7 +758,7 @@ fn live_truth_precedes_project_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["live_truth".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -777,7 +785,7 @@ fn live_truth_precedes_project_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["fact".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -815,7 +823,11 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
         "memd-current-task-project-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let _ = state
         .store_item(
@@ -839,7 +851,7 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
                 supersedes: Vec::new(),
                 tags: vec!["project_fact".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -903,7 +915,11 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
         "memd-current-task-workspace-fact-{}.db",
         uuid::Uuid::new_v4()
     ));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let _ = state
         .store_item(
@@ -926,7 +942,7 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
                 supersedes: Vec::new(),
                 tags: vec!["handoff".to_string(), "workspace".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -994,7 +1010,11 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
 fn superseded_memory_drops_out_after_manual_correction_loop() {
     let db_path =
         std::env::temp_dir().join(format!("memd-correction-loop-{}.db", uuid::Uuid::new_v4()));
-    let state = AppState { store: SqliteStore::open(&db_path).expect("open temp db"), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: SqliteStore::open(&db_path).expect("open temp db"),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let (old_item, _) = state
         .store_item(
@@ -1017,7 +1037,7 @@ fn superseded_memory_drops_out_after_manual_correction_loop() {
                 supersedes: Vec::new(),
                 tags: vec!["fact".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1065,7 +1085,7 @@ fn superseded_memory_drops_out_after_manual_correction_loop() {
                 supersedes: vec![old_item.id],
                 tags: vec!["correction".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1126,7 +1146,7 @@ fn explicit_store_revives_superseded_canonical_duplicate() {
                 supersedes: Vec::new(),
                 tags: vec!["correction".to_string()],
                 status: Some(MemoryStatus::Superseded),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1155,7 +1175,7 @@ fn explicit_store_revives_superseded_canonical_duplicate() {
                 supersedes: vec![uuid::Uuid::new_v4()],
                 tags: vec!["correction".to_string(), "product-direction".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1195,7 +1215,7 @@ fn store_item_records_source_linked_event_for_canonical_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["raw-spine".to_string(), "correction".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1260,7 +1280,7 @@ fn store_item_records_source_linked_event_for_candidate_memory() {
                 supersedes: Vec::new(),
                 tags: vec!["checkpoint".to_string(), "raw-spine".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -1325,7 +1345,7 @@ async fn source_memory_route_returns_provenance_aggregates_for_filtered_source()
                 supersedes: Vec::new(),
                 tags: vec!["raw-spine".to_string(), "correction".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -1352,7 +1372,7 @@ async fn source_memory_route_returns_provenance_aggregates_for_filtered_source()
                 supersedes: Vec::new(),
                 tags: vec!["checkpoint".to_string()],
                 status: Some(MemoryStatus::Active),
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -1459,7 +1479,11 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store several memory items of different kinds
     for (i, kind) in [
@@ -1492,7 +1516,7 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1527,7 +1551,11 @@ async fn atlas_explore_returns_nodes_for_region() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items
     let mut stored_ids = Vec::new();
@@ -1551,7 +1579,7 @@ async fn atlas_explore_returns_nodes_for_region() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         let (item, _) = state
             .store_item(req, MemoryStage::Canonical)
@@ -1600,7 +1628,11 @@ async fn atlas_explore_single_node_returns_that_item() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let req = StoreMemoryRequest {
         content: "single node test".to_string(),
@@ -1659,7 +1691,11 @@ async fn atlas_pivot_filters_by_min_trust() {
         std::env::temp_dir().join(format!("memd-atlas-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items with different confidence
     for (i, cf) in [0.3, 0.5, 0.9].iter().enumerate() {
@@ -1682,7 +1718,7 @@ async fn atlas_pivot_filters_by_min_trust() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1729,7 +1765,11 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
         std::env::temp_dir().join(format!("memd-atlas-trails-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items with varying confidence
     for (i, cf) in [0.5, 0.9, 0.7].iter().enumerate() {
@@ -1752,7 +1792,7 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1814,7 +1854,11 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
         std::env::temp_dir().join(format!("memd-atlas-time-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items
     for i in 0..3 {
@@ -1837,7 +1881,7 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1920,7 +1964,11 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
         std::env::temp_dir().join(format!("memd-atlas-lanes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items with lane tags
     for i in 0..3 {
@@ -1943,7 +1991,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
             supersedes: Vec::new(),
             tags: vec!["lane:design".to_string()],
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -1970,7 +2018,7 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
             supersedes: Vec::new(),
             tags: Vec::new(),
             status: None,
-                    lane: None,
+            lane: None,
         };
         state
             .store_item(req, MemoryStage::Canonical)
@@ -2001,7 +2049,11 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
         std::env::temp_dir().join(format!("memd-atlas-expand-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let req = StoreMemoryRequest {
         content: "expand seed item".to_string(),
@@ -2052,7 +2104,11 @@ async fn atlas_nodes_include_evidence_count() {
         std::env::temp_dir().join(format!("memd-atlas-evidence-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let req = StoreMemoryRequest {
         content: "evidence count item".to_string(),
@@ -2116,7 +2172,11 @@ async fn atlas_rename_region_persists_new_name() {
         std::env::temp_dir().join(format!("memd-atlas-rename-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Create items so regions can be generated
     for i in 0..3 {
@@ -2192,7 +2252,11 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store a seed item with tags
     let (seed, _) = state
@@ -2216,7 +2280,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["auth".to_string(), "security".to_string()],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2244,7 +2308,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["auth".to_string(), "migration".to_string()],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2272,7 +2336,7 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
                 supersedes: Vec::new(),
                 tags: vec!["unrelated".to_string()],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2327,7 +2391,11 @@ async fn atlas_explore_with_evidence_returns_events() {
         uuid::Uuid::new_v4()
     )))
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     let (item, _) = state
         .store_item(
@@ -2350,7 +2418,7 @@ async fn atlas_explore_with_evidence_returns_events() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2392,7 +2460,11 @@ async fn atlas_scope_pivot_filters_by_scope() {
         std::env::temp_dir().join(format!("memd-atlas-scope-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store project-scoped and global-scoped items
     state
@@ -2416,7 +2488,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2443,7 +2515,7 @@ async fn atlas_scope_pivot_filters_by_scope() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2490,7 +2562,11 @@ async fn atlas_from_working_seeds_from_working_memory() {
         std::env::temp_dir().join(format!("memd-atlas-fromwork-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store Status items (working memory candidates)
     for i in 0..2 {
@@ -2544,7 +2620,7 @@ async fn atlas_from_working_seeds_from_working_memory() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2587,7 +2663,11 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
         std::env::temp_dir().join(format!("memd-atlas-supersedes-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store the old item (will be superseded)
     let (old_item, _) = state
@@ -2611,7 +2691,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2639,7 +2719,7 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
                 supersedes: vec![old_item.id],
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2691,7 +2771,11 @@ async fn atlas_persisted_links_survive_reload() {
     let db_path =
         std::env::temp_dir().join(format!("memd-atlas-persist-{}.db", uuid::Uuid::new_v4()));
     let store = SqliteStore::open(&db_path).expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store two items
     let (item_a, _) = state
@@ -2715,7 +2799,7 @@ async fn atlas_persisted_links_survive_reload() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2742,7 +2826,7 @@ async fn atlas_persisted_links_survive_reload() {
                 supersedes: Vec::new(),
                 tags: Vec::new(),
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -2812,7 +2896,11 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
         std::env::temp_dir().join(format!("memd-atlas-salience-{}.db", uuid::Uuid::new_v4())),
     )
     .expect("open test store");
-    let state = AppState { store: store.clone(), latency: crate::latency::LatencyHistogram::new(), rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()) };
+    let state = AppState {
+        store: store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+    };
 
     // Store items — entity salience_score is set during store_item
     // via entity creation. Items with higher confidence get higher salience.
@@ -3021,7 +3109,7 @@ fn store_test_item(state: &AppState) -> MemoryItem {
                 tags: item.tags.clone(),
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3624,7 +3712,7 @@ async fn dismiss_inbox_expires_items() {
                 tags: item.tags.clone(),
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Candidate,
         )
@@ -3687,7 +3775,7 @@ fn dogfood_store_fact_survives_context_retrieval() {
                 tags: vec!["user_pref".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3715,7 +3803,7 @@ fn dogfood_store_fact_survives_context_retrieval() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -3807,7 +3895,7 @@ fn dogfood_decision_surfaces_over_status_noise() {
             tags: vec!["architecture".to_string()],
             belief_branch: None,
             status: None,
-                    lane: None,
+            lane: None,
         },
         MemoryStage::Canonical,
     );
@@ -3833,7 +3921,7 @@ fn dogfood_decision_surfaces_over_status_noise() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -3905,7 +3993,7 @@ fn auto_link_creates_entity_links_on_store() {
                 tags: vec!["arch".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -3932,7 +4020,7 @@ fn auto_link_creates_entity_links_on_store() {
                 tags: vec!["db".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4021,7 +4109,11 @@ async fn search_excludes_ttl_expired_items_by_default() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: SearchMemoryResponse = decode_json(response).await;
 
-    assert_eq!(body.items.len(), 1, "only the non-expired item should appear");
+    assert_eq!(
+        body.items.len(),
+        1,
+        "only the non-expired item should appear"
+    );
     assert_eq!(body.items[0].id, alive_item.id);
 
     std::fs::remove_dir_all(dir).expect("cleanup");
@@ -4053,7 +4145,7 @@ fn status_cap_eviction_tracked_in_working_memory() {
                 tags: vec!["checkpoint".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -4081,7 +4173,7 @@ fn status_cap_eviction_tracked_in_working_memory() {
                 tags: vec!["infra".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         );
@@ -4191,10 +4283,7 @@ fn duplicate_store_reinforces_existing_item() {
 #[test]
 fn concurrent_writes_no_sqlite_busy() {
     // C2 gate: 3 agents writing simultaneously, 0 SQLITE_BUSY errors.
-    let dir = std::env::temp_dir().join(format!(
-        "memd-concurrent-write-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("memd-concurrent-write-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let db_path = dir.join("memd.db");
     let store = SqliteStore::open(&db_path).expect("open store");
@@ -4208,7 +4297,10 @@ fn concurrent_writes_no_sqlite_busy() {
                     let now = chrono::Utc::now();
                     let item = MemoryItem {
                         id: uuid::Uuid::new_v4(),
-                        content: format!("concurrent-stress-unique-{} content-payload", uuid::Uuid::new_v4()),
+                        content: format!(
+                            "concurrent-stress-unique-{} content-payload",
+                            uuid::Uuid::new_v4()
+                        ),
                         redundancy_key: None,
                         belief_branch: None,
                         preferred: false,
@@ -4231,8 +4323,8 @@ fn concurrent_writes_no_sqlite_busy() {
                         tags: vec!["concurrent-test".to_string()],
                         status: MemoryStatus::Active,
                         stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+                        lane: None,
+                        version: 1,
                     };
                     let ck = super::keys::canonical_key(&item);
                     let rk = super::keys::redundancy_key(&item);
@@ -4296,7 +4388,7 @@ fn correct_item_supersedes_old_and_creates_new() {
                 supersedes: vec![],
                 tags: vec!["geography".to_string()],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4356,7 +4448,7 @@ fn correct_item_rejects_empty_content() {
                 supersedes: vec![],
                 tags: vec![],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4430,7 +4522,7 @@ fn correct_item_preserves_metadata_from_original() {
                 supersedes: vec![],
                 tags: vec!["important".to_string()],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4492,7 +4584,7 @@ fn explain_shows_correction_events() {
                 supersedes: vec![],
                 tags: vec![],
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4542,8 +4634,7 @@ fn explain_shows_correction_events() {
         explain_new
             .events
             .iter()
-            .any(|e| e.event_type == "correction_created"
-                || e.event_type == "stored_canonical"),
+            .any(|e| e.event_type == "correction_created" || e.event_type == "stored_canonical"),
         "new item should have correction_created or stored_canonical event"
     );
 
@@ -4688,7 +4779,7 @@ fn wiki_link_creates_entity_link_on_store() {
                 tags: vec!["arch".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4716,7 +4807,7 @@ fn wiki_link_creates_entity_link_on_store() {
                 tags: vec!["plan".to_string()],
                 belief_branch: None,
                 status: None,
-                    lane: None,
+                lane: None,
             },
             MemoryStage::Canonical,
         )
@@ -4837,11 +4928,7 @@ fn lane_auto_detection_from_tags() {
         Some("design".to_string())
     );
     assert_eq!(
-        helpers::detect_content_lane(
-            "architecture note",
-            None,
-            &["lane:operations".to_string()]
-        ),
+        helpers::detect_content_lane("architecture note", None, &["lane:operations".to_string()]),
         Some("operations".to_string())
     );
 }
@@ -5038,9 +5125,15 @@ fn fts5_search_returns_matching_items() {
         MemoryStage::Canonical,
     );
 
-    let results = state.store.fts_search("Rust backend", 10).expect("fts search");
+    let results = state
+        .store
+        .fts_search("Rust backend", 10)
+        .expect("fts search");
     assert!(!results.is_empty(), "FTS search should return results");
-    assert_eq!(results[0].0, fact.id, "best FTS hit should be the Rust fact");
+    assert_eq!(
+        results[0].0, fact.id,
+        "best FTS hit should be the Rust fact"
+    );
 
     std::fs::remove_dir_all(dir).expect("cleanup h2-fts5");
 }
@@ -5107,14 +5200,16 @@ fn rrf_merge_boosts_fts_matched_items_in_search() {
     }
 
     // Search for "nfs cargo" — FTS should boost the target item
-    let fts_ranks = state.store.fts_search("nfs cargo", 100).expect("fts search");
+    let fts_ranks = state
+        .store
+        .fts_search("nfs cargo", 100)
+        .expect("fts search");
     assert!(
         fts_ranks.iter().any(|(id, _)| *id == target.id),
         "FTS should find the NFS cargo fact"
     );
 
-    let items = enrich_with_entities(&state, state.snapshot().expect("snapshot"))
-        .expect("enrich");
+    let items = enrich_with_entities(&state, state.snapshot().expect("snapshot")).expect("enrich");
     let plan = RetrievalPlan::resolve(None, None);
     let results = filter_items(
         &items,
@@ -5127,10 +5222,7 @@ fn rrf_merge_boosts_fts_matched_items_in_search() {
         &fts_ranks,
     );
 
-    assert!(
-        !results.is_empty(),
-        "search should return results"
-    );
+    assert!(!results.is_empty(), "search should return results");
     assert_eq!(
         results[0].id, target.id,
         "RRF should boost the FTS-matched NFS fact to position 1"
@@ -5203,8 +5295,7 @@ fn ab_influence_recall_changes_search_output() {
         .store
         .fts_search("deploy target", 100)
         .expect("fts search");
-    let items = enrich_with_entities(&state, state.snapshot().expect("snapshot"))
-        .expect("enrich");
+    let items = enrich_with_entities(&state, state.snapshot().expect("snapshot")).expect("enrich");
     let plan = RetrievalPlan::resolve(None, None);
     let with_recall = filter_items(
         &items,
@@ -5314,7 +5405,10 @@ fn d2_correction_e2e() {
     // (b) new item is Active with correction tag and preferred: true
     assert_eq!(response.new_item.status, MemoryStatus::Active);
     assert!(response.new_item.tags.contains(&"correction".to_string()));
-    assert!(response.new_item.preferred, "correction item must be preferred");
+    assert!(
+        response.new_item.preferred,
+        "correction item must be preferred"
+    );
 
     // (c) build_context returns corrected version only
     let BuildContextResult { items, .. } = build_context(
@@ -5413,7 +5507,10 @@ fn d2_correction_e2e() {
         .records
         .iter()
         .any(|r| r.record.contains("memd uses Rust"));
-    assert!(has_corrected, "corrected fact must appear in working memory");
+    assert!(
+        has_corrected,
+        "corrected fact must appear in working memory"
+    );
 
     // The superseded original must NOT appear
     let has_superseded = working
@@ -5536,7 +5633,11 @@ fn d2_contradiction_marks_siblings_contested() {
     );
 
     // Verify C's persisted status is Contested
-    let refreshed_c = state.store.get(item_c.id).expect("get C").expect("C exists");
+    let refreshed_c = state
+        .store
+        .get(item_c.id)
+        .expect("get C")
+        .expect("C exists");
     assert_eq!(
         refreshed_c.status,
         MemoryStatus::Contested,
@@ -5595,7 +5696,10 @@ fn e2_atlas_navigation_four_hops() {
     // Verify entities auto-created
     for &id in &item_ids {
         let entity = store.entity_for_item(id).expect("entity lookup");
-        assert!(entity.is_some(), "item {id} must have an entity after store");
+        assert!(
+            entity.is_some(),
+            "item {id} must have an entity after store"
+        );
     }
 
     // Hop 1: Generate atlas → regions should be non-empty
@@ -6593,8 +6697,7 @@ fn o2_3_decay_sensitivity_analysis() {
             assert_eq!(
                 metrics.decayed, 0,
                 "[{}] expected NO decay (threshold not met) but decayed={}",
-                scenario.name,
-                metrics.decayed
+                scenario.name, metrics.decayed
             );
         }
 
@@ -6624,16 +6727,38 @@ fn o2_3_decay_sensitivity_analysis() {
 
     // Print comparison table for documentation.
     println!("\nO2.3 Decay Sensitivity Comparison Table:");
-    println!("{:<14} {:>8} {:>10} {:>16}", "scenario", "decayed", "inspected", "total_decay");
+    println!(
+        "{:<14} {:>8} {:>10} {:>16}",
+        "scenario", "decayed", "inspected", "total_decay"
+    );
     for (name, decayed, inspected, total) in &results_table {
-        println!("{:<14} {:>8} {:>10} {:>16.4}", name, decayed, inspected, total);
+        println!(
+            "{:<14} {:>8} {:>10} {:>16.4}",
+            name, decayed, inspected, total
+        );
     }
 
     // Ranking check: aggressive > defaults > conservative for total_decay (when old entities present).
-    let aggressive_decay = results_table.iter().find(|(n, ..)| n == "aggressive").map(|(_, _, _, d)| *d).unwrap_or(0.0);
-    let defaults_decay = results_table.iter().find(|(n, ..)| n == "defaults").map(|(_, _, _, d)| *d).unwrap_or(0.0);
-    let conservative_decay = results_table.iter().find(|(n, ..)| n == "conservative").map(|(_, _, _, d)| *d).unwrap_or(0.0);
-    let slow_decay = results_table.iter().find(|(n, ..)| n == "slow_decay").map(|(_, _, _, d)| *d).unwrap_or(0.0);
+    let aggressive_decay = results_table
+        .iter()
+        .find(|(n, ..)| n == "aggressive")
+        .map(|(_, _, _, d)| *d)
+        .unwrap_or(0.0);
+    let defaults_decay = results_table
+        .iter()
+        .find(|(n, ..)| n == "defaults")
+        .map(|(_, _, _, d)| *d)
+        .unwrap_or(0.0);
+    let conservative_decay = results_table
+        .iter()
+        .find(|(n, ..)| n == "conservative")
+        .map(|(_, _, _, d)| *d)
+        .unwrap_or(0.0);
+    let slow_decay = results_table
+        .iter()
+        .find(|(n, ..)| n == "slow_decay")
+        .map(|(_, _, _, d)| *d)
+        .unwrap_or(0.0);
 
     assert!(
         aggressive_decay >= defaults_decay,
@@ -6737,7 +6862,11 @@ fn o2_5_post_consolidation_recall_ab_test() {
     let pre = [query(5), query(8), query(10), query(12), query(20)];
     let pre_total: usize = pre.iter().sum();
     // Sanity: at least the smallest query returns something.
-    assert!(pre[0] >= 1, "pre-consolidation baseline empty at limit=5; got {}", pre[0]);
+    assert!(
+        pre[0] >= 1,
+        "pre-consolidation baseline empty at limit=5; got {}",
+        pre[0]
+    );
 
     // (c) Record retrieval events twice so the entity hits min_events=2.
     state
@@ -6806,8 +6935,7 @@ fn o2_5_post_consolidation_recall_ab_test() {
 
     println!(
         "\nO2.5 A/B Recall: pre=[{},{},{},{},{}] post=[{},{},{},{},{}] total {pre_total}->{post_total}",
-        pre[0], pre[1], pre[2], pre[3], pre[4],
-        post[0], post[1], post[2], post[3], post[4],
+        pre[0], pre[1], pre[2], pre[3], pre[4], post[0], post[1], post[2], post[3], post[4],
     );
 
     std::fs::remove_dir_all(dir).expect("cleanup o2-5-recall-ab");
@@ -6821,8 +6949,14 @@ fn p2_compaction_quality_report_includes_per_kind_chars() {
     // Store items of different kinds
     let kinds_and_content = vec![
         (MemoryKind::Fact, "The earth revolves around the sun"),
-        (MemoryKind::Decision, "We chose Rust for memory safety and performance"),
-        (MemoryKind::Preference, "User prefers dark mode in the dashboard"),
+        (
+            MemoryKind::Decision,
+            "We chose Rust for memory safety and performance",
+        ),
+        (
+            MemoryKind::Preference,
+            "User prefers dark mode in the dashboard",
+        ),
         (MemoryKind::Status, "M3 phase P2 is in progress"),
     ];
 
@@ -6862,10 +6996,7 @@ fn p2_compaction_quality_report_includes_per_kind_chars() {
         .compaction_quality
         .expect("compaction quality report must exist");
 
-    assert!(
-        cq.admitted > 0,
-        "at least one item should be admitted"
-    );
+    assert!(cq.admitted > 0, "at least one item should be admitted");
     assert!(
         !cq.per_kind_admitted.is_empty(),
         "per_kind_admitted should have entries"
@@ -6884,10 +7015,7 @@ fn p2_compaction_quality_report_includes_per_kind_chars() {
     }
 
     // Verify budget utilization
-    assert!(
-        cq.budget_chars > 0,
-        "budget_chars should be positive"
-    );
+    assert!(cq.budget_chars > 0, "budget_chars should be positive");
     assert!(
         cq.used_chars <= cq.budget_chars,
         "used_chars ({}) should not exceed budget_chars ({})",
@@ -6969,7 +7097,11 @@ fn working_memory_retrieval_p95_under_100ms() {
     }
 
     let snap = state.latency.snapshot();
-    assert!(snap.total >= 20, "expected 20 recorded samples, got {}", snap.total);
+    assert!(
+        snap.total >= 20,
+        "expected 20 recorded samples, got {}",
+        snap.total
+    );
 
     // Debug builds run SQLite-bound paths roughly 5-10x slower than release,
     // so the hard 100ms gate only fires in release/CI. Debug gets a looser
@@ -7072,7 +7204,10 @@ fn l2_1_lamport_version_increments_on_mutation_and_rejects_stale_imports() {
         .update(&mutated, &ck2, &rk2)
         .expect("update item");
     assert_eq!(
-        state.store.get_version(id).expect("read version after update"),
+        state
+            .store
+            .get_version(id)
+            .expect("read version after update"),
         Some(2),
         "update bumps Lamport version by 1"
     );
@@ -7108,7 +7243,10 @@ fn l2_1_lamport_version_increments_on_mutation_and_rejects_stale_imports() {
         .expect("import fresh");
     assert_eq!(outcome, crate::store::ImportOutcome::Applied);
     assert_eq!(
-        state.store.get_version(id).expect("read version post-import"),
+        state
+            .store
+            .get_version(id)
+            .expect("read version post-import"),
         Some(5),
         "accepted import preserves incoming version exactly"
     );
@@ -7337,12 +7475,60 @@ fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
     }
 
     // (a) Harness A: 3 facts + 2 decisions + 1 procedure candidate.
-    let a_fact_1 = seed_as(&store, "codex@A", MemoryKind::Fact, "hive uses Lamport clocks", &project, &namespace, &workspace);
-    let a_fact_2 = seed_as(&store, "codex@A", MemoryKind::Fact, "writes retry under WAL", &project, &namespace, &workspace);
-    let a_fact_3 = seed_as(&store, "codex@A", MemoryKind::Fact, "procedural memory is 8-slot bounded", &project, &namespace, &workspace);
-    let a_dec_1 = seed_as(&store, "codex@A", MemoryKind::Decision, "adopt FTS5 for search", &project, &namespace, &workspace);
-    let a_dec_2 = seed_as(&store, "codex@A", MemoryKind::Decision, "use SQLite online backup for snapshots", &project, &namespace, &workspace);
-    let a_proc_seed = seed_as(&store, "codex@A", MemoryKind::Procedural, "when tests fail intermittently, check busy_timeout", &project, &namespace, &workspace);
+    let a_fact_1 = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Fact,
+        "hive uses Lamport clocks",
+        &project,
+        &namespace,
+        &workspace,
+    );
+    let a_fact_2 = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Fact,
+        "writes retry under WAL",
+        &project,
+        &namespace,
+        &workspace,
+    );
+    let a_fact_3 = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Fact,
+        "procedural memory is 8-slot bounded",
+        &project,
+        &namespace,
+        &workspace,
+    );
+    let a_dec_1 = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Decision,
+        "adopt FTS5 for search",
+        &project,
+        &namespace,
+        &workspace,
+    );
+    let a_dec_2 = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Decision,
+        "use SQLite online backup for snapshots",
+        &project,
+        &namespace,
+        &workspace,
+    );
+    let a_proc_seed = seed_as(
+        &store,
+        "codex@A",
+        MemoryKind::Procedural,
+        "when tests fail intermittently, check busy_timeout",
+        &project,
+        &namespace,
+        &workspace,
+    );
 
     // (b) Build a handoff packet from A. Snapshot carries working records +
     //     unresolved procedure candidate.
@@ -7414,7 +7600,12 @@ fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
         assert_eq!(row.content, rec.record);
     }
     assert_eq!(
-        packet.working_context.as_ref().unwrap().working_records.len(),
+        packet
+            .working_context
+            .as_ref()
+            .unwrap()
+            .working_records
+            .len(),
         5,
         "3 facts + 2 decisions"
     );
@@ -7478,7 +7669,14 @@ fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
     assert!(new_dec_visible, "A must see B's newly added decision");
 
     // And the originals remain reachable so the supersedes chain works.
-    for original in [&a_fact_1, &a_fact_2, &a_fact_3, &a_dec_1, &a_dec_2, &a_proc_seed] {
+    for original in [
+        &a_fact_1,
+        &a_fact_2,
+        &a_fact_3,
+        &a_dec_1,
+        &a_dec_2,
+        &a_proc_seed,
+    ] {
         let found = all_items.iter().any(|i| i.id == original.id);
         assert!(found, "original item {} still in shared store", original.id);
     }

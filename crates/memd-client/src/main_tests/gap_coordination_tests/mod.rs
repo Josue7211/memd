@@ -156,8 +156,9 @@ fn describes_eval_changes_against_baseline() {
         recent_repo_changes: vec!["repo clean".to_string()],
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -348,8 +349,8 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
                         tags: Vec::new(),
                         status: memd_schema::MemoryStatus::Active,
                         stage: memd_schema::MemoryStage::Candidate,
-                    lane: None,
-                    version: 1,
+                        lane: None,
+                        version: 1,
                     },
                     reasons: Vec::new(),
                 };
@@ -371,8 +372,9 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
         recent_repo_changes: vec!["repo clean".to_string()],
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     };
 
     let recommendations = build_eval_recommendations(&snapshot, 62);

@@ -4,15 +4,14 @@ mod errors;
 mod helpers;
 mod inspection;
 mod keys;
-mod procedural;
-mod repair;
 mod latency;
+mod procedural;
 mod rate_limit;
+mod repair;
 mod routes;
 mod routing;
 mod status;
 mod store;
-mod token_headers;
 mod store_entities;
 mod store_hive;
 mod store_hive_lifecycle;
@@ -20,6 +19,7 @@ mod store_ingestion;
 mod store_migrations;
 mod store_runtime_maintenance;
 mod store_skill_policy;
+mod token_headers;
 mod ui;
 mod working;
 
@@ -41,9 +41,6 @@ use axum::{
     response::Html,
     routing::{get, post},
 };
-use tower_http::trace::TraceLayer;
-use tracing::{error, warn};
-use tracing_subscriber::EnvFilter;
 use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
 use memd_schema::{
@@ -53,12 +50,12 @@ use memd_schema::{
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
-    CorrectMemoryRequest, CorrectMemoryResponse, DivergenceRequest, DivergenceSummary,
-    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest, EntityLinksResponse,
-    EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit, EntitySearchRequest,
-    EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse, ExplainMemoryRequest,
-    ExplainMemoryResponse, HealthResponse, PressureMetrics, HiveBoardRequest, HiveBoardResponse,
-    HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
+    CorrectMemoryRequest, CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest,
+    DivergenceSummary, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
+    EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
+    ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
     HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
     HiveCoordinationInboxResponse, HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
     HiveCoordinationReceiptsResponse, HiveFollowRequest, HiveFollowResponse, HiveMessageAckRequest,
@@ -67,16 +64,15 @@ use memd_schema::{
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
-    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
-    MaintainReport, MaintainReportRequest,
-    MemoryConsolidationRequest, MemoryConsolidationResponse, MemoryContextFrame,
-    DecayDiagnosticsResponse,
-    MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest, MemoryDrainResponse,
-    MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryInboxRequest,
-    MemoryInboxResponse, MemoryItem, MemoryKind, MemoryMaintenanceReportRequest,
-    MemoryMaintenanceReportResponse, MemoryPolicyResponse, MemoryScope, MemoryStage, MemoryStatus,
-    MemoryVisibility, ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest,
-    ProcedureListResponse, ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
+    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse, MaintainReport,
+    MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
+    MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
+    MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord,
+    MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
+    MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PressureMetrics,
+    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
+    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
     ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
     ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
     PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
@@ -91,6 +87,9 @@ use memd_schema::{
 };
 pub(crate) use routing::RetrievalPlan;
 use serde::Deserialize;
+use tower_http::trace::TraceLayer;
+use tracing::{error, warn};
+use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -108,7 +107,9 @@ impl AppState {
     ) -> anyhow::Result<(MemoryItem, Option<DuplicateMatch>)> {
         validate_source_quality(req.source_quality)?;
         let now = Utc::now();
-        let lane = req.lane.or_else(|| detect_content_lane(&req.content, req.source_path.as_deref(), &req.tags));
+        let lane = req
+            .lane
+            .or_else(|| detect_content_lane(&req.content, req.source_path.as_deref(), &req.tags));
         let item = MemoryItem {
             id: Uuid::new_v4(),
             content: req.content.trim().to_string(),
@@ -174,8 +175,7 @@ impl AppState {
                 .redundancy_key
                 .as_deref()
                 .unwrap_or(&redundancy_key);
-            self.store
-                .update(&reinforced, &canonical_key, rk)?;
+            self.store.update(&reinforced, &canonical_key, rk)?;
             if let Err(e) = self.record_item_event(
                 &reinforced,
                 "reinforced",
@@ -337,8 +337,7 @@ impl AppState {
                     entity_id: source_entity.id,
                 })?;
                 let already_linked = existing.iter().any(|link| {
-                    link.from_entity_id == target_entity.id
-                        || link.to_entity_id == target_entity.id
+                    link.from_entity_id == target_entity.id || link.to_entity_id == target_entity.id
                 });
                 if already_linked {
                     continue;
@@ -548,10 +547,7 @@ fn handle_cli_subcommand(db_path: &str) -> Option<i32> {
                 error!("restore requires a snapshot path argument");
                 return Some(2);
             };
-            match backup::restore_from(
-                std::path::Path::new(&src),
-                std::path::Path::new(db_path),
-            ) {
+            match backup::restore_from(std::path::Path::new(&src), std::path::Path::new(db_path)) {
                 Ok(()) => {
                     println!("restore: {} -> {}", src, db_path);
                     Some(0)

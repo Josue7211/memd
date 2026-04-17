@@ -204,8 +204,8 @@ pub(crate) fn migrate_visibility_column(conn: &Connection) -> anyhow::Result<()>
         })?;
         for row in rows {
             let (id, payload) = row?;
-            let parsed: serde_json::Value =
-                serde_json::from_str(&payload).context("parse payload_json for visibility backfill")?;
+            let parsed: serde_json::Value = serde_json::from_str(&payload)
+                .context("parse payload_json for visibility backfill")?;
             if let Some(vis) = parsed.get("visibility").and_then(|v| v.as_str()) {
                 // Only update if explicitly set and different from default.
                 // Store as JSON-quoted string to match INSERT/UPDATE format.
@@ -258,9 +258,7 @@ pub(crate) fn migrate_lane_column(conn: &Connection) -> anyhow::Result<()> {
 
     if !columns.iter().any(|column| column == "lane") {
         conn.execute_batch("ALTER TABLE memory_items ADD COLUMN lane TEXT;")?;
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_memory_lane ON memory_items(lane);",
-        )?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_memory_lane ON memory_items(lane);")?;
     }
 
     Ok(())

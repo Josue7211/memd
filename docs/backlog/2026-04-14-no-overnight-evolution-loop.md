@@ -2,7 +2,7 @@
 
 - status: `open`
 - severity: `high`
-- phase: `V2-M2`
+- phase: `V2-M2-evo`
 - opened: `2026-04-14`
 - scope: memd-core
 

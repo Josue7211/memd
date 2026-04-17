@@ -1274,8 +1274,8 @@ mod tests {
 
     #[test]
     fn git_auto_commit_clean_tree_returns_none() {
-        let temp_root = std::env::temp_dir()
-            .join(format!("memd-auto-commit-clean-{}", uuid::Uuid::new_v4()));
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-auto-commit-clean-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
         // Init a git repo with one commit
@@ -1317,8 +1317,8 @@ mod tests {
 
     #[test]
     fn git_auto_commit_dirty_tree_commits_and_returns_hash() {
-        let temp_root = std::env::temp_dir()
-            .join(format!("memd-auto-commit-test-{}", uuid::Uuid::new_v4()));
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-auto-commit-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
         // Init a git repo
@@ -1358,8 +1358,7 @@ mod tests {
         fs::write(&file_path, "modified").expect("modify file");
 
         // Pass explicit repo root — no set_current_dir needed
-        let result =
-            git_auto_commit_if_dirty_in("test: auto-commit dirty tree", Some(&temp_root));
+        let result = git_auto_commit_if_dirty_in("test: auto-commit dirty tree", Some(&temp_root));
 
         assert!(result.is_ok());
         let hash = result.unwrap();
@@ -1371,10 +1370,8 @@ mod tests {
 
     #[test]
     fn update_roadmap_state_patches_existing_keys() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "memd-roadmap-state-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-roadmap-state-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
         // Write a ROADMAP.md with a state block (no git needed — pass explicit path)
@@ -1422,10 +1419,8 @@ note: O2 done
 
     #[test]
     fn update_roadmap_state_appends_new_keys() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "memd-roadmap-append-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-roadmap-append-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
         let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";
@@ -1449,10 +1444,8 @@ note: O2 done
 
     #[test]
     fn update_roadmap_state_no_changes_returns_false() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "memd-roadmap-noop-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_root =
+            std::env::temp_dir().join(format!("memd-roadmap-noop-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_root).expect("create temp dir");
 
         let roadmap = "<!-- ROADMAP_STATE\ncurrent_phase: O2\n-->\n";

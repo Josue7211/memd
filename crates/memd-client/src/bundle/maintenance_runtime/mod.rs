@@ -777,7 +777,10 @@ pub(crate) async fn refresh_live_truth(output: &Path, base_url: &str) -> anyhow:
                 updated.insert(rel, hash);
             }
             Err(e) => {
-                eprintln!("warn: refresh_live_truth store failed for {}: {e:#}", entry.display());
+                eprintln!(
+                    "warn: refresh_live_truth store failed for {}: {e:#}",
+                    entry.display()
+                );
             }
         }
     }

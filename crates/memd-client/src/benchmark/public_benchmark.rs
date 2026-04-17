@@ -1441,9 +1441,9 @@ pub(crate) fn build_public_benchmark_retrieval_config(
         "lexical" => LongMemEvalRetrievalBackend::Lexical,
         "sidecar" => LongMemEvalRetrievalBackend::Sidecar,
         "rrf" => LongMemEvalRetrievalBackend::Rrf,
-        other => anyhow::bail!(
-            "invalid retrieval backend `{other}`; expected lexical, sidecar, or rrf"
-        ),
+        other => {
+            anyhow::bail!("invalid retrieval backend `{other}`; expected lexical, sidecar, or rrf")
+        }
     };
 
     let sidecar_base_url = if longmemeval_backend == LongMemEvalRetrievalBackend::Sidecar {
@@ -1640,16 +1640,14 @@ pub(crate) fn rank_longmemeval_corpus_via_rrf(
 /// Create a temp SQLite DB with FTS5, index the corpus, query it, return
 /// ranked corpus indices.
 fn build_ephemeral_fts_ranking(query: &str, corpus: &[String]) -> anyhow::Result<Vec<usize>> {
-    let conn = rusqlite::Connection::open_in_memory()
-        .context("open ephemeral fts db")?;
+    let conn = rusqlite::Connection::open_in_memory().context("open ephemeral fts db")?;
     conn.execute_batch(
         "CREATE VIRTUAL TABLE corpus_fts USING fts5(content, doc_index UNINDEXED);",
     )?;
 
     {
-        let mut stmt = conn.prepare(
-            "INSERT INTO corpus_fts(doc_index, content) VALUES (?1, ?2)",
-        )?;
+        let mut stmt =
+            conn.prepare("INSERT INTO corpus_fts(doc_index, content) VALUES (?1, ?2)")?;
         for (index, doc) in corpus.iter().enumerate() {
             stmt.execute(rusqlite::params![index as i64, doc])?;
         }
@@ -1658,10 +1656,9 @@ fn build_ephemeral_fts_ranking(query: &str, corpus: &[String]) -> anyhow::Result
     let mut stmt = conn.prepare(
         "SELECT doc_index FROM corpus_fts WHERE corpus_fts MATCH ?1 ORDER BY rank LIMIT ?2",
     )?;
-    let rows = stmt
-        .query_map(rusqlite::params![query, corpus.len() as i64], |row| {
-            row.get::<_, i64>(0)
-        })?;
+    let rows = stmt.query_map(rusqlite::params![query, corpus.len() as i64], |row| {
+        row.get::<_, i64>(0)
+    })?;
 
     let mut ranked = Vec::new();
     for row in rows {

@@ -1062,10 +1062,7 @@ async fn run_diagnostics_report(
     };
 
     // 3. Fetch health for compaction/consolidation info
-    let health_resp = client
-        .get(format!("{base_url}/healthz"))
-        .send()
-        .await;
+    let health_resp = client.get(format!("{base_url}/healthz")).send().await;
 
     let health: Option<serde_json::Value> = match health_resp {
         Ok(r) if r.status().is_success() => r.json().await.ok(),
@@ -1091,7 +1088,10 @@ async fn run_diagnostics_report(
     } else {
         println!("# memd Diagnostics Report");
         println!();
-        println!("Timestamp: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+        println!(
+            "Timestamp: {}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        );
         println!();
 
         // Token efficiency section
@@ -1130,13 +1130,41 @@ async fn run_diagnostics_report(
         println!("## 2. Decay Diagnostics");
         if let Some(ref decay) = decay_report {
             if let Some(metrics) = decay.get("metrics") {
-                println!("- Items inspected: {}", metrics.get("items_inspected").unwrap_or(&serde_json::Value::Null));
-                println!("- Items decayed: {}", metrics.get("items_decayed").unwrap_or(&serde_json::Value::Null));
-                println!("- Items expired: {}", metrics.get("items_expired").unwrap_or(&serde_json::Value::Null));
+                println!(
+                    "- Items inspected: {}",
+                    metrics
+                        .get("items_inspected")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
+                println!(
+                    "- Items decayed: {}",
+                    metrics
+                        .get("items_decayed")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
+                println!(
+                    "- Items expired: {}",
+                    metrics
+                        .get("items_expired")
+                        .unwrap_or(&serde_json::Value::Null)
+                );
             }
-            println!("- Inactive days: {}", decay.get("inactive_days").unwrap_or(&serde_json::Value::Null));
-            println!("- Max decay: {}", decay.get("max_decay").unwrap_or(&serde_json::Value::Null));
-            println!("- Decay divisor: {}", decay.get("decay_divisor").unwrap_or(&serde_json::Value::Null));
+            println!(
+                "- Inactive days: {}",
+                decay
+                    .get("inactive_days")
+                    .unwrap_or(&serde_json::Value::Null)
+            );
+            println!(
+                "- Max decay: {}",
+                decay.get("max_decay").unwrap_or(&serde_json::Value::Null)
+            );
+            println!(
+                "- Decay divisor: {}",
+                decay
+                    .get("decay_divisor")
+                    .unwrap_or(&serde_json::Value::Null)
+            );
         } else {
             println!("- N/A (server unreachable or no data)");
         }
@@ -1145,7 +1173,10 @@ async fn run_diagnostics_report(
         // Health section
         println!("## 3. System Health");
         if let Some(ref h) = health {
-            println!("- Status: {}", h.get("status").unwrap_or(&serde_json::Value::Null));
+            println!(
+                "- Status: {}",
+                h.get("status").unwrap_or(&serde_json::Value::Null)
+            );
             if let Some(items) = h.get("item_count") {
                 println!("- Total items: {}", items);
             }
@@ -1163,12 +1194,26 @@ async fn run_diagnostics_report(
         let te_wake_ok = wake_token_report.is_some();
         let decay_ok = decay_report.is_some();
         let health_ok = health.is_some();
-        println!("- [{}] Token efficiency: working_memory (per-kind, server)", if te_wm_ok { "✓" } else { " " });
-        println!("- [{}] Token efficiency: wake (per-kind, bundle)", if te_wake_ok { "✓" } else { " " });
-        println!("- [{}] Decay diagnostics (calibrated parameters)", if decay_ok { "✓" } else { " " });
-        println!("- [{}] System health (item/entity counts)", if health_ok { "✓" } else { " " });
+        println!(
+            "- [{}] Token efficiency: working_memory (per-kind, server)",
+            if te_wm_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] Token efficiency: wake (per-kind, bundle)",
+            if te_wake_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] Decay diagnostics (calibrated parameters)",
+            if decay_ok { "✓" } else { " " }
+        );
+        println!(
+            "- [{}] System health (item/entity counts)",
+            if health_ok { "✓" } else { " " }
+        );
         println!("- [✓] Compaction quality (per working memory build — CompactionQualityReport)");
-        println!("- [✓] Handoff quality (per resume — HandoffQualityScore from CompactionQualityReport)");
+        println!(
+            "- [✓] Handoff quality (per resume — HandoffQualityScore from CompactionQualityReport)"
+        );
         println!("- [ ] Benchmark results (run `memd benchmark public --ci --record`)");
     }
 

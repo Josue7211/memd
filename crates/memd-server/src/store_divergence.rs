@@ -42,10 +42,14 @@ impl SqliteStore {
 
         let mut by_branch: std::collections::BTreeMap<String, Vec<DivergenceDecision>> =
             std::collections::BTreeMap::new();
-        let mut branch_last_seen: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>> =
-            std::collections::BTreeMap::new();
-        let mut normalized_seen: std::collections::BTreeMap<String, std::collections::HashSet<String>> =
-            std::collections::BTreeMap::new();
+        let mut branch_last_seen: std::collections::BTreeMap<
+            String,
+            chrono::DateTime<chrono::Utc>,
+        > = std::collections::BTreeMap::new();
+        let mut normalized_seen: std::collections::BTreeMap<
+            String,
+            std::collections::HashSet<String>,
+        > = std::collections::BTreeMap::new();
         for row in rows {
             let (_id_raw, payload, _updated_raw) = row.context("read divergence row")?;
             let item: MemoryItem = match serde_json::from_str(&payload) {

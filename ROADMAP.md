@@ -12,7 +12,7 @@ current_phase: I2
 phase_status: pending
 next_milestone: M4
 next_step: I2.2 fix EntitySearchResult type mismatch (graph page crash)
-active_blockers: [memd-preferences-not-persisted-across-sessions, hive-handoff-accepts-ephemeral-proof-sessions]
+active_blockers: [memd-preferences-not-persisted-across-sessions, working-memory-stale-records, pipeline-lifecycle-broken, hive-handoff-accepts-ephemeral-proof-sessions]
 v1_status: frozen_architecture_complete
 note: M4 in progress on research/mining. K2 complete (10/10 on main, last 235d959). L2 complete (9/9 on research/mining, last 7ce2b7c). Tests: 190 server + 430 client. Next up: I2 (Human Dashboard, 11 substeps). See docs/handoff/2026-04-16-L2-complete-next-I2.md.
 -->
@@ -39,8 +39,8 @@ note: M4 in progress on research/mining. K2 complete (10/10 on main, last 235d95
 ## Blockers
 
 - **memd-preferences-not-persisted-across-sessions** (critical, core): Agents don't retain architecture decisions or workflow conventions across sessions. This breaks memd's core value prop. See `docs/backlog/2026-04-15-memd-preferences-not-persisted-across-sessions.md`.
-- **working-memory-stale-records** (critical, core): Completed phase status (B2) still occupies working memory slots weeks after verification. Expiry pipeline never runs on phase completion. Stale records eat budget that should hold architecture decisions.
-- **pipeline-lifecycle-broken** (critical, core): promote/expire/archive lifecycle doesn't execute in production. M1 gate tested store→recall on a single fact but never tested lifecycle. Records accumulate forever, working memory fills with noise.
+- **working-memory-stale-records** (critical, core): Completed phase status (B2) still occupies working memory slots weeks after verification. Expiry pipeline never runs on phase completion. Stale records eat budget that should hold architecture decisions. See `docs/backlog/2026-04-16-working-memory-stale-records.md`.
+- **pipeline-lifecycle-broken** (critical, core): promote/expire/archive lifecycle doesn't execute in production. M1 gate tested store→recall on a single fact but never tested lifecycle. Records accumulate forever, working memory fills with noise. See `docs/backlog/2026-04-16-pipeline-lifecycle-broken.md`.
 
 ## Process
 
@@ -175,6 +175,11 @@ Product gaps. Dashboard last.
 | N2 | Integrations Polish | `pending` | 26, 29, 30, 31 | [[phase-n2-integrations-polish]] | [[memd-theory-lock-v1]] |
 
 **M4 progress (2026-04-16)**: `K2` complete on `main` — 10/10 substeps (structured tracing, error classes, `memd explain`, tag search, spine integrity, latency SLA, backup/restore, schema-migration backcompat, `HarnessStatus`, per-response token headers). `L2` complete on `research/mining` — 9/9 substeps (queen deny/reroute/handoff Lamport lock, `WorkingContextSnapshot` in handoff packet, `/hive/divergence`, per-agent write rate limit 100 soft / 200 hard per 60s, 10×100 concurrent-write stress, cross-harness E2E A→B→A with corrections, 0.8 composite handoff-quality gate). Tests at L2 exit: 190 server + 430 client. Handoff: `docs/handoff/2026-04-16-L2-complete-next-I2.md`.
+
+**Open backlog map (pending phases + active blockers)**:
+- `I2`: `2026-04-16-no-human-surface-dashboard-ui`, `2026-04-15-dashboard-not-served-from-memd-server`, `2026-04-15-graph-page-crash-entity-search-type-mismatch`, `2026-04-15-memory-entity-record-type-mismatch`, `2026-04-15-dashboard-env-hardcoded-tailscale-ip`, `2026-04-15-memd-preferences-not-persisted-across-sessions`
+- `M2-evo`: `2026-04-14-no-overnight-evolution-loop`, `2026-04-14-no-live-memory-contract`, `2026-04-16-working-memory-stale-records`, `2026-04-16-pipeline-lifecycle-broken`
+- `N2`: `2026-04-14-skill-gating-config-flags-only`, `2026-04-14-rag-sidecar-disabled-no-fallback`, `2026-04-14-no-data-recovery-procedure`, `2026-04-14-no-admission-control-rate-limiting`
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-4]]

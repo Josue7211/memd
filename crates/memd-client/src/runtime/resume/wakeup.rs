@@ -174,10 +174,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
         let total = snapshot.context.records.len();
         if total > limit {
-            prefix.push_str(&format!(
-                "- + {} more via `memd lookup`\n",
-                total - limit
-            ));
+            prefix.push_str(&format!("- + {} more via `memd lookup`\n", total - limit));
         }
         prefix.push('\n');
     }
@@ -546,8 +543,9 @@ mod tests {
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         }
     }
 
@@ -647,8 +645,8 @@ mod tests {
                             created_at: Utc::now(),
                             status: memd_schema::MemoryStatus::Active,
                             stage: memd_schema::MemoryStage::Candidate,
-                    lane: None,
-                    version: 1,
+                            lane: None,
+                            version: 1,
                             last_verified_at: None,
                             supersedes: Vec::new(),
                             updated_at: Utc::now(),
@@ -700,8 +698,9 @@ mod tests {
                 "next=refresh from bundle".to_string(),
             ],
             resume_state_age_minutes: Some(25),
-            refresh_recommended: true, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: true,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         }
     }
 

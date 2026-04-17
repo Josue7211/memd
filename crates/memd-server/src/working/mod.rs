@@ -2,7 +2,10 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::{AppState, BuildContextResult, build_context, compact_record, internal_error, store_entities::trust_rank};
+use crate::{
+    AppState, BuildContextResult, build_context, compact_record, internal_error,
+    store_entities::trust_rank,
+};
 use memd_schema::{
     AgentProfileRequest, CompactMemoryRecord, CompactionQualityReport, ContextRequest,
     MemoryConsolidationRequest, MemoryEntityRecord, MemoryKind, MemoryPolicyConsolidation,
@@ -122,7 +125,8 @@ pub(crate) fn working_memory(
 
     // G2: lane diversity — track lane counts, defer items from overrepresented lanes.
     let lane_diversity_cap = 5usize; // max items from a single lane before deferral
-    let mut lane_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut lane_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut deferred: Vec<(usize, &str, &str)> = Vec::new(); // (index, record, reasons)
 
     for (index, (item_id, record, reasons)) in compacted_records.iter().enumerate() {
@@ -662,8 +666,8 @@ mod tests {
             tags: vec![],
             status,
             stage: memd_schema::MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         }
     }
 
@@ -824,10 +828,8 @@ mod tests {
             now - chrono::Duration::days(10),
         );
 
-        let (lane_score, _) =
-            working_item_priority(&with_lane, None, 0.7, 0.6, now, None);
-        let (no_lane_score, _) =
-            working_item_priority(&without_lane, None, 0.7, 0.6, now, None);
+        let (lane_score, _) = working_item_priority(&with_lane, None, 0.7, 0.6, now, None);
+        let (no_lane_score, _) = working_item_priority(&without_lane, None, 0.7, 0.6, now, None);
 
         // With no query context, lane items still get the flat +0.06 boost
         assert!(

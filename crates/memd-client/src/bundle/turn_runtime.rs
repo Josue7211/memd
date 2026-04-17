@@ -100,11 +100,8 @@ pub(crate) async fn run_bundle_wake_command(args: &WakeArgs, base_url: &str) -> 
         Err(err) => return Err(err),
     };
     let wakeup = render_bundle_wakeup_markdown(&args.output, &snapshot, args.verbose);
-    let wake_token_metrics = crate::runtime::compute_wake_token_metrics(
-        &args.output,
-        &snapshot,
-        &wakeup,
-    );
+    let wake_token_metrics =
+        crate::runtime::compute_wake_token_metrics(&args.output, &snapshot, &wakeup);
     if args.write {
         write_bundle_memory_files(&args.output, &snapshot, None, false).await?;
         auto_checkpoint_live_snapshot(&args.output, base_url, &snapshot, "wake").await?;

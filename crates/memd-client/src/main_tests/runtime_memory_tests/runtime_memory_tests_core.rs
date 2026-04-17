@@ -122,8 +122,8 @@ fn lookup_markdown_mentions_pre_answer_protocol() {
             tags: vec!["10-star".to_string()],
             status: memd_schema::MemoryStatus::Active,
             stage: memd_schema::MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         }],
     };
 
@@ -430,8 +430,9 @@ fn resume_prompt_surfaces_current_task_snapshot() {
         recent_repo_changes: vec!["repo clean".to_string()],
         change_summary: Vec::new(),
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     };
 
     let base = snapshot;

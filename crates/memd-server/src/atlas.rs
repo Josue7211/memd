@@ -712,10 +712,7 @@ impl SqliteStore {
         )?;
         let events = stmt
             .query_map(params![item_id.to_string()], |row| row.get::<_, String>(0))?
-            .filter_map(|r| {
-                r.inspect_err(|e| warn!(error = %e, "event row read"))
-                    .ok()
-            })
+            .filter_map(|r| r.inspect_err(|e| warn!(error = %e, "event row read")).ok())
             .filter_map(|json| {
                 serde_json::from_str::<MemoryEventRecord>(&json)
                     .inspect_err(|e| warn!(error = %e, "event json parse"))

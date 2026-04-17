@@ -3,21 +3,22 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use memd_schema::{
-    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, DivergenceBranch,
-    DivergenceDecision, DivergenceRequest, DivergenceSummary, EntityLinkRequest,
-    EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest, HiveBoardResponse,
-    HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest, HiveClaimReleaseRequest,
-    HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse, HiveCoordinationInboxRequest,
-    HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord, HiveCoordinationReceiptRequest,
-    HiveCoordinationReceiptsRequest, HiveCoordinationReceiptsResponse, HiveMessageAckRequest,
-    HiveMessageInboxRequest, HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse,
-    HiveRosterResponse, HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
+    AgentProfileRequest, AgentProfileUpsertRequest, CoordinationMode, DecayAgeDistribution,
+    DecayRunMetrics, DivergenceBranch, DivergenceDecision, DivergenceRequest, DivergenceSummary,
+    EntityLinkRequest, EntityLinksRequest, EntitySearchHit, EntitySearchRequest, HiveBoardRequest,
+    HiveBoardResponse, HiveClaimAcquireRequest, HiveClaimRecord, HiveClaimRecoverRequest,
+    HiveClaimReleaseRequest, HiveClaimTransferRequest, HiveClaimsRequest, HiveClaimsResponse,
+    HiveCoordinationInboxRequest, HiveCoordinationInboxResponse, HiveCoordinationReceiptRecord,
+    HiveCoordinationReceiptRequest, HiveCoordinationReceiptsRequest,
+    HiveCoordinationReceiptsResponse, HiveMessageAckRequest, HiveMessageInboxRequest,
+    HiveMessageRecord, HiveMessageSendRequest, HiveMessagesResponse, HiveRosterResponse,
+    HiveSessionRecord, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskRecord, HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, MemoryAgentProfile,
-    DecayAgeDistribution, DecayRunMetrics, MemoryConsolidationRequest, MemoryContextFrame,
-    MemoryDecayRequest, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord, MemoryItem,
-    SalienceHistogram, SourceMemoryRecord, SourceMemoryRequest,
-    SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    MemoryConsolidationRequest, MemoryContextFrame, MemoryDecayRequest, MemoryEntityLinkRecord,
+    MemoryEntityRecord, MemoryEventRecord, MemoryItem, SalienceHistogram, SourceMemoryRecord,
+    SourceMemoryRequest, SourceMemoryResponse, WorkspaceMemoryRecord, WorkspaceMemoryRequest,
+    WorkspaceMemoryResponse,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
@@ -35,8 +36,7 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_redundancy_key, migrate_version_column,
-    migrate_visibility_column,
+    migrate_lane_column, migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -619,7 +619,8 @@ impl SqliteStore {
                 item.updated_at.to_rfc3339(),
                 &payload_json,
                 item.lane,
-                serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
+                serde_json::to_string(&item.visibility)
+                    .unwrap_or_else(|_| "\"workspace\"".to_string()),
             ],
         );
 
@@ -676,7 +677,8 @@ impl SqliteStore {
                         canonical_key,
                         item.updated_at.to_rfc3339(),
                         &payload_json,
-                        serde_json::to_string(&item.visibility).unwrap_or_else(|_| "\"workspace\"".to_string()),
+                        serde_json::to_string(&item.visibility)
+                            .unwrap_or_else(|_| "\"workspace\"".to_string()),
                     ],
                 )
                 .context("merge duplicate memory item")?;
@@ -724,8 +726,7 @@ impl SqliteStore {
                 });
             }
 
-            let payload_json =
-                serde_json::to_string(item).context("serialize imported item")?;
+            let payload_json = serde_json::to_string(item).context("serialize imported item")?;
             let kind = serde_json::to_string(&item.kind).context("serialize kind")?;
             let scope = serde_json::to_string(&item.scope).context("serialize scope")?;
             let stage = serde_json::to_string(&item.stage).context("serialize stage")?;
@@ -894,7 +895,8 @@ impl SqliteStore {
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay <= 0.001 {
                 continue;
             }
@@ -1014,7 +1016,8 @@ impl SqliteStore {
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay > 0.001 {
                 updated += 1;
             }
@@ -1025,7 +1028,10 @@ impl SqliteStore {
 
     /// Read-only decay simulation: scans entities and returns metrics without modifying anything.
     /// Used by the `/api/diagnostics/decay` endpoint.
-    pub fn decay_diagnostics(&self, request: &MemoryDecayRequest) -> anyhow::Result<DecayRunMetrics> {
+    pub fn decay_diagnostics(
+        &self,
+        request: &MemoryDecayRequest,
+    ) -> anyhow::Result<DecayRunMetrics> {
         let max_items = request.max_items.unwrap_or(128).min(1_000);
         let inactive_days = request.inactive_days.unwrap_or(21).max(1);
         let max_decay = request.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
@@ -1090,7 +1096,8 @@ impl SqliteStore {
 
             let inactive_days_over = (idle_days - inactive_days) as f32;
             let rehearsal_factor = 1.0 / ((entity.rehearsal_count as f32 + 1.0).ln_1p() + 1.0);
-            let decay = (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
+            let decay =
+                (inactive_days_over / decay_divisor).min(1.0) * max_decay * rehearsal_factor;
             if decay <= 0.001 {
                 continue;
             }
@@ -1976,9 +1983,7 @@ impl SqliteStore {
             )
             .context("prepare spine verify query")?;
 
-        let mut rows = stmt
-            .query([])
-            .context("execute spine verify query")?;
+        let mut rows = stmt.query([]).context("execute spine verify query")?;
 
         let mut scanned: u64 = 0;
         let mut violations: u64 = 0;

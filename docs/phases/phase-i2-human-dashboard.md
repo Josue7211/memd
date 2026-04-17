@@ -2,9 +2,10 @@
 phase: I2
 name: Human Dashboard
 version: v2
-status: in_progress
+status: pending
 depends_on: [D2, E2, G2]
 backlog_items:
+  - "2026-04-16-no-human-surface-dashboard-ui"
   - "2026-04-15-dashboard-not-served-from-memd-server"
   - "2026-04-15-graph-page-crash-entity-search-type-mismatch"
   - "2026-04-15-memory-entity-record-type-mismatch"

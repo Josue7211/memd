@@ -1,5 +1,5 @@
-use super::*;
 use super::errors::MemdError;
+use super::*;
 
 pub(crate) async fn healthz(
     State(state): State<AppState>,
@@ -12,9 +12,7 @@ pub(crate) async fn healthz(
     let all_items = state.store.list().unwrap_or_default();
     let inbox_count = all_items
         .iter()
-        .filter(|i| {
-            i.stage == MemoryStage::Candidate || i.status != MemoryStatus::Active
-        })
+        .filter(|i| i.stage == MemoryStage::Candidate || i.status != MemoryStatus::Active)
         .filter(|i| i.status != MemoryStatus::Expired)
         .count();
     let candidates = all_items
@@ -732,7 +730,9 @@ pub(crate) async fn post_hive_claim_transfer(
         return Err(MemdError::validation("scope", "must not be empty").into_wire());
     }
     if req.from_session.trim().is_empty() || req.to_session.trim().is_empty() {
-        return Err(MemdError::validation("from_session and to_session", "must not be empty").into_wire());
+        return Err(
+            MemdError::validation("from_session and to_session", "must not be empty").into_wire(),
+        );
     }
     let response = state
         .store
@@ -1190,7 +1190,10 @@ pub(crate) async fn decay_diagnostics(
     let max_decay = req.max_decay.unwrap_or(0.12).clamp(0.01, 0.5);
     let decay_divisor = req.decay_divisor.unwrap_or(14.0).max(1.0);
     let max_items = req.max_items.unwrap_or(128).min(1_000);
-    let metrics = state.store.decay_diagnostics(&req).map_err(internal_error)?;
+    let metrics = state
+        .store
+        .decay_diagnostics(&req)
+        .map_err(internal_error)?;
     Ok(Json(DecayDiagnosticsResponse {
         metrics,
         inactive_days,
@@ -1206,8 +1209,7 @@ pub(crate) async fn token_efficiency_diagnostics(
     State(state): State<AppState>,
     Json(req): Json<WorkingMemoryRequest>,
 ) -> Result<Json<memd_schema::OperationTokenReport>, (StatusCode, String)> {
-    let response = crate::working::working_memory(&state, req)
-        .map_err(|e| e)?;
+    let response = crate::working::working_memory(&state, req).map_err(|e| e)?;
 
     // Build the report from compaction quality (already computed in working memory)
     let cq = response
@@ -1583,7 +1585,9 @@ impl AppState {
         let mean_quality = if quality_scores.is_empty() {
             None
         } else {
-            Some(quality_scores.iter().map(|q| q.overall).sum::<f32>() / quality_scores.len() as f32)
+            Some(
+                quality_scores.iter().map(|q| q.overall).sum::<f32>() / quality_scores.len() as f32,
+            )
         };
         Ok(MemoryConsolidationResponse {
             scanned,

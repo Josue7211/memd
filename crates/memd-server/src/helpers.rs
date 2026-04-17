@@ -374,12 +374,73 @@ pub(crate) fn detect_content_lane(
     let window_lower = window.to_ascii_lowercase();
 
     static LANE_KEYWORDS: &[(&str, &[&str])] = &[
-        ("architecture", &["architecture", "system design", "data flow", "component layout", "schema migration"]),
-        ("decisions", &["decided", "decision", "rationale", "trade-off", "tradeoff", "chose", "we chose"]),
-        ("constraints", &["constraint", "limitation", "boundary", "must not", "non-negotiable", "requirement"]),
-        ("patterns", &["pattern", "convention", "coding standard", "best practice", "style guide"]),
-        ("design", &["ui design", "ux ", "frontend", "layout", "mockup", "wireframe", "figma"]),
-        ("operations", &["deploy", "infrastructure", "monitoring", "alerting", "pipeline", "ci/cd", "runbook"]),
+        (
+            "architecture",
+            &[
+                "architecture",
+                "system design",
+                "data flow",
+                "component layout",
+                "schema migration",
+            ],
+        ),
+        (
+            "decisions",
+            &[
+                "decided",
+                "decision",
+                "rationale",
+                "trade-off",
+                "tradeoff",
+                "chose",
+                "we chose",
+            ],
+        ),
+        (
+            "constraints",
+            &[
+                "constraint",
+                "limitation",
+                "boundary",
+                "must not",
+                "non-negotiable",
+                "requirement",
+            ],
+        ),
+        (
+            "patterns",
+            &[
+                "pattern",
+                "convention",
+                "coding standard",
+                "best practice",
+                "style guide",
+            ],
+        ),
+        (
+            "design",
+            &[
+                "ui design",
+                "ux ",
+                "frontend",
+                "layout",
+                "mockup",
+                "wireframe",
+                "figma",
+            ],
+        ),
+        (
+            "operations",
+            &[
+                "deploy",
+                "infrastructure",
+                "monitoring",
+                "alerting",
+                "pipeline",
+                "ci/cd",
+                "runbook",
+            ],
+        ),
     ];
 
     for &(lane, keywords) in LANE_KEYWORDS {
@@ -458,7 +519,11 @@ pub(crate) fn score_consolidation_quality(
     let kind_preserved = if item.kind == expected_kind { 1.0 } else { 0.0 };
 
     // (d) Visibility preservation: consolidated visibility matches inherited source visibility.
-    let visibility_preserved = if item.visibility == source_vis { 1.0 } else { 0.0 };
+    let visibility_preserved = if item.visibility == source_vis {
+        1.0
+    } else {
+        0.0
+    };
 
     let overall =
         (semantic_coherence + information_preservation + kind_preserved + visibility_preserved)
@@ -994,10 +1059,7 @@ pub(crate) fn matches_requested_project(
 
 /// Visibility enforcement: Private items are only visible to the owning agent.
 /// Workspace and Public items are visible to everyone (in the right project scope).
-pub(crate) fn visibility_allows(
-    requesting_agent: &Option<String>,
-    item: &MemoryItem,
-) -> bool {
+pub(crate) fn visibility_allows(requesting_agent: &Option<String>, item: &MemoryItem) -> bool {
     match item.visibility {
         MemoryVisibility::Private => match (&requesting_agent, &item.source_agent) {
             (Some(agent), Some(owner)) => agent == owner,
@@ -1107,8 +1169,8 @@ mod tests {
             created_at: Utc::now(),
             status: MemoryStatus::Active,
             stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
             last_verified_at: Some(Utc::now()),
             supersedes: Vec::new(),
             updated_at: Utc::now(),
@@ -1529,8 +1591,8 @@ mod epistemic_state_tests {
             tags: vec![],
             status,
             stage: MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+            lane: None,
+            version: 1,
         }
     }
 

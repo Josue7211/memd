@@ -303,7 +303,8 @@ fn future_schema_version_opens_with_warning() {
     // Pretend a newer binary stamped version 99.
     {
         let conn = rusqlite::Connection::open(&db).expect("reopen");
-        conn.pragma_update(None, "user_version", 99u32).expect("stamp future");
+        conn.pragma_update(None, "user_version", 99u32)
+            .expect("stamp future");
     }
     // Must still open — downgrade must not brick the deploy.
     let _store = SqliteStore::open(&db).expect("reopen future-stamped db");
@@ -311,6 +312,9 @@ fn future_schema_version_opens_with_warning() {
     let v: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read user_version");
-    assert_eq!(v, 99, "future version must be left intact, not silently downgraded");
+    assert_eq!(
+        v, 99,
+        "future version must be left intact, not silently downgraded"
+    );
     std::fs::remove_dir_all(dir).expect("cleanup temp dir");
 }

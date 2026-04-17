@@ -1,13 +1,15 @@
 use axum::http::StatusCode;
 use chrono::Utc;
 use memd_schema::{
-    CorrectMemoryRequest, CorrectMemoryResponse, ExpireMemoryRequest, MemoryItem,
-    MemoryRepairMode, MemoryStage, MemoryStatus, RepairMemoryRequest, RepairMemoryResponse,
-    StoreMemoryRequest, VerifyMemoryRequest,
+    CorrectMemoryRequest, CorrectMemoryResponse, ExpireMemoryRequest, MemoryItem, MemoryRepairMode,
+    MemoryStage, MemoryStatus, RepairMemoryRequest, RepairMemoryResponse, StoreMemoryRequest,
+    VerifyMemoryRequest,
 };
 use tracing::warn;
 
-use crate::{AppState, RecordEventArgs, canonical_key, errors::MemdError, internal_error, redundancy_key};
+use crate::{
+    AppState, RecordEventArgs, canonical_key, errors::MemdError, internal_error, redundancy_key,
+};
 
 pub(crate) fn expire_item(
     state: &AppState,
@@ -116,7 +118,11 @@ pub(crate) fn correct_item(
         source_system: old_item.source_system.clone(),
         source_path: old_item.source_path.clone(),
         source_quality: old_item.source_quality,
-        confidence: Some(req.confidence.unwrap_or(old_item.confidence).clamp(0.0, 1.0)),
+        confidence: Some(
+            req.confidence
+                .unwrap_or(old_item.confidence)
+                .clamp(0.0, 1.0),
+        ),
         ttl_seconds: old_item.ttl_seconds,
         last_verified_at: Some(Utc::now()),
         supersedes: vec![old_item.id],

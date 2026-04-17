@@ -236,11 +236,7 @@ async fn run_benchmark_ci_gate(base_args: &PublicBenchmarkArgs) -> anyhow::Resul
     eprintln!();
     eprintln!("[ci-gate] Summary:");
     for (id, _metrics, passed) in &results {
-        eprintln!(
-            "  {} {}",
-            if *passed { "✓" } else { "✗" },
-            id
-        );
+        eprintln!("  {} {}", if *passed { "✓" } else { "✗" }, id);
     }
 
     let any_failed = results.iter().any(|(_, _, passed)| !*passed);

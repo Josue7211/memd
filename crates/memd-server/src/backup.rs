@@ -36,16 +36,15 @@ pub(crate) fn snapshots_dir(db_path: &Path) -> PathBuf {
 
 pub(crate) fn write_snapshot(db_path: &Path, out_path: &Path) -> anyhow::Result<u64> {
     if let Some(parent) = out_path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
-            format!("create snapshot parent dir {}", parent.display())
-        })?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create snapshot parent dir {}", parent.display()))?;
     }
     let tmp = out_path.with_extension("tmp");
     // Online backup: source live, dest is fresh file at tmp path.
     let src = Connection::open(db_path)
         .with_context(|| format!("open source db {}", db_path.display()))?;
-    let mut dst = Connection::open(&tmp)
-        .with_context(|| format!("open snapshot tmp {}", tmp.display()))?;
+    let mut dst =
+        Connection::open(&tmp).with_context(|| format!("open snapshot tmp {}", tmp.display()))?;
     {
         let backup = Backup::new(&src, &mut dst).context("init sqlite backup")?;
         backup
@@ -59,8 +58,8 @@ pub(crate) fn write_snapshot(db_path: &Path, out_path: &Path) -> anyhow::Result<
     fs::rename(&tmp, out_path)
         .with_context(|| format!("atomic rename {} -> {}", tmp.display(), out_path.display()))?;
 
-    let meta = fs::metadata(out_path)
-        .with_context(|| format!("stat snapshot {}", out_path.display()))?;
+    let meta =
+        fs::metadata(out_path).with_context(|| format!("stat snapshot {}", out_path.display()))?;
     Ok(meta.len())
 }
 
@@ -88,8 +87,7 @@ pub(crate) fn rotate_snapshots(dir: &Path, keep: usize) -> anyhow::Result<Vec<Pa
 
     let mut pruned = Vec::new();
     for (_, path) in entries.into_iter().skip(keep) {
-        fs::remove_file(&path)
-            .with_context(|| format!("prune snapshot {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("prune snapshot {}", path.display()))?;
         pruned.push(path);
     }
     Ok(pruned)
@@ -126,9 +124,8 @@ pub(crate) fn restore_from(snapshot: &Path, db_path: &Path) -> anyhow::Result<()
 
     // Step 4: copy snapshot to db_path atomically via tmp + rename.
     if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
-            format!("create db parent dir {}", parent.display())
-        })?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create db parent dir {}", parent.display()))?;
     }
     let tmp = db_path.with_extension("restore-tmp");
     fs::copy(snapshot, &tmp)
@@ -188,7 +185,8 @@ mod tests {
 
         // mutate after snapshot — restore should roll back
         let conn = Connection::open(&db).unwrap();
-        conn.execute("INSERT INTO t(v) VALUES ('after')", []).unwrap();
+        conn.execute("INSERT INTO t(v) VALUES ('after')", [])
+            .unwrap();
         let n: i64 = conn
             .query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0))
             .unwrap();
@@ -217,15 +215,13 @@ mod tests {
 
         // Force any WAL back into the main file so page 2 holds real data.
         let conn = Connection::open(&db).unwrap();
-        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
         drop(conn);
 
         // Deterministic corruption: zero page 2 (first b-tree page, offset 4096).
         {
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&db)
-                .unwrap();
+            let mut f = std::fs::OpenOptions::new().write(true).open(&db).unwrap();
             f.seek(SeekFrom::Start(4096)).unwrap();
             let zeros = vec![0u8; 4096];
             f.write_all(&zeros).unwrap();

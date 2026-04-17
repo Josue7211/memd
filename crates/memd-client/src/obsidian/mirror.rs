@@ -1024,8 +1024,8 @@ mod tests {
                 tags: vec!["bundle".to_string()],
                 status: memd_schema::MemoryStatus::Active,
                 stage: memd_schema::MemoryStage::Canonical,
-                    lane: None,
-                    version: 1,
+                lane: None,
+                version: 1,
             },
             canonical_key: "fact:bundle-first".to_string(),
             redundancy_key: "fact:bundle-first".to_string(),
@@ -1150,8 +1150,9 @@ items: 7
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         };
         let path = default_handoff_path(Path::new("/tmp/vault"), &snapshot);
         assert!(path.starts_with("/tmp/vault/.memd/handoffs"));
@@ -1240,8 +1241,9 @@ items: 7
             recent_repo_changes: Vec::new(),
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         };
         let sources = SourceMemoryResponse {
             sources: vec![memd_schema::SourceMemoryRecord {

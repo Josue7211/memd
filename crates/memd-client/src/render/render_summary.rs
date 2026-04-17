@@ -523,8 +523,8 @@ mod tests {
                         tags: vec!["checkpoint".to_string()],
                         status: memd_schema::MemoryStatus::Active,
                         stage: memd_schema::MemoryStage::Candidate,
-                    lane: None,
-                    version: 1,
+                        lane: None,
+                        version: 1,
                     },
                     reasons: vec!["stale".to_string()],
                 }],
@@ -554,8 +554,9 @@ mod tests {
             recent_repo_changes: vec!["status M crates/memd-client/src/render.rs".to_string()],
             change_summary: vec!["focus -> Follow the active current-task lane".to_string()],
             resume_state_age_minutes: None,
-            refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         }
     }
 

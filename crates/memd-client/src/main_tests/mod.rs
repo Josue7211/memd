@@ -178,8 +178,9 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
         recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
         change_summary: vec!["focus -> follow the codex pack turn boundary".to_string()],
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     }
 }
 

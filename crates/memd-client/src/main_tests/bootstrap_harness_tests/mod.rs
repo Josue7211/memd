@@ -1276,7 +1276,10 @@ fn run_bootstrap_hook(
     path_override: Option<&str>,
 ) -> std::process::Output {
     let mut command = Command::new("bash");
-    command.arg(script).stdin(Stdio::piped()).stdout(Stdio::piped());
+    command
+        .arg(script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
     if let Some(path) = path_override {
         command.env("PATH", path);
     }
@@ -1294,8 +1297,10 @@ fn run_bootstrap_hook(
 #[test]
 fn bootstrap_hook_refuses_cached_wake_without_session_receipt() {
     let _env_lock = lock_env_mutation();
-    let temp_root =
-        std::env::temp_dir().join(format!("memd-bootstrap-session-gate-{}", uuid::Uuid::new_v4()));
+    let temp_root = std::env::temp_dir().join(format!(
+        "memd-bootstrap-session-gate-{}",
+        uuid::Uuid::new_v4()
+    ));
     let project_root = temp_root.join("project");
     let bundle_root = project_root.join(".memd");
     let fake_bin = temp_root.join("bin");
@@ -1303,14 +1308,14 @@ fn bootstrap_hook_refuses_cached_wake_without_session_receipt() {
     fs::create_dir_all(&fake_bin).expect("create fake bin");
     fs::write(bundle_root.join("config.json"), "{}\n").expect("write config");
     fs::write(bundle_root.join("wake.md"), "# cached wake\n").expect("write wake");
-    fs::write(bundle_root.join(".last-wake"), format!("{}\n", chrono::Utc::now().timestamp()))
-        .expect("write last wake");
+    fs::write(
+        bundle_root.join(".last-wake"),
+        format!("{}\n", chrono::Utc::now().timestamp()),
+    )
+    .expect("write last wake");
 
     let fake_memd = fake_bin.join("memd");
-    write_executable(
-        &fake_memd,
-        "#!/usr/bin/env bash\nexit 1\n",
-    );
+    write_executable(&fake_memd, "#!/usr/bin/env bash\nexit 1\n");
 
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../");
     let script = repo_root.join("integrations/hooks/memd-bootstrap.sh");
@@ -1346,8 +1351,11 @@ fn bootstrap_hook_allows_cached_wake_after_session_receipt() {
         .expect("create bootstrap session state");
     fs::write(bundle_root.join("config.json"), "{}\n").expect("write config");
     fs::write(bundle_root.join("wake.md"), "# cached wake\n").expect("write wake");
-    fs::write(bundle_root.join(".last-wake"), format!("{}\n", chrono::Utc::now().timestamp()))
-        .expect("write last wake");
+    fs::write(
+        bundle_root.join(".last-wake"),
+        format!("{}\n", chrono::Utc::now().timestamp()),
+    )
+    .expect("write last wake");
     fs::write(
         bundle_root
             .join("state/bootstrap-sessions")
@@ -2779,8 +2787,9 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
         recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
         change_summary: vec!["focus -> Finish the resume snapshot renderer".to_string()],
         resume_state_age_minutes: None,
-        refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+        refresh_recommended: false,
+        atlas_region_hints: Vec::new(),
+        handoff_quality: None,
     };
 
     let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);

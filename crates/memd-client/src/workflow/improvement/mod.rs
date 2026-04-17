@@ -655,8 +655,9 @@ mod tests {
             recent_repo_changes: vec!["status M crates/memd-client/src/main.rs".to_string()],
             change_summary: Vec::new(),
             resume_state_age_minutes: None,
-            refresh_recommended: false, atlas_region_hints: Vec::new(),
- handoff_quality: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
         }
     }
 

@@ -264,7 +264,8 @@ pub(crate) fn render_capture_shell_profile(output: &Path, mode: &str) -> String 
         compact_bundle_value(output.to_string_lossy().as_ref()),
     );
     if mode == "capture-live" {
-        script.push_str("args+=(--tag basic-memory --tag live-capture --promote-kind live_truth)\n");
+        script
+            .push_str("args+=(--tag basic-memory --tag live-capture --promote-kind live_truth)\n");
     } else {
         script.push_str("args+=(--tag basic-memory --tag correction)\n");
     }

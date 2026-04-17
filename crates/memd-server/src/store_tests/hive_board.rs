@@ -1085,8 +1085,7 @@ fn queen_handoff_lock_bumps_version_and_blocks_other_sessions() {
 fn hive_divergence_caps_branches_and_decisions_and_dedups_by_normalized_text() {
     use memd_schema::DivergenceRequest;
 
-    let dir =
-        std::env::temp_dir().join(format!("memd-hive-divergence-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("memd-hive-divergence-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let store = SqliteStore::open(dir.join("state.sqlite")).expect("open sqlite store");
 
@@ -1130,7 +1129,10 @@ fn hive_divergence_caps_branches_and_decisions_and_dedups_by_normalized_text() {
         })
         .expect("compute divergence");
 
-    assert!(summary.truncated_branches, "3 branches → truncated flag set");
+    assert!(
+        summary.truncated_branches,
+        "3 branches → truncated flag set"
+    );
     assert_eq!(summary.branches.len(), 2, "cap MAX_BRANCHES=2");
 
     // Most-recent-first: main (last update 40min ago) then alt-a (25min ago wins over 30min).

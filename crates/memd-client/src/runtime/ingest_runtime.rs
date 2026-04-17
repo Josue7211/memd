@@ -514,9 +514,10 @@ pub(crate) async fn ingest_sources(
                 status: Some(MemoryStatus::Active),
                 lane: None,
             };
-            let resp = client.store(&req).await.with_context(|| {
-                format!("store canonical item for {}", path.display())
-            })?;
+            let resp = client
+                .store(&req)
+                .await
+                .with_context(|| format!("store canonical item for {}", path.display()))?;
             items.push(IngestSourcesFileResult {
                 path: source_path,
                 chars: trimmed.len(),
