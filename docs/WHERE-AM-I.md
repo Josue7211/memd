@@ -5,7 +5,7 @@ Use this after session clear or when an agent feels lost.
 ## Read In This Order
 
 1. [[ROADMAP]]
-2. [[docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md|V3 active handoff packet]]
+2. [[docs/handoff/2026-04-17-v3-phase-rename-next-A3.md|V3 active handoff packet (2026-04-17)]] — supersedes [[docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md]]
 3. backlog items linked from `ROADMAP`
 4. active phase summary note: [[phase-a3-activate-retrieval]]
 
