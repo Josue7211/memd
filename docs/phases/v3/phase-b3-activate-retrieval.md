@@ -103,6 +103,25 @@ Evidence (alongside bench-delta):
 - Part-2 sidecar wiring behind `rag.enabled` — already the default-off state
 - FTS5 scoring swap behind `retrieval.fts5_tuned=true` — revert to default BM25 if dogfood shows regressions
 
+## Baseline (HEAD 4f2d7d7, sidecar OFF, retrieval-backend=lexical)
+
+Pinned here because `.memd/benchmarks/history/benchmark-runs.jsonl` is gitignored. Numbers from per-dataset `memd benchmark public <ds> --retrieval-backend lexical --record` runs on 2026-04-17:
+
+- longmemeval (primary: session_recall_any@5) = **0.828**
+- locomo = **0.415**
+- membench = **0.346**
+- convomem = **0.000**
+
+Note: phase doc "pre" line quotes LME=0.860 which is likely `recall_any@10`; 0.828 is the @5 primary and matches the A3-era 4f8e141 baseline. Not a regression — just a different k.
+
+## Task 5 verification (2026-04-17, no code change)
+
+Status admission cap is already satisfied by two live layers:
+- `crates/memd-server/src/working/mod.rs:78-97` — hard cap at 2 status items per working-memory build, excess evicted with reason `evicted_by_status_cap`
+- `crates/memd-server/src/helpers.rs:820-834` — scoring applies **−0.20** to `MemoryKind::Status` (stronger than phase doc's −0.08, so kept as-is)
+
+Wake sample (`memd resume --output .memd`) returns 7 records in `context.records` — all `live_truth` / `decision` / `fact` / `constraint`, zero `kind=status`. Evidence satisfies the OR-clause in Deliverable 5. Benches are not expected to move from this task (wake-packet composition, not FTS recall). Future layered-wake work (Task 3) may add a second enforcement point gated on `wake.layered` for defense-in-depth.
+
 ## Out of scope
 
 - LLM reranker on top of candidates (lands in C3; sidecar-dependent)
