@@ -49,6 +49,17 @@ Plus:
 - Sample (query, top-N before rerank, top-K after rerank) trace
 - Embedding-swap migration log
 
+## Product Win
+
+- **Top-K feels intentional, not random.** A human inspecting the rerank trace can explain why each result surfaced — the reranker's scoring story holds up to scrutiny.
+- **Latency stays conversational.** P95 ≤ 1500ms with Haiku means agents still feel fast; longer-latency paths must be async or hidden behind an explicit "deep search" flag.
+- **Embedding swap is boring.** Switching MiniLM ↔ BGE-large is a config change + background re-embed, not a migration incident. Track `embedding_model` on stored items so mixed corpora stay valid during rollout.
+
+Evidence:
+- 10 real dogfood queries: record top-N pre-rerank, top-K post-rerank, human judgment on why the order changed
+- One-week dogfood usage log with zero agent complaints about wrong-order retrieval
+- Migration runbook (single page) proving the re-embed swap is non-disruptive
+
 ## Fail Conditions
 
 - LongMemEval < 0.97 with reranker on — diagnose top-N candidate quality before tuning rerank

@@ -21,7 +21,7 @@ note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/
 ## Status Snapshot
 
 - truth date: `2026-04-16`
-- current version: `v3` (bench parity push) — v2/M4 deferred mid-flight
+- current version: `v3` (product parity — bench delta is necessary but not sufficient) — v2/M4 deferred mid-flight
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
@@ -183,7 +183,7 @@ Product gaps. Dashboard last.
 **Open backlog map (pending phases + active blockers)**:
 - `I2`: `2026-04-16-no-human-surface-dashboard-ui`, `2026-04-15-dashboard-not-served-from-memd-server`, `2026-04-15-graph-page-crash-entity-search-type-mismatch`, `2026-04-15-memory-entity-record-type-mismatch`, `2026-04-15-dashboard-env-hardcoded-tailscale-ip`, `2026-04-15-memd-preferences-not-persisted-across-sessions`
 - `M2-evo`: `2026-04-14-no-overnight-evolution-loop`, `2026-04-14-no-live-memory-contract`, `2026-04-16-working-memory-stale-records`, `2026-04-16-pipeline-lifecycle-broken`
-- `N2`: `2026-04-14-skill-gating-config-flags-only`, `2026-04-14-rag-sidecar-disabled-no-fallback`, `2026-04-14-no-data-recovery-procedure`, `2026-04-14-no-admission-control-rate-limiting`
+- `N2`: `2026-04-14-skill-gating-config-flags-only`, `2026-04-14-rag-sidecar-disabled-no-fallback`, `2026-04-14-no-data-recovery-procedure`, `2026-04-14-no-admission-control-rate-limiting`, `2026-04-17-memd-process-too-soft-cross-harness`
 
 **Verification**:
 - Gap details: [[docs/verification/MEMD-10-STAR.md#tier-4]]
@@ -194,9 +194,11 @@ Product gaps. Dashboard last.
 Dashboard: browse, correct, navigate in browser. Zero console errors. Benchmark ≥ 90%.
 **Demo**: "Store a fact. Correct it. Navigate it. Prove it. All in the UI."
 
-### V3: Make It Compete — Tier 5 (bench parity with inspiration repos)
+### V3: Make It Compete — Tier 5 (product parity with inspiration repos)
 
-Polish (M4) ships visibility. V3 ships **score**. Donors prove the ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Every V3 phase is **bench-delta-gated** — no merge without measured improvement.
+V3 ships the **best product**, not the fastest bench score. Competitor services (mempalace, supermemory, letta, mem0) out-perform memd today on surfaces benches don't measure: correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability. Bench parity is necessary but not sufficient.
+
+Donors prove the retrieval ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). Bench without product-win = benchmaxxing. No merge on either gate alone.
 
 Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from the old B3/F3/E3/C3/A3 naming where IDs did not match order.
 
@@ -210,10 +212,15 @@ Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from th
 
 **Donor anchors**: [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]] (mempalace pipeline), [[.memd/lanes/architecture/A2-10-embedding-strategy.md]] (model choice), [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]] (priority dedup), [[.memd/lanes/architecture/A2-13-temporal-freshness.md]] (decay calibration), [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]] (full mapping).
 
-**Bench-delta gate format**: each phase doc records `pre / post / evidence / regression budget`. Evidence = regenerated [[docs/verification/PUBLIC_LEADERBOARD.md]]. No bench delta = no merge.
+**Dual-gate format** per phase doc:
+- `## Pass Gate` — bench delta: `pre / post / evidence / regression budget`, evidence = regenerated [[docs/verification/PUBLIC_LEADERBOARD.md]]
+- `## Product Win` — qualitative UX/product gain: what a dogfooder feels, how it compares to competitor surface, evidence = recorded session trace / sample outputs / comparison note
 
-**Gate**: LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65, ConvoMem ≥ 0.50. No regression > 0.02 on any other metric.
-**Demo**: "Same query, before and after. Show the score. Show the receipts."
+**V3 completion gate**:
+- Bench: LongMemEval ≥ 0.95, LoCoMo ≥ 0.65, MemBench ≥ 0.65, ConvoMem ≥ 0.50. No regression > 0.02.
+- Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as competitive-or-better against mempalace/supermemory/letta/mem0 to a stranger who didn't build it.
+
+**Demo**: "Same query, before and after — show the score AND hand the user the memory surface. They should want to use it."
 
 ## Benchmarks
 
@@ -226,7 +233,7 @@ Donor-to-phase mapping: [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.m
 
 ## Backlog
 
-83 items tracked. Full index: `docs/backlog/` directory.
+84 items tracked. Full index: `docs/backlog/` directory.
 Summary: [[docs/verification/MEMD-10-STAR.md#complete-gap-inventory]]
 
 ## Reference Docs

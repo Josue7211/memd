@@ -50,6 +50,17 @@ Plus:
 - Sample retrieval trace showing dense-candidates → 1-hop expansion → reranker input
 - `memd status` output showing live edges_total
 
+## Product Win
+
+- **Atlas is navigable by a human, not just traversed by code.** User can walk from one entity to related entities via `memd lookup` (region filter, 1-hop expansion visible in output), without reading source.
+- **Answers show their hops.** When an atlas edge contributed to a retrieval, the response explains the subject→predicate→object path. No black-box recall.
+- **Atlas "dormant" is a loud state.** If edges/items ratio drops below threshold, `memd status` says so in plain English; user doesn't need a Grafana dashboard to notice.
+
+Evidence:
+- Dogfood walkthrough: user navigates atlas from a known entity to an unexpected-but-valid neighbor; record the session
+- Sample answer that cites an atlas hop chain (subject → predicate → object) as retrieval provenance
+- `memd status` output from both a healthy and a deliberately-underpopulated corpus, showing the dormant-warning path
+
 ## Fail Conditions
 
 - LoCoMo < 0.65 — diagnose extraction quality (are entities actually being detected?) before traversal tuning

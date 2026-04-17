@@ -52,6 +52,17 @@ Plus:
 - Sample episode (narrative + linked facts) after consolidation
 - Dedup dry-run report on dogfood data
 
+## Product Win
+
+- **Episodes read like human narratives.** A dogfooder opening a recent episode sees "we were debugging X, decided Y, shipped Z" in prose — not a mechanical event dump.
+- **Working memory stays under ~50 items without manual pruning.** Dedup + episode consolidation do the work; operator intervention is rare.
+- **Dedup is explainable.** Every merge names what merged, why (similarity score), and is restorable from the dry-run log. No silent data loss — never erase history.
+
+Evidence:
+- Sample episodes from dogfood corpus; hand to a reader outside the project, verify they can follow the narrative
+- Working-memory size timeseries across a dogfood week; no manual-prune events
+- Dedup report with explicit keep-vs-merge decisions + restorable log
+
 ## Fail Conditions
 
 - LongMemEval >7d slice doesn't move — decay still uncalibrated; investigate before shipping

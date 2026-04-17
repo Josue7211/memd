@@ -52,6 +52,19 @@ Plus:
 - Sample retrieval trace showing sanitized query, dense candidates, dedup result
 - Sidecar healthz output
 
+## Product Win
+
+Bench parity is necessary but not sufficient. The product-quality win A3 must also ship:
+
+- **Wake packet reads like a curated briefing, not a status-flood.** L0/L1/L2/L3 layers make the identity + essential-story visible at a glance; on-demand items obviously on-demand.
+- **Natural-language recall actually works.** Asking memd "what do I believe about X" returns canonical truth even when X never appears as a keyword in stored items. This is the dogfood test supermemory/mempalace pass today and memd fails today.
+- **`memd status` reports dense-path health as a first-class surface.** If sidecar is down, user sees it; no silent lexical fallback.
+
+Evidence (alongside bench-delta):
+- Recorded before/after dogfood session on 5 natural-language queries memd fails today; annotate which surface improved
+- Screenshot of wake packet before (status-flooded) vs after (layered)
+- Side-by-side comparison with mempalace running the same fixture queries; note explicit wins and remaining gaps
+
 ## Fail Conditions
 
 - LongMemEval < 0.93 after sidecar enabled — diagnose embedding pipeline before ship

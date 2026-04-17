@@ -12,7 +12,13 @@ supersedes: docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md (stil
 
 ## TL;DR
 
-V3 phase IDs were renamed so alphabet matches execution order. Working tree clean. Next concrete action: wire `memd-sidecar` into `memd-server` retrieval (`memd-server` currently has no `memd-rag` import). Everything below is the unpacking.
+V3 phase IDs were renamed so alphabet matches execution order. V3 reframed: **best product, not fastest bench score**. Every phase now dual-gated (bench delta AND product win). Working tree clean. Next concrete action: wire `memd-sidecar` into `memd-server` retrieval (`memd-server` currently has no `memd-rag` import). Everything below is the unpacking.
+
+## V3 framing (read before executing any phase)
+
+V3 is product parity, not benchmaxxing. Competitor services (mempalace, supermemory, letta, mem0) genuinely out-perform memd today on surfaces benches don't measure: correction UX, atlas navigation, provenance transparency, episodic recall UX, agent handoff quality, hive divergence receipts, dedup explainability. Bench-delta gates are necessary but not sufficient — each phase doc now has a `## Product Win` section alongside `## Pass Gate`. Merge needs both.
+
+User direction (2026-04-17, logged to memd as canonical decision): "not looking for the fastest ship, looking for the best product."
 
 ## What happened this session
 

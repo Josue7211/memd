@@ -50,6 +50,17 @@ Plus:
 - Regenerated leaderboard with side-by-side cross-baseline column
 - CI run showing automated leaderboard refresh
 
+## Product Win
+
+- **Leaderboard is a page a stranger can verify.** Every row links to the commit that produced it + the fixture it ran on + the rerun command. No "trust us" claims.
+- **Regressions are loud, not silent.** A score drop shows up in CI before a PR lands; the PR description carries the delta.
+- **Cross-baseline is first-class.** MemPalace column sits next to memd column on every row; honesty beats optics.
+
+Evidence:
+- Stranger-test: someone outside the project picks a leaderboard row, reruns it from the commit link, gets the same number within regression budget
+- CI log showing a deliberate regression caught and blocked
+- Per-row verification-state column visible at a glance (verified / replay-pending / recorded-unpinned)
+
 ## Fail Conditions
 
 - ConvoMem stays at 0.000 — diagnosis was wrong; likely retrieval issue not adapter; loop back to A3
