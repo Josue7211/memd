@@ -13,6 +13,61 @@ fn infer_resume_bundle_identity_defaults(output: &Path) -> (Option<String>, Opti
     infer_bundle_identity_defaults(output)
 }
 
+fn normalize_resume_record(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn compact_record_kind(record: &str) -> Option<&'static str> {
+    if record.contains("| kind=status |") {
+        Some("status")
+    } else if record.contains("| kind=live_truth |") {
+        Some("live_truth")
+    } else {
+        None
+    }
+}
+
+fn trim_resume_context_records(
+    context: &mut memd_schema::CompactContextResponse,
+    working: &memd_schema::WorkingMemoryResponse,
+) {
+    let working_records = working
+        .records
+        .iter()
+        .map(|record| normalize_resume_record(&record.record))
+        .collect::<std::collections::HashSet<_>>();
+    let has_non_status_records = context
+        .records
+        .iter()
+        .any(|record| compact_record_kind(&record.record) != Some("status"));
+    let mut kept = Vec::with_capacity(context.records.len());
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut kept_live_truth = false;
+
+    for record in context.records.drain(..) {
+        let normalized = normalize_resume_record(&record.record);
+        if normalized.is_empty() || !seen.insert(normalized.clone()) {
+            continue;
+        }
+        if working_records.contains(&normalized) {
+            continue;
+        }
+        match compact_record_kind(&record.record) {
+            Some("status") if has_non_status_records => continue,
+            Some("live_truth") if kept_live_truth => continue,
+            Some("live_truth") => kept_live_truth = true,
+            _ => {}
+        }
+        kept.push(record);
+    }
+
+    context.records = kept;
+}
+
 pub(crate) async fn resolve_target_session_bundle(
     output: &Path,
     target_session: &str,
@@ -112,7 +167,7 @@ pub(crate) async fn read_bundle_resume(
     .await?;
 
     let client = MemdClient::new(&base_url)?;
-    let context = client
+    let mut context = client
         .context_compact(&memd_schema::ContextRequest {
             project: project.clone(),
             agent: agent.clone(),
@@ -140,6 +195,7 @@ pub(crate) async fn read_bundle_resume(
             query: None,
         })
         .await?;
+    trim_resume_context_records(&mut context, &working);
     let inbox = client
         .inbox(&memd_schema::MemoryInboxRequest {
             project: project.clone(),
@@ -251,13 +307,7 @@ pub(crate) async fn read_bundle_resume(
             response
                 .regions
                 .iter()
-                .map(|r| {
-                    format!(
-                        "{} ({})",
-                        r.name,
-                        r.node_count
-                    )
-                })
+                .map(|r| format!("{} ({})", r.name, r.node_count))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -1067,6 +1117,84 @@ mod tests {
     }
 
     #[test]
+    fn trim_resume_context_records_drops_working_duplicates_and_status_noise() {
+        let duplicate_id = uuid::Uuid::new_v4();
+        let durable_id = uuid::Uuid::new_v4();
+        let status_id = uuid::Uuid::new_v4();
+        let live_truth_id = uuid::Uuid::new_v4();
+        let working = memd_schema::WorkingMemoryResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project],
+            budget_chars: 1600,
+            used_chars: 220,
+            remaining_chars: 1380,
+            truncated: false,
+            policy: memd_schema::WorkingMemoryPolicyState {
+                admission_limit: 8,
+                max_chars_per_item: 220,
+                budget_chars: 1600,
+                rehydration_limit: 4,
+            },
+            records: vec![memd_schema::CompactMemoryRecord {
+                id: duplicate_id,
+                record: "id=dup | stage=canonical | scope=project | kind=decision | status=active | c=keep working anchor".to_string(),
+            }],
+            evicted: Vec::new(),
+            rehydration_queue: Vec::new(),
+            traces: Vec::new(),
+            semantic_consolidation: None,
+            procedures: Vec::new(),
+            compaction_quality: None,
+        };
+        let mut context = memd_schema::CompactContextResponse {
+            route: RetrievalRoute::ProjectFirst,
+            intent: RetrievalIntent::CurrentTask,
+            retrieval_order: vec![MemoryScope::Project],
+            records: vec![
+                memd_schema::CompactMemoryRecord {
+                    id: duplicate_id,
+                    record: "id=dup | stage=canonical | scope=project | kind=decision | status=active | c=keep working anchor".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: durable_id,
+                    record: "id=durable | stage=canonical | scope=project | kind=fact | status=active | c=keep durable truth".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: status_id,
+                    record: "id=status | stage=canonical | scope=project | kind=status | status=active | c=status: wake working=7".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: live_truth_id,
+                    record: "id=live | stage=canonical | scope=local | kind=live_truth | status=active | c=repo_state: clean".to_string(),
+                },
+                memd_schema::CompactMemoryRecord {
+                    id: uuid::Uuid::new_v4(),
+                    record: "id=live-2 | stage=canonical | scope=local | kind=live_truth | status=active | c=file_edited: docs/x".to_string(),
+                },
+            ],
+        };
+
+        trim_resume_context_records(&mut context, &working);
+
+        assert_eq!(context.records.len(), 2);
+        assert!(context.records.iter().any(|record| record.id == durable_id));
+        assert!(
+            context
+                .records
+                .iter()
+                .any(|record| record.id == live_truth_id)
+        );
+        assert!(
+            context
+                .records
+                .iter()
+                .all(|record| record.id != duplicate_id)
+        );
+        assert!(context.records.iter().all(|record| record.id != status_id));
+    }
+
+    #[test]
     fn truth_summary_uses_top_source_provenance_for_non_live_truth_lanes() {
         let snapshot = ResumeSnapshot {
             project: Some("memd".to_string()),
@@ -1319,10 +1447,8 @@ impl HandoffQualityScore {
                 .sum()
         };
         let fact_coverage = (kind_count("fact") as f64 / Self::TARGET_FACTS).min(1.0);
-        let decision_coverage =
-            (kind_count("decision") as f64 / Self::TARGET_DECISIONS).min(1.0);
-        let working_depth =
-            (report.admitted as f64 / Self::TARGET_WORKING_DEPTH).min(1.0);
+        let decision_coverage = (kind_count("decision") as f64 / Self::TARGET_DECISIONS).min(1.0);
+        let working_depth = (report.admitted as f64 / Self::TARGET_WORKING_DEPTH).min(1.0);
 
         // Trust distribution proxy: budget_utilization stays in-band when the
         // outgoing harness filled but didn't truncate. Penalize both
@@ -1371,7 +1497,12 @@ mod handoff_quality_tests {
     use memd_schema::CompactionQualityReport;
     use std::collections::BTreeMap;
 
-    fn report(facts: usize, decisions: usize, extras: usize, used_chars: usize) -> CompactionQualityReport {
+    fn report(
+        facts: usize,
+        decisions: usize,
+        extras: usize,
+        used_chars: usize,
+    ) -> CompactionQualityReport {
         let mut per_kind_admitted = BTreeMap::new();
         if facts > 0 {
             per_kind_admitted.insert("\"fact\"".to_string(), facts);
@@ -1658,11 +1789,7 @@ impl ResumeSnapshot {
     }
 
     pub(crate) fn normalized_memory_text(value: &str) -> String {
-        value
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
+        normalize_resume_record(value)
     }
 
     pub(crate) fn compact_context_records(&self) -> Vec<String> {
