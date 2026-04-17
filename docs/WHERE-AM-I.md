@@ -7,14 +7,15 @@ Use this after session clear or when an agent feels lost.
 1. [[ROADMAP]]
 2. [[docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md|V3 active handoff packet]]
 3. backlog items linked from `ROADMAP`
-4. active phase summary note: [[phase-b3-activate-retrieval]]
+4. active phase summary note: [[phase-a3-activate-retrieval]]
 
 ## Current Truth
 
 - active version: `v3` (bench parity push) — v2/M4 deferred mid-flight
 - active milestone: `V3: Make It Compete`
-- active phase: `B3: Activate Retrieval` (pending) — entry phase for V3
-- next step: `B3.1 wire memd-sidecar into memd-server retrieval` (entity search + lookup paths currently SQL-only) — see [[phase-b3-activate-retrieval]]
+- active phase: `A3: Activate Retrieval` (pending) — entry phase for V3
+- next step: `A3.1 wire memd-sidecar into memd-server retrieval` (entity search + lookup paths currently SQL-only) — see [[phase-a3-activate-retrieval]]
+- V3 execution order: A3 → B3 → C3 → D3 → E3 (Activate Retrieval → Reranker → Atlas → Consolidation → Bench Honesty). IDs match execution order after the 2026-04-17 rename.
 - main blocker: none — V3 is the active focus
 - v2/M4 status: K2 + L2 done; I2 + M2-evo + N2 paused. Resume after V3 or cherry-pick when needed.
 

@@ -8,14 +8,14 @@ version: v3
 version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
-current_phase: B3
+current_phase: A3
 phase_status: pending
 next_milestone: V3
-next_step: B3.1 wire memd-sidecar into memd-server retrieval
+next_step: A3.1 wire memd-sidecar into memd-server retrieval
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant, no-behavior-changing-recall-proof]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
-note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 entry = B3 (Activate Retrieval). Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md.
+note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 phase IDs renamed 2026-04-17 to match execution order (A3 Activate Retrieval, B3 Reranker, C3 Atlas, D3 Consolidation, E3 Bench Honesty). V3 entry = A3. Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md.
 -->
 
 ## Status Snapshot
@@ -26,14 +26,14 @@ note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — bench parity with inspiration repos) — in progress
-- current phase: `B3: Activate Retrieval` (pending) — entry phase, M4 dep relaxed (sidecar wiring orthogonal to dashboard polish)
+- current phase: `A3: Activate Retrieval` (pending) — entry phase, M4 dep relaxed (sidecar wiring orthogonal to dashboard polish)
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `B3.1` (V3 entry) — wire `memd-sidecar` into `memd-server` retrieval (entity search + lookup paths currently SQL-only). Then bundle config defaults (`rag.enabled=true`), query sanitization, layered context, priority dedup, status admission cap. See [[docs/phases/phase-b3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md`.
-- M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with C3).
+- next step: `A3.1` (V3 entry) — wire `memd-sidecar` into `memd-server` retrieval (entity search + lookup paths currently SQL-only). Then bundle config defaults (`rag.enabled=true`), query sanitization, layered context, priority dedup, status admission cap. See [[docs/phases/phase-a3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md`.
+- M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets: LME 0.86→0.95, LoCoMo 0.42→0.65, MemBench 0.35→0.65, ConvoMem 0→0.50. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
@@ -198,13 +198,15 @@ Dashboard: browse, correct, navigate in browser. Zero console errors. Benchmark 
 
 Polish (M4) ships visibility. V3 ships **score**. Donors prove the ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]). memd 86.0% with sidecar disabled ([[docs/backlog/2026-04-14-rag-sidecar-disabled-no-fallback.md]]). Every V3 phase is **bench-delta-gated** — no merge without measured improvement.
 
+Phase IDs are in execution order (A3 first, E3 last). Renamed 2026-04-17 from the old B3/F3/E3/C3/A3 naming where IDs did not match order.
+
 | Phase | Name | Status | Targets | Phase Doc |
 | --- | --- | --- | --- | --- |
-| B3 | Activate Retrieval | `pending` | LME 0.86→0.93, MemBench 0.35→0.50 | [[phase-b3-activate-retrieval]] |
-| F3 | Reranker + Embeddings | `pending` | LME 0.93→0.97, LoCoMo 0.42→0.55 | [[phase-f3-reranker-embeddings]] |
-| E3 | Atlas at Recall | `pending` | LoCoMo 0.55→0.65 | [[phase-e3-atlas-at-recall]] |
-| C3 | Consolidation + Sessions | `pending` | LME long-tail +0.01, LoCoMo +0.05 | [[phase-c3-consolidation-sessions]] |
-| A3 | Bench Honesty | `pending` | ConvoMem 0→0.50, MemPalace cross-baseline live | [[phase-a3-bench-honesty]] |
+| A3 | Activate Retrieval | `pending` | LME 0.86→0.93, MemBench 0.35→0.50 | [[phase-a3-activate-retrieval]] |
+| B3 | Reranker + Embeddings | `pending` | LME 0.93→0.97, LoCoMo 0.42→0.55 | [[phase-b3-reranker-embeddings]] |
+| C3 | Atlas at Recall | `pending` | LoCoMo 0.55→0.65 | [[phase-c3-atlas-at-recall]] |
+| D3 | Consolidation + Sessions | `pending` | LME long-tail +0.01, LoCoMo +0.05 | [[phase-d3-consolidation-sessions]] |
+| E3 | Bench Honesty | `pending` | ConvoMem 0→0.50, MemPalace cross-baseline live | [[phase-e3-bench-honesty]] |
 
 **Donor anchors**: [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]] (mempalace pipeline), [[.memd/lanes/architecture/A2-10-embedding-strategy.md]] (model choice), [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]] (priority dedup), [[.memd/lanes/architecture/A2-13-temporal-freshness.md]] (decay calibration), [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]] (full mapping).
 
@@ -220,7 +222,7 @@ Protocol + cadence: [[docs/verification/PUBLIC_BENCHMARKS.md]]
 
 ## Mining
 
-A3 donor-to-phase mapping: [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
+Donor-to-phase mapping: [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
 
 ## Backlog
 

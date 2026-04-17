@@ -1,9 +1,10 @@
 ---
-phase: C3
+phase: D3
 name: Consolidation + Sessions
 version: v3
 status: pending
-depends_on: [B3, F3, E3]
+depends_on: [A3, B3, C3]
+notes: Renamed from C3 to D3 on 2026-04-17 so phase IDs match execution order.
 backlog_items:
   - "2026-04-14-no-decay-calibration"
   - "2026-04-14-memory-dedup-incomplete"
@@ -11,11 +12,11 @@ backlog_items:
   - "2026-04-14-no-consolidation-quality-proof"
 ---
 
-# Phase C3: Consolidation + Sessions
+# Phase D3: Consolidation + Sessions
 
 ## Goal
 
-Tighten long-tail recall by adding storage-time dedup, calibrating decay against the LongMemEval >7d slice, and consolidating session events into episodes that survive across the working-memory churn. Overlaps M2-evo (M4) on overnight loop infra, but C3 is **bench-gated** while M2-evo is infra-only.
+Tighten long-tail recall by adding storage-time dedup, calibrating decay against the LongMemEval >7d slice, and consolidating session events into episodes that survive across the working-memory churn. Overlaps M2-evo (M4) on overnight loop infra, but D3 is **bench-gated** while M2-evo is infra-only.
 
 ## Why this phase exists
 
@@ -33,7 +34,7 @@ LongMemEval's hardest items are >7d-old facts that should still be recallable. M
 
 Bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]]):
 
-- pre: LongMemEval=0.97, LoCoMo=0.65 (post-E3 baseline)
+- pre: LongMemEval=0.97, LoCoMo=0.65 (post-C3 baseline)
 - post: **LongMemEval ≥ 0.98** (long-tail bump), **LoCoMo ≥ 0.70** (cross-session bump)
 - LongMemEval >7d-slice metric: **+0.05 minimum** (broken out separately in leaderboard)
 - regression budget: no metric drops > 0.02
@@ -60,9 +61,9 @@ Plus:
 
 ## Donor Anchors
 
-- **C3-D1**: mempalace storage-time dedup (group by source, 0.15 cosine, greedy keep-richest) — [[.memd/lanes/architecture/A2-04-dedup.md]]
-- **C3-D2**: mempalace temporal freshness signals (rehearsal, last_accessed, verification decay) — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
-- **C3-D3**: Omegon-style decay with reinforcement extension (M2-evo overlap) — [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
+- **D3-D1**: mempalace storage-time dedup (group by source, 0.15 cosine, greedy keep-richest) — [[.memd/lanes/architecture/A2-04-dedup.md]]
+- **D3-D2**: mempalace temporal freshness signals (rehearsal, last_accessed, verification decay) — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
+- **D3-D3**: Omegon-style decay with reinforcement extension (M2-evo overlap) — [[docs/theory/2026-04-14-donor-extraction-to-v2-phases.md]]
 
 ## Rollback
 
@@ -73,12 +74,12 @@ Plus:
 
 ## Out of scope
 
-- Atlas extraction (E3 already done by this phase)
-- Reranker (F3)
-- ConvoMem adapter (A3)
-- Sidecar wiring (B3)
+- Atlas extraction (C3 already done by this phase)
+- Reranker (B3)
+- ConvoMem adapter (E3)
+- Sidecar wiring (A3)
 - M2-evo's broader overnight evolution scope (lives in M4, infra not bench)
 
 ## Relationship to M2-evo (M4)
 
-M2-evo ships the overnight evolution **infrastructure** (worker loop, dream module, lifecycle hooks). C3 ships the **bench-gated consolidation behavior** that runs on top of that infra. If M2-evo is incomplete when C3 starts, C3 owns the missing infra pieces it depends on; otherwise C3 just wires consolidation into the existing loop.
+M2-evo ships the overnight evolution **infrastructure** (worker loop, dream module, lifecycle hooks). D3 ships the **bench-gated consolidation behavior** that runs on top of that infra. If M2-evo is incomplete when D3 starts, D3 owns the missing infra pieces it depends on; otherwise D3 just wires consolidation into the existing loop.

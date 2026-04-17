@@ -1,10 +1,10 @@
 ---
-phase: B3
+phase: A3
 name: Activate Retrieval
 version: v3
 status: pending
 depends_on: []
-notes: M4 dep relaxed 2026-04-16 — sidecar wiring is orthogonal to M4 dashboard/observability/hive polish. M4 (I2/M2-evo/N2) deferred for V3.
+notes: M4 dep relaxed 2026-04-16 — sidecar wiring is orthogonal to M4 dashboard/observability/hive polish. M4 (I2/M2-evo/N2) deferred for V3. Renamed from B3 to A3 on 2026-04-17 so phase IDs match execution order.
 backlog_items:
   - "2026-04-14-rag-sidecar-disabled-no-fallback"
   - "2026-04-14-status-noise-runaway-checkpoint-loop"
@@ -12,7 +12,7 @@ backlog_items:
   - "2026-04-14-memory-dedup-incomplete"
 ---
 
-# Phase B3: Activate Retrieval
+# Phase A3: Activate Retrieval
 
 ## Goal
 
@@ -61,10 +61,10 @@ Plus:
 
 ## Donor Anchors
 
-- **B3-D1**: mempalace retrieval pipeline (sanitize → embed → vector → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]
-- **B3-D2**: mempalace embedding choice (all-MiniLM-L6-v2, 384-dim, cosine, L2-normalized) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
-- **B3-D3**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
-- **B3-D4**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
+- **A3-D1**: mempalace retrieval pipeline (sanitize → embed → vector → filter → rank → assemble) — [[.memd/lanes/architecture/A2-09-retrieval-pipeline.md]]
+- **A3-D2**: mempalace embedding choice (all-MiniLM-L6-v2, 384-dim, cosine, L2-normalized) — [[.memd/lanes/architecture/A2-10-embedding-strategy.md]]
+- **A3-D3**: supermemory priority dedup (static > dynamic > search, exact-match) — [[.memd/lanes/architecture/A2-11-context-compilation-profile.md]]
+- **A3-D4**: mempalace TTL/freshness penalties for status suppression — [[.memd/lanes/architecture/A2-13-temporal-freshness.md]]
 
 ## Rollback
 
@@ -74,8 +74,8 @@ Plus:
 
 ## Out of scope
 
-- Reranker (lands in F3)
-- Embedding model swap to BGE-large (lands in F3)
-- Atlas multi-hop expansion (lands in E3)
-- Episode consolidation (lands in C3)
-- ConvoMem adapter fix (lands in A3)
+- Reranker (lands in B3)
+- Embedding model swap to BGE-large (lands in B3)
+- Atlas multi-hop expansion (lands in C3)
+- Episode consolidation (lands in D3)
+- ConvoMem adapter fix (lands in E3)

@@ -1,11 +1,25 @@
-# Handoff Packet — V3 Active, M4 Deferred, Entry at B3
+# Handoff Packet — V3 Active, M4 Deferred, Entry at A3
 
-- created: `2026-04-16` (revised after V3-active flip)
+- created: `2026-04-16` (revised after V3-active flip; renamed 2026-04-17 after phase-ID-to-execution-order rename)
 - from: `claude-code@session-7eab5dde`
-- to: next session executing **V3 / B3** (sidecar wire-up)
+- to: next session executing **V3 / A3** (sidecar wire-up)
 - branch: `research/mining`
-- last clean commit: `0c0a7be docs: seed V3 phase docs + handoff packet`
-- status: V3 active. M4 deferred mid-flight. ROADMAP_STATE flipped to v3/V3/B3.
+- last clean commit: `09f90d4 memd auto-commit: V3-flip checkpoint`
+- status: V3 active. M4 deferred mid-flight. ROADMAP_STATE on v3/V3/A3. Phase IDs renamed 2026-04-17 so A=1st…E=5th.
+
+## 2026-04-17 rename (read first)
+
+Phase IDs now match execution order. Old → new:
+
+| Old ID | New ID | Phase name |
+|--------|--------|------------|
+| B3 | **A3** | Activate Retrieval (runs 1st) |
+| F3 | **B3** | Reranker + Embeddings (runs 2nd) |
+| E3 | **C3** | Atlas at Recall (runs 3rd) |
+| C3 | **D3** | Consolidation + Sessions (runs 4th) |
+| A3 | **E3** | Bench Honesty (runs 5th) |
+
+Everywhere below that says "B3" for Activate Retrieval means **A3**. Everywhere that says "A3" for Bench Honesty means **E3**. The rest of this packet has been patched inline; this note exists only so a reader who already has the old IDs in their head sees the map up front.
 
 ## Why this packet exists
 
@@ -20,22 +34,22 @@ I2 work has NOT started. M4 step order unchanged: I2 (next) → M2-evo → N2 �
 
 Roadmap block: `ROADMAP.md` `## V3: Make It Compete` (line ~194 onward). Short table, brief gate format, links to phase docs for detail.
 
-Five phases, all `pending`, all bench-delta-gated:
+Five phases, all `pending`, all bench-delta-gated (IDs now in execution order):
 
 | Phase | Name | Depends | Bench target |
 |-------|------|---------|--------------|
-| B3 | Activate Retrieval | M4 | LME 0.86→0.93, MemBench 0.35→0.50 |
-| F3 | Reranker + Embeddings | B3 | LME 0.93→0.97, LoCoMo 0.42→0.55 |
-| E3 | Atlas at Recall | B3, F3 | LoCoMo 0.55→0.65 |
-| C3 | Consolidation + Sessions | B3, F3, E3 | LME 0.97→0.98, LoCoMo 0.65→0.70 |
-| A3 | Bench Honesty | B3 | ConvoMem 0→0.50, MemPalace cross-baseline live |
+| A3 | Activate Retrieval | (M4 dep relaxed) | LME 0.86→0.93, MemBench 0.35→0.50 |
+| B3 | Reranker + Embeddings | A3 | LME 0.93→0.97, LoCoMo 0.42→0.55 |
+| C3 | Atlas at Recall | A3, B3 | LoCoMo 0.55→0.65 |
+| D3 | Consolidation + Sessions | A3, B3, C3 | LME 0.97→0.98, LoCoMo 0.65→0.70 |
+| E3 | Bench Honesty | A3 | ConvoMem 0→0.50, MemPalace cross-baseline live |
 
-Phase docs (new, untracked):
-- [[docs/phases/phase-b3-activate-retrieval.md]]
-- [[docs/phases/phase-f3-reranker-embeddings.md]]
-- [[docs/phases/phase-e3-atlas-at-recall.md]]
-- [[docs/phases/phase-c3-consolidation-sessions.md]]
-- [[docs/phases/phase-a3-bench-honesty.md]]
+Phase docs:
+- [[docs/phases/phase-a3-activate-retrieval.md]]
+- [[docs/phases/phase-b3-reranker-embeddings.md]]
+- [[docs/phases/phase-c3-atlas-at-recall.md]]
+- [[docs/phases/phase-d3-consolidation-sessions.md]]
+- [[docs/phases/phase-e3-bench-honesty.md]]
 
 Each carries: goal, why-this-phase, deliverables, pass gate (pre/post bench numbers + regression budget + evidence), donor anchors to `.memd/lanes/architecture/A2-*` extraction pack, rollback flags, out-of-scope.
 
@@ -51,11 +65,11 @@ Inspiration ceiling proof: mempalace 96.6% pure cosine, 100% with rerank ([[.mem
 
 ## Why V3 starts now (not after M4)
 
-User flip 2026-04-16: M4 polish "doesn't move the score." Score is the goal. V3 ships score. M4 (I2/M2-evo/N2) deferred until V3 lands or until a V3 phase needs M4 infra (e.g. C3 may need M2-evo's overnight loop — at that point cherry-pick the loop into C3, don't resurrect all of M4).
+User flip 2026-04-16: M4 polish "doesn't move the score." Score is the goal. V3 ships score. M4 (I2/M2-evo/N2) deferred until V3 lands or until a V3 phase needs M4 infra (e.g. D3 may need M2-evo's overnight loop — at that point cherry-pick the loop into D3, don't resurrect all of M4).
 
 K2 + L2 already done on `main` + `research/mining` — they were the M4 pieces that hardened core surfaces (observability, hive integrity). I2 (dashboard), M2-evo (overnight evo infra), N2 (integrations polish) are paused. Resume after V3.
 
-B3's `depends_on: [M4]` was relaxed to `[]` in this flip — sidecar wiring is orthogonal to dashboard/observability/hive polish. See `docs/phases/phase-b3-activate-retrieval.md` frontmatter `notes` line.
+A3's `depends_on: [M4]` was relaxed to `[]` in this flip — sidecar wiring is orthogonal to dashboard/observability/hive polish. See `docs/phases/phase-a3-activate-retrieval.md` frontmatter `notes` line.
 
 ## V1 + stale V2 archive
 
@@ -102,15 +116,15 @@ User has not asked for commit yet. Hold until asked.
 
 | # | Phase | Depends | Why this slot |
 |---|-------|---------|---------------|
-| 1 | **B3 Activate Retrieval** | (M4 dep relaxed) | Sidecar disabled = bench is keyword-only. Foundational. |
-| 2 | **F3 Reranker + Embeddings** | B3 | Reranker only meaningful once dense path is live. |
-| 3 | **E3 Atlas at Recall** | B3, F3 | Multi-hop expansion stacks on dense+rerank. |
-| 4 | **C3 Consolidation + Sessions** | B3, F3, E3 | Long-tail decay tuning needs all retrieval signals first. May cherry-pick M2-evo overnight-loop infra. |
-| 5 | **A3 Bench Honesty** | B3 | ConvoMem adapter fix can start in parallel with B3 (adapter bug, not retrieval). Formal phase merge ships last. |
+| 1 | **A3 Activate Retrieval** | (M4 dep relaxed) | Sidecar disabled = bench is keyword-only. Foundational. |
+| 2 | **B3 Reranker + Embeddings** | A3 | Reranker only meaningful once dense path is live. |
+| 3 | **C3 Atlas at Recall** | A3, B3 | Multi-hop expansion stacks on dense+rerank. |
+| 4 | **D3 Consolidation + Sessions** | A3, B3, C3 | Long-tail decay tuning needs all retrieval signals first. May cherry-pick M2-evo overnight-loop infra. |
+| 5 | **E3 Bench Honesty** | A3 | ConvoMem adapter fix can start in parallel with A3 (adapter bug, not retrieval). Formal phase merge ships last. |
 
-## B3 entry — first move
+## A3 entry — first move
 
-`docs/phases/phase-b3-activate-retrieval.md` deliverable 1: **wire `memd-sidecar` into `memd-server` retrieval**.
+`docs/phases/phase-a3-activate-retrieval.md` deliverable 1: **wire `memd-sidecar` into `memd-server` retrieval**.
 
 Concrete starting points (verified diagnosis):
 - `.memd/config.json:48` — `rag.enabled = false` → flip to `true` after server-side import lands
@@ -119,29 +133,28 @@ Concrete starting points (verified diagnosis):
 
 Donor anchor: `.memd/lanes/architecture/A2-09-retrieval-pipeline.md` (mempalace pipeline shape: sanitize → embed → vector → filter → rank → assemble).
 
-Then deliverables 2-6 from the B3 phase doc (config defaults, query sanitization, layered context, priority dedup, status admission cap).
+Then deliverables 2-6 from the A3 phase doc (config defaults, query sanitization, layered context, priority dedup, status admission cap).
 
 **Do not start with deliverables 2-6 before deliverable 1.** The bench delta proves the dense path is reaching the bench harness — without that proof, every subsequent V3 phase is gambling.
 
-## A3 parallel option
+## E3 parallel option (ConvoMem adapter)
 
-ConvoMem adapter fix (A3 deliverable 1) is parallelizable with B3 — it's an adapter/routing bug, not a retrieval-quality problem. Worth queuing on a side branch off `main` if a parallel agent is available. Formal A3 phase merge still sits at end of V3 to capture the whole picture (cross-baseline replay + per-phase leaderboard refresh + bench claim governance).
+ConvoMem adapter fix (E3 deliverable 1) is parallelizable with A3 — it's an adapter/routing bug, not a retrieval-quality problem. Worth queuing on a side branch off `main` if a parallel agent is available. Formal E3 phase merge still sits at end of V3 to capture the whole picture (cross-baseline replay + per-phase leaderboard refresh + bench claim governance).
 
 ## M4 deferred — what's parked
 
 Plan: `docs/plans/M4-EXECUTION-PLAN.md` (still authoritative for M4 when it resumes).
 
 - **I2 Human Dashboard** — 11 substeps, entry was `I2.2 fix EntitySearchResult type mismatch`. See prior packet [[docs/handoff/2026-04-16-L2-complete-next-I2.md]] for full I2 entry plan when M4 resumes.
-- **M2-evo Overnight Evolution** — infra; C3 may need its dream-loop pieces, cherry-pick at that point.
+- **M2-evo Overnight Evolution** — infra; D3 may need its dream-loop pieces, cherry-pick at that point.
 - **N2 Integrations Polish** — last in M4 order.
 
 Test baseline at deferral point: 190 server + 430 client, both green. No source touched this session.
 
 ## Open questions for next session
 
-1. **WHERE-AM-I needs another refresh** — currently points at v2/M4/I2; should now point at v3/V3/B3. Quick edit before B3 work starts.
-2. **A3 parallel start** — queue ConvoMem adapter fix as a side branch off `main` while B3 runs on `research/mining`?
-3. **C3 ↔ M2-evo cherry-pick boundary** — when C3 wants overnight loop infra, do we cherry-pick from the M4 plan or rebuild minimal? Decide at C3 entry, not now.
+1. **E3 parallel start** — queue ConvoMem adapter fix as a side branch off `main` while A3 runs on `research/mining`?
+2. **D3 ↔ M2-evo cherry-pick boundary** — when D3 wants overnight loop infra, do we cherry-pick from the M4 plan or rebuild minimal? Decide at D3 entry, not now.
 
 ## Donor lane (where V3 detail lives)
 
