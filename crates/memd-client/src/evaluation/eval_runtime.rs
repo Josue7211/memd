@@ -318,6 +318,11 @@ pub(crate) async fn read_bundle_resume(
         || context.records.len() >= 6;
     let claims = read_bundle_claims(&args.output).unwrap_or_default();
 
+    let un_read_paths = session
+        .as_deref()
+        .map(|sid| collect_un_read_paths(&args.output, sid))
+        .unwrap_or_default();
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -343,6 +348,7 @@ pub(crate) async fn read_bundle_resume(
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
         files_touched: Vec::new(),
+        un_read_paths,
     };
 
     sync_resume_state_record(

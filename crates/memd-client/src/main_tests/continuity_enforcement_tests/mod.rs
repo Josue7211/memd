@@ -102,3 +102,33 @@ async fn hook_gate_warn_emits_system_message_not_deny() {
     assert!(v["systemMessage"].as_str().unwrap().contains("a.rs"));
     assert_ne!(v["hookSpecificOutput"]["permissionDecision"], "deny");
 }
+
+#[test]
+fn collect_un_read_paths_returns_sealed_minus_fresh_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path();
+    seed_sealed_paths(out, "sess-prev", &[("a.rs", FileOp::Edit), ("b.rs", FileOp::Read)]);
+    // sess-now has read a.rs but NOT b.rs
+    let read_payload = serde_json::json!({
+        "session_id": "sess-now",
+        "tool_name": "Read",
+        "tool_input": {"file_path": "a.rs"}
+    });
+    append_file_interaction(&read_payload, None, out, 9).unwrap();
+    let un_read = crate::runtime::collect_un_read_paths(out, "sess-now");
+    assert!(!un_read.contains(&"a.rs".to_string()), "a.rs is fresh-read");
+    assert!(un_read.contains(&"b.rs".to_string()), "b.rs is un-read");
+}
+
+#[test]
+fn render_continuity_gate_block_lists_un_read_paths() {
+    let block = crate::runtime::render_continuity_gate_block(&["a.rs".into(), "b.rs".into()], false);
+    assert!(block.contains("## Continuity Gate"));
+    assert!(block.contains("a.rs"));
+    assert!(block.contains("b.rs"));
+}
+
+#[test]
+fn render_continuity_gate_block_is_empty_when_un_read_list_is_empty() {
+    assert_eq!(crate::runtime::render_continuity_gate_block(&[], false), String::new());
+}

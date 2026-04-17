@@ -45,6 +45,12 @@ pub(crate) fn collect_files_touched(output: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(crate) fn collect_un_read_paths(output: &Path, session_id: &str) -> Vec<String> {
+    let sealed = memd_core::enforcement::load_latest_sealed_paths(output);
+    let fresh = memd_core::enforcement::FreshReadIndex::for_session(output, session_id);
+    sealed.into_iter().filter(|p| !fresh.contains(p)).collect()
+}
+
 #[allow(unused_imports)]
 pub(crate) use crate::workflow::*;
 #[allow(unused_imports)]
@@ -358,6 +364,11 @@ pub(crate) async fn read_bundle_resume(
         .as_ref()
         .map(HandoffQualityScore::from_report);
 
+    let un_read_paths = session
+        .as_deref()
+        .map(|sid| collect_un_read_paths(&args.output, sid))
+        .unwrap_or_default();
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -383,6 +394,7 @@ pub(crate) async fn read_bundle_resume(
         atlas_region_hints,
         handoff_quality,
         files_touched: collect_files_touched(&args.output),
+        un_read_paths,
     };
 
     sync_resume_state_record(
@@ -1140,6 +1152,7 @@ mod tests {
             handoff_quality: None,
 
             files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1322,6 +1335,7 @@ mod tests {
             handoff_quality: None,
 
             files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1411,6 +1425,7 @@ mod tests {
             handoff_quality: None,
 
             files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
         };
 
         assert_eq!(
@@ -1653,6 +1668,8 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) handoff_quality: Option<HandoffQualityScore>,
     #[serde(default)]
     pub(crate) files_touched: Vec<String>,
+    #[serde(default)]
+    pub(crate) un_read_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

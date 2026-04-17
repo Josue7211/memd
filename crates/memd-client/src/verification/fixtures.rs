@@ -241,6 +241,7 @@ pub(crate) fn build_fixture_resume_snapshot(
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
         files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
     }
 }
 

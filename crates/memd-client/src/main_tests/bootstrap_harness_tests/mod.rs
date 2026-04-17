@@ -2791,6 +2791,7 @@ fn bundle_memory_markdown_surfaces_current_task_snapshot() {
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
         files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
     };
 
     let markdown = render_bundle_memory_markdown(Path::new(".memd"), &snapshot, None, None);

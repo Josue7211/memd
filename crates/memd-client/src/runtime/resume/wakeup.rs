@@ -41,6 +41,24 @@ fn truncate_visible_chars(value: &str, max_chars: usize) -> String {
     truncated
 }
 
+pub(crate) fn render_continuity_gate_block(un_read: &[String], verbose: bool) -> String {
+    if un_read.is_empty() { return String::new(); }
+    let mut s = String::new();
+    s.push_str("## Continuity Gate\n\n");
+    s.push_str(
+        "_Prior session touched these files and THIS session has not Read them yet. Bulk-Read before editing or memd will deny (policy=block) or warn (policy=warn)._\n\n",
+    );
+    let limit = if verbose { 20 } else { 10 };
+    for p in un_read.iter().take(limit) {
+        s.push_str(&format!("- {p}\n"));
+    }
+    if un_read.len() > limit {
+        s.push_str(&format!("- + {} more\n", un_read.len() - limit));
+    }
+    s.push('\n');
+    s
+}
+
 fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> String {
     let full = format!("{prefix}{protocol}");
     if full.chars().count() <= max_chars {
@@ -221,6 +239,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
             ));
         }
         prefix.push('\n');
+    }
+
+    if !claude_strict {
+        prefix.push_str(&render_continuity_gate_block(&snapshot.un_read_paths, verbose));
     }
 
     let continuity = snapshot.continuity_capsule();
@@ -567,6 +589,7 @@ mod tests {
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
             files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
         }
     }
 
@@ -723,6 +746,7 @@ mod tests {
             atlas_region_hints: Vec::new(),
             handoff_quality: None,
             files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
         }
     }
 
