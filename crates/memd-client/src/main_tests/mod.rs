@@ -183,6 +183,7 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
         handoff_quality: None,
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     }
 }
 

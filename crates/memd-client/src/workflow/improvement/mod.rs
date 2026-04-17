@@ -660,6 +660,7 @@ mod tests {
             handoff_quality: None,
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 

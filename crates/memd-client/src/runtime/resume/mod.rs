@@ -369,6 +369,33 @@ pub(crate) async fn read_bundle_resume(
         .map(|sid| collect_un_read_paths(&args.output, sid))
         .unwrap_or_default();
 
+    // A3 Part 2 Task 11: Fetch preferences as a separate retrieval intent.
+    // RetrievalIntent::Preference maps to [MemoryKind::Preference, MemoryKind::Decision],
+    // so we may get Decisions leaked in; this is acceptable (they're high-signal durable memory).
+    let pref_intent = parse_retrieval_intent(Some("preference".to_string()))
+        .unwrap_or(Some(memd_schema::RetrievalIntent::CurrentTask));
+    let preferences = match client
+        .context_compact(&memd_schema::ContextRequest {
+            project: project.clone(),
+            agent: agent.clone(),
+            workspace: workspace.clone(),
+            visibility,
+            route,
+            intent: pref_intent,
+            limit: Some(3),
+            max_chars_per_item: Some(220),
+        })
+        .await
+    {
+        Ok(resp) => resp
+            .records
+            .into_iter()
+            .take(3)
+            .map(|r| r.record)
+            .collect(),
+        Err(_) => Vec::new(),  // fail-soft: no preferences = empty block
+    };
+
     let snapshot = ResumeSnapshot {
         project,
         namespace,
@@ -395,6 +422,7 @@ pub(crate) async fn read_bundle_resume(
         handoff_quality,
         files_touched: collect_files_touched(&args.output),
         un_read_paths,
+        preferences,
     };
 
     sync_resume_state_record(
@@ -1153,6 +1181,7 @@ mod tests {
 
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1336,6 +1365,7 @@ mod tests {
 
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         let summary = build_truth_summary(&snapshot);
@@ -1426,6 +1456,7 @@ mod tests {
 
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         };
 
         assert_eq!(
@@ -1670,6 +1701,8 @@ pub(crate) struct ResumeSnapshot {
     pub(crate) files_touched: Vec<String>,
     #[serde(default)]
     pub(crate) un_read_paths: Vec<String>,
+    #[serde(default)]
+    pub(crate) preferences: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

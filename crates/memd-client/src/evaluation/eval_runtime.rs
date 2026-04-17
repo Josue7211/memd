@@ -349,6 +349,7 @@ pub(crate) async fn read_bundle_resume(
         handoff_quality: None,
         files_touched: Vec::new(),
         un_read_paths,
+        preferences: Vec::new(),
     };
 
     sync_resume_state_record(

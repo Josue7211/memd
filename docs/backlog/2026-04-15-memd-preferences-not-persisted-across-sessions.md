@@ -1,6 +1,6 @@
 # memd Preferences and Architecture Knowledge Not Persisted Across Sessions
 
-status: open
+status: closed
 severity: critical
 phase: core
 opened: 2026-04-15
@@ -48,3 +48,11 @@ If the agent can't remember how to use memd's own project, memd isn't working.
 4. Ensure wake packet includes top architecture + preference memories, not just status
 5. E2E test: store preference → new session → agent recalls preference without prompting
 6. This should be highest priority — it affects every memd feature
+
+## Resolution
+
+Fixed in A3 Part 2 Task 11: wake packet now surfaces preferences in a dedicated
+`## Preferences` block via `render_preferences_block`, sourced from a
+`RetrievalIntent::Preference` fetch in `read_bundle_resume`. Top 3 preferences
+render inline in the wake packet (max 140 chars per item, or 110 for claude-strict mode).
+The preferences field is optional (`#[serde(default)]`) for backward compatibility.

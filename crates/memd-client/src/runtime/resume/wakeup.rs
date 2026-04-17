@@ -59,6 +59,23 @@ pub(crate) fn render_continuity_gate_block(un_read: &[String], verbose: bool) ->
     s
 }
 
+pub(crate) fn render_preferences_block(
+    preferences: &[String],
+    claude_strict: bool,
+    verbose: bool,
+) -> String {
+    if preferences.is_empty() { return String::new(); }
+    let mut s = String::new();
+    s.push_str("## Preferences\n\n");
+    let item_limit = if claude_strict { 110 } else { 140 };
+    let count = if verbose { 5 } else { 3 };
+    for p in preferences.iter().take(count) {
+        s.push_str(&format!("- {}\n", compact_inline(p.trim(), item_limit)));
+    }
+    s.push('\n');
+    s
+}
+
 fn enforce_wake_char_budget(prefix: &str, protocol: &str, max_chars: usize) -> String {
     let full = format!("{prefix}{protocol}");
     if full.chars().count() <= max_chars {
@@ -211,6 +228,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
     }
     prefix.push('\n');
+
+    // A3 Part 2 Task 11: Surface preference memories in wake packet.
+    prefix.push_str(&render_preferences_block(&snapshot.preferences, claude_strict, verbose));
 
     // E2: Atlas region hints in wake packet
     if !snapshot.atlas_region_hints.is_empty() && !claude_strict {
@@ -590,6 +610,7 @@ mod tests {
             handoff_quality: None,
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 
@@ -747,6 +768,7 @@ mod tests {
             handoff_quality: None,
             files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
         }
     }
 

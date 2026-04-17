@@ -242,6 +242,7 @@ pub(crate) fn build_fixture_resume_snapshot(
         handoff_quality: None,
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     }
 }
 

@@ -161,6 +161,7 @@ fn describes_eval_changes_against_baseline() {
         handoff_quality: None,
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
     };
 
     let changes = describe_eval_changes(&baseline, 88, &snapshot);
@@ -379,6 +380,7 @@ fn build_eval_recommendations_surfaces_actionable_followups() {
         handoff_quality: None,
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
     };
 
     let recommendations = build_eval_recommendations(&snapshot, 62);

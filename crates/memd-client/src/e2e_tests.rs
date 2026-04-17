@@ -833,5 +833,6 @@ fn sample_snapshot_for_voice() -> ResumeSnapshot {
         handoff_quality: None,
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
     }
 }

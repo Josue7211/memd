@@ -126,6 +126,7 @@ pub(super) fn test_autoresearch_snapshot(
 
         files_touched: Vec::new(),
             un_read_paths: Vec::new(),
+            preferences: Vec::new(),
     }
 }
 
