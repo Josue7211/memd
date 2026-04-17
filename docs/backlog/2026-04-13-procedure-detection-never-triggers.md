@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: unassigned
+opened: 2026-04-13
+scope: memd-worker, memd-server
+---
 # Procedure Detection Never Triggers in Runtime
 
 - status: `closed`

@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # TTL Enforcement: Items Expire but Never Get Removed
 
 status: open

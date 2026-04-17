@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: L2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Handoff Quality Proof
 
 - status: `open`

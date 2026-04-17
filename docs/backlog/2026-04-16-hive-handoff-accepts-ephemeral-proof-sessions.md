@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: L2
+opened: 2026-04-16
+scope: memd-client, memd-server, hive
+---
 # Hive Handoff Accepts Ephemeral Proof / Fixture Sessions As Live Targets
 
 - status: `open`

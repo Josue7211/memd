@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: I2
+opened: 2026-04-15
+scope: unspecified
+---
 # MemoryEntityRecord Frontend Type Does Not Match Server
 
 status: open

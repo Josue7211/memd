@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # Event Spine NDJSON Has No Integrity Checks
 
 status: open

@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-15
+scope: unspecified
+---
 # Dashboard .env Hardcoded to Tailscale IP
 
 status: open

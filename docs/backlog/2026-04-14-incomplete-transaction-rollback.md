@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: C2
+opened: 2026-04-14
+scope: memd-core
+---
 # Incomplete Transaction Rollback
 
 - status: `open`

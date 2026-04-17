@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: E3
+opened: 2026-04-14
+scope: memd-core
+---
 # No Overnight Evolution Loop
 
 - status: `open`

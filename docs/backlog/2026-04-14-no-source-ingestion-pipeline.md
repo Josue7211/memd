@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # No Source Material Ingestion Pipeline
 
 status: open

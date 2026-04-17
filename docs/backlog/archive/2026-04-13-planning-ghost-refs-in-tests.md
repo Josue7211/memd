@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: unspecified
+---
 # .planning/ Ghost References in Tests
 
 Status: `closed` — false positive, intentional project fixture setup

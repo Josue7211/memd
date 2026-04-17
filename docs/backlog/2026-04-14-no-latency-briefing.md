@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: K2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Latency / SLA Briefing
 
 - status: `open`

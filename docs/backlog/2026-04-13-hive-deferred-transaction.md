@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: memd-server
+---
 # Hive Session Upsert Uses DEFERRED Transaction
 
 - status: `closed`

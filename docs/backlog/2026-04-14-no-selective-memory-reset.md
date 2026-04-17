@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: D2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Selective Memory Reset
 
 - status: `open`

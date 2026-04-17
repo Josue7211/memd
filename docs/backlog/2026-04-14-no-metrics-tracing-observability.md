@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: K2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Metrics / Tracing / Observability
 
 - status: `open`

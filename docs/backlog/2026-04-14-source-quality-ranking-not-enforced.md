@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # Source Quality Ranking Not Enforced in Retrieval
 
 status: open

@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: C2
+opened: 2026-04-14
+scope: memd-core
+---
 # Concurrent Write: No Retry
 
 - status: `open`

@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: unassigned
+opened: 2026-04-13
+scope: process
+---
 # No Dogfood Verification Gate for Phase Completion
 
 - status: `closed`

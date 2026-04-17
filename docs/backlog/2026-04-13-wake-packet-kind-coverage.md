@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: unassigned
+opened: 2026-04-13
+scope: memd-server, memd-client
+---
 # Wake Packet Structurally Excludes Non-Status Memory Kinds
 
 - status: `closed`

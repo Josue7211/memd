@@ -1,3 +1,10 @@
+---
+status: deferred
+severity: high
+phase: D3
+opened: 2026-04-13
+scope: memd-server, memd-client
+---
 # Atlas System Dormant — Never Called from Runtime
 
 - status: `deferred-phase-h`

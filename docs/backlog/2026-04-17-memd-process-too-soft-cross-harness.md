@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: A3
+opened: 2026-04-17
+scope: harness-core
+---
 # memd Process Too Soft Across Harnesses
 
 - status: `open`

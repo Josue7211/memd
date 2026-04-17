@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: A3
+opened: 2026-04-15
+scope: unspecified
+---
 # memd Preferences and Architecture Knowledge Not Persisted Across Sessions
 
 status: closed

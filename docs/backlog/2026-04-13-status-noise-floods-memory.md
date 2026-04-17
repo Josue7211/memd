@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: B3
+opened: 2026-04-13
+scope: memd-client, memd-server
+---
 # Status Noise Floods Working Memory
 
 - status: `closed`

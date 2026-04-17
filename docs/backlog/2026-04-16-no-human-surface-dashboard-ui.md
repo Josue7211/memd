@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: I2
+opened: 2026-04-16
+scope: memd-dashboard
+---
 # No Human Surface / Dashboard UI
 
 - status: `open`

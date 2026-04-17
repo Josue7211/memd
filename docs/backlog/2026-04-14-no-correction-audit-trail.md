@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: D2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Correction Audit Trail
 
 - status: `open`

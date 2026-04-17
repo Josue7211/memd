@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: I2
+opened: 2026-04-15
+scope: unspecified
+---
 # React Dashboard Not Served From memd-server
 
 status: open

@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: D3
+opened: 2026-04-13
+scope: unspecified
+---
 # Architecture Knowledge Not Stored in Memory Lanes
 
 status: open

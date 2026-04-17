@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # No Change Detection on Source Material
 
 status: open

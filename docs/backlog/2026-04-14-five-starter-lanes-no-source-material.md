@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # 5 Starter Lanes Have No Source Material
 
 status: open

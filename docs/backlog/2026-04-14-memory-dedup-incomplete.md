@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: B3
+opened: 2026-04-14
+scope: unspecified
+---
 # Memory Dedup Incomplete — Same Fact Stored Multiple Times
 
 status: open

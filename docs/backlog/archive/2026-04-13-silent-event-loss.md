@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: memd-server
+---
 # Silent Event Loss
 
 - status: `closed`

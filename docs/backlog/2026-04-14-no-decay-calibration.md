@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: E3
+opened: 2026-04-14
+scope: memd-core
+---
 # No Decay Calibration
 
 - status: `open`

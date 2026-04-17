@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: A3
+opened: 2026-04-17
+scope: harness-core, process, cli, contract
+---
 # memd File Structure Not Enforced In Code
 
 - status: `open`

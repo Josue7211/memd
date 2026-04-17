@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: J2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Multi-Project Isolation Proof
 
 - status: `open`

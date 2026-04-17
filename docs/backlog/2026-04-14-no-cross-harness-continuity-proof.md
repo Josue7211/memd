@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: L2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Cross-Harness Continuity Proof
 
 - status: `open`

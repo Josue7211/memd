@@ -1,3 +1,10 @@
+---
+status: deferred
+severity: critical
+phase: unassigned
+opened: 2026-04-13
+scope: memd-server, memd-client, product
+---
 # Memory Is Not Navigable — Core Product Promise Broken
 
 - status: `deferred-phase-h`

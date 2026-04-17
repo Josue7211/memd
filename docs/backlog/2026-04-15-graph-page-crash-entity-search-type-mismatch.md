@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: I2
+opened: 2026-04-15
+scope: unspecified
+---
 # Graph Page Crash — EntitySearchResponse Type Mismatch
 
 status: open

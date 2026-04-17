@@ -1,3 +1,10 @@
+---
+status: closed
+severity: high
+phase: unassigned
+opened: 2026-04-13
+scope: memd-client, memd (product)
+---
 # memd Does Not Remember Codebase Structure Across Sessions
 
 - status: `closed` (resolved by upstream fixes: wake-packet-kind-coverage, status-noise-floods-memory, agent-write-helpers-unreachable)

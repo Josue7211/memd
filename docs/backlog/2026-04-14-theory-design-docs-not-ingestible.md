@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # Theory/Design Docs Not Ingestible as Lane Source Material
 
 status: open

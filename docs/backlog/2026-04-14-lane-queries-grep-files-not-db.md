@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # Lane Queries Grep Files Instead of Hitting DB
 
 status: open

@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: A3
+opened: 2026-04-14
+scope: memd-core
+---
 # No Live Memory Contract
 
 - status: `open`

@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: I2
+opened: 2026-04-14
+scope: unspecified
+---
 # Ghost Refs in Continuity Capsule
 
 status: open

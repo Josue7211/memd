@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: memd-client (init_runtime), .memd bundle
+---
 # Stale Per-Harness Bundle Files
 
 - status: `closed`

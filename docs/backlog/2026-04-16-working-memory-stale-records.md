@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: A3
+opened: 2026-04-16
+scope: memd-core
+---
 # Working Memory Holds Stale Records After Phase Completion
 
 - status: `open`

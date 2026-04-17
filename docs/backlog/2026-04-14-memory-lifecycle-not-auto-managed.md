@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: A3
+opened: 2026-04-14
+scope: memd-core, lifecycle
+---
 # Memory Lifecycle Not Auto-Managed
 
 status: open

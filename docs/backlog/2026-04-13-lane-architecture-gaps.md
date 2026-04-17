@@ -1,3 +1,10 @@
+---
+status: deferred
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: memd-client, memd-server, memd-schema
+---
 # Lane Architecture Gaps
 
 - status: `deferred-phase-h`

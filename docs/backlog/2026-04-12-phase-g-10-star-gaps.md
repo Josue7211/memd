@@ -1,3 +1,10 @@
+---
+status: in_progress
+severity: medium
+phase: unassigned
+opened: 2026-04-12
+scope: unspecified
+---
 # Phase G 10-Star Gaps
 
 Status: `in_progress` (8 closed, 4 deferred medium, 3 deferred as feature work, 1 deferred to Phase H)

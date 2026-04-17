@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: all crates
+---
 # 158 Clippy Warnings
 
 - status: `closed`

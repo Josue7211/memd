@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: B3
+opened: 2026-04-14
+scope: memd-core
+---
 # No Semantic Search Baseline (RAG Disabled, No Fallback)
 
 - status: `open`

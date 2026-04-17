@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: N2
+opened: 2026-04-14
+scope: memd-core
+---
 # No Multi-User / Team Support
 
 - status: `open`

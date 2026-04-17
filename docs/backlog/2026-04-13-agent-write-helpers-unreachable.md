@@ -1,3 +1,10 @@
+---
+status: closed
+severity: high
+phase: unassigned
+opened: 2026-04-13
+scope: memd-client
+---
 # Agent Write Helpers Unreachable from Agents
 
 - status: `closed`

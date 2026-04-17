@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: N2
+opened: 2026-04-14
+scope: memd-core
+---
 # Skill Gating: Config Flags Only
 
 - status: `open`

@@ -1,3 +1,10 @@
+---
+status: closed
+severity: medium
+phase: unassigned
+opened: 2026-04-13
+scope: memd-server, memd-client
+---
 # Queen Operations Dead Code — Routes Without Client
 
 - status: `closed`

@@ -1,3 +1,10 @@
+---
+status: open
+severity: medium
+phase: A3
+opened: 2026-04-17
+scope: repo-structure, docs, integrations
+---
 # Codebase Organization Pass
 
 - status: `open`

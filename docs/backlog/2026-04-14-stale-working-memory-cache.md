@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: B2
+opened: 2026-04-14
+scope: memd-core
+---
 # Stale Working Memory Cache
 
 - status: `open`

@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: B3
+opened: 2026-04-14
+scope: unspecified
+---
 # No Behavior-Changing Recall Proof
 
 status: open

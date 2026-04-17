@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: F3
+opened: 2026-04-14
+scope: memd-core
+---
 # No Public Benchmark Parity
 
 - status: `open`

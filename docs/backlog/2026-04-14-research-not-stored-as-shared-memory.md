@@ -1,6 +1,13 @@
+---
+status: closed
+severity: high
+phase: unassigned
+opened: 2026-04-14
+scope: unspecified
+---
 # Deep Research Not Stored as Shared memd Memory
 
-status: fixed
+status: closed
 severity: high
 fixed: 2026-04-14
 phase: dogfood

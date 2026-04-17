@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: D3
+opened: 2026-04-14
+scope: unspecified
+---
 # Atlas Fully Built but Completely Dormant
 
 status: open

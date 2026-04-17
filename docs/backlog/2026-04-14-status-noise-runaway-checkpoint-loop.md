@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: B3
+opened: 2026-04-14
+scope: unspecified
+---
 # Status Noise: Runaway Auto-Checkpoint Loop
 
 status: open

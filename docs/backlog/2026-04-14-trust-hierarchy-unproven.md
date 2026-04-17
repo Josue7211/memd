@@ -1,3 +1,10 @@
+---
+status: open
+severity: high
+phase: J2
+opened: 2026-04-14
+scope: memd-core
+---
 # Trust Hierarchy Unproven
 
 - status: `open`

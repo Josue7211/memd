@@ -1,3 +1,10 @@
+---
+status: open
+severity: critical
+phase: A3
+opened: 2026-04-16
+scope: memd-core
+---
 # Promote / Expire / Archive Lifecycle Does Not Execute Reliably
 
 - status: `open`

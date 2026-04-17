@@ -1,3 +1,10 @@
+---
+status: closed
+severity: critical
+phase: unassigned
+opened: 2026-04-13
+scope: memd-client
+---
 # Continuity Fields Reference Deleted Files
 
 - status: `closed`
