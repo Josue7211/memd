@@ -207,7 +207,7 @@ Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to i
 
 | Phase | Name | Status | Owns (backlog / target) | Phase Doc |
 | --- | --- | --- | --- | --- |
-| A3 | memd Continuity Foundation | `pending` | read-state-lost-across-compaction, hooks-scattered, codebase-organization, process-too-soft, pipeline-lifecycle-broken, working-memory-stale-records, preferences-not-persisted, no-live-memory-contract | [[phase-a3-continuity-foundation]] |
+| A3 | memd Continuity Foundation | `pending` | read-state-lost-across-compaction, hooks-scattered, codebase-organization, process-too-soft, pipeline-lifecycle-broken, working-memory-stale-records, preferences-not-persisted, no-live-memory-contract, file-structure-not-enforced-in-code | [[phase-a3-continuity-foundation]] |
 | B3 | Intrinsic Retrieval (RAG-Optional) | `pending` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70), ConvoMem→≥0.10 | [[phase-b3-activate-retrieval]] |
 | C3 | Reranker + Embeddings | `pending` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-c3-reranker-embeddings]] |
 | D3 | Atlas at Recall | `pending` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-d3-atlas-at-recall]] |

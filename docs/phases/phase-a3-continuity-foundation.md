@@ -10,6 +10,7 @@ backlog_items:
   - "2026-04-17-hooks-scattered-across-three-dirs"
   - "2026-04-17-codebase-organization-pass"
   - "2026-04-17-memd-process-too-soft-cross-harness"
+  - "2026-04-17-memd-file-structure-not-enforced-in-code"
   - "2026-04-16-pipeline-lifecycle-broken"
   - "2026-04-16-working-memory-stale-records"
   - "2026-04-15-memd-preferences-not-persisted-across-sessions"
