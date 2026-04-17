@@ -243,12 +243,22 @@ pub(crate) fn render_bundle_wakeup_markdown(
 
     // A3 Part 1: surface prior-session file interactions so the continuation
     // can Bulk-Read before first Edit and avoid re-Read errors post-compaction.
-    if !snapshot.files_touched.is_empty() && !claude_strict {
+    // Load-bearing: NOT gated by claude_strict. Claude Code is the harness
+    // most likely to hit compaction-mid-edit, so suppressing this block under
+    // claude_strict would defeat the A3 continuity guarantee. Under
+    // claude_strict we shrink the row budget but always emit the block.
+    if !snapshot.files_touched.is_empty() {
         prefix.push_str("## Files Touched\n\n");
         prefix.push_str(
             "_Prior session Read/Edit/Write. Bulk-Read before first Edit to avoid re-Read errors after compaction._\n\n",
         );
-        let limit = if verbose { 20 } else { 10 };
+        let limit = if verbose {
+            20
+        } else if claude_strict {
+            6
+        } else {
+            10
+        };
         for p in snapshot.files_touched.iter().take(limit) {
             prefix.push_str(&format!("- {p}\n"));
         }
@@ -816,6 +826,38 @@ mod tests {
         empty.files_touched = Vec::new();
         let empty_md = render_bundle_wakeup_markdown(&dir, &empty, false);
         assert!(!empty_md.contains("## Files Touched"));
+
+        fs::remove_dir_all(dir).expect("cleanup temp bundle");
+    }
+
+    /// Claude Code is the harness most likely to hit compaction-mid-edit, so
+    /// Files Touched MUST emit under claude_strict even though other cosmetic
+    /// wake blocks are trimmed. A3 Part 1 continuity guarantee.
+    #[test]
+    fn wakeup_markdown_emits_files_touched_under_claude_strict() {
+        let dir = std::env::temp_dir()
+            .join(format!("memd-wakeup-ft-claude-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp bundle");
+
+        let mut snapshot = sample_snapshot();
+        snapshot.agent = Some("claude-code@session-abc".to_string());
+        snapshot.files_touched = (0..12)
+            .map(|i| format!("src/file_{i}.rs"))
+            .collect();
+
+        let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
+        assert!(
+            markdown.contains("## Files Touched"),
+            "claude_strict must still emit Files Touched: {markdown}"
+        );
+        // Under claude_strict the row budget is 6; surplus surfaces as overflow hint.
+        assert!(markdown.contains("src/file_0.rs"));
+        assert!(markdown.contains("src/file_5.rs"));
+        assert!(
+            !markdown.contains("src/file_6.rs"),
+            "claude_strict should cap to 6 rows"
+        );
+        assert!(markdown.contains("more via `memd prime-reads`"));
 
         fs::remove_dir_all(dir).expect("cleanup temp bundle");
     }

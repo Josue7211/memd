@@ -320,3 +320,131 @@ fn collect_files_touched_returns_distinct_paths_from_sealed_ledger() {
     assert_eq!(paths.len(), 2);
 }
 
+/// A3 Part 1 Pass Gate: simulated compaction-mid-edit flow with ≥10 files.
+///
+/// Prior session Reads/Edits/Writes 12 distinct files. PreCompact seals the
+/// ledger. Continuation session (empty live ledger, simulating post-compact
+/// Read register reset) must be able to:
+///   1. Discover all 12 paths via `collect_files_touched`
+///   2. Surface them in the wake packet under the `## Files Touched` block
+///      even when the harness is `claude-code` (the most common compaction
+///      case); overflow past the claude_strict row budget must point at
+///      `memd prime-reads`
+///   3. Invoke `run_prime_reads` without error so the continuation can bulk-Read
+#[tokio::test]
+async fn a3_gate_compaction_mid_edit_ten_files_end_to_end() {
+    use crate::runtime::{ResumeSnapshot, collect_files_touched, render_bundle_wakeup_markdown};
+
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+
+    let ops: Vec<(&str, FileOp)> = vec![
+        ("crates/memd-core/src/lib.rs", FileOp::Read),
+        ("crates/memd-core/src/file_ledger.rs", FileOp::Edit),
+        ("crates/memd-core/src/contract.rs", FileOp::Read),
+        ("crates/memd-core/src/enforcement.rs", FileOp::Edit),
+        ("crates/memd-client/src/cli/mod.rs", FileOp::Read),
+        ("crates/memd-client/src/cli/cli_hook_runtime.rs", FileOp::Edit),
+        ("crates/memd-client/src/runtime/resume/wakeup.rs", FileOp::Edit),
+        (".memd/contract.json", FileOp::Write),
+        (".memd/hooks/memd-precompact-save.sh", FileOp::Edit),
+        (".memd/hooks/memd-preedit-prime.sh", FileOp::Write),
+        ("ROADMAP.md", FileOp::Read),
+        ("docs/phases/v3/phase-a3-continuity-foundation.md", FileOp::Read),
+    ];
+
+    // Session A: record each interaction via the public hook entrypoint.
+    for (path, op) in &ops {
+        let tool = match op {
+            FileOp::Read => "Read",
+            FileOp::Edit => "Edit",
+            FileOp::Write => "Write",
+        };
+        let payload = serde_json::json!({
+            "session_id": "sess-A-compact",
+            "tool_name": tool,
+            "tool_input": { "file_path": path },
+        })
+        .to_string();
+        let args = HookArgs {
+            mode: HookMode::FileInteraction(HookFileInteractionArgs {
+                output: output.clone(),
+                session_id: None,
+                stdin: false,
+                content: Some(payload),
+            }),
+        };
+        run_hook_mode(&dummy_client(), "http://127.0.0.1:1", args)
+            .await
+            .expect("file-interaction hook");
+    }
+
+    // PreCompact: seal the live ledger.
+    let seal_args = HookArgs {
+        mode: HookMode::SealLedger(HookSealLedgerArgs {
+            output: output.clone(),
+            session_id: "sess-A-compact".into(),
+        }),
+    };
+    run_hook_mode(&dummy_client(), "http://127.0.0.1:1", seal_args)
+        .await
+        .expect("seal-ledger");
+
+    // Continuation session B: no live ledger exists. `collect_files_touched`
+    // must surface every prior-session path from the sealed snapshot.
+    let paths = collect_files_touched(&output);
+    assert_eq!(
+        paths.len(),
+        ops.len(),
+        "expected {} distinct paths, got {}: {:?}",
+        ops.len(),
+        paths.len(),
+        paths
+    );
+    for (path, _) in &ops {
+        assert!(
+            paths.iter().any(|p| p == path),
+            "prior-session file {path} missing from collect_files_touched"
+        );
+    }
+
+    // Wake packet under claude-code harness must emit Files Touched block.
+    // Under claude_strict the row budget caps at 6 rows, so the remaining
+    // 6 paths must surface as an overflow hint pointing at `memd prime-reads`.
+    let snapshot = {
+        let mut s = ResumeSnapshot::empty();
+        s.agent = Some("claude-code@session-test".to_string());
+        s.files_touched = paths.clone();
+        s
+    };
+    let markdown = render_bundle_wakeup_markdown(&output, &snapshot, false);
+    assert!(
+        markdown.contains("## Files Touched"),
+        "Files Touched block missing under claude_strict: {markdown}"
+    );
+    assert!(
+        markdown.contains("memd prime-reads"),
+        "wake must point at `memd prime-reads` for overflow: {markdown}"
+    );
+    // At minimum the first 6 paths (claude_strict row budget) appear inline.
+    for path in paths.iter().take(6) {
+        assert!(
+            markdown.contains(path),
+            "wake markdown missing path {path}: {markdown}"
+        );
+    }
+    assert!(
+        markdown.contains(&format!("{} more", ops.len() - 6)),
+        "overflow count should be {}: {markdown}",
+        ops.len() - 6
+    );
+
+    // `memd prime-reads` must succeed post-seal so the continuation can
+    // bulk-Read the set before any Edit. No error = A3 Pass Gate satisfied.
+    let pr_args = PrimeReadsArgs {
+        output,
+        since_session: None,
+    };
+    run_prime_reads(&pr_args).expect("prime-reads after seal must succeed");
+}
+

@@ -1751,6 +1751,74 @@ pub(crate) struct ContinuityCapsule {
 }
 
 impl ResumeSnapshot {
+    #[cfg(test)]
+    pub(crate) fn empty() -> Self {
+        use memd_schema::{
+            CompactContextResponse, MemoryInboxResponse, RetrievalIntent, RetrievalRoute,
+            SourceMemoryResponse, WorkingMemoryPolicyState, WorkingMemoryResponse,
+            WorkspaceMemoryResponse,
+        };
+        Self {
+            project: None,
+            namespace: None,
+            agent: None,
+            workspace: None,
+            visibility: None,
+            route: "auto".to_string(),
+            intent: "current_task".to_string(),
+            context: CompactContextResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                records: Vec::new(),
+            },
+            working: WorkingMemoryResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                retrieval_order: Vec::new(),
+                budget_chars: 0,
+                used_chars: 0,
+                remaining_chars: 0,
+                truncated: false,
+                policy: WorkingMemoryPolicyState {
+                    admission_limit: 0,
+                    max_chars_per_item: 0,
+                    budget_chars: 0,
+                    rehydration_limit: 0,
+                },
+                records: Vec::new(),
+                evicted: Vec::new(),
+                rehydration_queue: Vec::new(),
+                traces: Vec::new(),
+                semantic_consolidation: None,
+                procedures: Vec::new(),
+                compaction_quality: None,
+            },
+            inbox: MemoryInboxResponse {
+                route: RetrievalRoute::Auto,
+                intent: RetrievalIntent::CurrentTask,
+                items: Vec::new(),
+            },
+            workspaces: WorkspaceMemoryResponse {
+                workspaces: Vec::new(),
+            },
+            sources: SourceMemoryResponse {
+                sources: Vec::new(),
+            },
+            semantic: None,
+            claims: SessionClaimsState::default(),
+            recent_repo_changes: Vec::new(),
+            change_summary: Vec::new(),
+            resume_state_age_minutes: None,
+            refresh_recommended: false,
+            atlas_region_hints: Vec::new(),
+            handoff_quality: None,
+            files_touched: Vec::new(),
+            un_read_paths: Vec::new(),
+            preferences: Vec::new(),
+        }
+    }
+
     pub(crate) fn continuity_doing(&self) -> Option<String> {
         self.compact_working_records()
             .first()
