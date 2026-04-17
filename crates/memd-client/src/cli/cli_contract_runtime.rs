@@ -21,11 +21,11 @@ pub fn run_contract_verify(args: &ContractVerifyArgs) -> anyhow::Result<()> {
     let evidence = ContractEvidence {
         sealed_ledger_exists: sealed,
         files_touched: &files,
-        live_ledger_exists: false,
-        sealed_dir_empty: false,
-        enforcement_policy_configured: false,
-        enforcement_hook_wired: false,
-        preference_recall_on_cold_boot_green: None,
+        live_ledger_exists: live_ledger_exists(&args.output),
+        sealed_dir_empty: sealed_dir_empty(&args.output),
+        enforcement_policy_configured: enforcement_policy_configured(&args.output),
+        enforcement_hook_wired: enforcement_hook_wired(&args.output),
+        preference_recall_on_cold_boot_green: preference_recall_evidence(&args.output),
     };
     let violations = verify_contract(&contract, &evidence);
 
@@ -101,6 +101,51 @@ fn any_sealed_ledger_exists(output: &Path) -> bool {
         }
     }
     false
+}
+
+fn live_ledger_exists(output: &Path) -> bool {
+    let state = output.join("state");
+    let Ok(rd) = std::fs::read_dir(&state) else { return false; };
+    for entry in rd.flatten() {
+        if entry.file_name().to_string_lossy().starts_with("session-")
+            && entry.path().join("file_interactions.json").exists() {
+            return true;
+        }
+    }
+    false
+}
+
+fn sealed_dir_empty(output: &Path) -> bool {
+    let state = output.join("state");
+    let Ok(rd) = std::fs::read_dir(&state) else { return true; };
+    for entry in rd.flatten() {
+        let sealed = entry.path().join("sealed");
+        let Ok(sd) = std::fs::read_dir(&sealed) else { continue; };
+        if sd.flatten().next().is_some() { return false; }
+    }
+    true
+}
+
+fn enforcement_policy_configured(output: &Path) -> bool {
+    let cfg = output.join("config.json");
+    let Ok(bytes) = std::fs::read(&cfg) else { return false; };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return false; };
+    matches!(
+        v.pointer("/continuity/enforcement").and_then(|s| s.as_str()),
+        Some("off") | Some("warn") | Some("block")
+    )
+}
+
+fn enforcement_hook_wired(output: &Path) -> bool {
+    output.join("hooks/memd-pretool-gate.sh").exists()
+}
+
+fn preference_recall_evidence(output: &Path) -> Option<bool> {
+    let green = output.join("state/preference-replay.green");
+    let red = output.join("state/preference-replay.red");
+    if green.exists() { Some(true) }
+    else if red.exists() { Some(false) }
+    else { None }
 }
 
 #[cfg(test)]

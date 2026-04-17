@@ -189,3 +189,32 @@ async fn enforcement_end_to_end_seal_deny_read_allow() {
     }));
     assert!(run_gate(&allow_args).await.unwrap().is_none());
 }
+
+#[test]
+fn contract_verify_exits_nonzero_when_policy_configured_but_hook_not_wired() {
+    use crate::cli::run_contract_verify;
+    use crate::cli::args::ContractVerifyArgs;
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().to_path_buf();
+    // Write config.json enabling enforcement but no PreToolUse script in the bundle.
+    std::fs::write(
+        out.join("config.json"),
+        serde_json::json!({"continuity":{"enforcement":"block"}}).to_string()
+    ).unwrap();
+    // Seed a default contract.json so verify has something to read.
+    let contract = memd_core::contract::MemdContract::default();
+    std::fs::write(
+        out.join("contract.json"),
+        serde_json::to_string_pretty(&contract).unwrap(),
+    ).unwrap();
+    // No hooks/memd-pretool-gate.sh created under `out/hooks/` — simulating a bundle with
+    // enforcement-policy configured but the gate hook NOT wired.
+
+    let args = ContractVerifyArgs {
+        output: out,
+        json: false,
+    };
+    let result = run_contract_verify(&args);
+    // run_contract_verify returns Err when violations exist.
+    assert!(result.is_err(), "should fail when enforcement_policy_configured=true but enforcement_hook_wired=false");
+}
