@@ -11,6 +11,15 @@ SESSION_ID="$(
 
 echo "[$(date '+%H:%M:%S')] PRE-COMPACT memd save triggered for session $SESSION_ID" >> "$STATE_DIR/hook.log"
 
+# Seal the file-interaction ledger so the continuation session can surface it.
+# Non-blocking: if memd is down or the ledger is missing we still allow the
+# block-decision JSON to flow.
+BUNDLE_ROOT="${MEMD_BUNDLE_ROOT:-.memd}"
+if command -v memd >/dev/null 2>&1; then
+  memd hook seal-ledger --session-id "$SESSION_ID" --output "$BUNDLE_ROOT" \
+    >> "$STATE_DIR/hook.log" 2>&1 || true
+fi
+
 cat <<'HOOKJSON'
 {
   "decision": "block",
