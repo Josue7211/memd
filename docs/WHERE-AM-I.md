@@ -5,17 +5,18 @@ Use this after session clear or when an agent feels lost.
 ## Read In This Order
 
 1. [[ROADMAP]]
-2. [[docs/verification/milestones/MILESTONE-v1.md|MILESTONE-v1]] (historical), [[docs/verification/milestones|milestones index]] for v2/v3
+2. [[docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md|V3 active handoff packet]]
 3. backlog items linked from `ROADMAP`
-4. active phase summary note: [[phase-i2-human-dashboard]]
+4. active phase summary note: [[phase-b3-activate-retrieval]]
 
 ## Current Truth
 
-- active version: `v2` (hardening), `v3` queued (bench parity push)
-- active milestone: `M4: Make It 10-Star`
-- active phase: `I2: Human Dashboard` (pending) — K2 + L2 complete inside M4
-- next step: `I2.2 fix EntitySearchResult type mismatch` (graph page crash) — see [[docs/handoff/2026-04-16-L2-complete-next-I2.md]]
-- main blocker: none (working preferences/working-memory/pipeline issues tracked in backlog)
+- active version: `v3` (bench parity push) — v2/M4 deferred mid-flight
+- active milestone: `V3: Make It Compete`
+- active phase: `B3: Activate Retrieval` (pending) — entry phase for V3
+- next step: `B3.1 wire memd-sidecar into memd-server retrieval` (entity search + lookup paths currently SQL-only) — see [[phase-b3-activate-retrieval]]
+- main blocker: none — V3 is the active focus
+- v2/M4 status: K2 + L2 done; I2 + M2-evo + N2 paused. Resume after V3 or cherry-pick when needed.
 
 ## If You Need More Detail
 

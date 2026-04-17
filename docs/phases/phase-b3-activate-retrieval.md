@@ -3,7 +3,8 @@ phase: B3
 name: Activate Retrieval
 version: v3
 status: pending
-depends_on: [M4]
+depends_on: []
+notes: M4 dep relaxed 2026-04-16 — sidecar wiring is orthogonal to M4 dashboard/observability/hive polish. M4 (I2/M2-evo/N2) deferred for V3.
 backlog_items:
   - "2026-04-14-rag-sidecar-disabled-no-fallback"
   - "2026-04-14-status-noise-runaway-checkpoint-loop"

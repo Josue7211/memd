@@ -4,34 +4,37 @@
 
 <!-- ROADMAP_STATE
 truth_date: 2026-04-16
-version: v2
+version: v3
 version_status: in_progress
-current_milestone: M4
+current_milestone: V3
 milestone_status: in_progress
-current_phase: I2
+current_phase: B3
 phase_status: pending
-next_milestone: M4
-next_step: I2.2 fix EntitySearchResult type mismatch (graph page crash)
-active_blockers: [memd-preferences-not-persisted-across-sessions, working-memory-stale-records, pipeline-lifecycle-broken, hive-handoff-accepts-ephemeral-proof-sessions]
+next_milestone: V3
+next_step: B3.1 wire memd-sidecar into memd-server retrieval
+active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant, no-behavior-changing-recall-proof]
 v1_status: frozen_architecture_complete
-note: M4 in progress on research/mining. K2 complete (10/10 on main, last 235d959). L2 complete (9/9 on research/mining, last 7ce2b7c). Tests: 190 server + 430 client. Next up: I2 (Human Dashboard, 11 substeps). See docs/handoff/2026-04-16-L2-complete-next-I2.md.
+v2_status: m4_deferred_for_v3
+note: V3 active. M4 deferred (K2+L2 complete on main+research/mining; I2/M2-evo/N2 paused). V3 entry = B3 (Activate Retrieval). Diagnosis confirmed sidecar disabled in .memd/config.json:48, server has no memd-rag import, bench backend defaults to lexical. Handoff: docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md.
 -->
 
 ## Status Snapshot
 
 - truth date: `2026-04-16`
-- current version: `v2` (hardening)
+- current version: `v3` (bench parity push) — v2/M4 deferred mid-flight
 - version status: `in_progress`
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
-- current milestone: `M4: Make It 10-Star` (10-STAR Tier 4) — in progress
-- current phase: `I2: Human Dashboard` (pending) — K2 + L2 complete inside M4
-- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); inside `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16)
+- v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
+- current milestone: `V3: Make It Compete` (Tier 5 — bench parity with inspiration repos) — in progress
+- current phase: `B3: Activate Retrieval` (pending) — entry phase, M4 dep relaxed (sidecar wiring orthogonal to dashboard polish)
+- completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `I2` (Human Dashboard) — fix `EntitySearchResult` and `MemoryEntityRecord` type mismatches first (graph page crashes), then preference persistence round-trip, then dashboard-served-from-server. See `docs/handoff/2026-04-16-L2-complete-next-I2.md`.
-- after M4: `V3: Make It Compete` — bench parity push (LME 0.86→0.95, LoCoMo 0.42→0.65, MemBench 0.35→0.65, ConvoMem 0→0.50). See `## V3` block under M4.
+- next step: `B3.1` (V3 entry) — wire `memd-sidecar` into `memd-server` retrieval (entity search + lookup paths currently SQL-only). Then bundle config defaults (`rag.enabled=true`), query sanitization, layered context, priority dedup, status admission cap. See [[docs/phases/phase-b3-activate-retrieval.md]] + handoff `docs/handoff/2026-04-16-V3-milestone-seeded-archive-cleanup.md`.
+- M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with C3).
+- V3 targets: LME 0.86→0.95, LoCoMo 0.42→0.65, MemBench 0.35→0.65, ConvoMem 0→0.50. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
 - prior M1 benchmark: LongMemEval 90% full-eval (50 items, LLM-graded, `session_recall_any@10`=96%). Retrieval-only baseline (500 items) was 82.8%. These are different metrics — do not compare directly.
 - M3 benchmark: LME 82.8% (gate 80%), LoCoMo 41.5% (gate 41.4%), MemBench 34.6% (gate 30%), ConvoMem 0.0% — zero regression
