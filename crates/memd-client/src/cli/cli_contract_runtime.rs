@@ -21,6 +21,11 @@ pub fn run_contract_verify(args: &ContractVerifyArgs) -> anyhow::Result<()> {
     let evidence = ContractEvidence {
         sealed_ledger_exists: sealed,
         files_touched: &files,
+        live_ledger_exists: false,
+        sealed_dir_empty: false,
+        enforcement_policy_configured: false,
+        enforcement_hook_wired: false,
+        preference_recall_on_cold_boot_green: None,
     };
     let violations = verify_contract(&contract, &evidence);
 

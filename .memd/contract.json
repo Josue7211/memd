@@ -1,6 +1,9 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "guarantees": {
-    "surfaces_files_touched_when_sealed_ledger_exists": true
+    "surfaces_files_touched_when_sealed_ledger_exists": true,
+    "seals_session_ledger_on_precompact": true,
+    "enforces_continuity_gate_when_configured": true,
+    "replays_preferences_on_cold_boot": true
   }
 }
