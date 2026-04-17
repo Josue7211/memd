@@ -130,6 +130,20 @@ pub(crate) enum DiagnosticsCommand {
     Report(DiagnosticsReportArgs),
     /// Per-kind token efficiency for a given project context.
     TokenEfficiency(DiagnosticsTokenEfficiencyArgs),
+    /// Working-memory lifecycle self-test: store → recall → expire → verify.
+    #[command(name = "lifecycle-probe")]
+    LifecycleProbe(DiagnosticsLifecycleProbeArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DiagnosticsLifecycleProbeArgs {
+    /// Bundle output directory (unused today, reserved for probe logs).
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Emit human-readable summary instead of JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) summary: bool,
 }
 
 #[derive(Debug, Clone, Args)]

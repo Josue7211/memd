@@ -5,7 +5,7 @@ use super::*;
 use crate::MemdClient;
 use crate::cli::{
     HookArgs, HookFileInteractionArgs, HookMode, HookSealLedgerArgs, PrimeReadsArgs,
-    run_hook_mode, run_prime_reads,
+    run_hook_mode, run_lifecycle_probe, run_prime_reads,
 };
 use memd_core::file_ledger::{
     FileInteractionLedger, FileOp, append_file_interaction, ledger_path, seal_session_ledger,
@@ -194,6 +194,35 @@ fn prime_reads_since_session_reads_live_ledger() {
         since_session: Some("sess-live".into()),
     };
     run_prime_reads(&args).expect("prime-reads --since-session must not error");
+}
+
+/// A3-D3 lifecycle probe: store → recall → expire → verify-expired against
+/// a live memd server. Skips silently if the server at `MEMD_TEST_BASE_URL`
+/// (default `http://127.0.0.1:8787`) is unreachable so `cargo test` stays
+/// green in environments without a running daemon. Task 11's gate runs the
+/// CLI path (`memd diagnostics lifecycle-probe`) for the authoritative check.
+#[tokio::test]
+async fn lifecycle_probe_reports_green_on_healthy_server() {
+    let base_url = std::env::var("MEMD_TEST_BASE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8787".to_string());
+    let client = MemdClient::new(&base_url).expect("build client");
+    match client.healthz().await {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("skipping lifecycle_probe test — server {base_url} unreachable: {e}");
+            return;
+        }
+    }
+    let report = run_lifecycle_probe(&client).await;
+    assert_eq!(
+        report.status, "green",
+        "lifecycle probe red: {:#?}",
+        report.steps
+    );
+    assert!(report.steps.iter().all(|s| s.ok));
+    assert_eq!(report.steps.len(), 4);
+    let names: Vec<_> = report.steps.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["store", "recall", "expire", "verify_expired"]);
 }
 
 #[test]

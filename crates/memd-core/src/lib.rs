@@ -1,4 +1,5 @@
 pub mod file_ledger;
+pub mod lifecycle_probe;
 
 use memd_schema::{
     CandidateMemoryRequest, CompactContextResponse, CompactionDecision, CompactionOpenLoop,

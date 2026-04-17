@@ -33,6 +33,9 @@ pub(crate) use cli_utility_runtime::*;
 mod cli_inspection_runtime;
 pub(crate) use cli_inspection_runtime::*;
 
+mod cli_lifecycle_probe_runtime;
+pub(crate) use cli_lifecycle_probe_runtime::*;
+
 pub(crate) mod skill_catalog;
 
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -983,6 +986,37 @@ async fn run_diagnostics_command(args: DiagnosticsArgs) -> anyhow::Result<()> {
         DiagnosticsCommand::TokenEfficiency(te_args) => {
             run_diagnostics_token_efficiency(&args.base_url, &te_args).await
         }
+        DiagnosticsCommand::LifecycleProbe(probe_args) => {
+            run_diagnostics_lifecycle_probe(&args.base_url, &probe_args).await
+        }
+    }
+}
+
+async fn run_diagnostics_lifecycle_probe(
+    base_url: &str,
+    args: &DiagnosticsLifecycleProbeArgs,
+) -> anyhow::Result<()> {
+    let client = MemdClient::new(base_url)?;
+    let report = run_lifecycle_probe(&client).await;
+    if args.summary {
+        println!(
+            "lifecycle-probe {} probe_id={} steps={}",
+            report.status,
+            report.probe_id,
+            report.steps.len()
+        );
+        for step in &report.steps {
+            let mark = if step.ok { "ok" } else { "FAIL" };
+            let detail = step.detail.as_deref().unwrap_or("");
+            println!("  - {mark} {} {detail}", step.name);
+        }
+    } else {
+        print_json(&report)?;
+    }
+    if report.is_green() {
+        Ok(())
+    } else {
+        anyhow::bail!("lifecycle probe red: {:?}", report.steps);
     }
 }
 

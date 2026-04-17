@@ -12,6 +12,7 @@ install -m 0755 "$SCRIPT_DIR/memd-spill.sh" "$PREFIX/memd-spill"
 install -m 0755 "$SCRIPT_DIR/memd-stop-save.sh" "$PREFIX/memd-stop-save"
 install -m 0755 "$SCRIPT_DIR/memd-precompact-save.sh" "$PREFIX/memd-precompact-save"
 install -m 0755 "$SCRIPT_DIR/memd-file-interaction.sh" "$PREFIX/memd-file-interaction"
+install -m 0755 "$SCRIPT_DIR/memd-lifecycle-probe.sh" "$PREFIX/memd-lifecycle-probe"
 install -m 0755 "$SCRIPT_DIR/memd-bootstrap.sh" "$PREFIX/memd-bootstrap"
 
 cat > "$PREFIX/memd-hook-context" <<EOF
@@ -55,6 +56,12 @@ cat > "$PREFIX/memd-hook-file-interaction" <<EOF
 exec "$PREFIX/memd-file-interaction" "\$@"
 EOF
 chmod +x "$PREFIX/memd-hook-file-interaction"
+
+cat > "$PREFIX/memd-hook-lifecycle-probe" <<EOF
+#!/usr/bin/env bash
+exec "$PREFIX/memd-lifecycle-probe" "\$@"
+EOF
+chmod +x "$PREFIX/memd-hook-lifecycle-probe"
 
 echo "Installed memd hooks to $PREFIX"
 echo "Add $PREFIX to PATH if needed."
