@@ -96,6 +96,7 @@ pub(crate) enum Commands {
     Compact(CompactArgs),
     Obsidian(ObsidianArgs),
     Ui(UiArgs),
+    #[command(visible_alias = "hooks")]
     Hook(HookArgs),
     Init(InitArgs),
     Loops(LoopsArgs),
@@ -1624,6 +1625,19 @@ pub(crate) enum HookMode {
     FileInteraction(HookFileInteractionArgs),
     SealLedger(HookSealLedgerArgs),
     Gate(HookGateArgs),
+    /// A3 Part 3: verify `.memd/hooks/MANIFEST.json` against on-disk hooks.
+    Doctor(HookDoctorArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct HookDoctorArgs {
+    /// Project root that contains `.memd/hooks/`; defaults to current working dir.
+    #[arg(long)]
+    pub(crate) project_root: Option<PathBuf>,
+
+    /// Emit JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]

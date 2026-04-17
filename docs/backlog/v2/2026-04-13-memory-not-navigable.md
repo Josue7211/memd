@@ -1,7 +1,7 @@
 ---
 status: deferred
 severity: critical
-phase: unassigned
+phase: E2
 opened: 2026-04-13
 scope: memd-server, memd-client, product
 ---

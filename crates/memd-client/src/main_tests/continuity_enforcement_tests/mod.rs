@@ -247,6 +247,50 @@ fn render_preferences_block_compacts_long_items() {
 }
 
 #[test]
+fn hooks_doctor_green_on_consistent_manifest_red_on_tamper() {
+    use std::fs;
+    use crate::cli::{HookDoctorArgs, run_hook_doctor};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let hooks = tmp.path().join(".memd/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let script = hooks.join("memd-probe.sh");
+    fs::write(&script, "#!/usr/bin/env bash\necho probe\n").unwrap();
+    let hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(fs::read(&script).unwrap()))
+    };
+    let manifest = serde_json::json!({
+        "$schema": "memd-hooks-manifest@v1",
+        "version": "1.0.0",
+        "canonical_root": ".memd/hooks",
+        "hooks": [{
+            "name": "memd-probe.sh",
+            "path": ".memd/hooks/memd-probe.sh",
+            "event": "test",
+            "harness": "shared",
+            "purpose": "test",
+            "sha256": hash,
+        }]
+    });
+    fs::write(hooks.join("MANIFEST.json"), serde_json::to_string(&manifest).unwrap()).unwrap();
+
+    let args = HookDoctorArgs {
+        project_root: Some(tmp.path().to_path_buf()),
+        json: false,
+    };
+    run_hook_doctor(&args).expect("green on consistent manifest");
+
+    // Tamper: mutate the script, doctor should fail loudly.
+    fs::write(&script, "#!/usr/bin/env bash\necho tampered\n").unwrap();
+    let err = run_hook_doctor(&args).expect_err("tampered script must fail");
+    assert!(
+        err.to_string().contains("manifest verification failed"),
+        "unexpected err: {err}"
+    );
+}
+
+#[test]
 fn preference_replay_marker_green_when_render_path_works() {
     // When tests run inside a bundle (MEMD_BUNDLE_ROOT env set), drop the marker
     // so `memd contract verify` can pick up the green signal.

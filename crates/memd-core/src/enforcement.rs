@@ -149,6 +149,42 @@ impl FreshReadIndex {
     }
 }
 
+/// A3 Part 3: cross-harness pre-send validator signals.
+///
+/// Pure data. The validator answers one question: is the session ready to
+/// emit a completion message (handoff / end-of-turn) given its memd state?
+#[derive(Debug, Clone, Copy)]
+pub struct CompletionSignals {
+    /// Session has at least one checkpoint written since its last wake.
+    pub has_recent_checkpoint: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletionDecision {
+    Ready,
+    Warn { reason: String },
+    Block { reason: String },
+}
+
+/// One check, deliberately narrow: a completion attempt with no recent
+/// checkpoint is the most common cross-harness drift. Under `Block` we
+/// stop the assistant from declaring done; under `Warn` we surface a
+/// reminder; under `Off` we get out of the way.
+pub fn verify_completion_ready(
+    policy: EnforcementPolicy,
+    signals: CompletionSignals,
+) -> CompletionDecision {
+    if matches!(policy, EnforcementPolicy::Off) || signals.has_recent_checkpoint {
+        return CompletionDecision::Ready;
+    }
+    let reason = "continuity: session has no checkpoint since wake — run `memd checkpoint` before declaring the turn complete.".to_string();
+    match policy {
+        EnforcementPolicy::Warn => CompletionDecision::Warn { reason },
+        EnforcementPolicy::Block => CompletionDecision::Block { reason },
+        EnforcementPolicy::Off => unreachable!(),
+    }
+}
+
 pub fn load_latest_sealed_paths(output: &Path) -> Vec<String> {
     let state = output.join("state");
     let Ok(rd) = fs::read_dir(&state) else { return Vec::new(); };
@@ -354,6 +390,53 @@ mod tests {
         let index = FreshReadIndex::for_session(out, "sess-live");
         assert!(index.contains("a.rs"));
         assert!(!index.contains("b.rs"), "Edit does not count as fresh Read");
+    }
+
+    #[test]
+    fn verify_completion_blocks_when_block_policy_and_no_checkpoint() {
+        let out = verify_completion_ready(
+            EnforcementPolicy::Block,
+            CompletionSignals { has_recent_checkpoint: false },
+        );
+        match out {
+            CompletionDecision::Block { reason } => {
+                assert!(reason.contains("memd checkpoint"));
+            }
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_completion_ready_when_checkpoint_present_under_block() {
+        assert_eq!(
+            verify_completion_ready(
+                EnforcementPolicy::Block,
+                CompletionSignals { has_recent_checkpoint: true },
+            ),
+            CompletionDecision::Ready
+        );
+    }
+
+    #[test]
+    fn verify_completion_warns_under_warn_policy_without_checkpoint() {
+        assert!(matches!(
+            verify_completion_ready(
+                EnforcementPolicy::Warn,
+                CompletionSignals { has_recent_checkpoint: false },
+            ),
+            CompletionDecision::Warn { .. }
+        ));
+    }
+
+    #[test]
+    fn verify_completion_off_policy_bypasses_check() {
+        assert_eq!(
+            verify_completion_ready(
+                EnforcementPolicy::Off,
+                CompletionSignals { has_recent_checkpoint: false },
+            ),
+            CompletionDecision::Ready
+        );
     }
 
     #[test]

@@ -120,13 +120,13 @@
 - **[high]** [No Correction Audit Trail](m2/2026-04-14-no-correction-audit-trail.md) — `open` · opened 2026-04-14
 - **[medium]** [No Selective Memory Reset](m2/2026-04-14-no-selective-memory-reset.md) — `open` · opened 2026-04-14
 
-## Unassigned
+### Phase `E2`
 
+- **[critical]** [Memory Is Not Navigable — Core Product Promise Broken](v2/2026-04-13-memory-not-navigable.md) — `deferred` · opened 2026-04-13
 
-### Phase `unassigned`
+### Phase `G2`
 
-- **[critical]** [Memory Is Not Navigable — Core Product Promise Broken](unassigned/2026-04-13-memory-not-navigable.md) — `deferred` · opened 2026-04-13
-- **[medium]** [Lane Architecture Gaps](unassigned/2026-04-13-lane-architecture-gaps.md) — `deferred` · opened 2026-04-13
+- **[medium]** [Lane Architecture Gaps](v2/2026-04-13-lane-architecture-gaps.md) — `deferred` · opened 2026-04-13
 
 ## Closed
 

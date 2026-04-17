@@ -1,7 +1,7 @@
 ---
 status: deferred
 severity: medium
-phase: unassigned
+phase: G2
 opened: 2026-04-13
 scope: memd-client, memd-server, memd-schema
 ---

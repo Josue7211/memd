@@ -2,7 +2,8 @@
 # Fail if:
 #  - any backlog file has no YAML frontmatter
 #  - any backlog file has no `phase:` key
-#  - any `phase:` value fails to resolve to a live phase doc OR "unassigned"
+#  - any `phase:` value fails to resolve to a live phase doc (closed/ exempt)
+#  - any open item has `phase: unassigned` (phase-A3 coverage gate)
 #  - docs/backlog/INDEX.md is stale vs scripts/backlog-index.sh output
 
 set -euo pipefail
@@ -38,7 +39,11 @@ done < <(find "$PHASES_DIR" -maxdepth 3 -name 'phase-*.md')
 while IFS= read -r f; do
     phase=$(awk 'NR==1 && /^---$/{fm=1;next} fm && /^---$/{exit} fm && /^phase:/{sub(/^phase:[[:space:]]*/,""); print; exit}' "$f")
     [ -z "$phase" ] && continue
+    # closed/ items are historical; coverage gate does not apply
+    case "$f" in */closed/*) continue ;; esac
     if [ "$phase" = "unassigned" ]; then
+        problems+=("$f: open item has phase: unassigned — assign a phase or move to closed/ (A3 coverage gate)")
+        fail=1
         continue
     fi
     if [ -z "${LIVE_PHASES[$phase]:-}" ]; then
@@ -70,4 +75,4 @@ if [ "$fail" = "1" ]; then
 fi
 
 total=$(find "$BACKLOG_DIR" -maxdepth 3 -name '*.md' -not -name 'INDEX.md' -not -name 'TEMPLATE.md' | wc -l)
-echo "backlog-lint: ok — $total items, all have phase: resolving to live doc or 'unassigned'; INDEX.md fresh"
+echo "backlog-lint: ok — $total items; open items map to live phase docs (closed/ exempt); INDEX.md fresh"

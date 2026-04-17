@@ -12,9 +12,16 @@ if [ ! -d "$HANDOFF_DIR" ]; then
     exit 1
 fi
 
+# Primary key: date prefix (desc). Tie-break: mtime (desc) so same-day
+# packets resolve to the most recently written one. Using -printf so we
+# get `<mtime>\t<date>\t<path>` and sort on the first two fields.
 newest=$(find "$HANDOFF_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
     -not -name 'LATEST.md' -not -name 'INDEX.md' \
-    | sort -r | head -1)
+    -printf '%T@\t%f\t%p\n' \
+    | awk -F'\t' '{ date=substr($2,1,10); print date "\t" $1 "\t" $3 }' \
+    | sort -k1,1r -k2,2nr \
+    | head -1 \
+    | cut -f3)
 
 if [ -z "$newest" ]; then
     echo "handoff-latest: no dated handoff packets found in $HANDOFF_DIR" >&2
