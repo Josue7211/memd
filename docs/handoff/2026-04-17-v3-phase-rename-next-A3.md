@@ -95,14 +95,14 @@ K2 + L2 already done on `main` + `research/mining`.
 2. `MEMD_RAG_URL` resolution chain — document before flipping bench default, or flip behind an env-var gate and document as part of the same commit?
 3. D3 ↔ M2-evo cherry-pick boundary — decide at D3 entry, not now.
 
-## Verification commands (fast orientation on next boot)
+## Boot orientation
+
+`memd wake --output .memd` + reading this packet is the whole orientation. Do not re-grep the codebase to rediscover state — the A3.1 pre-state (config false, server no `memd-rag`, bench default `lexical`) is already verified and written above. If you are tempted to verify, you are duplicating work memd already did.
+
+One git command is still worth it to confirm the branch tip matches what this packet claims:
 
 ```bash
-git log --oneline -5
-grep -n '"enabled"' .memd/config.json               # expect false (A3.1 pre-state)
-grep -rn memd_rag crates/memd-server/src | head     # expect empty (A3.1 pre-state)
-sed -n '1435,1455p' crates/memd-client/src/benchmark/public_benchmark.rs
-memd wake --output .memd | tail -20
+git log --oneline -1   # expect d0717f5 (handoff) or later
 ```
 
-If any of those four check lines shift, update this packet's "Current repo state" block before starting work.
+If that fails, state has drifted — re-read memd, not the codebase.
