@@ -1,0 +1,6 @@
+{
+  "version": "0.1.0",
+  "guarantees": {
+    "surfaces_files_touched_when_sealed_ledger_exists": true
+  }
+}

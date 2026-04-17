@@ -4,8 +4,9 @@
 use super::*;
 use crate::MemdClient;
 use crate::cli::{
-    HookArgs, HookFileInteractionArgs, HookMode, HookSealLedgerArgs, PrimeReadsArgs,
-    run_hook_mode, run_lifecycle_probe, run_prime_reads,
+    ContractGenerateArgs, ContractVerifyArgs, HookArgs, HookFileInteractionArgs, HookMode,
+    HookSealLedgerArgs, PrimeReadsArgs, run_contract_generate, run_contract_verify, run_hook_mode,
+    run_lifecycle_probe, run_prime_reads,
 };
 use memd_core::file_ledger::{
     FileInteractionLedger, FileOp, append_file_interaction, ledger_path, seal_session_ledger,
@@ -223,6 +224,79 @@ async fn lifecycle_probe_reports_green_on_healthy_server() {
     assert_eq!(report.steps.len(), 4);
     let names: Vec<_> = report.steps.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["store", "recall", "expire", "verify_expired"]);
+}
+
+#[test]
+fn contract_generate_writes_default_shape_and_verify_passes_on_clean_bundle() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+    run_contract_generate(&ContractGenerateArgs {
+        output: output.clone(),
+        force: false,
+    })
+    .expect("generate contract");
+    let contract_path = output.join("contract.json");
+    assert!(contract_path.exists());
+    let raw = fs::read_to_string(&contract_path).unwrap();
+    let contract: memd_core::contract::MemdContract = serde_json::from_str(&raw).unwrap();
+    assert_eq!(contract.version, memd_core::contract::CURRENT_VERSION);
+    assert!(
+        contract
+            .guarantees
+            .surfaces_files_touched_when_sealed_ledger_exists
+    );
+
+    // No sealed ledger yet → verify must pass.
+    run_contract_verify(&ContractVerifyArgs {
+        output,
+        json: false,
+    })
+    .expect("verify on clean bundle");
+}
+
+#[test]
+fn contract_verify_errors_when_sealed_ledger_exists_but_files_touched_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+    // Write a sealed ledger whose entries deserialize-but-yield-empty set is
+    // tricky; simpler: produce a sealed file that fails the ledger loader so
+    // `collect_files_touched` returns empty while sealed dir has a file.
+    let session = output.join("state").join("session-sealed-only");
+    let sealed = session.join("sealed");
+    std::fs::create_dir_all(&sealed).unwrap();
+    std::fs::write(sealed.join("broken.json"), "{invalid json}").unwrap();
+    run_contract_generate(&ContractGenerateArgs {
+        output: output.clone(),
+        force: false,
+    })
+    .expect("generate contract");
+
+    let result = run_contract_verify(&ContractVerifyArgs {
+        output,
+        json: false,
+    });
+    assert!(result.is_err(), "expected contract violation error");
+}
+
+#[test]
+fn contract_verify_green_when_sealed_ledger_surfaces_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().to_path_buf();
+    seed_prior_session_ledger(
+        &output,
+        "sess-prev",
+        &[("a.rs", FileOp::Read), ("b.rs", FileOp::Edit)],
+    );
+    run_contract_generate(&ContractGenerateArgs {
+        output: output.clone(),
+        force: false,
+    })
+    .expect("generate contract");
+    run_contract_verify(&ContractVerifyArgs {
+        output,
+        json: false,
+    })
+    .expect("verify green");
 }
 
 #[test]

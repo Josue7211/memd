@@ -10,7 +10,9 @@
 *.sqlite-wal
 *.log
 /.monitor
-/.memd/
+/.memd/*
+# A3-D5: the live memory contract is the published shape — track it.
+!/.memd/contract.json
 /.claw/
 /.watch-smoke-new
 /apps/node_modules/

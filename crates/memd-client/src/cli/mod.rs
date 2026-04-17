@@ -36,6 +36,9 @@ pub(crate) use cli_inspection_runtime::*;
 mod cli_lifecycle_probe_runtime;
 pub(crate) use cli_lifecycle_probe_runtime::*;
 
+mod cli_contract_runtime;
+pub(crate) use cli_contract_runtime::*;
+
 pub(crate) mod skill_catalog;
 
 pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -953,6 +956,10 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::PrimeReads(args) => {
             run_prime_reads(&args)?;
         }
+        Commands::Contract(args) => match args.command {
+            ContractCommand::Verify(v) => run_contract_verify(&v)?,
+            ContractCommand::Generate(g) => run_contract_generate(&g)?,
+        },
     }
 
     Ok(())

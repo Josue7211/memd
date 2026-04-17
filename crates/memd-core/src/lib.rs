@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod file_ledger;
 pub mod lifecycle_probe;
 

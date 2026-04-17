@@ -104,6 +104,42 @@ pub(crate) enum Commands {
     Diagnostics(DiagnosticsArgs),
     #[command(name = "prime-reads")]
     PrimeReads(PrimeReadsArgs),
+    /// Live memory contract (A3-D5): shape, verify, generate default.
+    Contract(ContractArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractArgs {
+    #[command(subcommand)]
+    pub(crate) command: ContractCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum ContractCommand {
+    /// Verify the current bundle against `.memd/contract.json`.
+    Verify(ContractVerifyArgs),
+    /// Write the default contract shape to `.memd/contract.json`.
+    Generate(ContractGenerateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractVerifyArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Emit violations as JSON instead of human-readable text.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ContractGenerateArgs {
+    #[arg(long, default_value_os_t = default_bundle_root_path())]
+    pub(crate) output: PathBuf,
+
+    /// Overwrite an existing contract.json.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
 }
 
 #[derive(Debug, Clone, Args)]
