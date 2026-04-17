@@ -93,3 +93,20 @@ ls .memd/state/session-*/sealed/
 # The next wake packet should now contain a `## Files Touched` block, and:
 memd prime-reads --output .memd
 ```
+
+## PreToolUse continuity gate (Part 2)
+
+Add a PreToolUse matcher alongside the PostToolUse/PreCompact hooks:
+
+    ```json
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "bash \"$HOME/Documents/projects/memd/.memd/hooks/memd-pretool-gate.sh\"", "timeout": 10 }
+        ]
+      }
+    ]
+    ```
+
+Policy toggle: `.memd/config.json` key `continuity.enforcement` accepts `off|warn|block` (default `warn`).

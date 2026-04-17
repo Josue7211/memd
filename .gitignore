@@ -13,6 +13,9 @@
 /.memd/*
 # A3-D5: the live memory contract is the published shape — track it.
 !/.memd/contract.json
+# A3 Part 2: hook scripts are part of the continuity foundation.
+!/.memd/hooks/
+!/.memd/hooks/**
 /.claw/
 /.watch-smoke-new
 /apps/node_modules/
