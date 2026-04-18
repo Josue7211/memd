@@ -1,6 +1,17 @@
 use super::errors::MemdError;
 use super::*;
 
+// B3-T6: atlas-at-recall 1-hop expansion flag. Default off.
+fn atlas_recall_enabled() -> bool {
+    match std::env::var("MEMD_RETRIEVAL_ATLAS_RECALL") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
 pub(crate) async fn healthz(
     State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, (StatusCode, String)> {
@@ -257,7 +268,7 @@ pub(crate) async fn search_memory(
         .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     // B3-T2: sanitize + atlas-synonym expand before FTS.
-    let fts_ranks = req
+    let mut fts_ranks = req
         .query
         .as_ref()
         .and_then(|q| {
@@ -270,6 +281,31 @@ pub(crate) async fn search_memory(
             state.store.fts_search(&fts_expr, 100).ok()
         })
         .unwrap_or_default();
+
+    // B3-T6: atlas-at-recall 1-hop entity expansion (item-space). Top K
+    // FTS hits seed a 1-hop neighbor lookup; neighbors are injected into
+    // fts_ranks with a small score bonus so they survive filter_items.
+    // Gate: MEMD_RETRIEVAL_ATLAS_RECALL=1 (default off).
+    if atlas_recall_enabled() && !fts_ranks.is_empty() {
+        let seed_k = fts_ranks.len().min(5);
+        let seeds: Vec<uuid::Uuid> = fts_ranks.iter().take(seed_k).map(|(id, _)| *id).collect();
+        let neighbors = state.store.one_hop_neighbors_for_items(&seeds, 10);
+        if !neighbors.is_empty() {
+            // Bonus is small (0.15) so direct FTS matches retain priority.
+            let tail_score = fts_ranks
+                .last()
+                .map(|(_, s)| *s * 0.5)
+                .unwrap_or(0.15)
+                .max(0.15);
+            let existing: std::collections::HashSet<uuid::Uuid> =
+                fts_ranks.iter().map(|(id, _)| *id).collect();
+            for nid in neighbors {
+                if !existing.contains(&nid) {
+                    fts_ranks.push((nid, tail_score));
+                }
+            }
+        }
+    }
     let items = filter_items(&items, &req, &plan, &fts_ranks);
     state
         .rehearse_items(&items, feedback_limit)

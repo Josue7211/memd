@@ -734,6 +734,43 @@ impl SqliteStore {
         Ok(count as usize)
     }
 
+    /// B3-T6: 1-hop atlas neighbors as retrieval hints (item-space).
+    /// For each seed item, collects entity-link counterparts (from/to),
+    /// dedupes, drops the seeds themselves, caps at `limit` neighbors.
+    /// Returns empty vec on error — callers should treat this as best-effort.
+    pub(crate) fn one_hop_neighbors_for_items(
+        &self,
+        seeds: &[Uuid],
+        limit: usize,
+    ) -> Vec<Uuid> {
+        if limit == 0 || seeds.is_empty() {
+            return Vec::new();
+        }
+        let seed_set: std::collections::HashSet<Uuid> = seeds.iter().copied().collect();
+        let mut out: Vec<Uuid> = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = seed_set.clone();
+        for seed_id in seeds {
+            let links = match self.get_entity_links_for_item(*seed_id) {
+                Ok(links) => links,
+                Err(_) => continue,
+            };
+            for el in links {
+                let neighbor = if el.from_entity_id == *seed_id {
+                    el.to_entity_id
+                } else {
+                    el.from_entity_id
+                };
+                if seen.insert(neighbor) {
+                    out.push(neighbor);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn get_entity_links_for_item(
         &self,
         item_id: Uuid,
