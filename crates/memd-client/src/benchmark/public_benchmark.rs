@@ -1441,8 +1441,11 @@ pub(crate) fn build_public_benchmark_retrieval_config(
         "lexical" => LongMemEvalRetrievalBackend::Lexical,
         "sidecar" => LongMemEvalRetrievalBackend::Sidecar,
         "rrf" => LongMemEvalRetrievalBackend::Rrf,
+        "memd" => LongMemEvalRetrievalBackend::Memd,
         other => {
-            anyhow::bail!("invalid retrieval backend `{other}`; expected lexical, sidecar, or rrf")
+            anyhow::bail!(
+                "invalid retrieval backend `{other}`; expected lexical, sidecar, rrf, or memd"
+            )
         }
     };
 
@@ -1452,9 +1455,21 @@ pub(crate) fn build_public_benchmark_retrieval_config(
         None
     };
 
+    let memd_base_url = if longmemeval_backend == LongMemEvalRetrievalBackend::Memd {
+        let url = args
+            .memd_url
+            .clone()
+            .or_else(|| std::env::var("MEMD_BASE_URL").ok())
+            .unwrap_or_else(|| "http://127.0.0.1:8787".to_string());
+        Some(url.trim_end_matches('/').to_string())
+    } else {
+        None
+    };
+
     Ok(PublicBenchmarkRetrievalConfig {
         longmemeval_backend,
         sidecar_base_url,
+        memd_base_url,
     })
 }
 
@@ -1486,6 +1501,15 @@ pub(crate) fn rank_longmemeval_corpus(
         LongMemEvalRetrievalBackend::Rrf => Ok(rank_longmemeval_corpus_via_rrf(
             query, corpus, corpus_ids, mode,
         )),
+        LongMemEvalRetrievalBackend::Memd => {
+            let base_url = config
+                .memd_base_url
+                .as_deref()
+                .context("memd retrieval backend selected without a memd base url")?;
+            rank_longmemeval_corpus_via_memd(
+                base_url, query, corpus, corpus_ids, mode, namespace,
+            )
+        }
     }
 }
 
@@ -1583,6 +1607,144 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
             && seen.insert(index)
         {
             ranked.push((index, item.score as f64));
+        }
+    }
+
+    for index in lexical_fallback {
+        if seen.insert(index) {
+            let lexical_rank = lexical_rank_by_index.get(&index).copied().unwrap_or(0);
+            ranked.push((index, (50usize.saturating_sub(lexical_rank)) as f64));
+        }
+    }
+
+    Ok(ranked)
+}
+
+/// B3 Part-2 prereq: route bench through an actual memd-server so the
+/// intrinsic retrieval path (FTS5 scoring, priority dedup, atlas recall,
+/// sanitize) is what produces the LongMemEval number. Each call opens a
+/// throwaway namespace (one per `namespace` arg), ingests the corpus,
+/// issues one search, and lets server-side GC / namespace isolation
+/// prevent cross-question bleed. Corpus identifier is round-tripped via
+/// `source_path`.
+pub(crate) fn rank_longmemeval_corpus_via_memd(
+    base_url: &str,
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+    namespace: &str,
+) -> anyhow::Result<Vec<(usize, f64)>> {
+    let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .context("build public benchmark memd client")?;
+    let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
+    let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
+    let project = Some("memd-public-benchmark-longmemeval".to_string());
+    let namespace_owned = Some(namespace.to_string());
+
+    for (corpus_id, content) in corpus_ids.iter().zip(corpus.iter()) {
+        let request = memd_schema::StoreMemoryRequest {
+            content: content.clone(),
+            kind: memd_schema::MemoryKind::Fact,
+            scope: memd_schema::MemoryScope::Project,
+            project: project.clone(),
+            namespace: namespace_owned.clone(),
+            workspace: None,
+            visibility: None,
+            belief_branch: None,
+            source_agent: Some("public-benchmark".to_string()),
+            source_system: None,
+            source_path: Some(corpus_id.clone()),
+            source_quality: None,
+            confidence: None,
+            ttl_seconds: None,
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: vec![
+                "public-benchmark".to_string(),
+                "longmemeval".to_string(),
+                corpus_id.clone(),
+            ],
+            status: None,
+            lane: None,
+        };
+        let response = client
+            .post(&store_url)
+            .json(&request)
+            .send()
+            .context("send public benchmark memd store")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response
+                .text()
+                .unwrap_or_else(|_| "failed to read store body".to_string());
+            anyhow::bail!("public benchmark memd store failed with {status}: {body}");
+        }
+    }
+
+    let search_request = memd_schema::SearchMemoryRequest {
+        query: Some(query.to_string()),
+        route: None,
+        intent: None,
+        scopes: Vec::new(),
+        kinds: Vec::new(),
+        statuses: Vec::new(),
+        project,
+        namespace: namespace_owned,
+        workspace: None,
+        visibility: None,
+        belief_branch: None,
+        source_agent: None,
+        tags: Vec::new(),
+        stages: Vec::new(),
+        limit: Some(corpus.len().max(1)),
+        max_chars_per_item: None,
+    };
+    let response = client
+        .post(&search_url)
+        .json(&search_request)
+        .send()
+        .context("send public benchmark memd search")?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "failed to read search body".to_string());
+        anyhow::bail!("public benchmark memd search failed with {status}: {body}");
+    }
+    let retrieved = response
+        .json::<memd_schema::SearchMemoryResponse>()
+        .context("decode public benchmark memd search payload")?;
+
+    let corpus_index_by_id = corpus_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    let lexical_rank_by_index = lexical_fallback
+        .iter()
+        .enumerate()
+        .map(|(rank, index)| (*index, rank))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut ranked = Vec::new();
+
+    // Server returns items ordered by the intrinsic ranker. Give each a
+    // monotonically decreasing score so ordering survives downstream merge.
+    let n = retrieved.items.len();
+    for (rank, item) in retrieved.items.iter().enumerate() {
+        let source_id = item
+            .source_path
+            .as_deref()
+            .or_else(|| item.tags.iter().find(|t| corpus_index_by_id.contains_key(t.as_str())).map(|s| s.as_str()));
+        if let Some(sid) = source_id
+            && let Some(index) = corpus_index_by_id.get(sid).copied()
+            && seen.insert(index)
+        {
+            ranked.push((index, (n - rank) as f64));
         }
     }
 
@@ -2881,8 +3043,10 @@ pub(crate) fn build_public_benchmark_manifest(
                 LongMemEvalRetrievalBackend::Lexical => "lexical",
                 LongMemEvalRetrievalBackend::Sidecar => "sidecar",
                 LongMemEvalRetrievalBackend::Rrf => "rrf",
+                LongMemEvalRetrievalBackend::Memd => "memd",
             },
             "sidecar_base_url": retrieval_config.sidecar_base_url,
+            "memd_base_url": retrieval_config.memd_base_url,
             "top_k": top_k,
             "limit": item_count,
             "dataset_verification": resolved_dataset.verification_status,

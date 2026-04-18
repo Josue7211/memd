@@ -452,12 +452,19 @@ pub(crate) enum LongMemEvalRetrievalBackend {
     Lexical,
     Sidecar,
     Rrf,
+    /// B3 Part-2 prereq: POST corpus → memd-server /memory/store,
+    /// retrieve via /memory/search. Exercises the actual product path
+    /// (FTS5 weights, atlas recall, priority dedup) so LongMemEval
+    /// numbers reflect memd intrinsic retrieval, not the client-side
+    /// lexical scorer.
+    Memd,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PublicBenchmarkRetrievalConfig {
     pub longmemeval_backend: LongMemEvalRetrievalBackend,
     pub sidecar_base_url: Option<String>,
+    pub memd_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

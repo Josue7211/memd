@@ -123,12 +123,19 @@ fn is_write(method: &Method) -> bool {
     !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
 }
 
+fn disabled_via_env() -> bool {
+    matches!(
+        std::env::var("MEMD_RATE_LIMIT_DISABLED").ok().as_deref(),
+        Some("1" | "true" | "on" | "yes")
+    )
+}
+
 pub(crate) async fn rate_limit_middleware(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Response {
-    if !is_write(req.method()) {
+    if !is_write(req.method()) || disabled_via_env() {
         return next.run(req).await;
     }
     let key = agent_key(&req);

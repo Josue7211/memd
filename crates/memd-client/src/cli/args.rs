@@ -2689,11 +2689,16 @@ pub(crate) struct PublicBenchmarkArgs {
     #[arg(long, value_parser = ["raw", "hybrid"])]
     pub(crate) mode: Option<String>,
 
-    #[arg(long, value_parser = ["lexical", "sidecar", "rrf"])]
+    #[arg(long, value_parser = ["lexical", "sidecar", "rrf", "memd"])]
     pub(crate) retrieval_backend: Option<String>,
 
     #[arg(long)]
     pub(crate) rag_url: Option<String>,
+
+    /// B3 Part-2: base URL of a running memd-server when
+    /// --retrieval-backend=memd. Defaults to http://127.0.0.1:8787.
+    #[arg(long)]
+    pub(crate) memd_url: Option<String>,
 
     #[arg(long)]
     pub(crate) top_k: Option<usize>,
