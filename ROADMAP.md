@@ -9,7 +9,7 @@ version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
 current_phase: B3
-phase_status: part1-complete-part2-blocked
+phase_status: part2-prereq-landed
 next_milestone: V3
 next_step: B3 Intrinsic Retrieval — start after V3 roadmap ack (A3 Continuity Foundation now closed; every memd-core blocker landed or tracked)
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
