@@ -449,6 +449,7 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: None,
@@ -493,6 +494,7 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
@@ -530,6 +532,7 @@ fn validate_rejects_empty_dataset_without_all_flag() {
         mode: None,
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: None,
         limit: None,
         dataset_root: None,
@@ -559,6 +562,7 @@ fn validate_accepts_empty_dataset_with_all_flag() {
         mode: None,
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: None,
         limit: None,
         dataset_root: None,
@@ -961,6 +965,7 @@ fn build_longmemeval_run_report_tracks_session_and_turn_metrics() {
         &PublicBenchmarkRetrievalConfig {
             longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
             sidecar_base_url: None,
+            memd_base_url: None,
         },
     )
     .expect("longmemeval report");
@@ -1028,6 +1033,7 @@ fn build_longmemeval_run_report_supports_sidecar_backend_ordering() {
         &PublicBenchmarkRetrievalConfig {
             longmemeval_backend: LongMemEvalRetrievalBackend::Sidecar,
             sidecar_base_url: Some(base_url),
+            memd_base_url: None,
         },
     )
     .expect("sidecar longmemeval report");
@@ -1098,6 +1104,7 @@ fn build_public_benchmark_item_results_locomo_requires_evidence_hit() {
         &PublicBenchmarkRetrievalConfig {
             longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
             sidecar_base_url: None,
+            memd_base_url: None,
         },
     )
     .expect("locomo report");
@@ -1155,6 +1162,7 @@ fn build_public_benchmark_item_results_membench_requires_target_step_hit() {
         &PublicBenchmarkRetrievalConfig {
             longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
             sidecar_base_url: None,
+            memd_base_url: None,
         },
     )
     .expect("membench report");
@@ -1455,6 +1463,7 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
@@ -1526,6 +1535,7 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         mode: Some("hybrid".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(1),
         dataset_root: Some(fixture),
@@ -1584,6 +1594,7 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         mode: Some("raw".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(fixture),
@@ -1639,6 +1650,7 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             mode: Some("raw".to_string()),
             retrieval_backend: None,
             rag_url: None,
+            memd_url: None,
             top_k: Some(5),
             limit: Some(2),
             dataset_root: Some(public_benchmark_fixture_path(dataset)),
@@ -1667,6 +1679,7 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         mode: Some("hybrid".to_string()),
         retrieval_backend: None,
         rag_url: None,
+        memd_url: None,
         top_k: Some(5),
         limit: Some(2),
         dataset_root: Some(public_benchmark_fixture_path("locomo")),
