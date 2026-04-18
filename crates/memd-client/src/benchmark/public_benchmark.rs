@@ -1620,32 +1620,29 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
     Ok(ranked)
 }
 
-/// B3 Part-2 prereq: route bench through an actual memd-server so the
-/// intrinsic retrieval path (FTS5 scoring, priority dedup, atlas recall,
-/// sanitize) is what produces the LongMemEval number. Each call opens a
-/// throwaway namespace (one per `namespace` arg), ingests the corpus,
-/// issues one search, and lets server-side GC / namespace isolation
-/// prevent cross-question bleed. Corpus identifier is round-tripped via
-/// `source_path`.
-pub(crate) fn rank_longmemeval_corpus_via_memd(
-    base_url: &str,
-    query: &str,
-    corpus: &[String],
-    corpus_ids: &[String],
-    mode: &str,
-    namespace: &str,
-) -> anyhow::Result<Vec<(usize, f64)>> {
-    let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    let client = reqwest::blocking::Client::builder()
+async fn bench_memd_roundtrip(
+    store_url: String,
+    search_url: String,
+    project: Option<String>,
+    namespace_owned: Option<String>,
+    ns_label: String,
+    query: String,
+    corpus: Vec<String>,
+    corpus_ids: Vec<String>,
+) -> anyhow::Result<memd_schema::SearchMemoryResponse> {
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .build()
         .context("build public benchmark memd client")?;
-    let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
-    let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
-    let project = Some("memd-public-benchmark-longmemeval".to_string());
-    let namespace_owned = Some(namespace.to_string());
 
-    for (corpus_id, content) in corpus_ids.iter().zip(corpus.iter()) {
+    let store_start = std::time::Instant::now();
+    for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
+        eprintln!(
+            "[bench-probe] store-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
+            corpus.len(),
+            store_start.elapsed().as_millis(),
+            content.len()
+        );
         let request = memd_schema::StoreMemoryRequest {
             content: content.clone(),
             kind: memd_schema::MemoryKind::Fact,
@@ -1671,22 +1668,41 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
             status: None,
             lane: None,
         };
-        let response = client
-            .post(&store_url)
-            .json(&request)
+        let send_start = std::time::Instant::now();
+        let req_builder = client.post(&store_url).json(&request);
+        eprintln!(
+            "[bench-probe] store-json-built ns={ns_label} idx={idx} elapsed_ms={}",
+            send_start.elapsed().as_millis()
+        );
+        let response = req_builder
             .send()
+            .await
             .context("send public benchmark memd store")?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "failed to read store body".to_string());
-            anyhow::bail!("public benchmark memd store failed with {status}: {body}");
+        let status = response.status();
+        eprintln!(
+            "[bench-probe] store-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
+            status,
+            send_start.elapsed().as_millis()
+        );
+        let body_text = response.text().await.unwrap_or_default();
+        eprintln!(
+            "[bench-probe] store-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
+            status,
+            send_start.elapsed().as_millis(),
+            body_text.len()
+        );
+        if !status.is_success() {
+            anyhow::bail!("public benchmark memd store failed with {status}: {body_text}");
         }
     }
+    eprintln!(
+        "[bench-probe] stores done ns={ns_label} count={} elapsed_ms={}",
+        corpus.len(),
+        store_start.elapsed().as_millis()
+    );
 
     let search_request = memd_schema::SearchMemoryRequest {
-        query: Some(query.to_string()),
+        query: Some(query),
         route: None,
         intent: None,
         scopes: Vec::new(),
@@ -1703,21 +1719,91 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
         limit: Some(corpus.len().max(1)),
         max_chars_per_item: None,
     };
+    let search_start = std::time::Instant::now();
     let response = client
         .post(&search_url)
         .json(&search_request)
         .send()
+        .await
         .context("send public benchmark memd search")?;
+    eprintln!(
+        "[bench-probe] search returned ns={ns_label} status={} elapsed_ms={}",
+        response.status(),
+        search_start.elapsed().as_millis()
+    );
     if !response.status().is_success() {
         let status = response.status();
         let body = response
             .text()
+            .await
             .unwrap_or_else(|_| "failed to read search body".to_string());
         anyhow::bail!("public benchmark memd search failed with {status}: {body}");
     }
-    let retrieved = response
+    response
         .json::<memd_schema::SearchMemoryResponse>()
-        .context("decode public benchmark memd search payload")?;
+        .await
+        .context("decode public benchmark memd search payload")
+}
+
+/// B3 Part-2 prereq: route bench through an actual memd-server so the
+/// intrinsic retrieval path (FTS5 scoring, priority dedup, atlas recall,
+/// sanitize) is what produces the LongMemEval number. Each call opens a
+/// throwaway namespace (one per `namespace` arg), ingests the corpus,
+/// issues one search, and lets server-side GC / namespace isolation
+/// prevent cross-question bleed. Corpus identifier is round-tripped via
+/// `source_path`.
+pub(crate) fn rank_longmemeval_corpus_via_memd(
+    base_url: &str,
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+    namespace: &str,
+) -> anyhow::Result<Vec<(usize, f64)>> {
+    eprintln!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    let t0 = std::time::Instant::now();
+    let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
+    eprintln!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+
+    let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
+    let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
+    let project = Some("memd-public-benchmark-longmemeval".to_string());
+    let namespace_owned = Some(namespace.to_string());
+
+    // Use a dedicated OS thread owning its own current-thread tokio runtime
+    // to avoid `reqwest::blocking`'s internal dual-runtime dance (observed
+    // to wedge under bench load; see B3 part2 prereq). Running on a fresh
+    // thread also sidesteps any outer runtime the caller may already own.
+    let project_for_thread = project.clone();
+    let namespace_for_thread = namespace_owned.clone();
+    let query_owned = query.to_string();
+    let corpus_vec = corpus.to_vec();
+    let corpus_ids_vec = corpus_ids.to_vec();
+    let store_url_owned = store_url.clone();
+    let search_url_owned = search_url.clone();
+    let ns_label = namespace.to_string();
+    let handle = std::thread::Builder::new()
+        .name(format!("bench-memd-{}", ns_label))
+        .spawn(move || -> anyhow::Result<memd_schema::SearchMemoryResponse> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("build tokio runtime for public benchmark memd client")?;
+            rt.block_on(bench_memd_roundtrip(
+                store_url_owned,
+                search_url_owned,
+                project_for_thread,
+                namespace_for_thread,
+                ns_label,
+                query_owned,
+                corpus_vec,
+                corpus_ids_vec,
+            ))
+        })
+        .context("spawn bench memd worker thread")?;
+    let retrieved: memd_schema::SearchMemoryResponse = handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("bench memd worker thread panicked"))??;
 
     let corpus_index_by_id = corpus_ids
         .iter()
