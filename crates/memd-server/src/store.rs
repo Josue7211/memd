@@ -53,6 +53,39 @@ mod store_divergence;
 pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
 pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
 
+fn env_truthy(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
+fn env_f64(name: &str, default: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .unwrap_or(default)
+}
+
+/// FTS5 per-field weights (content, tags) for `bm25()` ranking.
+/// Default (1.0, 1.0) equals SQLite's built-in `rank`. When
+/// `MEMD_RETRIEVAL_FTS5_TUNED` is truthy, overrides from
+/// `MEMD_RETRIEVAL_FTS5_W_CONTENT` / `_W_TAGS` are applied.
+/// B3-T1 sweep wiring.
+fn fts5_weights() -> (f64, f64) {
+    if !env_truthy("MEMD_RETRIEVAL_FTS5_TUNED") {
+        return (1.0, 1.0);
+    }
+    (
+        env_f64("MEMD_RETRIEVAL_FTS5_W_CONTENT", 1.0),
+        env_f64("MEMD_RETRIEVAL_FTS5_W_TAGS", 1.0),
+    )
+}
+
 fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
     let current: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
@@ -1913,22 +1946,28 @@ impl SqliteStore {
     /// Full-text search via FTS5 index. Returns (item_id, bm25_score) pairs
     /// ranked by BM25 relevance. Scores are negative (SQLite BM25 convention)
     /// so we negate them for positive-is-better ordering.
+    ///
+    /// When `MEMD_RETRIEVAL_FTS5_TUNED` is truthy (1/true/on/yes),
+    /// per-field weights are applied via `bm25(memory_items_fts, w_content, w_tags)`.
+    /// Weights override via `MEMD_RETRIEVAL_FTS5_W_CONTENT` / `_W_TAGS`
+    /// (floats; default 1.0 content, 1.0 tags — equivalent to untuned `rank`).
     pub fn fts_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<(Uuid, f64)>> {
         let conn = self.connect()?;
+        let (w_content, w_tags) = fts5_weights();
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT item_id, -rank AS score
+                SELECT item_id, -bm25(memory_items_fts, ?3, ?4) AS score
                 FROM memory_items_fts
                 WHERE memory_items_fts MATCH ?1
-                ORDER BY rank
+                ORDER BY bm25(memory_items_fts, ?3, ?4)
                 LIMIT ?2
                 "#,
             )
             .context("prepare fts search query")?;
 
         let rows = stmt
-            .query_map(params![query, limit as i64], |row| {
+            .query_map(params![query, limit as i64, w_content, w_tags], |row| {
                 let id_str: String = row.get(0)?;
                 let score: f64 = row.get(1)?;
                 Ok((id_str, score))
