@@ -114,6 +114,35 @@ Pinned here because `.memd/benchmarks/history/benchmark-runs.jsonl` is gitignore
 
 Note: phase doc "pre" line quotes LME=0.860 which is likely `recall_any@10`; 0.828 is the @5 primary and matches the A3-era 4f8e141 baseline. Not a regression — just a different k.
 
+## B3 Part 1 — tasks-landed summary (2026-04-17)
+
+All six Part-1 deliverables shipped as flag-gated product code. One
+scope correction captured in commit bodies: V3 public bench harness
+(`memd benchmark public …`) is corpus-ranked client-side across all
+three backends (lexical / rrf / sidecar) and does not route through
+`memd-server`. So intrinsic-metric movement is not measurable by the
+current bench regardless of which FTS5/atlas flag is toggled; the
+product-side plumbing is in place for a future bench route that
+exercises memd-server's search_memory endpoint.
+
+| Task | Deliverable | Flag | Default | Commit |
+|------|-------------|------|---------|--------|
+| 0 | pin HEAD 4f2d7d7 baseline | — | — | 7801c27 |
+| 1 | FTS5 per-field BM25 weights (bm25(table, ?3, ?4)) | MEMD_RETRIEVAL_FTS5_TUNED + _W_CONTENT/_W_TAGS | off | e4930a1 |
+| 2 | query sanitize (port mempalace) + atlas synonym expand | MEMD_RETRIEVAL_ATLAS_EXPANSION | off (sanitize always on) | 1f670b4 |
+| 3 | layered wake L0/L1/L2/L3 H2 suffixes | MEMD_WAKE_LAYERED | off | c1534bb |
+| 4 | priority dedup canonical > working > search | MEMD_RETRIEVAL_PRIORITY_DEDUP | on | 25c598a |
+| 5 | status admission cap (≤2, TTL 1h, −0.20) — verify-only | — (live in working/mod.rs, helpers.rs) | on | 7801c27 |
+| 6 | atlas-at-recall 1-hop entity expansion | MEMD_RETRIEVAL_ATLAS_RECALL | off | 4fd3f33 |
+
+Bench posture (HEAD 4fd3f33, flags default):
+- LongMemEval --retrieval-backend lexical: 0.828 @5 (no regression)
+- All product paths default-off or dedup-on so user-facing wake/search
+  behavior is unchanged by a mere binary upgrade.
+
+Part 2 (sidecar wiring, dual-bench reporting) remains pending and
+depends on a bench route that actually calls memd-server.
+
 ## Task 5 verification (2026-04-17, no code change)
 
 Status admission cap is already satisfied by two live layers:
