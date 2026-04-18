@@ -1513,6 +1513,15 @@ pub(crate) fn rank_longmemeval_corpus(
     }
 }
 
+// Gate bench probes behind MEMD_BENCH_PROBES env var (opt-in; default quiet)
+macro_rules! bench_probe {
+    ($($arg:tt)*) => {
+        if std::env::var("MEMD_BENCH_PROBES").as_deref().map_or(false, |v| matches!(v, "1" | "true" | "on" | "yes")) {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 pub(crate) fn rank_longmemeval_corpus_via_sidecar(
     base_url: &str,
     query: &str,
@@ -1521,10 +1530,10 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
-    eprintln!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    bench_probe!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
     let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    eprintln!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+    bench_probe!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
 
     let ingest_url = format!("{}/v1/ingest", base_url.trim_end_matches('/'));
     let retrieve_url = format!("{}/v1/retrieve", base_url.trim_end_matches('/'));
@@ -1617,7 +1626,7 @@ async fn bench_memd_roundtrip(
 
     let store_start = std::time::Instant::now();
     for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
-        eprintln!(
+        bench_probe!(
             "[bench-probe] store-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
             corpus.len(),
             store_start.elapsed().as_millis(),
@@ -1650,7 +1659,7 @@ async fn bench_memd_roundtrip(
         };
         let send_start = std::time::Instant::now();
         let req_builder = client.post(&store_url).json(&request);
-        eprintln!(
+        bench_probe!(
             "[bench-probe] store-json-built ns={ns_label} idx={idx} elapsed_ms={}",
             send_start.elapsed().as_millis()
         );
@@ -1659,13 +1668,13 @@ async fn bench_memd_roundtrip(
             .await
             .context("send public benchmark memd store")?;
         let status = response.status();
-        eprintln!(
+        bench_probe!(
             "[bench-probe] store-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
             status,
             send_start.elapsed().as_millis()
         );
         let body_text = response.text().await.unwrap_or_default();
-        eprintln!(
+        bench_probe!(
             "[bench-probe] store-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
             status,
             send_start.elapsed().as_millis(),
@@ -1675,7 +1684,7 @@ async fn bench_memd_roundtrip(
             anyhow::bail!("public benchmark memd store failed with {status}: {body_text}");
         }
     }
-    eprintln!(
+    bench_probe!(
         "[bench-probe] stores done ns={ns_label} count={} elapsed_ms={}",
         corpus.len(),
         store_start.elapsed().as_millis()
@@ -1706,7 +1715,7 @@ async fn bench_memd_roundtrip(
         .send()
         .await
         .context("send public benchmark memd search")?;
-    eprintln!(
+    bench_probe!(
         "[bench-probe] search returned ns={ns_label} status={} elapsed_ms={}",
         response.status(),
         search_start.elapsed().as_millis()
@@ -1743,7 +1752,7 @@ async fn bench_sidecar_roundtrip(
 
     let ingest_start = std::time::Instant::now();
     for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
-        eprintln!(
+        bench_probe!(
             "[bench-probe] ingest-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
             corpus.len(),
             ingest_start.elapsed().as_millis(),
@@ -1772,13 +1781,13 @@ async fn bench_sidecar_roundtrip(
             .await
             .context("send public benchmark sidecar ingest")?;
         let status = response.status();
-        eprintln!(
+        bench_probe!(
             "[bench-probe] ingest-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
             status,
             send_start.elapsed().as_millis()
         );
         let body_text = response.text().await.unwrap_or_default();
-        eprintln!(
+        bench_probe!(
             "[bench-probe] ingest-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
             status,
             send_start.elapsed().as_millis(),
@@ -1788,7 +1797,7 @@ async fn bench_sidecar_roundtrip(
             anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body_text}");
         }
     }
-    eprintln!(
+    bench_probe!(
         "[bench-probe] ingests done ns={ns_label} count={} elapsed_ms={}",
         corpus.len(),
         ingest_start.elapsed().as_millis()
@@ -1813,7 +1822,7 @@ async fn bench_sidecar_roundtrip(
         .send()
         .await
         .context("send public benchmark sidecar retrieve")?;
-    eprintln!(
+    bench_probe!(
         "[bench-probe] retrieve returned ns={ns_label} status={} elapsed_ms={}",
         response.status(),
         retrieve_start.elapsed().as_millis()
@@ -1847,10 +1856,10 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
-    eprintln!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    bench_probe!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
     let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    eprintln!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+    bench_probe!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
 
     let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
     let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
