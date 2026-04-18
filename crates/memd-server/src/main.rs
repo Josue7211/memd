@@ -100,6 +100,21 @@ struct AppState {
     rate_limiter: std::sync::Arc<rate_limit::RateLimiter>,
 }
 
+// B3-Part2-prereq: kill-switch for quadratic entity auto-link on the store hot path.
+// When set, `auto_link_entity` and `create_wiki_links` are skipped in `store_item`.
+// Motivation: both run `list_entities()` (full table scan + JSON deserialize per row),
+// which stalls bulk ingest sweeps (e.g. LongMemEval ~26.5k stores) at ~100 items.
+// Bench opts in; product keeps link graph by default.
+fn store_auto_link_disabled() -> bool {
+    match std::env::var("MEMD_STORE_AUTO_LINK_DISABLED") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
 impl AppState {
     fn store_item(
         &self,
@@ -208,16 +223,21 @@ impl AppState {
                 }
             }
 
-            // Auto-link co-occurring entities within the same project
-            if item.kind != MemoryKind::Status {
-                if let Err(e) = self.auto_link_entity(&entity.record, &item) {
-                    warn!(error = %format_args!("{e:#}"), "auto_link_entity");
+            // Auto-link co-occurring entities within the same project.
+            // Gated by MEMD_STORE_AUTO_LINK_DISABLED: both branches here run
+            // `list_entities()` (O(N) scan + JSON parse), which is quadratic
+            // on bulk ingest. Bench sweeps set the flag to keep throughput flat.
+            if !store_auto_link_disabled() {
+                if item.kind != MemoryKind::Status {
+                    if let Err(e) = self.auto_link_entity(&entity.record, &item) {
+                        warn!(error = %format_args!("{e:#}"), "auto_link_entity");
+                    }
                 }
-            }
 
-            // E2: Parse [[wiki links]] in content and create entity links
-            if let Err(e) = self.create_wiki_links(&entity.record, &item) {
-                warn!(error = %format_args!("{e:#}"), "create_wiki_links");
+                // E2: Parse [[wiki links]] in content and create entity links
+                if let Err(e) = self.create_wiki_links(&entity.record, &item) {
+                    warn!(error = %format_args!("{e:#}"), "create_wiki_links");
+                }
             }
         }
         Ok((item, duplicate))
