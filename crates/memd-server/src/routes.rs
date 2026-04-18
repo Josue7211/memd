@@ -256,10 +256,19 @@ pub(crate) async fn search_memory(
     let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
         .map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
+    // B3-T2: sanitize + atlas-synonym expand before FTS.
     let fts_ranks = req
         .query
         .as_ref()
-        .and_then(|q| state.store.fts_search(q, 100).ok())
+        .and_then(|q| {
+            let sanitized = crate::query_sanitize::sanitize_query(q);
+            let aliases = state
+                .store
+                .entity_aliases_for_query(&sanitized.clean, 4)
+                .unwrap_or_default();
+            let fts_expr = crate::query_sanitize::build_fts_match(&sanitized.clean, &aliases);
+            state.store.fts_search(&fts_expr, 100).ok()
+        })
         .unwrap_or_default();
     let items = filter_items(&items, &req, &plan, &fts_ranks);
     state

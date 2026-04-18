@@ -6,6 +6,7 @@ mod inspection;
 mod keys;
 mod latency;
 mod procedural;
+mod query_sanitize;
 mod rate_limit;
 mod repair;
 mod routes;

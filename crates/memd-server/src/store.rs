@@ -1242,6 +1242,54 @@ impl SqliteStore {
         Ok(candidates)
     }
 
+    /// B3-T2: best-effort lookup of entity aliases for query-expansion.
+    /// Returns up to `limit` aliases drawn from entities whose `entity_key`
+    /// case-insensitively contains any whitespace-split token of `query`.
+    /// Skips tokens shorter than 3 chars. Caller is responsible for de-duping
+    /// the resulting list against the original query.
+    pub fn entity_aliases_for_query(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<String>> {
+        let tokens: Vec<String> = query
+            .split_whitespace()
+            .filter(|t| t.chars().count() >= 3)
+            .take(5)
+            .map(|t| t.to_ascii_lowercase())
+            .collect();
+        if tokens.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.connect()?;
+        let mut aliases: Vec<String> = Vec::new();
+        for token in &tokens {
+            let pattern = format!("%{}%", token);
+            let mut stmt = conn.prepare(
+                "SELECT payload_json FROM memory_entities WHERE lower(entity_key) LIKE ?1 LIMIT 10",
+            )?;
+            let rows = stmt.query_map(params![pattern], |row| row.get::<_, String>(0))?;
+            for row in rows.flatten() {
+                if let Ok(rec) = serde_json::from_str::<MemoryEntityRecord>(&row) {
+                    for a in rec.aliases {
+                        let trimmed = a.trim().to_string();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if !aliases.iter().any(|existing| existing.eq_ignore_ascii_case(&trimmed)) {
+                            aliases.push(trimmed);
+                            if aliases.len() >= limit {
+                                return Ok(aliases);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(aliases)
+    }
+
     pub fn entity_for_item(&self, item_id: Uuid) -> anyhow::Result<Option<MemoryEntityRecord>> {
         let conn = self.connect()?;
         let payload = conn.query_row(
