@@ -227,7 +227,8 @@ fn render_preferences_block_lists_top_three_items() {
         "backlog lives in docs/backlog/".to_string(),
         "memd-server is the single gateway on 8787".to_string(),
     ];
-    let block = render_preferences_block(&prefs, false, false);
+    let mut seen = std::collections::HashSet::new();
+    let block = render_preferences_block(&prefs, false, false, &mut seen);
     assert!(block.contains("## Preferences"));
     for p in &prefs { assert!(block.contains(p), "missing preference: {p}"); }
 }
@@ -235,14 +236,16 @@ fn render_preferences_block_lists_top_three_items() {
 #[test]
 fn render_preferences_block_is_empty_when_no_preferences() {
     use crate::runtime::render_preferences_block;
-    assert_eq!(render_preferences_block(&[], false, false), String::new());
+    let mut seen = std::collections::HashSet::new();
+    assert_eq!(render_preferences_block(&[], false, false, &mut seen), String::new());
 }
 
 #[test]
 fn render_preferences_block_compacts_long_items() {
     use crate::runtime::render_preferences_block;
     let long = "x".repeat(400);
-    let block = render_preferences_block(&[long.clone()], false, false);
+    let mut seen = std::collections::HashSet::new();
+    let block = render_preferences_block(&[long.clone()], false, false, &mut seen);
     assert!(!block.contains(&long), "should have truncated via compact_inline");
 }
 
@@ -291,6 +294,22 @@ fn hooks_doctor_green_on_consistent_manifest_red_on_tamper() {
 }
 
 #[test]
+fn render_preferences_block_drops_ids_already_in_seen_set() {
+    use crate::runtime::render_preferences_block;
+    let dup_id = "52164272-cb17-4eec-8126-ca7230345ec3";
+    let fresh_id = "d041fad7-7a94-484e-a8b4-83300d9bad63";
+    let prefs = vec![
+        format!("id={dup_id} | stage=canonical | kind=decision | c=already rendered"),
+        format!("id={fresh_id} | stage=canonical | kind=live_truth | c=new"),
+    ];
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(dup_id.to_string());
+    let block = render_preferences_block(&prefs, false, false, &mut seen);
+    assert!(!block.contains(dup_id), "dup id {dup_id} should have been suppressed");
+    assert!(block.contains(fresh_id), "fresh id {fresh_id} should be rendered");
+}
+
+#[test]
 fn preference_replay_marker_green_when_render_path_works() {
     // When tests run inside a bundle (MEMD_BUNDLE_ROOT env set), drop the marker
     // so `memd contract verify` can pick up the green signal.
@@ -302,5 +321,6 @@ fn preference_replay_marker_green_when_render_path_works() {
     }
     // Also sanity-check that our renderer produces the block we expect:
     use crate::runtime::render_preferences_block;
-    assert!(render_preferences_block(&["probe".into()], false, false).contains("## Preferences"));
+    let mut seen = std::collections::HashSet::new();
+    assert!(render_preferences_block(&["probe".into()], false, false, &mut seen).contains("## Preferences"));
 }

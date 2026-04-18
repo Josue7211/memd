@@ -29,6 +29,28 @@ fn wake_budget_agent_name(output: &Path, snapshot: &ResumeSnapshot) -> Option<St
         .or_else(|| snapshot.agent.clone())
 }
 
+// B3 Task 4: priority dedup across wake tiers (canonical > working > search).
+// Rollback: set MEMD_RETRIEVAL_PRIORITY_DEDUP=0 to disable.
+fn priority_dedup_enabled() -> bool {
+    match std::env::var("MEMD_RETRIEVAL_PRIORITY_DEDUP") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "0" || v == "false" || v == "off" || v == "no")
+        }
+        Err(_) => true,
+    }
+}
+
+fn extract_record_id(line: &str) -> Option<String> {
+    let start = line.find("id=")?;
+    let rest = &line[start + 3..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '|')
+        .unwrap_or(rest.len());
+    let id = rest[..end].trim();
+    if id.is_empty() { None } else { Some(id.to_string()) }
+}
+
 fn truncate_visible_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
@@ -63,15 +85,27 @@ pub(crate) fn render_preferences_block(
     preferences: &[String],
     claude_strict: bool,
     verbose: bool,
+    seen_ids: &mut std::collections::HashSet<String>,
 ) -> String {
     if preferences.is_empty() { return String::new(); }
-    let mut s = String::new();
-    s.push_str("## Preferences\n\n");
+    let dedup = priority_dedup_enabled();
     let item_limit = if claude_strict { 110 } else { 140 };
     let count = if verbose { 5 } else { 3 };
-    for p in preferences.iter().take(count) {
-        s.push_str(&format!("- {}\n", compact_inline(p.trim(), item_limit)));
+    let mut rows: Vec<String> = Vec::new();
+    for p in preferences.iter() {
+        if rows.len() >= count { break; }
+        let trimmed = p.trim();
+        if dedup {
+            if let Some(id) = extract_record_id(trimmed) {
+                if !seen_ids.insert(id) { continue; }
+            }
+        }
+        rows.push(format!("- {}\n", compact_inline(trimmed, item_limit)));
     }
+    if rows.is_empty() { return String::new(); }
+    let mut s = String::new();
+    s.push_str("## Preferences\n\n");
+    for r in rows { s.push_str(&r); }
     s.push('\n');
     s
 }
@@ -165,6 +199,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push('\n');
     }
 
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let dedup = priority_dedup_enabled();
+
     prefix.push_str("## Durable Truth\n\n");
     if snapshot.context.records.is_empty() {
         prefix.push_str("- none\n\n");
@@ -201,15 +238,21 @@ pub(crate) fn render_bundle_wakeup_markdown(
             .filter(|r| is_live_truth(r))
             .collect();
         let reordered: Vec<_> = non_live.into_iter().chain(live.into_iter()).collect();
-        for item in reordered.iter().take(limit) {
-            prefix.push_str(&format!(
-                "- {}\n",
-                compact_inline(item.record.trim(), item_limit)
-            ));
+        let mut rendered = 0usize;
+        for item in reordered.iter() {
+            if rendered >= limit { break; }
+            let line = item.record.trim();
+            if dedup {
+                if let Some(id) = extract_record_id(line) {
+                    seen_ids.insert(id);
+                }
+            }
+            prefix.push_str(&format!("- {}\n", compact_inline(line, item_limit)));
+            rendered += 1;
         }
         let total = snapshot.context.records.len();
-        if total > limit {
-            prefix.push_str(&format!("- + {} more via `memd lookup`\n", total - limit));
+        if total > rendered {
+            prefix.push_str(&format!("- + {} more via `memd lookup`\n", total - rendered));
         }
         prefix.push('\n');
     }
@@ -219,18 +262,32 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push_str("- none\n");
     } else {
         let limit = 1;
-        for item in snapshot.working.records.iter().take(limit) {
-            let item_limit = if claude_strict { 110 } else { 140 };
-            prefix.push_str(&format!(
-                "- {}\n",
-                compact_inline(item.record.trim(), item_limit)
-            ));
+        let item_limit = if claude_strict { 110 } else { 140 };
+        let mut rendered = 0usize;
+        for item in snapshot.working.records.iter() {
+            if rendered >= limit { break; }
+            let line = item.record.trim();
+            if dedup {
+                if let Some(id) = extract_record_id(line) {
+                    if !seen_ids.insert(id) { continue; }
+                }
+            }
+            prefix.push_str(&format!("- {}\n", compact_inline(line, item_limit)));
+            rendered += 1;
+        }
+        if rendered == 0 {
+            prefix.push_str("- (all covered in Durable Truth)\n");
         }
     }
     prefix.push('\n');
 
     // A3 Part 2 Task 11: Surface preference memories in wake packet.
-    prefix.push_str(&render_preferences_block(&snapshot.preferences, claude_strict, verbose));
+    prefix.push_str(&render_preferences_block(
+        &snapshot.preferences,
+        claude_strict,
+        verbose,
+        &mut seen_ids,
+    ));
 
     // E2: Atlas region hints in wake packet
     if !snapshot.atlas_region_hints.is_empty() && !claude_strict {
