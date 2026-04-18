@@ -1521,72 +1521,52 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
+    eprintln!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    let client = reqwest::blocking::Client::builder()
-        .build()
-        .context("build public benchmark sidecar client")?;
+    eprintln!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+
     let ingest_url = format!("{}/v1/ingest", base_url.trim_end_matches('/'));
     let retrieve_url = format!("{}/v1/retrieve", base_url.trim_end_matches('/'));
     let project = Some("memd-public-benchmark-longmemeval".to_string());
-    let namespace = Some(namespace.to_string());
+    let namespace_owned = Some(namespace.to_string());
 
-    for (corpus_id, content) in corpus_ids.iter().zip(corpus.iter()) {
-        let request = RagIngestRequest {
-            project: project.clone(),
-            namespace: namespace.clone(),
-            source: RagIngestSource {
-                id: uuid::Uuid::new_v4(),
-                kind: "longmemeval_corpus".to_string(),
-                content: content.clone(),
-                mime: None,
-                bytes: Some(content.len() as u64),
-                source_quality: None,
-                source_agent: Some("public-benchmark".to_string()),
-                source_path: Some(corpus_id.clone()),
-                tags: vec!["public-benchmark".to_string(), "longmemeval".to_string()],
-            },
-        };
-        let response = client
-            .post(&ingest_url)
-            .json(&request)
-            .send()
-            .context("send public benchmark sidecar ingest")?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "failed to read ingest body".to_string());
-            anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body}");
-        }
-    }
-
-    let retrieve_request = RagRetrieveRequest {
-        query: query.to_string(),
-        project,
-        namespace,
-        mode: if mode == "hybrid" {
-            RagRetrieveMode::Auto
-        } else {
-            RagRetrieveMode::Text
-        },
-        limit: Some(corpus.len().max(1)),
-        include_cross_modal: false,
-    };
-    let response = client
-        .post(&retrieve_url)
-        .json(&retrieve_request)
-        .send()
-        .context("send public benchmark sidecar retrieve")?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "failed to read retrieve body".to_string());
-        anyhow::bail!("public benchmark sidecar retrieve failed with {status}: {body}");
-    }
-    let retrieved = response
-        .json::<RagRetrieveResponse>()
-        .context("decode public benchmark sidecar retrieve payload")?;
+    // Use a dedicated OS thread owning its own current-thread tokio runtime
+    // to avoid `reqwest::blocking`'s internal dual-runtime dance (observed
+    // to wedge under bench load; see B3 part2 prereq). Running on a fresh
+    // thread also sidesteps any outer runtime the caller may already own.
+    let project_for_thread = project.clone();
+    let namespace_for_thread = namespace_owned.clone();
+    let query_owned = query.to_string();
+    let corpus_vec = corpus.to_vec();
+    let corpus_ids_vec = corpus_ids.to_vec();
+    let ingest_url_owned = ingest_url.clone();
+    let retrieve_url_owned = retrieve_url.clone();
+    let mode_owned = mode.to_string();
+    let ns_label = namespace.to_string();
+    let handle = std::thread::Builder::new()
+        .name(format!("bench-sidecar-{}", ns_label))
+        .spawn(move || -> anyhow::Result<RagRetrieveResponse> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("build tokio runtime for public benchmark sidecar client")?;
+            rt.block_on(bench_sidecar_roundtrip(
+                ingest_url_owned,
+                retrieve_url_owned,
+                project_for_thread,
+                namespace_for_thread,
+                ns_label,
+                query_owned,
+                corpus_vec,
+                corpus_ids_vec,
+                mode_owned,
+            ))
+        })
+        .context("spawn bench sidecar worker thread")?;
+    let retrieved: RagRetrieveResponse = handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("bench sidecar worker thread panicked"))??;
 
     let corpus_index_by_id = corpus_ids
         .iter()
@@ -1743,6 +1723,113 @@ async fn bench_memd_roundtrip(
         .json::<memd_schema::SearchMemoryResponse>()
         .await
         .context("decode public benchmark memd search payload")
+}
+
+async fn bench_sidecar_roundtrip(
+    ingest_url: String,
+    retrieve_url: String,
+    project: Option<String>,
+    namespace_owned: Option<String>,
+    ns_label: String,
+    query: String,
+    corpus: Vec<String>,
+    corpus_ids: Vec<String>,
+    mode: String,
+) -> anyhow::Result<RagRetrieveResponse> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .context("build public benchmark sidecar client")?;
+
+    let ingest_start = std::time::Instant::now();
+    for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
+        eprintln!(
+            "[bench-probe] ingest-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
+            corpus.len(),
+            ingest_start.elapsed().as_millis(),
+            content.len()
+        );
+        let request = RagIngestRequest {
+            project: project.clone(),
+            namespace: namespace_owned.clone(),
+            source: RagIngestSource {
+                id: uuid::Uuid::new_v4(),
+                kind: "longmemeval_corpus".to_string(),
+                content: content.clone(),
+                mime: None,
+                bytes: Some(content.len() as u64),
+                source_quality: None,
+                source_agent: Some("public-benchmark".to_string()),
+                source_path: Some(corpus_id.clone()),
+                tags: vec!["public-benchmark".to_string(), "longmemeval".to_string()],
+            },
+        };
+        let send_start = std::time::Instant::now();
+        let response = client
+            .post(&ingest_url)
+            .json(&request)
+            .send()
+            .await
+            .context("send public benchmark sidecar ingest")?;
+        let status = response.status();
+        eprintln!(
+            "[bench-probe] ingest-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
+            status,
+            send_start.elapsed().as_millis()
+        );
+        let body_text = response.text().await.unwrap_or_default();
+        eprintln!(
+            "[bench-probe] ingest-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
+            status,
+            send_start.elapsed().as_millis(),
+            body_text.len()
+        );
+        if !status.is_success() {
+            anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body_text}");
+        }
+    }
+    eprintln!(
+        "[bench-probe] ingests done ns={ns_label} count={} elapsed_ms={}",
+        corpus.len(),
+        ingest_start.elapsed().as_millis()
+    );
+
+    let retrieve_request = RagRetrieveRequest {
+        query: query.clone(),
+        project,
+        namespace: namespace_owned,
+        mode: if mode == "hybrid" {
+            RagRetrieveMode::Auto
+        } else {
+            RagRetrieveMode::Text
+        },
+        limit: Some(corpus.len().max(1)),
+        include_cross_modal: false,
+    };
+    let retrieve_start = std::time::Instant::now();
+    let response = client
+        .post(&retrieve_url)
+        .json(&retrieve_request)
+        .send()
+        .await
+        .context("send public benchmark sidecar retrieve")?;
+    eprintln!(
+        "[bench-probe] retrieve returned ns={ns_label} status={} elapsed_ms={}",
+        response.status(),
+        retrieve_start.elapsed().as_millis()
+    );
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "failed to read retrieve body".to_string());
+        anyhow::bail!("public benchmark sidecar retrieve failed with {status}: {body}");
+    }
+    response
+        .json::<RagRetrieveResponse>()
+        .await
+        .context("decode public benchmark sidecar retrieve payload")
 }
 
 /// B3 Part-2 prereq: route bench through an actual memd-server so the
