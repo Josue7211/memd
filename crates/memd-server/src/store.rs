@@ -1991,6 +1991,49 @@ impl SqliteStore {
         Ok(items)
     }
 
+    /// Scoped list — filters by project and/or namespace at the SQL layer
+    /// using `idx_memory_project` / `idx_memory_namespace`. Used by search
+    /// to avoid a full-corpus scan when the caller pins a scope (bench
+    /// hot path: per-question namespace).
+    pub fn list_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        if project.is_none() && namespace.is_none() {
+            return self.list();
+        }
+        let conn = self.connect()?;
+        let mut sql =
+            String::from("SELECT payload_json FROM memory_items WHERE 1=1");
+        let mut args: Vec<String> = Vec::new();
+        if let Some(p) = project {
+            sql.push_str(" AND project = ?");
+            args.push(p.to_string());
+        }
+        if let Some(n) = namespace {
+            sql.push_str(" AND namespace = ?");
+            args.push(n.to_string());
+        }
+        sql.push_str(" ORDER BY updated_at DESC");
+
+        let mut stmt = conn.prepare(&sql).context("prepare scoped list query")?;
+        let param_refs: Vec<&dyn rusqlite::ToSql> =
+            args.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(param_refs.as_slice(), |row| row.get::<_, String>(0))
+            .context("query scoped memory items")?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row.context("read memory row")?;
+            let item: MemoryItem =
+                serde_json::from_str(&payload).context("deserialize memory item payload")?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
     /// Full-text search via FTS5 index. Returns (item_id, bm25_score) pairs
     /// ranked by BM25 relevance. Scores are negative (SQLite BM25 convention)
     /// so we negate them for positive-is-better ordering.

@@ -264,8 +264,12 @@ pub(crate) async fn search_memory(
 ) -> Result<Json<SearchMemoryResponse>, (StatusCode, String)> {
     let policy = working::memory_policy_snapshot();
     let feedback_limit = policy.retrieval_feedback.max_items_per_request;
-    let items = enrich_with_entities(&state, state.snapshot().map_err(internal_error)?)
+    // B3-part2 prereq: scope snapshot to project+namespace when set so
+    // per-question bench namespaces don't trigger a full-corpus scan.
+    let snapshot = state
+        .snapshot_for_scope(req.project.as_deref(), req.namespace.as_deref())
         .map_err(internal_error)?;
+    let items = enrich_with_entities(&state, snapshot).map_err(internal_error)?;
     let plan = RetrievalPlan::resolve(req.route, req.intent);
     // B3-T2: sanitize + atlas-synonym expand before FTS.
     let mut fts_ranks = req

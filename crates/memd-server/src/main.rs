@@ -428,6 +428,28 @@ impl AppState {
         Ok(hydrated)
     }
 
+    /// Scoped snapshot — hydrates only items matching the given project
+    /// and/or namespace. Hot path for bench search where each question
+    /// pins a fresh namespace; avoids global-corpus scan.
+    pub(crate) fn snapshot_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        let items = self.store.list_for_scope(project, namespace)?;
+        let mut hydrated = Vec::with_capacity(items.len());
+        for item in items {
+            let (item, changed) = apply_lifecycle(item);
+            if changed {
+                let canonical_key = canonical_key(&item);
+                let redundancy_key = redundancy_key(&item);
+                self.store.update(&item, &canonical_key, &redundancy_key)?;
+            }
+            hydrated.push(item);
+        }
+        Ok(hydrated)
+    }
+
     fn promote_item(
         &self,
         req: PromoteMemoryRequest,
