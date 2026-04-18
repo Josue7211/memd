@@ -41,6 +41,29 @@ fn priority_dedup_enabled() -> bool {
     }
 }
 
+// B3 Task 3: layered wake packet (L0 identity / L1 essential / L2 on-demand /
+// L3 deep). Flag-gated so the default render remains byte-identical for
+// downstream consumers until rolled out. Enable with MEMD_WAKE_LAYERED=1.
+pub(crate) fn layered_wake_enabled() -> bool {
+    match std::env::var("MEMD_WAKE_LAYERED") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "on" | "yes")
+        }
+        Err(_) => false,
+    }
+}
+
+/// Returns the H2 suffix tag for a wake section. Empty when layered-wake
+/// is disabled so existing markdown stays byte-identical.
+pub(crate) fn layer_suffix(layer: &str) -> String {
+    if layered_wake_enabled() {
+        format!(" ({layer})")
+    } else {
+        String::new()
+    }
+}
+
 fn extract_record_id(line: &str) -> Option<String> {
     let start = line.find("id=")?;
     let rest = &line[start + 3..];
@@ -104,7 +127,10 @@ pub(crate) fn render_preferences_block(
     }
     if rows.is_empty() { return String::new(); }
     let mut s = String::new();
-    s.push_str("## Preferences\n\n");
+    s.push_str(&format!(
+        "## Preferences{}\n\n",
+        layer_suffix("L2 — On-Demand")
+    ));
     for r in rows { s.push_str(&r); }
     s.push('\n');
     s
@@ -168,6 +194,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
         });
 
     prefix.push_str("# memd wake-up\n\n");
+    if layered_wake_enabled() {
+        prefix.push_str("_L0 — Identity_\n");
+    }
     prefix.push_str(&format!(
         "- {} / {} / {} / {} / {} / {} / {}\n\n",
         snapshot.project.as_deref().unwrap_or("none"),
@@ -202,7 +231,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let dedup = priority_dedup_enabled();
 
-    prefix.push_str("## Durable Truth\n\n");
+    prefix.push_str(&format!(
+        "## Durable Truth{}\n\n",
+        layer_suffix("L1 — Essential Story")
+    ));
     if snapshot.context.records.is_empty() {
         prefix.push_str("- none\n\n");
     } else {
@@ -257,7 +289,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
         prefix.push('\n');
     }
 
-    prefix.push_str("## Focus\n\n");
+    prefix.push_str(&format!(
+        "## Focus{}\n\n",
+        layer_suffix("L2 — On-Demand")
+    ));
     if snapshot.working.records.is_empty() {
         prefix.push_str("- none\n");
     } else {
@@ -305,7 +340,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
     // claude_strict would defeat the A3 continuity guarantee. Under
     // claude_strict we shrink the row budget but always emit the block.
     if !snapshot.files_touched.is_empty() {
-        prefix.push_str("## Files Touched\n\n");
+        prefix.push_str(&format!(
+            "## Files Touched{}\n\n",
+            layer_suffix("L2 — On-Demand")
+        ));
         prefix.push_str(
             "_Prior session Read/Edit/Write. Bulk-Read before first Edit to avoid re-Read errors after compaction._\n\n",
         );
@@ -339,7 +377,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
         || continuity.next_action.is_some()
         || continuity.blocker.is_some()
     {
-        prefix.push_str("## Continuity\n\n");
+        prefix.push_str(&format!(
+            "## Continuity{}\n\n",
+            layer_suffix("L3 — Deep")
+        ));
         let continuity_limit = if claude_strict { 96 } else { 140 };
         if let Some(current_task) = continuity.current_task.as_deref() {
             prefix.push_str(&format!(
