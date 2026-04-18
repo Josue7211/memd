@@ -9,14 +9,14 @@ version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
 current_phase: B3
-phase_status: part2-prereq-landed
+phase_status: part2-prereq-green-bench-unblocked
 next_milestone: V3
 next_step: B3 Intrinsic Retrieval — start after V3 roadmap ack (A3 Continuity Foundation now closed; every memd-core blocker landed or tracked)
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). 514 tests green, docs-green passes, manifest verified. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: a3_part3_green_next_b3_2026-04-17
+last_handoff: b3_part2_prereq_green_next_part2_2026-04-18
 -->
 
 ## Status Snapshot
