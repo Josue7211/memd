@@ -16,6 +16,7 @@
 # A3 Part 2: hook scripts are part of the continuity foundation.
 !/.memd/hooks/
 !/.memd/hooks/**
+/.claude/scheduled_tasks.lock
 /.claw/
 /.watch-smoke-new
 /apps/node_modules/
