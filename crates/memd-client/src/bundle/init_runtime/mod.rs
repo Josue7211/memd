@@ -1682,6 +1682,10 @@ pub(crate) fn write_init_bundle(args: &InitArgs) -> anyhow::Result<()> {
                 provider: "lightrag-compatible".to_string(),
                 url: rag_url.clone(),
             },
+            embedding_model: std::env::var("MEMD_EMBED_MODEL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -2067,6 +2071,10 @@ pub(crate) fn build_bundle_turn_placeholder_config(
                 provider: "lightrag-compatible".to_string(),
                 url: None,
             },
+            embedding_model: std::env::var("MEMD_EMBED_MODEL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),

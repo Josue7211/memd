@@ -5,7 +5,7 @@ use axum::{
 };
 use memd_rag::{
     RagBackendHealth, RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestResponse,
-    RagRetrieveItem, RagRetrieveMode, RagRetrieveResponse,
+    RagRerankItem, RagRerankResponse, RagRetrieveItem, RagRetrieveMode, RagRetrieveResponse,
 };
 use memd_schema::{CoordinationMode, MemoryRepairMode, SkillPolicyActivationRecord};
 use std::sync::{Arc, Mutex};
@@ -125,6 +125,24 @@ async fn mock_rag_retrieve(
     Json(response)
 }
 
+async fn mock_rag_retrieve_from_state(
+    State(state): State<MockRagSearchState>,
+) -> Json<RagRetrieveResponse> {
+    Json(state.retrieve)
+}
+
+#[derive(Clone)]
+struct MockRagSearchState {
+    retrieve: RagRetrieveResponse,
+    rerank: RagRerankResponse,
+}
+
+async fn mock_rag_rerank(
+    State(state): State<MockRagSearchState>,
+) -> Json<RagRerankResponse> {
+    Json(state.rerank)
+}
+
 async fn spawn_mock_rag_ingest_server() -> (String, tokio::sync::oneshot::Receiver<RagIngestRequest>)
 {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -160,6 +178,27 @@ async fn spawn_mock_rag_retrieve_server(response: RagRetrieveResponse) -> String
         axum::serve(listener, app)
             .await
             .expect("serve mock rag retrieve server");
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    format!("http://{}", addr)
+}
+
+async fn spawn_mock_rag_search_server(
+    retrieve: RagRetrieveResponse,
+    rerank: RagRerankResponse,
+) -> String {
+    let app = Router::new()
+        .route("/v1/retrieve", post(mock_rag_retrieve_from_state))
+        .route("/v1/rerank", post(mock_rag_rerank))
+        .with_state(MockRagSearchState { retrieve, rerank });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock rag search server");
+    let addr = listener.local_addr().expect("mock rag search addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("serve mock rag search server");
     });
     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     format!("http://{}", addr)
@@ -8173,4 +8212,201 @@ async fn search_memory_injects_dense_rag_candidates() {
     assert_eq!(body.items[1].id, second.id);
 
     std::fs::remove_dir_all(dir).expect("cleanup dense temp dir");
+}
+
+#[test]
+fn intrinsic_rerank_search_candidates_promotes_stronger_phrase_match() {
+    let weak = MemoryItem {
+        content: "Brenda handled the workflow review and later scheduled the demo.".to_string(),
+        tags: vec!["workflow".to_string(), "review".to_string()],
+        confidence: 0.98,
+        source_path: Some("notes/review.md".to_string()),
+        source_quality: Some(SourceQuality::Canonical),
+        ..sample_memory_item(None)
+    };
+    let strong = MemoryItem {
+        content: "Brenda documented the MEDDIC qualification workflow for the deal review."
+            .to_string(),
+        tags: vec![
+            "qualification".to_string(),
+            "workflow".to_string(),
+            "meddic".to_string(),
+        ],
+        confidence: 0.72,
+        source_path: Some("notes/qualification-workflow.md".to_string()),
+        source_quality: Some(SourceQuality::Canonical),
+        ..sample_memory_item(None)
+    };
+    let items = vec![
+        MemoryViewItem {
+            item: weak.clone(),
+            entity: None,
+            source_trust_score: 0.9,
+        },
+        MemoryViewItem {
+            item: strong.clone(),
+            entity: None,
+            source_trust_score: 0.9,
+        },
+    ];
+    let base_ranks = vec![(weak.id, 0.91), (strong.id, 0.83)];
+
+    let reranked = intrinsic_rerank_search_candidates(
+        &items,
+        "What did Brenda document about qualification workflow?",
+        &base_ranks,
+    );
+
+    assert_eq!(
+        reranked.first().map(|(id, _)| *id),
+        Some(strong.id),
+        "rerank should promote the stronger phrase/keyword match over the weaker base-ranked item"
+    );
+}
+
+#[tokio::test]
+async fn search_memory_uses_sidecar_rerank_when_available() {
+    let (dir, state) = temp_state("memd-sidecar-rerank-search");
+    let query = "What did Brenda document about qualification workflow?";
+    let weak = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "Brenda handled the workflow review and later scheduled the demo."
+                    .to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("weak.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.95),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["workflow".to_string()],
+                status: Some(MemoryStatus::Active),
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("seed weak item")
+        .0;
+    let strong = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "Brenda documented the MEDDIC qualification workflow for the deal review."
+                    .to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("strong.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["qualification".to_string(), "workflow".to_string()],
+                status: Some(MemoryStatus::Active),
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("seed strong item")
+        .0;
+
+    let rag_url = spawn_mock_rag_search_server(
+        RagRetrieveResponse {
+            status: "ok".to_string(),
+            mode: RagRetrieveMode::Text,
+            items: vec![
+                RagRetrieveItem {
+                    content: "weak".to_string(),
+                    source: Some(weak.id.to_string()),
+                    score: 0.98,
+                },
+                RagRetrieveItem {
+                    content: "strong".to_string(),
+                    source: Some(strong.id.to_string()),
+                    score: 0.82,
+                },
+            ],
+        },
+        RagRerankResponse {
+            status: "ok".to_string(),
+            model: "bge-reranker-base".to_string(),
+            items: vec![
+                RagRerankItem {
+                    id: strong.id.to_string(),
+                    score: 0.91,
+                    text: None,
+                },
+                RagRerankItem {
+                    id: weak.id.to_string(),
+                    score: 0.52,
+                    text: None,
+                },
+            ],
+        },
+    )
+    .await;
+
+    let search_state = AppState {
+        store: state.store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: Some(Arc::new(
+            RagClient::new(&rag_url).expect("build rag client with rerank"),
+        )),
+        embedder: None,
+    };
+    let app = Router::new()
+        .route("/memory/search", post(search_memory))
+        .with_state(search_state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/search")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&SearchMemoryRequest {
+                        query: Some(query.to_string()),
+                        route: None,
+                        intent: None,
+                        scopes: Vec::new(),
+                        kinds: Vec::new(),
+                        statuses: Vec::new(),
+                        project: Some("memd".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: None,
+                        belief_branch: None,
+                        source_agent: None,
+                        tags: Vec::new(),
+                        stages: Vec::new(),
+                        limit: Some(10),
+                        max_chars_per_item: None,
+                    })
+                    .expect("serialize rerank search request"),
+                ))
+                .expect("build rerank search request"),
+        )
+        .await
+        .expect("run rerank search route");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SearchMemoryResponse = decode_json(response).await;
+    assert_eq!(body.items.first().map(|item| item.id), Some(strong.id));
+
+    std::fs::remove_dir_all(dir).expect("cleanup rerank temp dir");
 }

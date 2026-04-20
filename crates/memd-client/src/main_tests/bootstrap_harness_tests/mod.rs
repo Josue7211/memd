@@ -185,6 +185,7 @@ fn resolves_nested_bundle_rag_config() {
                 enabled: Some(true),
                 url: Some("http://127.0.0.1:9000".to_string()),
             }),
+            embedding_model: None,
         }),
     };
 
@@ -267,6 +268,7 @@ fn serializes_bundle_config_with_nested_rag_state() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -329,6 +331,7 @@ fn writes_bundle_memory_placeholder_with_hot_path_guidance() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -405,6 +408,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -449,6 +453,7 @@ fn writes_bundle_memory_placeholder_with_normal_voice_mode() {
                     enabled: Some(true),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 }),
+                embedding_model: None,
             }),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
@@ -506,6 +511,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
                 provider: "lightrag-compatible".to_string(),
                 url: Some("http://127.0.0.1:9000".to_string()),
             },
+            embedding_model: None,
         },
         hooks: BundleHooksConfig {
             context: "hooks/memd-context.sh".to_string(),
@@ -550,6 +556,7 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
                     enabled: Some(true),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 }),
+                embedding_model: None,
             }),
             authority_policy: BundleAuthorityPolicy::default(),
             authority_state: BundleAuthorityState::default(),
@@ -567,6 +574,68 @@ fn writes_bundle_memory_placeholder_with_caveman_lite_voice_mode() {
     assert!(memory.contains("no filler/hedging"));
     assert!(claude_imports.contains("memd resume"));
     assert!(codex_agents.contains("`caveman-lite`"));
+
+    fs::remove_dir_all(dir).expect("cleanup temp bundle");
+}
+
+#[test]
+fn write_bundle_backend_env_includes_embed_model_when_configured() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-bundle-backend-embed-model-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&dir).expect("create temp bundle");
+    let config = BundleConfig {
+        schema_version: 2,
+        project: "demo".to_string(),
+        namespace: Some("main".to_string()),
+        agent: "codex".to_string(),
+        session: "session-demo".to_string(),
+        tab_id: None,
+        hive_system: Some("codex".to_string()),
+        hive_role: Some("agent".to_string()),
+        capabilities: vec!["memory".to_string()],
+        hive_groups: Vec::new(),
+        hive_group_goal: None,
+        hive_project_enabled: false,
+        hive_project_anchor: None,
+        hive_project_joined_at: None,
+        authority: Some("participant".to_string()),
+        base_url: "http://127.0.0.1:8787".to_string(),
+        route: "auto".to_string(),
+        intent: "general".to_string(),
+        workspace: None,
+        visibility: None,
+        heartbeat_model: default_heartbeat_model(),
+        voice_mode: default_voice_mode(),
+        auto_short_term_capture: true,
+        authority_policy: BundleAuthorityPolicy::default(),
+        authority_state: BundleAuthorityState::default(),
+        backend: BundleBackendConfig {
+            rag: BundleRagConfig {
+                enabled: false,
+                provider: "lightrag-compatible".to_string(),
+                url: None,
+            },
+            embedding_model: Some("bge-large-en-v1.5".to_string()),
+        },
+        hooks: BundleHooksConfig {
+            context: "hooks/memd-context.sh".to_string(),
+            capture: "hooks/memd-capture.sh".to_string(),
+            spill: "hooks/memd-spill.sh".to_string(),
+            context_ps1: "hooks/memd-context.ps1".to_string(),
+            capture_ps1: "hooks/memd-capture.ps1".to_string(),
+            spill_ps1: "hooks/memd-spill.ps1".to_string(),
+        },
+        rag_url: None,
+    };
+
+    write_bundle_backend_env(&dir, &config).expect("write backend env");
+
+    let shell = fs::read_to_string(dir.join("backend.env")).expect("read backend env");
+    let ps1 = fs::read_to_string(dir.join("backend.env.ps1")).expect("read backend env ps1");
+    assert!(shell.contains("MEMD_EMBED_MODEL=bge-large-en-v1.5"));
+    assert!(ps1.contains("$env:MEMD_EMBED_MODEL = \"bge-large-en-v1.5\""));
 
     fs::remove_dir_all(dir).expect("cleanup temp bundle");
 }

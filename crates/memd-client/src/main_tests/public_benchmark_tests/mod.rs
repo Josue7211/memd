@@ -463,6 +463,75 @@ fn public_benchmark_source_catalog_pins_membench_download() {
     assert_eq!(source.split, "FirstAgent");
 }
 
+#[test]
+fn public_benchmark_cached_convomem_fixture_detects_missing_message_evidence_ids() {
+    let dir = std::env::temp_dir().join(format!(
+        "memd-public-benchmark-convomem-stale-cache-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&dir).expect("create stale cache dir");
+    let stale_path = dir.join("convomem-stale.json");
+    fs::write(
+        &stale_path,
+        serde_json::to_string_pretty(&PublicBenchmarkDatasetFixture {
+            benchmark_id: "convomem".to_string(),
+            benchmark_name: "ConvoMem".to_string(),
+            version: "upstream".to_string(),
+            split: "evidence-sample".to_string(),
+            description: "test fixture".to_string(),
+            items: vec![PublicBenchmarkDatasetFixtureItem {
+                item_id: "item-1".to_string(),
+                question_id: "Personal Life::0".to_string(),
+                query: "What did Alex cook?".to_string(),
+                claim_class: "retrieval".to_string(),
+                gold_answer: "pho".to_string(),
+                metadata: json!({
+                    "conversations": [],
+                    "message_evidences": [{"speaker": "User", "text": "I made pho."}]
+                }),
+            }],
+        })
+        .expect("serialize stale fixture"),
+    )
+    .expect("write stale fixture");
+    assert!(
+        public_benchmark_cached_dataset_is_stale("convomem", &stale_path)
+            .expect("detect stale convomem cache")
+    );
+
+    fs::write(
+        &stale_path,
+        serde_json::to_string_pretty(&PublicBenchmarkDatasetFixture {
+            benchmark_id: "convomem".to_string(),
+            benchmark_name: "ConvoMem".to_string(),
+            version: "upstream".to_string(),
+            split: "evidence-sample".to_string(),
+            description: "test fixture".to_string(),
+            items: vec![PublicBenchmarkDatasetFixtureItem {
+                item_id: "item-1".to_string(),
+                question_id: "Personal Life::0".to_string(),
+                query: "What did Alex cook?".to_string(),
+                claim_class: "retrieval".to_string(),
+                gold_answer: "pho".to_string(),
+                metadata: json!({
+                    "conversations": [],
+                    "message_evidences": [{"speaker": "User", "text": "I made pho."}],
+                    "message_evidence_match_version": 3,
+                    "message_evidence_ids": ["conv-0::msg:0"]
+                }),
+            }],
+        })
+        .expect("serialize fresh fixture"),
+    )
+    .expect("write fresh fixture");
+    assert!(
+        !public_benchmark_cached_dataset_is_stale("convomem", &stale_path)
+            .expect("detect fresh convomem cache")
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup stale cache dir");
+}
+
 #[tokio::test]
 async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
     let dir = std::env::temp_dir().join(format!(
@@ -1068,6 +1137,138 @@ fn normalize_convomem_evidence_items_builds_fixture_rows() {
             .and_then(JsonValue::as_str)
             .is_some_and(|text| text.contains("User: I use green for hot leads"))
     );
+    assert_eq!(
+        fixture.items[0]
+            .metadata
+            .get("message_evidence_ids")
+            .and_then(JsonValue::as_array)
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        fixture.items[0]
+            .metadata
+            .get("message_evidence_ids")
+            .and_then(JsonValue::as_array)
+            .and_then(|items| items.first())
+            .and_then(JsonValue::as_str),
+        Some("conv-1::msg:0")
+    );
+    assert_eq!(
+        fixture.items[0]
+            .metadata
+            .get("message_evidence_match_version")
+            .and_then(JsonValue::as_i64),
+        Some(3)
+    );
+}
+
+#[test]
+fn normalize_convomem_evidence_items_maps_snippet_evidence_to_full_message() {
+    let fixture = normalize_convomem_evidence_items(&[
+        json!({
+            "question": "What color do I use for hot leads in my personal spreadsheet?",
+            "answer": "Green",
+            "message_evidences": [{"speaker": "User", "text": "I use green for hot leads in my personal spreadsheet."}],
+            "conversations": [{
+                "id": "conv-1",
+                "containsEvidence": true,
+                "model_name": "gpt-4o",
+                "messages": [
+                    {"speaker": "User", "text": "Yeah, I actually have a system in place. I use green for hot leads in my personal spreadsheet."},
+                    {"speaker": "Assistant", "text": "That sounds organized."}
+                ]
+            }],
+            "category": "user_evidence",
+            "scenario_description": "Telemarketer",
+            "personId": "person-1"
+        })
+    ])
+    .expect("normalize convomem snippet sample");
+
+    assert_eq!(
+        fixture.items[0]
+            .metadata
+            .get("message_evidence_ids")
+            .and_then(JsonValue::as_array)
+            .cloned(),
+        Some(vec![json!("conv-1::msg:0")])
+    );
+}
+
+#[test]
+fn normalize_convomem_evidence_items_maps_high_overlap_paraphrase_to_message() {
+    let fixture = normalize_convomem_evidence_items(&[
+        json!({
+            "question": "Can you remind me of the crucial first step you mentioned for achieving a clear pho broth?",
+            "answer": "Parboil the bones first.",
+            "message_evidences": [{
+                "speaker": "Assistant",
+                "text": "To get a clear and flavorful pho broth, you should start by parboiling the bones and skimming off the scum thoroughly before you proceed to the main simmer. This step is essential for a clean broth."
+            }],
+            "conversations": [{
+                "id": "conv-1",
+                "containsEvidence": true,
+                "model_name": "gpt-4o",
+                "messages": [
+                    {"speaker": "Assistant", "text": "Absolutely! The key to a clear and flavorful pho broth is to start by parboiling the bones and skimming off the scum thoroughly before you proceed to the main simmer. This step is essential for a clean broth."}
+                ]
+            }],
+            "category": "user_evidence",
+            "scenario_description": "Travel cooking",
+            "personId": "person-1"
+        })
+    ])
+    .expect("normalize convomem paraphrase sample");
+
+    assert_eq!(
+        fixture.items[0]
+            .metadata
+            .get("message_evidence_ids")
+            .and_then(JsonValue::as_array)
+            .cloned(),
+        Some(vec![json!("conv-1::msg:0")])
+    );
+}
+
+#[test]
+fn build_public_benchmark_item_results_convomem_can_hit_message_evidence() {
+    let dataset = normalize_convomem_evidence_items(&[
+        json!({
+            "question": "What color do I use for hot leads in my personal spreadsheet?",
+            "answer": "Green",
+            "message_evidences": [{"speaker": "User", "text": "I use green for hot leads in my personal spreadsheet."}],
+            "conversations": [{
+                "id": "conv-1",
+                "containsEvidence": true,
+                "model_name": "gpt-4o",
+                "messages": [
+                    {"speaker": "User", "text": "I use green for hot leads in my personal spreadsheet."},
+                    {"speaker": "Assistant", "text": "That sounds organized."}
+                ]
+            }],
+            "category": "user_evidence",
+            "scenario_description": "Telemarketer",
+            "personId": "person-1"
+        })
+    ])
+    .expect("normalize convomem sample");
+
+    let report = build_public_benchmark_item_results(
+        &dataset,
+        5,
+        "raw",
+        None,
+        &PublicBenchmarkRetrievalConfig {
+            longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
+            sidecar_base_url: None,
+            memd_base_url: None,
+        },
+        false,
+    )
+    .expect("convomem report");
+
+    assert_eq!(report.metrics.get("accuracy").copied(), Some(1.0));
 }
 
 #[test]

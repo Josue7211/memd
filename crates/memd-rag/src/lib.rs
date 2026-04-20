@@ -2,6 +2,8 @@ pub use memd_sidecar::{
     SidecarBackendHealth as RagBackendHealth, SidecarHealthResponse as RagBackendHealthResponse,
     SidecarIngestRequest as RagIngestRequest, SidecarIngestResponse as RagIngestResponse,
     SidecarIngestSource as RagIngestSource, SidecarRetrieveItem as RagRetrieveItem,
+    SidecarRerankCandidate as RagRerankCandidate, SidecarRerankItem as RagRerankItem,
+    SidecarRerankRequest as RagRerankRequest, SidecarRerankResponse as RagRerankResponse,
     SidecarRetrieveMode as RagRetrieveMode, SidecarRetrieveRequest as RagRetrieveRequest,
     SidecarRetrieveResponse as RagRetrieveResponse,
 };
@@ -28,5 +30,9 @@ impl RagClient {
 
     pub async fn retrieve(&self, req: &RagRetrieveRequest) -> anyhow::Result<RagRetrieveResponse> {
         self.inner.retrieve(req).await
+    }
+
+    pub async fn rerank(&self, req: &RagRerankRequest) -> anyhow::Result<RagRerankResponse> {
+        self.inner.rerank(req).await
     }
 }

@@ -36,8 +36,9 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_memory_vectors_chunk_idx, migrate_redundancy_key,
-    migrate_version_column, migrate_visibility_column,
+    migrate_lane_column, migrate_memory_items_embedding_model,
+    migrate_memory_vectors_chunk_idx, migrate_memory_vectors_embedding_model,
+    migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -49,10 +50,11 @@ mod store_divergence;
 // is treated as pre-M4 and idempotently upgraded. Any value <= current
 // runs the forward migration path (which today is no-op DDL — the column
 // shims run unconditionally via migrate_* helpers below). A value greater
-// than SCHEMA_VERSION_M4 means the file was written by a newer binary;
+// than SCHEMA_VERSION_M5 means the file was written by a newer binary;
 // we log a warning but still open so a rollback doesn't brick the deploy.
 pub(crate) const SCHEMA_VERSION_M3: u32 = 3;
 pub(crate) const SCHEMA_VERSION_M4: u32 = 4;
+pub(crate) const SCHEMA_VERSION_M5: u32 = 5;
 
 fn env_truthy(name: &str) -> bool {
     match std::env::var(name) {
@@ -113,28 +115,28 @@ fn stamp_schema_version(conn: &Connection) -> anyhow::Result<()> {
     match current {
         0 => {
             tracing::info!(
-                version = SCHEMA_VERSION_M4,
-                "stamping fresh database at schema version M4"
+                version = SCHEMA_VERSION_M5,
+                "stamping fresh database at schema version M5"
             );
         }
-        v if v == SCHEMA_VERSION_M4 => {}
-        v if v < SCHEMA_VERSION_M4 => {
+        v if v == SCHEMA_VERSION_M5 => {}
+        v if v < SCHEMA_VERSION_M5 => {
             tracing::info!(
                 from = v,
-                to = SCHEMA_VERSION_M4,
+                to = SCHEMA_VERSION_M5,
                 "upgrading database schema boundary marker (columns already migrated)"
             );
         }
         v => {
             tracing::warn!(
                 found = v,
-                expected = SCHEMA_VERSION_M4,
+                expected = SCHEMA_VERSION_M5,
                 "database was written by a newer binary; opening anyway — proceed carefully"
             );
             return Ok(());
         }
     }
-    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M4)
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION_M5)
         .context("write user_version")?;
     Ok(())
 }
@@ -214,6 +216,7 @@ impl SqliteStore {
               status TEXT NOT NULL,
               confidence REAL NOT NULL,
               canonical_key TEXT NOT NULL,
+              embedding_model TEXT,
               updated_at TEXT NOT NULL,
               payload_json TEXT NOT NULL,
               version INTEGER NOT NULL DEFAULT 1
@@ -535,6 +538,7 @@ impl SqliteStore {
               chunk_idx INTEGER NOT NULL,
               project TEXT,
               namespace TEXT,
+              embedding_model TEXT NOT NULL DEFAULT 'all-minilm-l6-v2',
               dim INTEGER NOT NULL,
               vec BLOB NOT NULL,
               updated_at TEXT NOT NULL,
@@ -550,6 +554,8 @@ impl SqliteStore {
         migrate_lane_column(&conn)?;
         migrate_visibility_column(&conn)?;
         migrate_version_column(&conn)?;
+        migrate_memory_vectors_embedding_model(&conn)?;
+        migrate_memory_items_embedding_model(&conn)?;
         migrate_hive_sessions_identity_columns(&mut conn)?;
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
@@ -2114,6 +2120,7 @@ impl SqliteStore {
         memory_id: Uuid,
         project: Option<&str>,
         namespace: Option<&str>,
+        embedding_model: &str,
         dim: usize,
         chunks: &[(i64, Vec<u8>)],
     ) -> anyhow::Result<()> {
@@ -2129,8 +2136,8 @@ impl SqliteStore {
             let mut stmt = tx
                 .prepare(
                     r#"
-                    INSERT INTO memory_vectors (memory_id, chunk_idx, project, namespace, dim, vec, updated_at)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    INSERT INTO memory_vectors (memory_id, chunk_idx, project, namespace, embedding_model, dim, vec, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                     "#,
                 )
                 .context("prepare insert chunk")?;
@@ -2140,6 +2147,7 @@ impl SqliteStore {
                     *idx,
                     project,
                     namespace,
+                    embedding_model,
                     dim as i64,
                     bytes,
                     now,
@@ -2147,6 +2155,11 @@ impl SqliteStore {
                 .context("insert chunk")?;
             }
         }
+        tx.execute(
+            "UPDATE memory_items SET embedding_model = ?1 WHERE id = ?2",
+            params![embedding_model, memory_id.to_string()],
+        )
+        .context("stamp memory item embedding model")?;
         tx.commit().context("commit vector upsert tx")?;
         Ok(())
     }
@@ -2158,9 +2171,10 @@ impl SqliteStore {
         &self,
         project: Option<&str>,
         namespace: Option<&str>,
+        embedding_model: &str,
     ) -> anyhow::Result<Vec<(Uuid, Vec<u8>)>> {
         let conn = self.connect()?;
-        let mut clauses: Vec<&str> = Vec::new();
+        let mut clauses: Vec<&str> = vec!["embedding_model = ?"];
         if project.is_some() {
             clauses.push("project = ?");
         }
@@ -2179,6 +2193,7 @@ impl SqliteStore {
         let mut stmt = conn.prepare(&sql).context("prepare list vectors")?;
 
         let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::new();
+        bound.push(&embedding_model);
         if let Some(p) = project.as_ref() {
             bound.push(p);
         }
@@ -2200,6 +2215,32 @@ impl SqliteStore {
             }
         }
         Ok(out)
+    }
+
+    pub fn items_needing_reembed(
+        &self,
+        embedding_model: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryItem>> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT payload_json
+            FROM memory_items
+            WHERE embedding_model IS NULL OR embedding_model != ?1
+            ORDER BY updated_at DESC
+            LIMIT ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![embedding_model, limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut items = Vec::new();
+        for row in rows {
+            let payload = row?;
+            items.push(serde_json::from_str::<MemoryItem>(&payload)?);
+        }
+        Ok(items)
     }
 
     pub fn count(&self) -> anyhow::Result<usize> {

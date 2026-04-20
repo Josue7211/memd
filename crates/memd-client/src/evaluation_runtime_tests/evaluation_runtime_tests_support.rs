@@ -65,6 +65,7 @@
                     enabled: Some(true),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 }),
+                embedding_model: None,
             }),
         };
 
@@ -147,6 +148,7 @@
                     provider: "lightrag-compatible".to_string(),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 },
+                embedding_model: None,
             },
             hooks: BundleHooksConfig {
                 context: "hooks/memd-context.sh".to_string(),
@@ -209,6 +211,7 @@
                     provider: "lightrag-compatible".to_string(),
                     url: Some("http://127.0.0.1:9000".to_string()),
                 },
+                embedding_model: None,
             },
             hooks: BundleHooksConfig {
                 context: "hooks/memd-context.sh".to_string(),

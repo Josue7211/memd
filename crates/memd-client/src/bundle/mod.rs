@@ -141,6 +141,7 @@ pub(crate) struct BundleConfig {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BundleBackendConfig {
     pub(crate) rag: BundleRagConfig,
+    pub(crate) embedding_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -681,6 +682,8 @@ pub(crate) struct CoordinationSuggestion {
 pub(crate) struct BundleBackendConfigFile {
     #[serde(default)]
     pub(crate) rag: Option<BundleRagConfigFile>,
+    #[serde(default)]
+    pub(crate) embedding_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -749,6 +752,9 @@ pub(crate) fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> 
     if let Some(url) = rag.url.as_deref() {
         shell.push_str(&format!("MEMD_RAG_URL={url}\n"));
     }
+    if let Some(model) = config.backend.embedding_model.as_deref() {
+        shell.push_str(&format!("MEMD_EMBED_MODEL={model}\n"));
+    }
     fs::write(&backend_env, shell).with_context(|| format!("write {}", backend_env.display()))?;
 
     let mut ps1 = String::new();
@@ -766,6 +772,12 @@ pub(crate) fn write_bundle_backend_env(output: &Path, config: &BundleConfig) -> 
     ));
     if let Some(url) = rag.url.as_deref() {
         ps1.push_str(&format!("$env:MEMD_RAG_URL = \"{}\"\n", escape_ps1(url)));
+    }
+    if let Some(model) = config.backend.embedding_model.as_deref() {
+        ps1.push_str(&format!(
+            "$env:MEMD_EMBED_MODEL = \"{}\"\n",
+            escape_ps1(model)
+        ));
     }
     fs::write(&backend_env_ps1, ps1)
         .with_context(|| format!("write {}", backend_env_ps1.display()))?;

@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use memd_rag::{
     RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestSource, RagRetrieveMode,
-    RagRetrieveRequest,
+    RagRetrieveRequest, RagRerankCandidate, RagRerankRequest,
 };
 use memd_schema::{MemoryItem, RagHealthStatus, SearchMemoryRequest};
 use tracing::warn;
@@ -131,6 +131,40 @@ pub(crate) async fn fetch_dense_candidates(
         }
     }
     Ok(candidates)
+}
+
+pub(crate) async fn rerank_candidates(
+    client: &RagClient,
+    query: &str,
+    candidates: &[(Uuid, String)],
+    top_k: usize,
+) -> anyhow::Result<Vec<(Uuid, f64)>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let response = client
+        .rerank(&RagRerankRequest {
+            query: query.to_string(),
+            candidates: candidates
+                .iter()
+                .map(|(id, text)| RagRerankCandidate {
+                    id: id.to_string(),
+                    text: text.clone(),
+                })
+                .collect(),
+            top_k: Some(top_k.max(1).min(candidates.len())),
+        })
+        .await?;
+
+    let mut ranked = Vec::new();
+    for item in response.items {
+        let Ok(id) = Uuid::parse_str(item.id.trim()) else {
+            continue;
+        };
+        ranked.push((id, item.score as f64));
+    }
+    Ok(ranked)
 }
 
 pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatus {

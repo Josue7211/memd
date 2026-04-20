@@ -2,6 +2,8 @@ use super::*;
 use anyhow::anyhow;
 use std::hash::{Hash, Hasher};
 
+const CONVOMEM_MESSAGE_EVIDENCE_MATCH_VERSION: i64 = 3;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LongMemEvalHypothesisEntry {
     pub question_id: String,
@@ -141,6 +143,166 @@ pub(crate) fn render_convomem_conversation_text(value: &JsonValue) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn convomem_message_id(
+    conversation: &serde_json::Map<String, JsonValue>,
+    conversation_index: usize,
+    message_index: usize,
+) -> String {
+    let conversation_id = conversation
+        .get("id")
+        .and_then(JsonValue::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("conv-{conversation_index}"));
+    format!("{conversation_id}::msg:{message_index}")
+}
+
+fn convomem_normalize_match_key(speaker: &str, text: &str) -> (String, String) {
+    (
+        speaker.trim().to_ascii_lowercase(),
+        text.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase(),
+    )
+}
+
+fn convomem_message_docs(value: &JsonValue) -> Vec<(String, String)> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(conversation_index, conversation)| conversation.as_object().map(|obj| (conversation_index, obj)))
+        .flat_map(|(conversation_index, conversation)| {
+            conversation
+                .get("messages")
+                .and_then(JsonValue::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(move |(message_index, message)| {
+                    let message = message.as_object()?;
+                    let speaker = message
+                        .get("speaker")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("unknown")
+                        .trim();
+                    let text = message
+                        .get("text")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("")
+                        .trim();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        convomem_message_id(conversation, conversation_index, message_index),
+                        format!("{speaker}: {text}"),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn convomem_message_evidence_ids(
+    evidences: &JsonValue,
+    conversations: &JsonValue,
+) -> Vec<String> {
+    let mut by_message = BTreeMap::<(String, String), Vec<String>>::new();
+    let mut message_entries = Vec::new();
+    for (message_id, rendered) in convomem_message_docs(conversations) {
+        let (speaker, text) = rendered
+            .split_once(':')
+            .map(|(speaker, text)| (speaker, text))
+            .unwrap_or(("unknown", rendered.as_str()));
+        let normalized = convomem_normalize_match_key(speaker, text);
+        by_message
+            .entry(normalized.clone())
+            .or_default()
+            .push(message_id.clone());
+        message_entries.push((
+            message_id,
+            normalized.0,
+            normalized.1.clone(),
+            tokenize_public_benchmark_text(&normalized.1),
+        ));
+    }
+
+    let mut expected = BTreeSet::new();
+    for evidence in evidences.as_array().into_iter().flatten() {
+        match evidence {
+            JsonValue::Object(map) => {
+                let speaker = map
+                    .get("speaker")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("unknown");
+                let text = map.get("text").and_then(JsonValue::as_str).unwrap_or("");
+                let normalized = convomem_normalize_match_key(speaker, text);
+                if let Some(ids) = by_message.get(&normalized) {
+                    expected.extend(ids.iter().cloned());
+                    continue;
+                }
+                for ((msg_speaker, msg_text), ids) in &by_message {
+                    if msg_speaker == &normalized.0 && msg_text.contains(&normalized.1) {
+                        expected.extend(ids.iter().cloned());
+                    }
+                }
+                if !expected.is_empty() {
+                    continue;
+                }
+                let evidence_tokens = tokenize_public_benchmark_text(&normalized.1);
+                let best_match = message_entries
+                    .iter()
+                    .filter(|(_, speaker, _, _)| speaker == &normalized.0)
+                    .filter_map(|(message_id, _, _, message_tokens)| {
+                        if evidence_tokens.is_empty() {
+                            return None;
+                        }
+                        let overlap = evidence_tokens.intersection(message_tokens).count() as f64
+                            / evidence_tokens.len() as f64;
+                        Some((message_id, overlap))
+                    })
+                    .max_by(|left, right| left.1.total_cmp(&right.1));
+                if let Some((message_id, overlap)) = best_match {
+                    if overlap >= 0.8 {
+                        expected.insert(message_id.clone());
+                    }
+                }
+            }
+            JsonValue::String(text) => {
+                let normalized = text.trim().to_ascii_lowercase();
+                for ((_, msg_text), ids) in &by_message {
+                    if msg_text == &normalized || msg_text.contains(&normalized) {
+                        expected.extend(ids.iter().cloned());
+                    }
+                }
+                if !expected.is_empty() {
+                    continue;
+                }
+                let evidence_tokens = tokenize_public_benchmark_text(&normalized);
+                let best_match = message_entries
+                    .iter()
+                    .filter_map(|(message_id, _, _, message_tokens)| {
+                        if evidence_tokens.is_empty() {
+                            return None;
+                        }
+                        let overlap = evidence_tokens.intersection(message_tokens).count() as f64
+                            / evidence_tokens.len() as f64;
+                        Some((message_id, overlap))
+                    })
+                    .max_by(|left, right| left.1.total_cmp(&right.1));
+                if let Some((message_id, overlap)) = best_match {
+                    if overlap >= 0.8 {
+                        expected.insert(message_id.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    expected.into_iter().collect()
 }
 
 pub(crate) fn locomo_category_name(category: i64) -> &'static str {
@@ -370,6 +532,11 @@ pub(crate) fn normalize_convomem_evidence_items(
                     "scenario_description": item.get("scenario_description").cloned().unwrap_or(JsonValue::Null),
                     "person_id": item.get("personId").cloned().unwrap_or(JsonValue::Null),
                     "message_evidences": item.get("message_evidences").cloned().unwrap_or(JsonValue::Null),
+                    "message_evidence_match_version": CONVOMEM_MESSAGE_EVIDENCE_MATCH_VERSION,
+                    "message_evidence_ids": convomem_message_evidence_ids(
+                        item.get("message_evidences").unwrap_or(&JsonValue::Null),
+                        item.get("conversations").unwrap_or(&JsonValue::Null)
+                    ),
                     "conversations": item.get("conversations").cloned().unwrap_or(JsonValue::Null),
                     "conversation_text": render_convomem_conversation_text(
                         item.get("conversations").unwrap_or(&JsonValue::Null)
@@ -787,6 +954,33 @@ pub(crate) async fn download_convomem_dataset(
     })
 }
 
+pub(crate) fn public_benchmark_cached_dataset_is_stale(
+    benchmark_id: &str,
+    dataset_path: &Path,
+) -> anyhow::Result<bool> {
+    if benchmark_id != "convomem" {
+        return Ok(false);
+    }
+
+    let fixture = serde_json::from_str::<PublicBenchmarkDatasetFixture>(
+        &fs::read_to_string(dataset_path)
+            .with_context(|| format!("read {}", dataset_path.display()))?,
+    )
+    .with_context(|| format!("parse {}", dataset_path.display()))?;
+
+    Ok(fixture.items.iter().any(|item| {
+        !item
+            .metadata
+            .get("message_evidence_ids")
+            .is_some_and(JsonValue::is_array)
+            || item
+                .metadata
+                .get("message_evidence_match_version")
+                .and_then(JsonValue::as_i64)
+                != Some(CONVOMEM_MESSAGE_EVIDENCE_MATCH_VERSION)
+    }))
+}
+
 pub(crate) async fn resolve_public_benchmark_dataset(
     args: &PublicBenchmarkArgs,
 ) -> anyhow::Result<ResolvedPublicBenchmarkDataset> {
@@ -819,6 +1013,13 @@ pub(crate) async fn resolve_public_benchmark_dataset(
     let cached_path =
         public_benchmark_dataset_cache_path(&args.out, &args.dataset, source.default_filename);
     if cached_path.exists() {
+        if public_benchmark_cached_dataset_is_stale(&args.dataset, &cached_path)? {
+            eprintln!(
+                "[bench] cached dataset stale for `{}` at {}; rebuilding normalized fixture",
+                args.dataset,
+                cached_path.display()
+            );
+        } else {
         let checksum = public_benchmark_fixture_checksum(&cached_path)?;
         let verification_status =
             validate_public_benchmark_checksum(&checksum, source.expected_checksum)?;
@@ -837,13 +1038,14 @@ pub(crate) async fn resolve_public_benchmark_dataset(
                     .len() as usize,
             },
         )?;
-        return Ok(ResolvedPublicBenchmarkDataset {
-            path: cached_path,
-            source_url: source.source_url.unwrap_or_default().to_string(),
-            checksum,
-            split: source.split.to_string(),
-            verification_status,
-        });
+            return Ok(ResolvedPublicBenchmarkDataset {
+                path: cached_path,
+                source_url: source.source_url.unwrap_or_default().to_string(),
+                checksum,
+                split: source.split.to_string(),
+                verification_status,
+            });
+        }
     }
 
     if args.dataset == "membench" {
@@ -3514,21 +3716,9 @@ pub(crate) fn build_public_benchmark_item_results(
             top_k,
             mode,
             reranker_id,
+            |item| convomem_message_docs(item.metadata.get("conversations").unwrap_or(&JsonValue::Null)),
             |item| {
-                // Use conversation text segments as retrieval documents
-                let conv_text = item
-                    .metadata
-                    .get("conversation_text")
-                    .and_then(JsonValue::as_str)
-                    .unwrap_or("");
-                conv_text
-                    .split("\n---\n")
-                    .enumerate()
-                    .map(|(i, segment)| (format!("conv-{i}"), segment.to_string()))
-                    .collect()
-            },
-            |item| {
-                public_benchmark_string_vec(item.metadata.get("message_evidences"))
+                public_benchmark_string_vec(item.metadata.get("message_evidence_ids"))
                     .into_iter()
                     .collect()
             },

@@ -287,6 +287,7 @@ impl AppState {
             item.id,
             item.project.as_deref(),
             item.namespace.as_deref(),
+            embedder.model_code(),
             embedder.dim(),
             &rows,
         ) {
@@ -689,6 +690,30 @@ fn handle_cli_subcommand(db_path: &str) -> Option<i32> {
     }
 }
 
+fn schedule_reembed_sweep(state: AppState) {
+    let Some(embedder) = state.embedder.clone() else {
+        return;
+    };
+    let target_model = embedder.model_code().to_string();
+    let _ = std::thread::Builder::new()
+        .name("memd-reembed-sweep".to_string())
+        .spawn(move || loop {
+            let items = match state.store.items_needing_reembed(&target_model, 64) {
+                Ok(items) => items,
+                Err(error) => {
+                    warn!(error = %format_args!("{error:#}"), "items_needing_reembed failed");
+                    break;
+                }
+            };
+            if items.is_empty() {
+                break;
+            }
+            for item in items {
+                state.maybe_upsert_vector(&item);
+            }
+        });
+}
+
 #[tokio::main]
 async fn main() {
     init_tracing();
@@ -710,8 +735,9 @@ async fn main() {
         match embed::Embedder::try_new(&cache_dir) {
             Ok(e) => {
                 tracing::info!(
+                    model = %e.model_code(),
                     cache_dir = %cache_dir.display(),
-                    "intrinsic dense embedder ready (fastembed AllMiniLML6V2)"
+                    "intrinsic dense embedder ready"
                 );
                 Some(std::sync::Arc::new(e))
             }
@@ -730,6 +756,7 @@ async fn main() {
         rag: rag_bridge::build_rag_client(),
         embedder,
     };
+    schedule_reembed_sweep(state.clone());
     let app = Router::new()
         .route("/", get(dashboard))
         .route("/ui/snapshot", get(get_visible_memory_snapshot))

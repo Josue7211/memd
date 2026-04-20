@@ -4,41 +4,53 @@ use std::sync::Mutex;
 use anyhow::{Context, anyhow};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConfiguredEmbeddingModel {
+    AllMiniLML6V2,
+    BGEBaseENV15,
+    BGELargeENV15,
+}
+
 pub(crate) struct Embedder {
     model: Mutex<TextEmbedding>,
-    dim: usize,
+    configured_model: ConfiguredEmbeddingModel,
 }
 
 impl Embedder {
     pub(crate) fn try_new(cache_dir: &Path) -> anyhow::Result<Self> {
         std::fs::create_dir_all(cache_dir).ok();
+        let configured_model = configured_embedding_model_from_env();
         let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+            InitOptions::new(configured_model.fastembed_model())
                 .with_cache_dir(cache_dir.to_path_buf())
                 .with_show_download_progress(false),
         )
-        .context("initialize fastembed AllMiniLML6V2")?;
+        .with_context(|| format!("initialize fastembed {}", configured_model.code()))?;
         Ok(Self {
             model: Mutex::new(model),
-            dim: 384,
+            configured_model,
         })
     }
 
     pub(crate) fn dim(&self) -> usize {
-        self.dim
+        self.configured_model.dim()
     }
 
-    pub(crate) fn embed_normalized(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+    pub(crate) fn model_code(&self) -> &'static str {
+        self.configured_model.code()
+    }
+
+    pub(crate) fn embed_query_normalized(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return Ok(vec![0.0; self.dim]);
+            return Ok(vec![0.0; self.dim()]);
         }
         let mut model = self
             .model
             .lock()
             .map_err(|_| anyhow!("fastembed mutex poisoned"))?;
         let mut embeddings = model
-            .embed(vec![trimmed.to_string()], None)
+            .embed(vec![format!("query: {trimmed}")], None)
             .context("fastembed embed call failed")?;
         let mut vec = embeddings
             .pop()
@@ -60,6 +72,7 @@ impl Embedder {
             .iter()
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
+            .map(|t| format!("passage: {t}"))
             .collect();
         if prepared.is_empty() {
             return Ok(Vec::new());
@@ -75,6 +88,44 @@ impl Embedder {
             l2_normalize(vec);
         }
         Ok(embeddings)
+    }
+}
+
+impl ConfiguredEmbeddingModel {
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Self::AllMiniLML6V2 => "all-minilm-l6-v2",
+            Self::BGEBaseENV15 => "bge-base-en-v1.5",
+            Self::BGELargeENV15 => "bge-large-en-v1.5",
+        }
+    }
+
+    fn dim(self) -> usize {
+        match self {
+            Self::AllMiniLML6V2 => 384,
+            Self::BGEBaseENV15 => 768,
+            Self::BGELargeENV15 => 1024,
+        }
+    }
+
+    fn fastembed_model(self) -> EmbeddingModel {
+        match self {
+            Self::AllMiniLML6V2 => EmbeddingModel::AllMiniLML6V2,
+            Self::BGEBaseENV15 => EmbeddingModel::BGEBaseENV15,
+            Self::BGELargeENV15 => EmbeddingModel::BGELargeENV15,
+        }
+    }
+}
+
+pub(crate) fn configured_embedding_model_from_env() -> ConfiguredEmbeddingModel {
+    match std::env::var("MEMD_EMBED_MODEL")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("bge-base-en-v1.5") => ConfiguredEmbeddingModel::BGEBaseENV15,
+        Some("bge-large-en-v1.5") => ConfiguredEmbeddingModel::BGELargeENV15,
+        _ => ConfiguredEmbeddingModel::AllMiniLML6V2,
     }
 }
 

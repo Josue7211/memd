@@ -35,6 +35,7 @@ pub(crate) fn migrate_memory_vectors_chunk_idx(conn: &Connection) -> anyhow::Res
           chunk_idx INTEGER NOT NULL,
           project TEXT,
           namespace TEXT,
+          embedding_model TEXT NOT NULL DEFAULT 'all-minilm-l6-v2',
           dim INTEGER NOT NULL,
           vec BLOB NOT NULL,
           updated_at TEXT NOT NULL,
@@ -43,6 +44,40 @@ pub(crate) fn migrate_memory_vectors_chunk_idx(conn: &Connection) -> anyhow::Res
         CREATE INDEX IF NOT EXISTS idx_memory_vectors_scope
           ON memory_vectors(project, namespace);
         "#,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn migrate_memory_vectors_embedding_model(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_vectors)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if columns.iter().any(|column| column == "embedding_model") {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "ALTER TABLE memory_vectors ADD COLUMN embedding_model TEXT NOT NULL DEFAULT 'all-minilm-l6-v2';",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn migrate_memory_items_embedding_model(conn: &Connection) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "embedding_model") {
+        conn.execute_batch("ALTER TABLE memory_items ADD COLUMN embedding_model TEXT;")?;
+    }
+    conn.execute(
+        r#"
+        UPDATE memory_items
+        SET embedding_model = 'all-minilm-l6-v2'
+        WHERE embedding_model IS NULL
+          AND id IN (SELECT DISTINCT memory_id FROM memory_vectors)
+        "#,
+        [],
     )?;
     Ok(())
 }

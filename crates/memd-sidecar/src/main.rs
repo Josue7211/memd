@@ -4,6 +4,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use axum::{
@@ -14,11 +15,15 @@ use axum::{
     routing::{get, post},
 };
 use clap::{ArgAction, Parser};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{
+    EmbeddingModel, InitOptions, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value as JsonValue, json};
 
 use memd_sidecar::{
     SidecarBackendHealth, SidecarHealthResponse, SidecarIngestRequest, SidecarIngestResponse,
+    SidecarRerankCandidate, SidecarRerankItem, SidecarRerankRequest, SidecarRerankResponse,
     SidecarRetrieveItem, SidecarRetrieveMode, SidecarRetrieveRequest, SidecarRetrieveResponse,
 };
 
@@ -51,6 +56,13 @@ enum EmbeddingBackend {
     Fastembed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfiguredEmbeddingModel {
+    AllMiniLML6V2,
+    BGEBaseENV15,
+    BGELargeENV15,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredRecord {
     project: Option<String>,
@@ -70,6 +82,7 @@ struct AppState {
     persist: bool,
     records: Arc<RwLock<Vec<StoredRecord>>>,
     embeddings: EmbeddingRuntime,
+    reranker: Option<Arc<RerankRuntime>>,
     embedding_profile: String,
 }
 
@@ -84,6 +97,32 @@ struct FastembedRuntime {
     record_cache: Mutex<HashMap<uuid::Uuid, Vec<f32>>>,
 }
 
+struct LocalRerankRuntime {
+    model: Mutex<TextRerank>,
+}
+
+struct AnthropicRerankRuntime {
+    client: reqwest::Client,
+    base_url: String,
+    api_key: String,
+    model: String,
+}
+
+enum RerankBackend {
+    Local(LocalRerankRuntime),
+    Anthropic(AnthropicRerankRuntime),
+}
+
+struct RerankRuntime {
+    primary: RerankBackend,
+    local_fallback: Option<LocalRerankRuntime>,
+}
+
+struct RerankRunResult {
+    items: Vec<SidecarRerankItem>,
+    model: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -93,14 +132,18 @@ async fn main() -> anyhow::Result<()> {
     } else {
         Vec::new()
     };
+    let reranker = RerankRuntime::try_new(&cli.embedding_cache_dir).ok().map(Arc::new);
     let state = AppState {
         state_file,
         persist: cli.persist,
         records: Arc::new(RwLock::new(records)),
         embeddings: EmbeddingRuntime::try_new(cli.embedding_backend, &cli.embedding_cache_dir)?,
+        reranker: reranker.clone(),
         embedding_profile: match cli.embedding_backend {
             EmbeddingBackend::Sparse => "sparse".to_string(),
-            EmbeddingBackend::Fastembed => "fastembed".to_string(),
+            EmbeddingBackend::Fastembed => {
+                format!("fastembed:{}", configured_embedding_model_from_env().code())
+            }
         },
     };
 
@@ -108,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/healthz", get(healthz))
         .route("/v1/ingest", post(ingest))
         .route("/v1/retrieve", post(retrieve))
+        .route("/v1/rerank", post(rerank))
         .with_state(state);
 
     let addr: SocketAddr = format!("{}:{}", cli.host, cli.port).parse()?;
@@ -143,6 +187,20 @@ async fn ingest(
             "state lock poisoned".to_string(),
         )
     })?;
+    let record_id = request.source.id;
+    records.retain(|record| record.source.source.id != record_id);
+    if let Some(runtime) = state.embeddings.fastembed.as_deref() {
+        runtime
+            .record_cache
+            .lock()
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "record embedding cache lock poisoned".to_string(),
+                )
+            })?
+            .remove(&record_id);
+    }
     records.push(StoredRecord {
         project: request.project.clone(),
         namespace: request.namespace.clone(),
@@ -227,6 +285,32 @@ async fn retrieve(
     }))
 }
 
+async fn rerank(
+    State(state): State<AppState>,
+    Json(request): Json<SidecarRerankRequest>,
+) -> Result<Json<SidecarRerankResponse>, (StatusCode, String)> {
+    let requested = request.top_k.unwrap_or(request.candidates.len());
+    let top_k = requested.max(1).min(request.candidates.len().max(1));
+    let (items, model) = match state.reranker.as_deref() {
+        Some(runtime) => match runtime.rerank(&request.query, &request.candidates, top_k).await {
+            Ok(result) => (result.items, result.model),
+            Err(_) => (
+                fallback_rerank_candidates(&request.query, &request.candidates, top_k),
+                "fallback-heuristic".to_string(),
+            ),
+        },
+        None => (
+            fallback_rerank_candidates(&request.query, &request.candidates, top_k),
+            "fallback-heuristic".to_string(),
+        ),
+    };
+    Ok(Json(SidecarRerankResponse {
+        status: "ok".to_string(),
+        model,
+        items,
+    }))
+}
+
 fn load_records(path: &Path) -> anyhow::Result<Vec<StoredRecord>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -276,8 +360,9 @@ impl EmbeddingRuntime {
         let fastembed = match backend {
             EmbeddingBackend::Sparse => None,
             EmbeddingBackend::Fastembed => {
+                let configured_model = configured_embedding_model_from_env();
                 let model = TextEmbedding::try_new(
-                    InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+                    InitOptions::new(configured_model.fastembed_model())
                         .with_cache_dir(cache_dir.to_path_buf())
                         .with_show_download_progress(false),
                 )?;
@@ -304,6 +389,36 @@ impl EmbeddingRuntime {
             Some(runtime) => runtime.embed_record(record).map(Some),
             None => Ok(None),
         }
+    }
+}
+
+impl ConfiguredEmbeddingModel {
+    fn code(self) -> &'static str {
+        match self {
+            Self::AllMiniLML6V2 => "all-minilm-l6-v2",
+            Self::BGEBaseENV15 => "bge-base-en-v1.5",
+            Self::BGELargeENV15 => "bge-large-en-v1.5",
+        }
+    }
+
+    fn fastembed_model(self) -> EmbeddingModel {
+        match self {
+            Self::AllMiniLML6V2 => EmbeddingModel::AllMiniLML6V2,
+            Self::BGEBaseENV15 => EmbeddingModel::BGEBaseENV15,
+            Self::BGELargeENV15 => EmbeddingModel::BGELargeENV15,
+        }
+    }
+}
+
+fn configured_embedding_model_from_env() -> ConfiguredEmbeddingModel {
+    match std::env::var("MEMD_EMBED_MODEL")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("bge-base-en-v1.5") => ConfiguredEmbeddingModel::BGEBaseENV15,
+        Some("bge-large-en-v1.5") => ConfiguredEmbeddingModel::BGELargeENV15,
+        _ => ConfiguredEmbeddingModel::AllMiniLML6V2,
     }
 }
 
@@ -358,6 +473,257 @@ impl FastembedRuntime {
             .next()
             .ok_or_else(|| anyhow::anyhow!("embedding model returned no vectors"))
     }
+}
+
+impl LocalRerankRuntime {
+    fn try_new(cache_dir: &Path) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(cache_dir).ok();
+        let model = TextRerank::try_new(
+            RerankInitOptions::new(RerankerModel::BGERerankerBase)
+                .with_cache_dir(cache_dir.to_path_buf())
+                .with_show_download_progress(false),
+        )?;
+        Ok(Self {
+            model: Mutex::new(model),
+        })
+    }
+
+    fn rerank(
+        &self,
+        query: &str,
+        candidates: &[SidecarRerankCandidate],
+        top_k: usize,
+    ) -> anyhow::Result<Vec<SidecarRerankItem>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let docs = candidates
+            .iter()
+            .map(|candidate| candidate.text.as_str())
+            .collect::<Vec<_>>();
+        let mut model = self
+            .model
+            .lock()
+            .map_err(|_| anyhow::anyhow!("reranker model lock poisoned"))?;
+        let ranked = model.rerank(query, docs, false, None)?;
+        Ok(ranked
+            .into_iter()
+            .take(top_k)
+            .map(|result| SidecarRerankItem {
+                id: candidates[result.index].id.clone(),
+                score: result.score,
+                text: None,
+            })
+            .collect())
+    }
+}
+
+impl AnthropicRerankRuntime {
+    fn from_env() -> anyhow::Result<Option<Self>> {
+        let Some(api_key) = std::env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(None);
+        };
+        let base_url = std::env::var("ANTHROPIC_BASE_URL")
+            .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
+        let model = std::env::var("MEMD_RERANK_MODEL")
+            .unwrap_or_else(|_| "claude-haiku-4-5".to_string());
+        Ok(Some(Self::try_new(base_url, api_key, model)?))
+    }
+
+    fn try_new(base_url: String, api_key: String, model: String) -> anyhow::Result<Self> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(45))
+            .connect_timeout(Duration::from_secs(10))
+            .build()?;
+        Ok(Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key,
+            model,
+        })
+    }
+
+    async fn rerank(
+        &self,
+        query: &str,
+        candidates: &[SidecarRerankCandidate],
+        top_k: usize,
+    ) -> anyhow::Result<Vec<SidecarRerankItem>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let payload = json!({
+            "query": query,
+            "top_k": top_k,
+            "candidates": candidates
+                .iter()
+                .map(|candidate| json!({
+                    "id": candidate.id,
+                    "text": candidate.text,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        let prompt = format!(
+            "Rank the candidates for answering the query. Return strict JSON only in the form \
+             {{\"items\":[{{\"id\":\"candidate-id\",\"score\":0.0}}]}} sorted best to worst. \
+             Include at most {top_k} items.\n\n{}",
+            serde_json::to_string_pretty(&payload)?
+        );
+        let response = self
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&json!({
+                "model": self.model,
+                "max_tokens": 768,
+                "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}],
+            }))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("anthropic rerank request failed with {status}: {body}");
+        }
+        let body = response.json::<JsonValue>().await?;
+        let text = body
+            .get("content")
+            .and_then(JsonValue::as_array)
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|block| {
+                        (block.get("type").and_then(JsonValue::as_str) == Some("text"))
+                            .then(|| block.get("text").and_then(JsonValue::as_str))
+                            .flatten()
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        let json_payload = extract_json_payload(&text)
+            .ok_or_else(|| anyhow::anyhow!("anthropic rerank returned no JSON payload"))?;
+        let ranked = serde_json::from_str::<AnthropicRerankOutput>(json_payload)?;
+        let mut items = Vec::new();
+        for item in ranked.items {
+            if candidates.iter().any(|candidate| candidate.id == item.id)
+                && !items
+                    .iter()
+                    .any(|existing: &SidecarRerankItem| existing.id == item.id)
+            {
+                items.push(SidecarRerankItem {
+                    id: item.id,
+                    score: item.score,
+                    text: None,
+                });
+            }
+            if items.len() >= top_k {
+                break;
+            }
+        }
+        if items.is_empty() {
+            anyhow::bail!("anthropic rerank returned no valid candidate ids");
+        }
+        Ok(items)
+    }
+}
+
+impl RerankBackend {
+    fn profile(&self) -> &str {
+        match self {
+            Self::Local(_) => "bge-reranker-base",
+            Self::Anthropic(runtime) => runtime.model.as_str(),
+        }
+    }
+}
+
+impl RerankRuntime {
+    fn try_new(cache_dir: &Path) -> anyhow::Result<Self> {
+        let local = LocalRerankRuntime::try_new(cache_dir).ok();
+        if let Some(runtime) = AnthropicRerankRuntime::from_env()? {
+            return Ok(Self {
+                primary: RerankBackend::Anthropic(runtime),
+                local_fallback: local,
+            });
+        }
+        let Some(local_runtime) = local else {
+            anyhow::bail!("no anthropic reranker configured and local reranker unavailable");
+        };
+        Ok(Self {
+            primary: RerankBackend::Local(local_runtime),
+            local_fallback: None,
+        })
+    }
+
+    #[cfg(test)]
+    fn anthropic_for_tests(base_url: String, api_key: String, model: String) -> Self {
+        Self {
+            primary: RerankBackend::Anthropic(
+                AnthropicRerankRuntime::try_new(base_url, api_key, model)
+                    .expect("build anthropic test runtime"),
+            ),
+            local_fallback: None,
+        }
+    }
+
+    async fn rerank(
+        &self,
+        query: &str,
+        candidates: &[SidecarRerankCandidate],
+        top_k: usize,
+    ) -> anyhow::Result<RerankRunResult> {
+        let primary = match &self.primary {
+            RerankBackend::Local(runtime) => runtime.rerank(query, candidates, top_k),
+            RerankBackend::Anthropic(runtime) => runtime.rerank(query, candidates, top_k).await,
+        };
+        match primary {
+            Ok(items) => Ok(RerankRunResult {
+                items,
+                model: self.primary.profile().to_string(),
+            }),
+            Err(primary_error) => {
+                let Some(local) = self.local_fallback.as_ref() else {
+                    return Err(primary_error);
+                };
+                Ok(RerankRunResult {
+                    items: local.rerank(query, candidates, top_k)?,
+                    model: "bge-reranker-base".to_string(),
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicRerankOutput {
+    items: Vec<AnthropicRerankOutputItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicRerankOutputItem {
+    id: String,
+    score: f32,
+}
+
+fn extract_json_payload(raw: &str) -> Option<&str> {
+    let object = raw
+        .find('{')
+        .zip(raw.rfind('}'))
+        .filter(|(start, end)| start <= end)
+        .map(|(start, end)| &raw[start..=end]);
+    if object.is_some() {
+        return object;
+    }
+    raw.find('[')
+        .zip(raw.rfind(']'))
+        .filter(|(start, end)| start <= end)
+        .map(|(start, end)| &raw[start..=end])
 }
 
 fn score_record(
@@ -482,6 +848,64 @@ fn score_record(
         }
     };
     (score + mode_bonus).min(1.0)
+}
+
+fn fallback_rerank_candidates(
+    query: &str,
+    candidates: &[SidecarRerankCandidate],
+    top_k: usize,
+) -> Vec<SidecarRerankItem> {
+    let query_terms = tokenize(query);
+    let query_token_set = query_terms.iter().cloned().collect::<BTreeSet<_>>();
+    let query_keywords = extract_keywords(&query_terms);
+    let query_bigrams = build_query_bigrams(&query_terms);
+    let query_phrase = query_terms.join(" ");
+
+    let mut ranked = candidates
+        .iter()
+        .map(|candidate| {
+            let normalized = candidate.text.trim().to_ascii_lowercase();
+            let tokens = tokenize(&candidate.text);
+            let token_set = tokens.iter().cloned().collect::<BTreeSet<_>>();
+            let lexical = query_token_set.intersection(&token_set).count() as f32
+                / query_token_set.len().max(1) as f32;
+            let keyword_bonus = if query_keywords.is_empty() {
+                0.0
+            } else {
+                query_keywords
+                    .iter()
+                    .filter(|keyword| normalized.contains(keyword.as_str()))
+                    .count() as f32
+                    / query_keywords.len() as f32
+            };
+            let bigram_bonus = if query_bigrams.is_empty() {
+                0.0
+            } else {
+                query_bigrams
+                    .iter()
+                    .filter(|bigram| normalized.contains(bigram.as_str()))
+                    .count() as f32
+                    / query_bigrams.len() as f32
+            };
+            let phrase_bonus = if query_terms.len() >= 2 && normalized.contains(&query_phrase) {
+                0.4
+            } else {
+                0.0
+            };
+            let score = lexical + keyword_bonus * 0.4 + bigram_bonus * 0.5 + phrase_bonus;
+            (candidate, score)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+    ranked
+        .into_iter()
+        .take(top_k)
+        .map(|(candidate, score)| SidecarRerankItem {
+            id: candidate.id.clone(),
+            score,
+            text: None,
+        })
+        .collect()
 }
 
 fn tokenize(query: &str) -> Vec<String> {
@@ -632,7 +1056,9 @@ fn extract_name_tokens(content: &str) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use memd_sidecar::{SidecarIngestSource, SidecarRetrieveMode};
+    use axum::{body::Body, http::Request};
+    use memd_sidecar::{SidecarIngestSource, SidecarRerankRequest, SidecarRetrieveMode};
+    use tower::util::ServiceExt;
 
     fn build_record(content: &str, path: Option<&str>, tags: &[&str], kind: &str) -> StoredRecord {
         let request = SidecarIngestRequest {
@@ -729,5 +1155,146 @@ mod tests {
         let aligned = dense_cosine_similarity(&[1.0, 0.5, 0.0], &[0.9, 0.45, 0.0]);
         let opposed = dense_cosine_similarity(&[1.0, 0.5, 0.0], &[0.0, -0.2, 1.0]);
         assert!(aligned > opposed);
+    }
+
+    #[tokio::test]
+    async fn rerank_route_prefers_stronger_phrase_match() {
+        let state = AppState {
+            state_file: PathBuf::from("/tmp/memd-sidecar-rerank-test.json"),
+            persist: false,
+            records: Arc::new(RwLock::new(Vec::new())),
+            embeddings: EmbeddingRuntime { fastembed: None },
+            reranker: None,
+            embedding_profile: "sparse".to_string(),
+        };
+        let app = Router::new()
+            .route("/v1/rerank", post(rerank))
+            .with_state(state);
+        let response = app
+            .oneshot(
+                Request::post("/v1/rerank")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&SidecarRerankRequest {
+                            query: "qualification workflow".to_string(),
+                            candidates: vec![
+                                SidecarRerankCandidate {
+                                    id: "weak".to_string(),
+                                    text: "Brenda scheduled the demo and sent the invite."
+                                        .to_string(),
+                                },
+                                SidecarRerankCandidate {
+                                    id: "strong".to_string(),
+                                    text:
+                                        "Brenda documented the MEDDIC qualification workflow for the deal review."
+                                            .to_string(),
+                                },
+                            ],
+                            top_k: Some(2),
+                        })
+                        .expect("serialize rerank request"),
+                    ))
+                    .expect("build rerank request"),
+            )
+            .await
+            .expect("run rerank route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read rerank body");
+        let payload: SidecarRerankResponse =
+            serde_json::from_slice(&body).expect("decode rerank response");
+        assert_eq!(payload.items.first().map(|item| item.id.as_str()), Some("strong"));
+    }
+
+    #[tokio::test]
+    async fn rerank_route_uses_anthropic_runtime_when_configured() {
+        let anthropic_app = Router::new().route(
+            "/v1/messages",
+            post(|headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                assert_eq!(
+                    headers
+                        .get("x-api-key")
+                        .and_then(|value| value.to_str().ok()),
+                    Some("test-key")
+                );
+                assert_eq!(
+                    headers
+                        .get("anthropic-version")
+                        .and_then(|value| value.to_str().ok()),
+                    Some("2023-06-01")
+                );
+                assert_eq!(body.get("model").and_then(|value| value.as_str()), Some("claude-haiku-4-5"));
+                Json(serde_json::json!({
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "{\"items\":[{\"id\":\"strong\",\"score\":0.97},{\"id\":\"weak\",\"score\":0.14}]}"
+                        }
+                    ]
+                }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind anthropic test server");
+        let base_url = format!("http://{}", listener.local_addr().expect("listener addr"));
+        tokio::spawn(async move {
+            axum::serve(listener, anthropic_app)
+                .await
+                .expect("serve anthropic test server");
+        });
+
+        let state = AppState {
+            state_file: PathBuf::from("/tmp/memd-sidecar-anthropic-rerank-test.json"),
+            persist: false,
+            records: Arc::new(RwLock::new(Vec::new())),
+            embeddings: EmbeddingRuntime { fastembed: None },
+            reranker: Some(Arc::new(RerankRuntime::anthropic_for_tests(
+                base_url,
+                "test-key".to_string(),
+                "claude-haiku-4-5".to_string(),
+            ))),
+            embedding_profile: "sparse".to_string(),
+        };
+        let app = Router::new()
+            .route("/v1/rerank", post(rerank))
+            .with_state(state);
+        let response = app
+            .oneshot(
+                Request::post("/v1/rerank")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&SidecarRerankRequest {
+                            query: "qualification workflow".to_string(),
+                            candidates: vec![
+                                SidecarRerankCandidate {
+                                    id: "weak".to_string(),
+                                    text: "Brenda scheduled the demo and sent the invite."
+                                        .to_string(),
+                                },
+                                SidecarRerankCandidate {
+                                    id: "strong".to_string(),
+                                    text:
+                                        "Brenda documented the MEDDIC qualification workflow for the deal review."
+                                            .to_string(),
+                                },
+                            ],
+                            top_k: Some(2),
+                        })
+                        .expect("serialize rerank request"),
+                    ))
+                    .expect("build rerank request"),
+            )
+            .await
+            .expect("run rerank route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read rerank body");
+        let payload: SidecarRerankResponse =
+            serde_json::from_slice(&body).expect("decode rerank response");
+        assert_eq!(payload.model, "claude-haiku-4-5");
+        assert_eq!(payload.items.first().map(|item| item.id.as_str()), Some("strong"));
     }
 }

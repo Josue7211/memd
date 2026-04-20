@@ -13,6 +13,346 @@ fn atlas_recall_enabled() -> bool {
     }
 }
 
+fn intrinsic_rerank_enabled() -> bool {
+    match std::env::var("MEMD_RETRIEVAL_RERANK") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            !matches!(value.as_str(), "0" | "false" | "off" | "no")
+        }
+        Err(_) => true,
+    }
+}
+
+const INTRINSIC_RERANK_WINDOW: usize = 20;
+
+pub(crate) fn intrinsic_rerank_search_candidates(
+    items: &[MemoryViewItem],
+    query: &str,
+    base_ranks: &[(Uuid, f64)],
+) -> Vec<(Uuid, f64)> {
+    let query = query.trim();
+    if query.is_empty() || base_ranks.len() < 2 {
+        return base_ranks.to_vec();
+    }
+
+    let by_id: std::collections::HashMap<Uuid, &MemoryItem> =
+        items.iter().map(|entry| (entry.item.id, &entry.item)).collect();
+    let head_len = base_ranks.len().min(INTRINSIC_RERANK_WINDOW);
+    let (head, tail) = base_ranks.split_at(head_len);
+
+    let mut reranked = head
+        .iter()
+        .enumerate()
+        .map(|(index, (id, _base_score))| {
+            let base_norm = 1.0 / (10.0 + index as f64);
+            let local_score = by_id
+                .get(id)
+                .map(|item| intrinsic_local_rerank_score(item, query))
+                .unwrap_or(0.0);
+            let blended = local_score * 0.82 + base_norm * 0.18;
+            (*id, blended, index)
+        })
+        .collect::<Vec<_>>();
+
+    reranked.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then_with(|| a.2.cmp(&b.2))
+    });
+
+    let mut ordered = reranked
+        .into_iter()
+        .map(|(id, score, _)| (id, score))
+        .collect::<Vec<_>>();
+    ordered.extend_from_slice(tail);
+    ordered
+}
+
+async fn rerank_search_candidates(
+    state: &AppState,
+    items: &[MemoryViewItem],
+    query: &str,
+    base_ranks: &[(Uuid, f64)],
+) -> Vec<(Uuid, f64)> {
+    let query = query.trim();
+    if query.is_empty() || base_ranks.len() < 2 {
+        return base_ranks.to_vec();
+    }
+
+    let by_id: std::collections::HashMap<Uuid, &MemoryItem> =
+        items.iter().map(|entry| (entry.item.id, &entry.item)).collect();
+    let head_len = base_ranks.len().min(INTRINSIC_RERANK_WINDOW);
+    let (head, tail) = base_ranks.split_at(head_len);
+
+    if let Some(rag) = state.rag.as_deref() {
+        let candidates = head
+            .iter()
+            .filter_map(|(id, _)| {
+                by_id.get(id)
+                    .map(|item| (*id, rerank_item_haystack(item)))
+            })
+            .collect::<Vec<_>>();
+        if !candidates.is_empty() {
+            match crate::rag_bridge::rerank_candidates(rag, query, &candidates, candidates.len()).await {
+                Ok(reranked) if !reranked.is_empty() => {
+                    let mut ordered = reranked;
+                    let seen = ordered
+                        .iter()
+                        .map(|(id, _)| *id)
+                        .collect::<std::collections::HashSet<_>>();
+                    for (index, (id, _base_score)) in head.iter().enumerate() {
+                        if !seen.contains(id) {
+                            ordered.push((*id, 1.0 / (10.0 + index as f64)));
+                        }
+                    }
+                    ordered.extend_from_slice(tail);
+                    return ordered;
+                }
+                Ok(_) => {}
+                Err(error) => warn!(error = %format_args!("{error:#}"), "sidecar rerank failed; falling back to intrinsic rerank"),
+            }
+        }
+    }
+
+    intrinsic_rerank_search_candidates(items, query, base_ranks)
+}
+
+fn intrinsic_local_rerank_score(item: &MemoryItem, query: &str) -> f64 {
+    let query_terms = rerank_tokenize(query);
+    if query_terms.is_empty() {
+        return 0.0;
+    }
+    let query_term_set = query_terms
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let query_keywords = rerank_keyword_tokens(&query_terms);
+    let query_bigrams = rerank_query_bigrams(&query_terms);
+    let haystack = rerank_item_haystack(item);
+    let record_tokens = rerank_tokenize(&haystack);
+    let name_tokens = rerank_extract_name_tokens(&item.content);
+    let record_term_set = record_tokens
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let overlap = query_term_set.intersection(&record_term_set).count() as f64;
+    let lexical = overlap / query_term_set.len().max(1) as f64;
+    let token_frequency = record_tokens.iter().fold(
+        std::collections::HashMap::new(),
+        |mut acc, token| {
+            *acc.entry(token.as_str()).or_insert(0usize) += 1;
+            acc
+        },
+    );
+    let bm25ish = if query_keywords.is_empty() {
+        0.0
+    } else {
+        query_keywords
+            .iter()
+            .map(|keyword| {
+                let frequency = token_frequency.get(keyword.as_str()).copied().unwrap_or(0) as f64;
+                if frequency == 0.0 {
+                    0.0
+                } else {
+                    frequency / (frequency + 1.2)
+                }
+            })
+            .sum::<f64>()
+            / query_keywords.len() as f64
+    };
+    let semantic = rerank_cosine_similarity(
+        &rerank_semantic_terms(query),
+        &rerank_semantic_terms(&haystack),
+    );
+    let phrase_bonus = if query_terms.len() >= 2 && haystack.contains(&query_terms.join(" ")) {
+        0.35
+    } else {
+        0.0
+    };
+    let keyword_bonus = if query_keywords.is_empty() {
+        0.0
+    } else {
+        query_keywords
+            .iter()
+            .filter(|keyword| haystack.contains(keyword.as_str()))
+            .count() as f64
+            / query_keywords.len() as f64
+    };
+    let bigram_bonus = if query_bigrams.is_empty() {
+        0.0
+    } else {
+        query_bigrams
+            .iter()
+            .filter(|bigram| haystack.contains(bigram.as_str()))
+            .count() as f64
+            / query_bigrams.len() as f64
+    };
+    let name_bonus = if query_keywords.is_empty() {
+        0.0
+    } else {
+        query_keywords
+            .iter()
+            .filter(|keyword| name_tokens.contains(keyword.as_str()))
+            .count() as f64
+            / query_keywords.len() as f64
+    };
+    let path_lower = item.source_path.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let path_bonus = if query_keywords.is_empty() {
+        0.0
+    } else {
+        query_keywords
+            .iter()
+            .filter(|keyword| path_lower.contains(keyword.as_str()))
+            .count() as f64
+            / query_keywords.len() as f64
+    };
+    let tag_bonus = if query_keywords.is_empty() {
+        0.0
+    } else {
+        query_keywords
+            .iter()
+            .filter(|keyword| {
+                item.tags
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(keyword.as_str()))
+            })
+            .count() as f64
+            / query_keywords.len() as f64
+    };
+
+    let score = lexical * 0.22
+        + bm25ish * 0.18
+        + semantic * 0.25
+        + phrase_bonus
+        + keyword_bonus * 0.20
+        + bigram_bonus * 0.18
+        + name_bonus * 0.08
+        + path_bonus * 0.14
+        + tag_bonus * 0.10;
+    score.clamp(0.0, 1.0)
+}
+
+fn rerank_item_haystack(item: &MemoryItem) -> String {
+    let mut haystack = item.content.to_ascii_lowercase();
+    haystack.push(' ');
+    haystack.push_str(format!("{:?}", item.kind).to_ascii_lowercase().as_str());
+    haystack.push(' ');
+    haystack.push_str(&item.tags.join(" ").to_ascii_lowercase());
+    if let Some(path) = item.source_path.as_deref() {
+        haystack.push(' ');
+        haystack.push_str(&path.to_ascii_lowercase());
+    }
+    if let Some(agent) = item.source_agent.as_deref() {
+        haystack.push(' ');
+        haystack.push_str(&agent.to_ascii_lowercase());
+    }
+    haystack
+}
+
+fn rerank_tokenize(text: &str) -> Vec<String> {
+    text.split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| token.len() > 1)
+        .map(|token| token.to_ascii_lowercase())
+        .collect()
+}
+
+fn rerank_keyword_tokens(query_terms: &[String]) -> Vec<String> {
+    let stop_words = [
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
+        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
+        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
+        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought",
+        "made", "make", "said", "would", "could", "should", "might", "can", "will", "shall",
+        "kind", "type", "like", "prefer", "enjoy", "think", "feel",
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    query_terms
+        .iter()
+        .filter(|token| token.len() >= 3 && !stop_words.contains(token.as_str()))
+        .cloned()
+        .collect()
+}
+
+fn rerank_query_bigrams(query_terms: &[String]) -> Vec<String> {
+    query_terms
+        .windows(2)
+        .map(|pair| format!("{} {}", pair[0], pair[1]))
+        .collect()
+}
+
+fn rerank_semantic_terms(text: &str) -> Vec<String> {
+    let tokens = rerank_tokenize(text);
+    let mut features = Vec::new();
+    for token in &tokens {
+        features.push(format!("tok:{token}"));
+        if token.len() >= 4 {
+            for trigram in token.as_bytes().windows(3) {
+                if let Ok(fragment) = std::str::from_utf8(trigram) {
+                    features.push(format!("tri:{fragment}"));
+                }
+            }
+        }
+    }
+    for pair in tokens.windows(2) {
+        features.push(format!("bi:{}_{}", pair[0], pair[1]));
+    }
+    features
+}
+
+fn rerank_cosine_similarity(left: &[String], right: &[String]) -> f64 {
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let left_freq = rerank_feature_frequency(left);
+    let right_freq = rerank_feature_frequency(right);
+    let mut dot = 0.0f64;
+    for (feature, left_weight) in &left_freq {
+        if let Some(right_weight) = right_freq.get(feature) {
+            dot += left_weight * right_weight;
+        }
+    }
+    if dot == 0.0 {
+        return 0.0;
+    }
+    let left_norm = left_freq
+        .values()
+        .map(|weight| weight * weight)
+        .sum::<f64>()
+        .sqrt();
+    let right_norm = right_freq
+        .values()
+        .map(|weight| weight * weight)
+        .sum::<f64>()
+        .sqrt();
+    if left_norm == 0.0 || right_norm == 0.0 {
+        0.0
+    } else {
+        dot / (left_norm * right_norm)
+    }
+}
+
+fn rerank_feature_frequency(features: &[String]) -> std::collections::HashMap<&str, f64> {
+    let mut frequency = std::collections::HashMap::new();
+    for feature in features {
+        *frequency.entry(feature.as_str()).or_insert(0.0) += 1.0;
+    }
+    frequency
+}
+
+fn rerank_extract_name_tokens(content: &str) -> std::collections::BTreeSet<String> {
+    content
+        .split(|ch: char| !ch.is_ascii_alphabetic())
+        .filter(|token| {
+            token.len() >= 3
+                && token
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_ascii_uppercase())
+        })
+        .map(|token| token.to_ascii_lowercase())
+        .collect()
+}
+
 pub(crate) async fn healthz(
     State(state): State<AppState>,
 ) -> Result<Json<HealthResponse>, (StatusCode, String)> {
@@ -344,11 +684,15 @@ pub(crate) async fn search_memory(
         && crate::embed::intrinsic_dense_enabled()
         && let Some(query_text) = req.query.as_deref().map(str::trim).filter(|q| !q.is_empty())
     {
-        match embedder.embed_normalized(query_text) {
+        match embedder.embed_query_normalized(query_text) {
             Ok(q_vec) => {
                 match state
                     .store
-                    .list_vectors_for_scope(req.project.as_deref(), req.namespace.as_deref())
+                    .list_vectors_for_scope(
+                        req.project.as_deref(),
+                        req.namespace.as_deref(),
+                        embedder.model_code(),
+                    )
                 {
                     Ok(candidates) if !candidates.is_empty() => {
                         // Per-chunk scoring; one memory_id can appear multiple
@@ -396,6 +740,12 @@ pub(crate) async fn search_memory(
             }
             Err(error) => warn!(error = %format_args!("{error:#}"), "query embed failed"),
         }
+    }
+    if intrinsic_rerank_enabled()
+        && let Some(query_text) = req.query.as_deref().map(str::trim).filter(|q| !q.is_empty())
+        && fts_ranks.len() > 1
+    {
+        fts_ranks = rerank_search_candidates(&state, &items, query_text, &fts_ranks).await;
     }
     let items = filter_items(&items, &req, &plan, &fts_ranks);
     state
