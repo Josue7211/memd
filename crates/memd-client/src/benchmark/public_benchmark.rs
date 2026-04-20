@@ -2016,6 +2016,23 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
         }
     }
 
+    if std::env::var_os("MEMD_BENCH_DUMP_SERVER_RANK").is_some() {
+        let q_preview: String = query.chars().take(80).collect();
+        let top_ids: Vec<&str> = server_ranked
+            .iter()
+            .take(15)
+            .map(|(i, _)| corpus_ids[*i].as_str())
+            .collect();
+        let lex_top: Vec<&str> = lexical_fallback
+            .iter()
+            .take(10)
+            .map(|i| corpus_ids[*i].as_str())
+            .collect();
+        eprintln!(
+            "[dump-rank] ns={namespace} q=\"{q_preview}\" server_top15={top_ids:?} lexical_top10={lex_top:?}"
+        );
+    }
+
     Ok(merge_ranked_longmemeval_results(
         &server_ranked,
         &lexical_fallback,
@@ -2029,6 +2046,9 @@ pub(crate) fn merge_ranked_longmemeval_results(
     lexical_rank_by_index: &std::collections::HashMap<usize, usize>,
 ) -> Vec<(usize, f64)> {
     const RRF_K: f64 = 60.0;
+    const PRIMARY_SUFFICIENT_THRESHOLD: usize = 5;
+
+    let primary_sufficient = primary_ranked.len() >= PRIMARY_SUFFICIENT_THRESHOLD;
 
     let mut scores = std::collections::HashMap::<usize, f64>::new();
     let mut primary_score_by_index = std::collections::HashMap::<usize, f64>::new();
@@ -2038,8 +2058,10 @@ pub(crate) fn merge_ranked_longmemeval_results(
         primary_score_by_index.insert(*index, *score);
     }
 
-    for (rank, index) in lexical_fallback.iter().enumerate() {
-        *scores.entry(*index).or_default() += 1.0 / (RRF_K + rank as f64);
+    if !primary_sufficient {
+        for (rank, index) in lexical_fallback.iter().enumerate() {
+            *scores.entry(*index).or_default() += 1.0 / (RRF_K + rank as f64);
+        }
     }
 
     let mut merged = scores

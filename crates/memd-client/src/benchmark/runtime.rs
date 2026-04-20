@@ -1136,13 +1136,14 @@ pub(crate) fn render_public_benchmark_markdown(reports: &[PublicBenchmarkRunRepo
             "## Latest Run Detail: {}",
             report.manifest.dataset_name
         ));
-        lines.push("| Item | Question | Claim | Hit | Answer | Latency ms |".to_string());
-        lines.push("| --- | --- | --- | --- | --- | --- |".to_string());
+        lines.push("| Item | Question | Mode | Claim | Hit | Answer | Latency ms |".to_string());
+        lines.push("| --- | --- | --- | --- | --- | --- | --- |".to_string());
         for item in &report.items {
             lines.push(format!(
-                "| {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} |",
                 item.item_id,
                 item.question.as_deref().unwrap_or(&item.question_id),
+                item.mode.as_deref().unwrap_or("-"),
                 item.claim_class,
                 item.hit,
                 item.answer.as_deref().unwrap_or("-"),
@@ -1167,24 +1168,38 @@ pub(crate) fn render_public_leaderboard(report: &PublicBenchmarkLeaderboardRepor
     }
     lines.push(String::new());
     lines.push(
-        "| Benchmark | Version | Run mode | Item claim classes | Coverage | Parity claim | Primary Metric | Value | Items | Notes |"
+        "| Benchmark | Version | Run mode | Item modes | Item claim classes | Coverage | Parity claim | Primary Metric | Value | Intrinsic | Accelerated | Delta | Items | Notes |"
             .to_string(),
     );
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |".to_string());
+    lines.push(
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+            .to_string(),
+    );
     for row in &report.rows {
         lines.push(format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {:.3} | {} | {} | {} | {} | {} |",
             row.benchmark_name,
             row.benchmark_version,
             row.run_mode,
+            if row.item_modes.is_empty() {
+                "-".to_string()
+            } else {
+                row.item_modes.join(", ")
+            },
             row.item_claim_classes.join(", "),
             row.coverage_status,
             row.parity_status,
-            row.notes
-                .iter()
-                .find_map(|note| note.strip_prefix("primary_metric="))
-                .unwrap_or("retrieval-local proxy"),
+            row.primary_metric_label,
             row.accuracy,
+            row.intrinsic_score
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_else(|| "-".to_string()),
+            row.accelerated_score
+                .map(|value| format!("{value:.3}"))
+                .unwrap_or_else(|| "-".to_string()),
+            row.score_delta
+                .map(|value| format!("{value:+.3}"))
+                .unwrap_or_else(|| "-".to_string()),
             row.item_count,
             row.notes.join("; "),
         ));
@@ -1284,7 +1299,15 @@ pub(crate) async fn run_public_benchmark_command(
     );
 
     let mode = args.mode.as_deref().unwrap_or("raw");
-    let retrieval_config = build_public_benchmark_retrieval_config(args)?;
+    let dual_memd_urls = if args.dual {
+        anyhow::ensure!(
+            args.dataset == "longmemeval",
+            "--dual is currently only supported for longmemeval"
+        );
+        Some(resolve_public_benchmark_dual_memd_base_urls())
+    } else {
+        None
+    };
     let top_k = args.top_k.unwrap_or(5).max(1);
     let item_count = args
         .sample
@@ -1292,12 +1315,29 @@ pub(crate) async fn run_public_benchmark_command(
         .unwrap_or(dataset.items.len())
         .max(1)
         .min(dataset.items.len());
-    let selected_items = dataset
-        .items
-        .iter()
-        .take(item_count)
-        .cloned()
-        .collect::<Vec<_>>();
+    let selected_items = {
+        let qid_filter = std::env::var("MEMD_BENCH_QID_FILTER").ok().map(|s| {
+            s.split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+        if let Some(qids) = qid_filter {
+            dataset
+                .items
+                .iter()
+                .filter(|it| qids.contains(&it.question_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            dataset
+                .items
+                .iter()
+                .take(item_count)
+                .cloned()
+                .collect::<Vec<_>>()
+        }
+    };
     let reranker_id = if mode == "hybrid" {
         Some(args.reranker.as_deref().unwrap_or("declared-reranker"))
     } else {
@@ -1307,6 +1347,101 @@ pub(crate) async fn run_public_benchmark_command(
         items: selected_items,
         ..dataset.clone()
     };
+    if let Some((intrinsic_base_url, accelerated_base_url)) = dual_memd_urls.as_ref() {
+        if args.dry_run {
+            let mut dry_manifest = build_public_benchmark_manifest(
+                args,
+                &dataset,
+                &resolved_dataset,
+                mode,
+                top_k,
+                item_count,
+                started_at,
+                duration_started.elapsed().as_millis(),
+                reranker_id,
+                &PublicBenchmarkRetrievalConfig {
+                    longmemeval_backend: LongMemEvalRetrievalBackend::Memd,
+                    sidecar_base_url: None,
+                    memd_base_url: Some(intrinsic_base_url.clone()),
+                },
+                None,
+                None,
+            )?;
+            if let Some(obj) = dry_manifest.runtime_settings.as_object_mut() {
+                obj.insert("dual".to_string(), json!(true));
+                obj.insert(
+                    "dual_modes".to_string(),
+                    json!(["intrinsic", "accelerated"]),
+                );
+                obj.insert("dry_run".to_string(), json!(true));
+                obj.insert("intrinsic_base_url".to_string(), json!(intrinsic_base_url));
+                obj.insert(
+                    "accelerated_base_url".to_string(),
+                    json!(accelerated_base_url),
+                );
+                obj.insert("dual_rows_per_question".to_string(), json!(2));
+                obj.insert("retrieval_backend".to_string(), json!("memd"));
+            }
+
+            let mut items = Vec::with_capacity(selected_dataset.items.len() * 2);
+            for item in &selected_dataset.items {
+                let question_type = item
+                    .metadata
+                    .get("question_type")
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_string);
+                let base_item = PublicBenchmarkItemResult {
+                    item_id: item.item_id.clone(),
+                    question_id: item.question_id.clone(),
+                    claim_class: item.claim_class.clone(),
+                    mode: None,
+                    question: Some(item.query.clone()),
+                    question_type,
+                    ranked_items: Vec::new(),
+                    retrieved_items: Vec::new(),
+                    retrieval_scores: Vec::new(),
+                    hit: false,
+                    answer: Some(item.gold_answer.clone()),
+                    observed_answer: None,
+                    correctness: Some(json!({
+                        "dry_run": true,
+                        "question_type": item.metadata.get("question_type").cloned().unwrap_or(JsonValue::Null),
+                    })),
+                    latency_ms: 0,
+                    token_usage: None,
+                    cost_estimate_usd: None,
+                };
+                items.push(relabel_public_benchmark_item_result(
+                    base_item.clone(),
+                    "intrinsic",
+                ));
+                items.push(relabel_public_benchmark_item_result(
+                    base_item,
+                    "accelerated",
+                ));
+            }
+
+            return Ok(PublicBenchmarkRunReport {
+                manifest: dry_manifest,
+                metrics: BTreeMap::new(),
+                item_count: items.len(),
+                failures: Vec::new(),
+                items,
+            });
+        }
+
+        return build_longmemeval_dual_run_report(
+            &selected_dataset,
+            top_k,
+            mode,
+            reranker_id,
+            started_at,
+            intrinsic_base_url,
+            accelerated_base_url,
+            args.turn_diagnostics,
+        );
+    }
+    let retrieval_config = build_public_benchmark_retrieval_config(args)?;
     // Dry-run: estimate cost without running
     if args.dry_run && args.full_eval {
         let est_calls = item_count * if args.dataset == "longmemeval" { 2 } else { 1 };
@@ -1406,6 +1541,7 @@ pub(crate) async fn run_public_benchmark_command(
             mode,
             reranker_id,
             &retrieval_config,
+            args.turn_diagnostics,
         )?
     };
     let token_usage = if mode == "hybrid" {

@@ -305,6 +305,34 @@ fn cli_parses_public_longmemeval_sidecar_backend() {
 }
 
 #[test]
+fn cli_parses_public_longmemeval_dual_command() {
+    let cli = Cli::try_parse_from([
+        "memd",
+        "benchmark",
+        "public",
+        "--mode",
+        "raw",
+        "--dual",
+        "--output",
+        ".memd",
+        "longmemeval",
+    ])
+    .expect("public benchmark dual command should parse");
+
+    match cli.command {
+        Commands::Benchmark(args) => match args.subcommand {
+            Some(BenchmarkSubcommand::Public(public_args)) => {
+                assert_eq!(public_args.dataset, "longmemeval");
+                assert_eq!(public_args.mode.as_deref(), Some("raw"));
+                assert!(public_args.dual);
+            }
+            other => panic!("expected public benchmark subcommand, got {other:?}"),
+        },
+        other => panic!("expected benchmark command, got {other:?}"),
+    }
+}
+
+#[test]
 fn cli_parses_public_longmemeval_community_standard_command() {
     let cli = Cli::try_parse_from([
         "memd",
@@ -463,6 +491,8 @@ async fn resolve_public_benchmark_dataset_rejects_unknown_sources() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         out: output.clone(),
         ci: false,
@@ -509,6 +539,8 @@ async fn run_public_longmemeval_community_standard_requires_hypotheses_file() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         ci: false,
         record: false,
@@ -547,6 +579,8 @@ fn validate_rejects_empty_dataset_without_all_flag() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         ci: false,
         record: false,
@@ -577,6 +611,8 @@ fn validate_accepts_empty_dataset_with_all_flag() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: true,
         ci: false,
         record: false,
@@ -680,6 +716,118 @@ fn load_public_benchmark_dataset_normalizes_longmemeval_array_format() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup normalize dir");
+}
+
+#[test]
+fn longmemeval_corpus_builders_skip_blank_user_turns() {
+    let item = PublicBenchmarkDatasetFixtureItem {
+        item_id: "q-blank".to_string(),
+        question_id: "q-blank".to_string(),
+        query: "What happened?".to_string(),
+        claim_class: "raw".to_string(),
+        gold_answer: "Something".to_string(),
+        metadata: json!({
+            "haystack_session_ids": ["s1", "s2"],
+            "haystack_dates": ["2023-01-01", "2023-01-02"],
+            "haystack_sessions": [
+                [
+                    {"role": "user", "content": "   "},
+                    {"role": "assistant", "content": "ignored"}
+                ],
+                [
+                    {"role": "user", "content": " first fact "},
+                    {"role": "user", "content": ""},
+                    {"role": "user", "content": "second fact"}
+                ]
+            ]
+        }),
+    };
+
+    let (session_corpus, session_ids, _) = build_longmemeval_session_corpus(&item);
+    assert_eq!(
+        session_corpus,
+        vec![
+            "assistant: ignored",
+            "user: first fact\nuser: second fact"
+        ]
+    );
+    assert_eq!(session_ids, vec!["s1", "s2"]);
+
+    let (turn_corpus, turn_ids, _) = build_longmemeval_turn_corpus(&item);
+    assert_eq!(turn_corpus, vec!["first fact", "second fact"]);
+    assert_eq!(turn_ids, vec!["s2_turn_0", "s2_turn_1"]);
+}
+
+#[test]
+fn longmemeval_bench_namespace_reuses_identical_corpus() {
+    let item_a = PublicBenchmarkDatasetFixtureItem {
+        item_id: "q-a".to_string(),
+        question_id: "q-a".to_string(),
+        query: "What happened first?".to_string(),
+        claim_class: "raw".to_string(),
+        gold_answer: "first fact".to_string(),
+        metadata: json!({
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023-01-01"],
+            "haystack_sessions": [[
+                {"role": "user", "content": "first fact"},
+                {"role": "assistant", "content": "ack"},
+                {"role": "user", "content": "second fact"}
+            ]]
+        }),
+    };
+    let item_b = PublicBenchmarkDatasetFixtureItem {
+        item_id: "q-b".to_string(),
+        question_id: "q-b".to_string(),
+        query: "What happened second?".to_string(),
+        claim_class: "raw".to_string(),
+        gold_answer: "second fact".to_string(),
+        metadata: item_a.metadata.clone(),
+    };
+
+    let (session_corpus_a, session_ids_a, _) = build_longmemeval_session_corpus(&item_a);
+    let (session_corpus_b, session_ids_b, _) = build_longmemeval_session_corpus(&item_b);
+    assert_eq!(session_corpus_a, session_corpus_b);
+    assert_eq!(session_ids_a, session_ids_b);
+    assert_eq!(
+        longmemeval_bench_namespace("session", &session_ids_a, &session_corpus_a),
+        longmemeval_bench_namespace("session", &session_ids_b, &session_corpus_b)
+    );
+
+    let (turn_corpus_a, turn_ids_a, _) = build_longmemeval_turn_corpus(&item_a);
+    let (turn_corpus_b, turn_ids_b, _) = build_longmemeval_turn_corpus(&item_b);
+    assert_eq!(turn_corpus_a, turn_corpus_b);
+    assert_eq!(turn_ids_a, turn_ids_b);
+    assert_eq!(
+        longmemeval_bench_namespace("turn", &turn_ids_a, &turn_corpus_a),
+        longmemeval_bench_namespace("turn", &turn_ids_b, &turn_corpus_b)
+    );
+}
+
+#[test]
+fn longmemeval_session_corpus_keeps_assistant_turns_with_role_labels() {
+    let item = PublicBenchmarkDatasetFixtureItem {
+        item_id: "q-assistant".to_string(),
+        question_id: "q-assistant".to_string(),
+        query: "What did you tell me before?".to_string(),
+        claim_class: "raw".to_string(),
+        gold_answer: "assistant fact".to_string(),
+        metadata: json!({
+            "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023-01-01"],
+            "haystack_sessions": [[
+                {"role": "user", "content": "please remind me later"},
+                {"role": "assistant", "content": "the answer is assistant fact"}
+            ]]
+        }),
+    };
+
+    let (session_corpus, session_ids, _) = build_longmemeval_session_corpus(&item);
+    assert_eq!(
+        session_corpus,
+        vec!["user: please remind me later\nassistant: the answer is assistant fact"]
+    );
+    assert_eq!(session_ids, vec!["s1"]);
 }
 
 #[test]
@@ -967,6 +1115,7 @@ fn build_longmemeval_run_report_tracks_session_and_turn_metrics() {
             sidecar_base_url: None,
             memd_base_url: None,
         },
+        true,
     )
     .expect("longmemeval report");
     assert_eq!(
@@ -987,6 +1136,69 @@ fn build_longmemeval_run_report_tracks_session_and_turn_metrics() {
             .and_then(|value: &JsonValue| value.get("recall_any@5"))
             .and_then(JsonValue::as_f64),
         Some(1.0)
+    );
+}
+
+#[test]
+fn build_longmemeval_run_report_skips_turn_metrics_when_disabled() {
+    let dataset = PublicBenchmarkDatasetFixture {
+        benchmark_id: "longmemeval".to_string(),
+        benchmark_name: "LongMemEval".to_string(),
+        version: "upstream".to_string(),
+        split: "cleaned-small".to_string(),
+        description: "synthetic longmemeval".to_string(),
+        items: vec![PublicBenchmarkDatasetFixtureItem {
+            item_id: "q1".to_string(),
+            question_id: "q1".to_string(),
+            query: "what happened first".to_string(),
+            claim_class: "raw".to_string(),
+            gold_answer: "gps failed".to_string(),
+            metadata: json!({
+                "question_type": "temporal-reasoning",
+                "question_date": "2023/04/10",
+                "haystack_dates": ["2023/04/10", "2023/04/09"],
+                "haystack_session_ids": ["s1", "s2"],
+                "answer_session_ids": ["s1"],
+                "haystack_sessions": [
+                    [
+                        {"role": "user", "content": "The GPS failed after service."},
+                        {"role": "assistant", "content": "That sounds annoying."}
+                    ],
+                    [
+                        {"role": "user", "content": "I bought floor mats."},
+                        {"role": "assistant", "content": "Nice purchase."}
+                    ]
+                ]
+            }),
+        }],
+    };
+
+    let report = build_longmemeval_run_report(
+        &dataset,
+        5,
+        "raw",
+        None,
+        &PublicBenchmarkRetrievalConfig {
+            longmemeval_backend: LongMemEvalRetrievalBackend::Lexical,
+            sidecar_base_url: None,
+            memd_base_url: None,
+        },
+        false,
+    )
+    .expect("longmemeval report");
+
+    assert_eq!(
+        report.metrics.get("session_recall_any@5").copied(),
+        Some(1.0)
+    );
+    assert!(!report.metrics.contains_key("turn_recall_any@5"));
+    assert_eq!(
+        report.items[0]
+            .correctness
+            .as_ref()
+            .and_then(|value: &JsonValue| value.get("turn_diagnostics"))
+            .and_then(JsonValue::as_bool),
+        Some(false)
     );
 }
 
@@ -1035,6 +1247,7 @@ fn build_longmemeval_run_report_supports_sidecar_backend_ordering() {
             sidecar_base_url: Some(base_url),
             memd_base_url: None,
         },
+        false,
     )
     .expect("sidecar longmemeval report");
 
@@ -1058,6 +1271,130 @@ fn build_longmemeval_run_report_supports_sidecar_backend_ordering() {
             .unwrap_or_default()
             > 0.9
     );
+}
+
+#[test]
+fn merge_ranked_longmemeval_results_skips_lexical_when_primary_sufficient() {
+    // B3 part-2 tail-ranking fix: when the primary (dense+fts) ranker returns
+    // a full top list (≥5 items), lexical fallback is dilution, not rescue.
+    // 60Q probe decomposition showed 0 lexical rescues across 30 pref + 30
+    // cross-type samples; 7 pref misses had server rank ≤5 but merged rank
+    // ≥6 because lexical dragged unrelated items into the top.
+    let lexical_fallback = vec![2, 0, 1, 3, 4];
+    let lexical_rank_by_index = lexical_fallback
+        .iter()
+        .enumerate()
+        .map(|(rank, index)| (*index, rank))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let primary = [(0, 5.0), (1, 4.0), (3, 3.0), (4, 2.0), (5, 1.0)];
+    let merged = merge_ranked_longmemeval_results(&primary, &lexical_fallback, &lexical_rank_by_index);
+
+    let top5: Vec<usize> = merged.iter().take(5).map(|(index, _)| *index).collect();
+    assert_eq!(top5, vec![0, 1, 3, 4, 5]);
+    assert!(!top5.contains(&2));
+}
+
+#[test]
+fn merge_ranked_longmemeval_results_falls_back_to_lexical_when_primary_thin() {
+    let lexical_fallback = vec![2, 0, 1, 3, 4];
+    let lexical_rank_by_index = lexical_fallback
+        .iter()
+        .enumerate()
+        .map(|(rank, index)| (*index, rank))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let merged = merge_ranked_longmemeval_results(
+        &[(0, 5.0), (1, 4.0)],
+        &lexical_fallback,
+        &lexical_rank_by_index,
+    );
+
+    assert!(merged.iter().take(5).any(|(index, _)| *index == 2));
+}
+
+#[tokio::test]
+async fn run_public_longmemeval_dual_dry_run_emits_two_rows_per_question() {
+    let mut env = EnvScope::new();
+    env.set("MEMD_BASE_URL", "http://127.0.0.1:18787");
+    env.set("MEMD_BASE_URL_ACCELERATED", "http://127.0.0.1:18788");
+
+    let dir = std::env::temp_dir().join(format!(
+        "memd-public-benchmark-dual-dry-run-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let output = dir.join(".memd");
+    fs::create_dir_all(&output).expect("create output dir");
+
+    let report = run_public_benchmark_command(&PublicBenchmarkArgs {
+        dataset: "longmemeval".to_string(),
+        mode: Some("raw".to_string()),
+        retrieval_backend: None,
+        rag_url: None,
+        memd_url: None,
+        top_k: Some(5),
+        limit: Some(2),
+        dataset_root: Some(public_benchmark_fixture_path("longmemeval")),
+        reranker: None,
+        write: false,
+        json: false,
+        community_standard: false,
+        hypotheses_file: None,
+        grader_model: None,
+        full_eval: false,
+        generator_model: None,
+        sample: None,
+        dry_run: true,
+        dual: true,
+        turn_diagnostics: false,
+        all: false,
+        out: output.clone(),
+        ci: false,
+        record: false,
+    })
+    .await
+    .expect("run dual dry-run public benchmark");
+
+    assert_eq!(report.item_count, 4);
+    assert_eq!(report.items.len(), 4);
+    assert!(
+        report
+            .manifest
+            .runtime_settings
+            .get("dual")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false)
+    );
+    assert_eq!(
+        report
+            .manifest
+            .runtime_settings
+            .get("dual_rows_per_question")
+            .and_then(JsonValue::as_i64),
+        Some(2)
+    );
+    assert_eq!(
+        report
+            .items
+            .iter()
+            .filter(|item| item.mode.as_deref() == Some("intrinsic"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        report
+            .items
+            .iter()
+            .filter(|item| item.mode.as_deref() == Some("accelerated"))
+            .count(),
+        2
+    );
+    assert!(report.items.iter().all(|item| item.claim_class == "raw"));
+    assert!(report.items.iter().all(|item| {
+        item.item_id.ends_with("::intrinsic") || item.item_id.ends_with("::accelerated")
+    }));
+
+    fs::remove_dir_all(dir).expect("cleanup dual dry-run dir");
 }
 
 #[test]
@@ -1106,6 +1443,7 @@ fn build_public_benchmark_item_results_locomo_requires_evidence_hit() {
             sidecar_base_url: None,
             memd_base_url: None,
         },
+        false,
     )
     .expect("locomo report");
 
@@ -1164,6 +1502,7 @@ fn build_public_benchmark_item_results_membench_requires_target_step_hit() {
             sidecar_base_url: None,
             memd_base_url: None,
         },
+        false,
     )
     .expect("membench report");
 
@@ -1276,6 +1615,7 @@ fn write_public_benchmark_run_report_roundtrips_json() {
             item_id: "longmemeval-mini-001".to_string(),
             question_id: "longmemeval-mini-001".to_string(),
             claim_class: "raw".to_string(),
+            mode: None,
             question: Some("What should be resumed next?".to_string()),
             question_type: Some("continuity".to_string()),
             ranked_items: vec![json!({"rank": 1, "text": "resume next step"})],
@@ -1386,6 +1726,7 @@ fn write_public_benchmark_run_artifacts_writes_manifest_and_report() {
             item_id: "longmemeval-mini-001".to_string(),
             question_id: "lm-mini-001".to_string(),
             claim_class: "raw".to_string(),
+            mode: None,
             question: Some("What should be resumed next?".to_string()),
             question_type: Some("continuity".to_string()),
             ranked_items: vec![json!({"rank": 1, "text": "resume next step"})],
@@ -1477,6 +1818,8 @@ async fn run_public_longmemeval_command_writes_artifacts_and_docs() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         out: output.clone(),
         ci: false,
@@ -1549,6 +1892,8 @@ async fn run_public_longmemeval_hybrid_command_sets_metadata() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         out: output.clone(),
         ci: false,
@@ -1608,6 +1953,8 @@ async fn render_public_leaderboard_marks_fixture_backed_partial_parity() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         out: output.clone(),
         ci: false,
@@ -1664,6 +2011,8 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
             generator_model: None,
             sample: None,
             dry_run: false,
+            dual: false,
+            turn_diagnostics: false,
             all: false,
             out: output.clone(),
             ci: false,
@@ -1693,6 +2042,8 @@ async fn write_public_benchmark_docs_aggregates_all_latest_runs() {
         generator_model: None,
         sample: None,
         dry_run: false,
+        dual: false,
+        turn_diagnostics: false,
         all: false,
         out: output.clone(),
         ci: false,
