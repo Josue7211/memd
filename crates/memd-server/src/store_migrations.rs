@@ -4,6 +4,49 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::redundancy_key;
 
+/// B3-part2: memory_vectors was introduced with PK(memory_id); per-turn
+/// chunking needs a composite PK(memory_id, chunk_idx). Rather than an
+/// ALTER-heavy rewrite, detect the missing column and rebuild the table
+/// empty (vectors are a derived cache — a full re-embed repopulates).
+pub(crate) fn migrate_memory_vectors_chunk_idx(conn: &Connection) -> anyhow::Result<()> {
+    let has_table = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_vectors'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_table {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare("PRAGMA table_info(memory_vectors)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if columns.iter().any(|c| c == "chunk_idx") {
+        return Ok(());
+    }
+    conn.execute_batch(
+        r#"
+        DROP TABLE memory_vectors;
+        CREATE TABLE memory_vectors (
+          memory_id TEXT NOT NULL,
+          chunk_idx INTEGER NOT NULL,
+          project TEXT,
+          namespace TEXT,
+          dim INTEGER NOT NULL,
+          vec BLOB NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (memory_id, chunk_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_vectors_scope
+          ON memory_vectors(project, namespace);
+        "#,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn migrate_redundancy_key(conn: &Connection) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(memory_items)")?;
     let columns = stmt

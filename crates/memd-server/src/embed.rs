@@ -46,6 +46,36 @@ impl Embedder {
         l2_normalize(&mut vec);
         Ok(vec)
     }
+
+    /// Embed a batch of texts in a single ort session call. Empty inputs
+    /// are skipped entirely (not padded) — callers get a 1:1 mapping
+    /// between the returned Vec and the non-empty inputs only. That
+    /// keeps the ingest hot path off a per-chunk mutex dance and cuts
+    /// wall-clock per document by roughly Nx for N chunks.
+    pub(crate) fn embed_batch_normalized(
+        &self,
+        texts: &[String],
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
+        let prepared: Vec<String> = texts
+            .iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if prepared.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut model = self
+            .model
+            .lock()
+            .map_err(|_| anyhow!("fastembed mutex poisoned"))?;
+        let mut embeddings = model
+            .embed(prepared, None)
+            .context("fastembed batch embed call failed")?;
+        for vec in embeddings.iter_mut() {
+            l2_normalize(vec);
+        }
+        Ok(embeddings)
+    }
 }
 
 fn l2_normalize(vec: &mut [f32]) {
@@ -87,6 +117,48 @@ pub(crate) fn intrinsic_dense_enabled() -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Split text into overlapping character windows. Tuned for MiniLM's
+/// 256-token cap: ~1500 chars stays under the cap for English prose,
+/// and the 200-char overlap keeps answer phrases from being split
+/// across chunk boundaries (which silently demote their cosine score).
+pub(crate) fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if trimmed.chars().count() <= max_chars {
+        return vec![trimmed.to_string()];
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    let step = max_chars.saturating_sub(overlap).max(1);
+    let mut chunks = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let end = (i + max_chars).min(chars.len());
+        chunks.push(chars[i..end].iter().collect::<String>());
+        if end == chars.len() {
+            break;
+        }
+        i += step;
+    }
+    chunks
+}
+
+pub(crate) fn chunk_max_chars() -> usize {
+    std::env::var("MEMD_DENSE_CHUNK_CHARS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1500)
+}
+
+pub(crate) fn chunk_overlap_chars() -> usize {
+    std::env::var("MEMD_DENSE_CHUNK_OVERLAP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
 }
 
 pub(crate) fn default_cache_dir() -> std::path::PathBuf {

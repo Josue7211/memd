@@ -36,7 +36,8 @@ use crate::store_hive::{
 use crate::store_migrations::{
     create_hive_session_identity_indexes, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
-    migrate_lane_column, migrate_redundancy_key, migrate_version_column, migrate_visibility_column,
+    migrate_lane_column, migrate_memory_vectors_chunk_idx, migrate_redundancy_key,
+    migrate_version_column, migrate_visibility_column,
 };
 #[path = "store_coordination.rs"]
 mod store_coordination;
@@ -530,12 +531,14 @@ impl SqliteStore {
               ON ingestion_manifest(lane);
 
             CREATE TABLE IF NOT EXISTS memory_vectors (
-              memory_id TEXT PRIMARY KEY,
+              memory_id TEXT NOT NULL,
+              chunk_idx INTEGER NOT NULL,
               project TEXT,
               namespace TEXT,
               dim INTEGER NOT NULL,
               vec BLOB NOT NULL,
-              updated_at TEXT NOT NULL
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (memory_id, chunk_idx)
             );
             CREATE INDEX IF NOT EXISTS idx_memory_vectors_scope
               ON memory_vectors(project, namespace);
@@ -551,6 +554,7 @@ impl SqliteStore {
         migrate_hive_sessions_last_wake_at(&conn)?;
         create_hive_session_identity_indexes(&conn)?;
         migrate_fts5_index(&conn)?;
+        migrate_memory_vectors_chunk_idx(&conn)?;
 
         stamp_schema_version(&conn)?;
 
@@ -2099,39 +2103,51 @@ impl SqliteStore {
         Ok(results)
     }
 
-    /// Upsert a memory vector keyed by memory id. `project` / `namespace`
-    /// mirror the MemoryItem scope so dense search can prefilter to the
-    /// same slice `snapshot_for_scope` uses.
-    pub fn upsert_memory_vector(
+    /// Replace all stored chunk vectors for `memory_id` with the supplied
+    /// `(chunk_idx, vec_bytes)` list. `project`/`namespace` mirror the
+    /// MemoryItem scope so dense search can prefilter the same slice
+    /// `snapshot_for_scope` uses. Callers pass every chunk they want
+    /// persisted; prior rows for this id are deleted first so stale
+    /// chunks from a longer previous content don't linger.
+    pub fn replace_memory_vector_chunks(
         &self,
         memory_id: Uuid,
         project: Option<&str>,
         namespace: Option<&str>,
         dim: usize,
-        vec_bytes: &[u8],
+        chunks: &[(i64, Vec<u8>)],
     ) -> anyhow::Result<()> {
-        let conn = self.connect()?;
-        conn.execute(
-            r#"
-            INSERT INTO memory_vectors (memory_id, project, namespace, dim, vec, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(memory_id) DO UPDATE SET
-              project = excluded.project,
-              namespace = excluded.namespace,
-              dim = excluded.dim,
-              vec = excluded.vec,
-              updated_at = excluded.updated_at
-            "#,
-            params![
-                memory_id.to_string(),
-                project,
-                namespace,
-                dim as i64,
-                vec_bytes,
-                chrono::Utc::now().to_rfc3339(),
-            ],
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().context("begin vector upsert tx")?;
+        tx.execute(
+            "DELETE FROM memory_vectors WHERE memory_id = ?1",
+            params![memory_id.to_string()],
         )
-        .context("upsert memory vector")?;
+        .context("delete prior chunks")?;
+        let now = chrono::Utc::now().to_rfc3339();
+        {
+            let mut stmt = tx
+                .prepare(
+                    r#"
+                    INSERT INTO memory_vectors (memory_id, chunk_idx, project, namespace, dim, vec, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    "#,
+                )
+                .context("prepare insert chunk")?;
+            for (idx, bytes) in chunks {
+                stmt.execute(params![
+                    memory_id.to_string(),
+                    *idx,
+                    project,
+                    namespace,
+                    dim as i64,
+                    bytes,
+                    now,
+                ])
+                .context("insert chunk")?;
+            }
+        }
+        tx.commit().context("commit vector upsert tx")?;
         Ok(())
     }
 

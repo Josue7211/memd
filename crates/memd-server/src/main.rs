@@ -260,22 +260,37 @@ impl AppState {
         let Some(embedder) = self.embedder.as_deref() else {
             return;
         };
-        let vec = match embedder.embed_normalized(&item.content) {
+        let chunks = embed::chunk_text(
+            &item.content,
+            embed::chunk_max_chars(),
+            embed::chunk_overlap_chars(),
+        );
+        if chunks.is_empty() {
+            return;
+        }
+        let vectors = match embedder.embed_batch_normalized(&chunks) {
             Ok(v) => v,
             Err(err) => {
-                warn!(error = %format_args!("{err:#}"), "embed_normalized failed");
+                warn!(error = %format_args!("{err:#}"), "embed batch failed");
                 return;
             }
         };
-        let bytes = embed::vec_to_bytes(&vec);
-        if let Err(err) = self.store.upsert_memory_vector(
+        let rows: Vec<(i64, Vec<u8>)> = vectors
+            .into_iter()
+            .enumerate()
+            .map(|(idx, v)| (idx as i64, embed::vec_to_bytes(&v)))
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        if let Err(err) = self.store.replace_memory_vector_chunks(
             item.id,
             item.project.as_deref(),
             item.namespace.as_deref(),
             embedder.dim(),
-            &bytes,
+            &rows,
         ) {
-            warn!(error = %format_args!("{err:#}"), "upsert_memory_vector failed");
+            warn!(error = %format_args!("{err:#}"), "replace_memory_vector_chunks failed");
         }
     }
 

@@ -351,12 +351,21 @@ pub(crate) async fn search_memory(
                     .list_vectors_for_scope(req.project.as_deref(), req.namespace.as_deref())
                 {
                     Ok(candidates) if !candidates.is_empty() => {
-                        let mut scored: Vec<(Uuid, f64)> = Vec::with_capacity(candidates.len());
+                        // Per-chunk scoring; one memory_id can appear multiple
+                        // times if content was chunked on store. Group by
+                        // memory_id taking MAX so a single strong chunk
+                        // lifts the session it belongs to.
+                        let mut by_id: std::collections::HashMap<Uuid, f64> =
+                            std::collections::HashMap::with_capacity(candidates.len());
                         for (id, bytes) in candidates {
                             let v = crate::embed::bytes_to_vec(&bytes);
                             let score = crate::embed::cosine_on_unit(&q_vec, &v) as f64;
-                            scored.push((id, score));
+                            let entry = by_id.entry(id).or_insert(f64::NEG_INFINITY);
+                            if score > *entry {
+                                *entry = score;
+                            }
                         }
+                        let mut scored: Vec<(Uuid, f64)> = by_id.into_iter().collect();
                         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                         scored.truncate(200);
                         let existing: std::collections::HashMap<Uuid, f64> =
