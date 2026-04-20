@@ -1,5 +1,6 @@
 use super::*;
 use anyhow::anyhow;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LongMemEvalHypothesisEntry {
@@ -971,6 +972,20 @@ pub(crate) fn validate_public_benchmark_args(args: &PublicBenchmarkArgs) -> anyh
     if args.full_eval && args.community_standard {
         anyhow::bail!("--full-eval replaces --community-standard; use --full-eval instead");
     }
+    if args.dual {
+        anyhow::ensure!(
+            args.dataset == "longmemeval" || args.dataset.is_empty(),
+            "--dual is currently only supported for longmemeval"
+        );
+        anyhow::ensure!(
+            !args.full_eval,
+            "--dual is only supported for retrieval-mode longmemeval"
+        );
+        anyhow::ensure!(
+            !args.community_standard,
+            "--dual is only supported for retrieval-mode longmemeval"
+        );
+    }
     if args.community_standard {
         anyhow::ensure!(
             args.dataset == "longmemeval",
@@ -1212,6 +1227,7 @@ pub(crate) fn build_context_retrieval_run_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: item.claim_class.clone(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: item
                 .metadata
@@ -1312,18 +1328,27 @@ pub(crate) fn build_longmemeval_session_corpus(
     let mut corpus_timestamps = Vec::new();
 
     for (index, session) in sessions.iter().enumerate() {
-        let user_turns = session
+        let session_turns = session
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|turn| turn.get("role").and_then(JsonValue::as_str) == Some("user"))
-            .filter_map(|turn| turn.get("content").and_then(JsonValue::as_str))
-            .map(str::to_string)
+            .filter_map(|turn| {
+                let role = turn
+                    .get("role")
+                    .and_then(JsonValue::as_str)
+                    .map(str::trim)
+                    .filter(|role| !role.is_empty())?;
+                turn.get("content")
+                    .and_then(JsonValue::as_str)
+                    .map(str::trim)
+                    .filter(|content| !content.is_empty())
+                    .map(|content| format!("{role}: {content}"))
+            })
             .collect::<Vec<_>>();
-        if user_turns.is_empty() {
+        if session_turns.is_empty() {
             continue;
         }
-        corpus.push(user_turns.join("\n"));
+        corpus.push(session_turns.join("\n"));
         corpus_ids.push(
             session_ids
                 .get(index)
@@ -1370,7 +1395,12 @@ pub(crate) fn build_longmemeval_turn_corpus(
             if turn.get("role").and_then(JsonValue::as_str) != Some("user") {
                 continue;
             }
-            if let Some(content) = turn.get("content").and_then(JsonValue::as_str) {
+            if let Some(content) = turn
+                .get("content")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|content| !content.is_empty())
+            {
                 corpus.push(content.to_string());
                 corpus_ids.push(format!("{base_session_id}_turn_{turn_index}"));
                 corpus_timestamps.push(date.clone());
@@ -1380,6 +1410,26 @@ pub(crate) fn build_longmemeval_turn_corpus(
     }
 
     (corpus, corpus_ids, corpus_timestamps)
+}
+
+pub(crate) fn longmemeval_bench_namespace(
+    kind: &str,
+    corpus_ids: &[String],
+    corpus: &[String],
+) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    kind.hash(&mut hasher);
+    corpus_ids.hash(&mut hasher);
+    corpus.hash(&mut hasher);
+    format!("longmemeval-{kind}-{:016x}", hasher.finish())
+}
+
+fn claim_public_benchmark_namespace(namespace: &str) -> bool {
+    static PRIMED_NAMESPACES: std::sync::OnceLock<std::sync::Mutex<BTreeSet<String>>> =
+        std::sync::OnceLock::new();
+    let cache = PRIMED_NAMESPACES.get_or_init(|| std::sync::Mutex::new(BTreeSet::new()));
+    let mut cache = cache.lock().expect("benchmark namespace cache poisoned");
+    cache.insert(namespace.to_string())
 }
 
 pub(crate) fn rank_public_benchmark_corpus(
@@ -1506,9 +1556,7 @@ pub(crate) fn rank_longmemeval_corpus(
                 .memd_base_url
                 .as_deref()
                 .context("memd retrieval backend selected without a memd base url")?;
-            rank_longmemeval_corpus_via_memd(
-                base_url, query, corpus, corpus_ids, mode, namespace,
-            )
+            rank_longmemeval_corpus_via_memd(base_url, query, corpus, corpus_ids, mode, namespace)
         }
     }
 }
@@ -1530,10 +1578,16 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
-    bench_probe!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    bench_probe!(
+        "[bench-probe] enter ns={namespace} corpus_len={}",
+        corpus.len()
+    );
     let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    bench_probe!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+    bench_probe!(
+        "[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}",
+        t0.elapsed().as_millis()
+    );
 
     let ingest_url = format!("{}/v1/ingest", base_url.trim_end_matches('/'));
     let retrieve_url = format!("{}/v1/retrieve", base_url.trim_end_matches('/'));
@@ -1624,71 +1678,82 @@ async fn bench_memd_roundtrip(
         .build()
         .context("build public benchmark memd client")?;
 
-    let store_start = std::time::Instant::now();
-    for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
-        bench_probe!(
-            "[bench-probe] store-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
-            corpus.len(),
-            store_start.elapsed().as_millis(),
-            content.len()
-        );
-        let request = memd_schema::StoreMemoryRequest {
-            content: content.clone(),
-            kind: memd_schema::MemoryKind::Fact,
-            scope: memd_schema::MemoryScope::Project,
-            project: project.clone(),
-            namespace: namespace_owned.clone(),
-            workspace: None,
-            visibility: None,
-            belief_branch: None,
-            source_agent: Some("public-benchmark".to_string()),
-            source_system: None,
-            source_path: Some(corpus_id.clone()),
-            source_quality: None,
-            confidence: None,
-            ttl_seconds: None,
-            last_verified_at: None,
-            supersedes: Vec::new(),
-            tags: vec![
-                "public-benchmark".to_string(),
-                "longmemeval".to_string(),
-                corpus_id.clone(),
-            ],
-            status: None,
-            lane: None,
-        };
-        let send_start = std::time::Instant::now();
-        let req_builder = client.post(&store_url).json(&request);
-        bench_probe!(
-            "[bench-probe] store-json-built ns={ns_label} idx={idx} elapsed_ms={}",
-            send_start.elapsed().as_millis()
-        );
-        let response = req_builder
-            .send()
-            .await
-            .context("send public benchmark memd store")?;
-        let status = response.status();
-        bench_probe!(
-            "[bench-probe] store-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
-            status,
-            send_start.elapsed().as_millis()
-        );
-        let body_text = response.text().await.unwrap_or_default();
-        bench_probe!(
-            "[bench-probe] store-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
-            status,
-            send_start.elapsed().as_millis(),
-            body_text.len()
-        );
-        if !status.is_success() {
-            anyhow::bail!("public benchmark memd store failed with {status}: {body_text}");
+    if claim_public_benchmark_namespace(&ns_label) {
+        let store_start = std::time::Instant::now();
+        for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
+            let content = content.trim();
+            if content.is_empty() {
+                continue;
+            }
+            bench_probe!(
+                "[bench-probe] store-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
+                corpus.len(),
+                store_start.elapsed().as_millis(),
+                content.len()
+            );
+            let request = memd_schema::StoreMemoryRequest {
+                content: content.to_string(),
+                kind: memd_schema::MemoryKind::Fact,
+                scope: memd_schema::MemoryScope::Project,
+                project: project.clone(),
+                namespace: namespace_owned.clone(),
+                workspace: None,
+                visibility: None,
+                belief_branch: None,
+                source_agent: Some("public-benchmark".to_string()),
+                source_system: None,
+                source_path: Some(corpus_id.clone()),
+                source_quality: None,
+                confidence: None,
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec![
+                    "public-benchmark".to_string(),
+                    "longmemeval".to_string(),
+                    corpus_id.clone(),
+                ],
+                status: None,
+                lane: None,
+            };
+            let send_start = std::time::Instant::now();
+            let req_builder = client.post(&store_url).json(&request);
+            bench_probe!(
+                "[bench-probe] store-json-built ns={ns_label} idx={idx} elapsed_ms={}",
+                send_start.elapsed().as_millis()
+            );
+            let response = req_builder
+                .send()
+                .await
+                .context("send public benchmark memd store")?;
+            let status = response.status();
+            bench_probe!(
+                "[bench-probe] store-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
+                status,
+                send_start.elapsed().as_millis()
+            );
+            let body_text = response.text().await.unwrap_or_default();
+            bench_probe!(
+                "[bench-probe] store-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
+                status,
+                send_start.elapsed().as_millis(),
+                body_text.len()
+            );
+            if !status.is_success() {
+                anyhow::bail!("public benchmark memd store failed with {status}: {body_text}");
+            }
         }
+        bench_probe!(
+            "[bench-probe] stores done ns={ns_label} count={} elapsed_ms={}",
+            corpus.len(),
+            store_start.elapsed().as_millis()
+        );
+    } else {
+        bench_probe!(
+            "[bench-probe] reuse-primed-ns ns={ns_label} count={}",
+            corpus.len()
+        );
     }
-    bench_probe!(
-        "[bench-probe] stores done ns={ns_label} count={} elapsed_ms={}",
-        corpus.len(),
-        store_start.elapsed().as_millis()
-    );
 
     let search_request = memd_schema::SearchMemoryRequest {
         query: Some(query),
@@ -1702,7 +1767,7 @@ async fn bench_memd_roundtrip(
         workspace: None,
         visibility: None,
         belief_branch: None,
-        source_agent: None,
+        source_agent: Some("public-benchmark".to_string()),
         tags: Vec::new(),
         stages: Vec::new(),
         limit: Some(corpus.len().max(1)),
@@ -1750,58 +1815,69 @@ async fn bench_sidecar_roundtrip(
         .build()
         .context("build public benchmark sidecar client")?;
 
-    let ingest_start = std::time::Instant::now();
-    for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
-        bench_probe!(
-            "[bench-probe] ingest-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
-            corpus.len(),
-            ingest_start.elapsed().as_millis(),
-            content.len()
-        );
-        let request = RagIngestRequest {
-            project: project.clone(),
-            namespace: namespace_owned.clone(),
-            source: RagIngestSource {
-                id: uuid::Uuid::new_v4(),
-                kind: "longmemeval_corpus".to_string(),
-                content: content.clone(),
-                mime: None,
-                bytes: Some(content.len() as u64),
-                source_quality: None,
-                source_agent: Some("public-benchmark".to_string()),
-                source_path: Some(corpus_id.clone()),
-                tags: vec!["public-benchmark".to_string(), "longmemeval".to_string()],
-            },
-        };
-        let send_start = std::time::Instant::now();
-        let response = client
-            .post(&ingest_url)
-            .json(&request)
-            .send()
-            .await
-            .context("send public benchmark sidecar ingest")?;
-        let status = response.status();
-        bench_probe!(
-            "[bench-probe] ingest-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
-            status,
-            send_start.elapsed().as_millis()
-        );
-        let body_text = response.text().await.unwrap_or_default();
-        bench_probe!(
-            "[bench-probe] ingest-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
-            status,
-            send_start.elapsed().as_millis(),
-            body_text.len()
-        );
-        if !status.is_success() {
-            anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body_text}");
+    if claim_public_benchmark_namespace(&ns_label) {
+        let ingest_start = std::time::Instant::now();
+        for (idx, (corpus_id, content)) in corpus_ids.iter().zip(corpus.iter()).enumerate() {
+            let content = content.trim();
+            if content.is_empty() {
+                continue;
+            }
+            bench_probe!(
+                "[bench-probe] ingest-iter ns={ns_label} idx={idx}/{} elapsed_ms={} content_len={}",
+                corpus.len(),
+                ingest_start.elapsed().as_millis(),
+                content.len()
+            );
+            let request = RagIngestRequest {
+                project: project.clone(),
+                namespace: namespace_owned.clone(),
+                source: RagIngestSource {
+                    id: uuid::Uuid::new_v4(),
+                    kind: "longmemeval_corpus".to_string(),
+                    content: content.to_string(),
+                    mime: None,
+                    bytes: Some(content.len() as u64),
+                    source_quality: None,
+                    source_agent: Some("public-benchmark".to_string()),
+                    source_path: Some(corpus_id.clone()),
+                    tags: vec!["public-benchmark".to_string(), "longmemeval".to_string()],
+                },
+            };
+            let send_start = std::time::Instant::now();
+            let response = client
+                .post(&ingest_url)
+                .json(&request)
+                .send()
+                .await
+                .context("send public benchmark sidecar ingest")?;
+            let status = response.status();
+            bench_probe!(
+                "[bench-probe] ingest-send-returned ns={ns_label} idx={idx} status={} elapsed_ms={}",
+                status,
+                send_start.elapsed().as_millis()
+            );
+            let body_text = response.text().await.unwrap_or_default();
+            bench_probe!(
+                "[bench-probe] ingest-reply ns={ns_label} idx={idx} status={} send_ms={} body_len={}",
+                status,
+                send_start.elapsed().as_millis(),
+                body_text.len()
+            );
+            if !status.is_success() {
+                anyhow::bail!("public benchmark sidecar ingest failed with {status}: {body_text}");
+            }
         }
+        bench_probe!(
+            "[bench-probe] ingests done ns={ns_label} count={} elapsed_ms={}",
+            corpus.len(),
+            ingest_start.elapsed().as_millis()
+        );
+    } else {
+        bench_probe!(
+            "[bench-probe] reuse-primed-ns ns={ns_label} count={}",
+            corpus.len()
+        );
     }
-    bench_probe!(
-        "[bench-probe] ingests done ns={ns_label} count={} elapsed_ms={}",
-        corpus.len(),
-        ingest_start.elapsed().as_millis()
-    );
 
     let retrieve_request = RagRetrieveRequest {
         query: query.clone(),
@@ -1856,10 +1932,16 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
-    bench_probe!("[bench-probe] enter ns={namespace} corpus_len={}", corpus.len());
+    bench_probe!(
+        "[bench-probe] enter ns={namespace} corpus_len={}",
+        corpus.len()
+    );
     let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
-    bench_probe!("[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}", t0.elapsed().as_millis());
+    bench_probe!(
+        "[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}",
+        t0.elapsed().as_millis()
+    );
 
     let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
     let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
@@ -1880,22 +1962,24 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
     let ns_label = namespace.to_string();
     let handle = std::thread::Builder::new()
         .name(format!("bench-memd-{}", ns_label))
-        .spawn(move || -> anyhow::Result<memd_schema::SearchMemoryResponse> {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .context("build tokio runtime for public benchmark memd client")?;
-            rt.block_on(bench_memd_roundtrip(
-                store_url_owned,
-                search_url_owned,
-                project_for_thread,
-                namespace_for_thread,
-                ns_label,
-                query_owned,
-                corpus_vec,
-                corpus_ids_vec,
-            ))
-        })
+        .spawn(
+            move || -> anyhow::Result<memd_schema::SearchMemoryResponse> {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("build tokio runtime for public benchmark memd client")?;
+                rt.block_on(bench_memd_roundtrip(
+                    store_url_owned,
+                    search_url_owned,
+                    project_for_thread,
+                    namespace_for_thread,
+                    ns_label,
+                    query_owned,
+                    corpus_vec,
+                    corpus_ids_vec,
+                ))
+            },
+        )
         .context("spawn bench memd worker thread")?;
     let retrieved: memd_schema::SearchMemoryResponse = handle
         .join()
@@ -1911,33 +1995,76 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
         .enumerate()
         .map(|(rank, index)| (*index, rank))
         .collect::<std::collections::HashMap<_, _>>();
+    let mut server_ranked = Vec::new();
     let mut seen = BTreeSet::new();
-    let mut ranked = Vec::new();
 
     // Server returns items ordered by the intrinsic ranker. Give each a
     // monotonically decreasing score so ordering survives downstream merge.
     let n = retrieved.items.len();
     for (rank, item) in retrieved.items.iter().enumerate() {
-        let source_id = item
-            .source_path
-            .as_deref()
-            .or_else(|| item.tags.iter().find(|t| corpus_index_by_id.contains_key(t.as_str())).map(|s| s.as_str()));
+        let source_id = item.source_path.as_deref().or_else(|| {
+            item.tags
+                .iter()
+                .find(|t| corpus_index_by_id.contains_key(t.as_str()))
+                .map(|s| s.as_str())
+        });
         if let Some(sid) = source_id
             && let Some(index) = corpus_index_by_id.get(sid).copied()
             && seen.insert(index)
         {
-            ranked.push((index, (n - rank) as f64));
+            server_ranked.push((index, (n - rank) as f64));
         }
     }
 
-    for index in lexical_fallback {
-        if seen.insert(index) {
-            let lexical_rank = lexical_rank_by_index.get(&index).copied().unwrap_or(0);
-            ranked.push((index, (50usize.saturating_sub(lexical_rank)) as f64));
-        }
+    Ok(merge_ranked_longmemeval_results(
+        &server_ranked,
+        &lexical_fallback,
+        &lexical_rank_by_index,
+    ))
+}
+
+pub(crate) fn merge_ranked_longmemeval_results(
+    primary_ranked: &[(usize, f64)],
+    lexical_fallback: &[usize],
+    lexical_rank_by_index: &std::collections::HashMap<usize, usize>,
+) -> Vec<(usize, f64)> {
+    const RRF_K: f64 = 60.0;
+
+    let mut scores = std::collections::HashMap::<usize, f64>::new();
+    let mut primary_score_by_index = std::collections::HashMap::<usize, f64>::new();
+
+    for (rank, (index, score)) in primary_ranked.iter().enumerate() {
+        *scores.entry(*index).or_default() += 1.0 / (RRF_K + rank as f64);
+        primary_score_by_index.insert(*index, *score);
     }
 
-    Ok(ranked)
+    for (rank, index) in lexical_fallback.iter().enumerate() {
+        *scores.entry(*index).or_default() += 1.0 / (RRF_K + rank as f64);
+    }
+
+    let mut merged = scores
+        .into_iter()
+        .map(|(index, score)| {
+            (
+                index,
+                score,
+                primary_score_by_index.get(&index).copied().unwrap_or_default(),
+                lexical_rank_by_index.get(&index).copied().unwrap_or(usize::MAX),
+            )
+        })
+        .collect::<Vec<_>>();
+    merged.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| right.2.total_cmp(&left.2))
+            .then_with(|| left.3.cmp(&right.3))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    merged
+        .into_iter()
+        .map(|(index, score, _, _)| (index, score))
+        .collect()
 }
 
 /// RRF-based ranking: build an ephemeral FTS5 index from the corpus,
@@ -2047,12 +2174,194 @@ pub(crate) fn evaluate_ranked_longmemeval_ids(
     (recall_any, recall_all, ndcg)
 }
 
+fn public_benchmark_trimmed_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+pub(crate) fn resolve_public_benchmark_dual_memd_base_urls() -> (String, String) {
+    let intrinsic = std::env::var("MEMD_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| public_benchmark_trimmed_url(&value))
+        .unwrap_or_else(|| "http://127.0.0.1:8787".to_string());
+    let accelerated = std::env::var("MEMD_BASE_URL_ACCELERATED")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| public_benchmark_trimmed_url(&value))
+        .unwrap_or_else(|| intrinsic.clone());
+    (intrinsic, accelerated)
+}
+
+pub(crate) fn relabel_public_benchmark_item_result(
+    mut item: PublicBenchmarkItemResult,
+    mode_label: &str,
+) -> PublicBenchmarkItemResult {
+    let original_claim_class = item.claim_class.clone();
+    let original_item_id = item.item_id.clone();
+    item.item_id = format!("{original_item_id}::{mode_label}");
+    item.mode = Some(mode_label.to_string());
+    item.correctness = Some(match item.correctness.take() {
+        Some(JsonValue::Object(mut object)) => {
+            object.insert(
+                "mode".to_string(),
+                JsonValue::String(mode_label.to_string()),
+            );
+            object.insert(
+                "original_claim_class".to_string(),
+                JsonValue::String(original_claim_class),
+            );
+            JsonValue::Object(object)
+        }
+        Some(other) => json!({
+            "mode": mode_label,
+            "original_claim_class": original_claim_class,
+            "existing_correctness": other,
+        }),
+        None => json!({
+            "mode": mode_label,
+            "original_claim_class": original_claim_class,
+        }),
+    });
+    item
+}
+
+fn relabel_public_benchmark_failure(failure: JsonValue, mode_label: &str) -> JsonValue {
+    match failure {
+        JsonValue::Object(mut object) => {
+            object.insert(
+                "mode".to_string(),
+                JsonValue::String(mode_label.to_string()),
+            );
+            JsonValue::Object(object)
+        }
+        other => json!({
+            "mode": mode_label,
+            "failure": other,
+        }),
+    }
+}
+
+fn prefix_public_benchmark_metrics(
+    metrics: &BTreeMap<String, f64>,
+    prefix: &str,
+    output: &mut BTreeMap<String, f64>,
+) {
+    for (key, value) in metrics {
+        output.insert(format!("{prefix}{key}"), *value);
+    }
+}
+
+pub(crate) fn build_longmemeval_dual_run_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    reranker_id: Option<&str>,
+    started_at: DateTime<Utc>,
+    intrinsic_base_url: &str,
+    accelerated_base_url: &str,
+    include_turn_diagnostics: bool,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let intrinsic_config = PublicBenchmarkRetrievalConfig {
+        longmemeval_backend: LongMemEvalRetrievalBackend::Memd,
+        sidecar_base_url: None,
+        memd_base_url: Some(public_benchmark_trimmed_url(intrinsic_base_url)),
+    };
+    let accelerated_config = PublicBenchmarkRetrievalConfig {
+        longmemeval_backend: LongMemEvalRetrievalBackend::Memd,
+        sidecar_base_url: None,
+        memd_base_url: Some(public_benchmark_trimmed_url(accelerated_base_url)),
+    };
+
+    let intrinsic_report = build_longmemeval_run_report(
+        dataset,
+        top_k,
+        mode,
+        reranker_id,
+        &intrinsic_config,
+        include_turn_diagnostics,
+    )?;
+    let accelerated_report = build_longmemeval_run_report(
+        dataset,
+        top_k,
+        mode,
+        reranker_id,
+        &accelerated_config,
+        include_turn_diagnostics,
+    )?;
+
+    let mut items = intrinsic_report
+        .items
+        .into_iter()
+        .map(|item| relabel_public_benchmark_item_result(item, "intrinsic"))
+        .collect::<Vec<_>>();
+    items.extend(
+        accelerated_report
+            .items
+            .into_iter()
+            .map(|item| relabel_public_benchmark_item_result(item, "accelerated")),
+    );
+
+    let mut failures = intrinsic_report
+        .failures
+        .into_iter()
+        .map(|failure| relabel_public_benchmark_failure(failure, "intrinsic"))
+        .collect::<Vec<_>>();
+    failures.extend(
+        accelerated_report
+            .failures
+            .into_iter()
+            .map(|failure| relabel_public_benchmark_failure(failure, "accelerated")),
+    );
+
+    let mut metrics = intrinsic_report.metrics.clone();
+    prefix_public_benchmark_metrics(&intrinsic_report.metrics, "intrinsic::", &mut metrics);
+    prefix_public_benchmark_metrics(&accelerated_report.metrics, "accelerated::", &mut metrics);
+    let combined_item_count = items.len().max(1);
+    let combined_duration_ms =
+        intrinsic_report.manifest.duration_ms + accelerated_report.manifest.duration_ms;
+    metrics.insert("item_count".to_string(), items.len() as f64);
+    metrics.insert(
+        "mean_latency_ms".to_string(),
+        combined_duration_ms as f64 / combined_item_count as f64,
+    );
+
+    let mut manifest = intrinsic_report.manifest.clone();
+    manifest.run_timestamp = started_at;
+    manifest.duration_ms = combined_duration_ms;
+    if let Some(runtime_settings) = manifest.runtime_settings.as_object_mut() {
+        runtime_settings.insert("dual".to_string(), JsonValue::Bool(true));
+        runtime_settings.insert(
+            "dual_modes".to_string(),
+            json!(["intrinsic", "accelerated"]),
+        );
+        runtime_settings.insert(
+            "intrinsic_base_url".to_string(),
+            json!(public_benchmark_trimmed_url(intrinsic_base_url)),
+        );
+        runtime_settings.insert(
+            "accelerated_base_url".to_string(),
+            json!(public_benchmark_trimmed_url(accelerated_base_url)),
+        );
+        runtime_settings.insert("retrieval_backend".to_string(), json!("memd"));
+        runtime_settings.insert("dual_rows_per_question".to_string(), json!(2));
+    }
+
+    Ok(PublicBenchmarkRunReport {
+        manifest,
+        metrics,
+        item_count: items.len(),
+        failures,
+        items,
+    })
+}
+
 pub(crate) fn build_longmemeval_run_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
     mode: &str,
     reranker_id: Option<&str>,
     retrieval_config: &PublicBenchmarkRetrievalConfig,
+    include_turn_diagnostics: bool,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     let ks = [1usize, 3, 5, 10, 30, 50];
     let started = Instant::now();
@@ -2076,39 +2385,55 @@ pub(crate) fn build_longmemeval_run_report(
                 .collect::<BTreeSet<_>>();
         let (session_corpus, session_corpus_ids, session_timestamps) =
             build_longmemeval_session_corpus(item);
+        let session_namespace =
+            longmemeval_bench_namespace("session", &session_corpus_ids, &session_corpus);
         let session_ranked = rank_longmemeval_corpus(
             &item.query,
             &session_corpus,
             &session_corpus_ids,
             mode,
             retrieval_config,
-            &format!("{}-session", item.question_id),
+            &session_namespace,
         )?;
         let session_rankings = session_ranked
             .iter()
             .map(|(index, _)| *index)
             .collect::<Vec<_>>();
-        let (turn_corpus, turn_corpus_ids, _turn_timestamps) = build_longmemeval_turn_corpus(item);
-        let turn_ranked = rank_longmemeval_corpus(
-            &item.query,
-            &turn_corpus,
-            &turn_corpus_ids,
-            mode,
-            retrieval_config,
-            &format!("{}-turn", item.question_id),
-        )?;
-        let turn_rankings = turn_ranked
-            .iter()
-            .map(|(index, _)| *index)
-            .collect::<Vec<_>>();
-        let turn_answer_ids = turn_corpus_ids
-            .iter()
-            .filter(|id| {
-                id.rsplit_once("_turn_")
-                    .is_some_and(|(session_id, _)| answer_session_ids.contains(session_id))
-            })
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let (turn_corpus, turn_corpus_ids, _turn_timestamps) = if include_turn_diagnostics {
+            build_longmemeval_turn_corpus(item)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+        let turn_rankings = if include_turn_diagnostics {
+            let turn_namespace =
+                longmemeval_bench_namespace("turn", &turn_corpus_ids, &turn_corpus);
+            let turn_ranked = rank_longmemeval_corpus(
+                &item.query,
+                &turn_corpus,
+                &turn_corpus_ids,
+                mode,
+                retrieval_config,
+                &turn_namespace,
+            )?;
+            turn_ranked
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let turn_answer_ids = if include_turn_diagnostics {
+            turn_corpus_ids
+                .iter()
+                .filter(|id| {
+                    id.rsplit_once("_turn_")
+                        .is_some_and(|(session_id, _)| answer_session_ids.contains(session_id))
+                })
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        } else {
+            BTreeSet::new()
+        };
 
         let mut session_metrics = serde_json::Map::new();
         let mut turn_metrics = serde_json::Map::new();
@@ -2133,18 +2458,20 @@ pub(crate) fn build_longmemeval_run_report(
             );
             session_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(session_ndcg));
 
-            let (turn_recall_any, turn_recall_all, turn_ndcg) = evaluate_ranked_longmemeval_ids(
-                &turn_rankings,
-                &turn_answer_ids,
-                &turn_corpus_ids,
-                k,
-            );
-            *turn_recall_sums.entry(k).or_insert(0.0) += turn_recall_any;
-            *turn_recall_all_sums.entry(k).or_insert(0.0) += turn_recall_all;
-            *turn_ndcg_sums.entry(k).or_insert(0.0) += turn_ndcg;
-            turn_metrics.insert(format!("recall_any@{k}"), JsonValue::from(turn_recall_any));
-            turn_metrics.insert(format!("recall_all@{k}"), JsonValue::from(turn_recall_all));
-            turn_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(turn_ndcg));
+            if include_turn_diagnostics {
+                let (turn_recall_any, turn_recall_all, turn_ndcg) = evaluate_ranked_longmemeval_ids(
+                    &turn_rankings,
+                    &turn_answer_ids,
+                    &turn_corpus_ids,
+                    k,
+                );
+                *turn_recall_sums.entry(k).or_insert(0.0) += turn_recall_any;
+                *turn_recall_all_sums.entry(k).or_insert(0.0) += turn_recall_all;
+                *turn_ndcg_sums.entry(k).or_insert(0.0) += turn_ndcg;
+                turn_metrics.insert(format!("recall_any@{k}"), JsonValue::from(turn_recall_any));
+                turn_metrics.insert(format!("recall_all@{k}"), JsonValue::from(turn_recall_all));
+                turn_metrics.insert(format!("ndcg_any@{k}"), JsonValue::from(turn_ndcg));
+            }
         }
 
         let qtype = item
@@ -2188,6 +2515,7 @@ pub(crate) fn build_longmemeval_run_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: item.claim_class.clone(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: Some(qtype.clone()),
             ranked_items: retrieved_items.clone(),
@@ -2208,7 +2536,12 @@ pub(crate) fn build_longmemeval_run_report(
                 "mode": mode,
                 "question_type": qtype,
                 "session_metrics": JsonValue::Object(session_metrics),
-                "turn_metrics": JsonValue::Object(turn_metrics),
+                "turn_metrics": if include_turn_diagnostics {
+                    JsonValue::Object(turn_metrics)
+                } else {
+                    json!({"skipped": true})
+                },
+                "turn_diagnostics": include_turn_diagnostics,
                 "answer_session_ids": answer_session_ids,
                 "turn_answer_ids": turn_answer_ids,
             })),
@@ -2244,18 +2577,20 @@ pub(crate) fn build_longmemeval_run_report(
             format!("session_ndcg_any@{k}"),
             session_ndcg_sums.get(&k).copied().unwrap_or(0.0) / item_count,
         );
-        metrics.insert(
-            format!("turn_recall_any@{k}"),
-            turn_recall_sums.get(&k).copied().unwrap_or(0.0) / item_count,
-        );
-        metrics.insert(
-            format!("turn_recall_all@{k}"),
-            turn_recall_all_sums.get(&k).copied().unwrap_or(0.0) / item_count,
-        );
-        metrics.insert(
-            format!("turn_ndcg_any@{k}"),
-            turn_ndcg_sums.get(&k).copied().unwrap_or(0.0) / item_count,
-        );
+        if include_turn_diagnostics {
+            metrics.insert(
+                format!("turn_recall_any@{k}"),
+                turn_recall_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+            );
+            metrics.insert(
+                format!("turn_recall_all@{k}"),
+                turn_recall_all_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+            );
+            metrics.insert(
+                format!("turn_ndcg_any@{k}"),
+                turn_ndcg_sums.get(&k).copied().unwrap_or(0.0) / item_count,
+            );
+        }
     }
     metrics.insert(
         "accuracy".to_string(),
@@ -2407,6 +2742,7 @@ pub(crate) async fn build_longmemeval_community_standard_run_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: item.claim_class.clone(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: Some(question_type.to_string()),
             ranked_items: Vec::new(),
@@ -2615,6 +2951,7 @@ pub(crate) async fn build_longmemeval_full_eval_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: "full-eval".to_string(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: Some(question_type.to_string()),
             ranked_items: Vec::new(),
@@ -2803,6 +3140,7 @@ pub(crate) async fn build_locomo_full_eval_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: "full-eval".to_string(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: Some(category),
             ranked_items: Vec::new(),
@@ -2997,6 +3335,7 @@ pub(crate) async fn build_membench_full_eval_report(
             item_id: item.item_id.clone(),
             question_id: item.question_id.clone(),
             claim_class: "full-eval".to_string(),
+            mode: None,
             question: Some(item.query.clone()),
             question_type: Some(topic),
             ranked_items: Vec::new(),
@@ -3103,9 +3442,17 @@ pub(crate) fn build_public_benchmark_item_results(
     mode: &str,
     reranker_id: Option<&str>,
     retrieval_config: &PublicBenchmarkRetrievalConfig,
+    include_turn_diagnostics: bool,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     if dataset.benchmark_id == "longmemeval" {
-        return build_longmemeval_run_report(dataset, top_k, mode, reranker_id, retrieval_config);
+        return build_longmemeval_run_report(
+            dataset,
+            top_k,
+            mode,
+            reranker_id,
+            retrieval_config,
+            include_turn_diagnostics,
+        );
     }
     if dataset.benchmark_id == "locomo" {
         return build_context_retrieval_run_report(
@@ -3218,6 +3565,7 @@ pub(crate) fn build_public_benchmark_manifest(
             "dataset_fixture": resolved_dataset.path.display().to_string(),
             "dataset_items": dataset.items.len(),
             "mode": mode,
+            "turn_diagnostics": args.turn_diagnostics,
             "community_standard": args.community_standard,
             "hypotheses_file": args.hypotheses_file.as_ref().map(|path| path.display().to_string()),
             "grader_model": args.grader_model,
@@ -3254,7 +3602,7 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
             .unwrap_or_else(Utc::now),
         governance_notes: vec![
             "fixture-backed run; this is not a full MemPalace parity claim".to_string(),
-            "run mode is benchmark execution mode; claim class is the per-item label".to_string(),
+            "run mode is benchmark execution mode; item mode is intrinsic/accelerated when dual is active; claim class stays dataset-native".to_string(),
             format!(
                 "implemented mini adapters: {}",
                 implemented_public_benchmark_ids().join(", ")
@@ -3274,6 +3622,18 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
             .map(|report| {
                 let (primary_metric_label, primary_metric_value) =
                     public_benchmark_primary_metric(report);
+                let (intrinsic_score, accelerated_score) =
+                    public_benchmark_dual_scores(report);
+                let score_delta = intrinsic_score
+                    .zip(accelerated_score)
+                    .map(|(intrinsic, accelerated)| accelerated - intrinsic);
+                let mut item_modes = report
+                    .items
+                    .iter()
+                    .filter_map(|item| item.mode.clone())
+                    .collect::<Vec<_>>();
+                item_modes.sort();
+                item_modes.dedup();
                 let mut item_claim_classes = report
                     .items
                     .iter()
@@ -3286,6 +3646,7 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                     benchmark_name: report.manifest.dataset_name.clone(),
                     benchmark_version: report.manifest.benchmark_version.clone(),
                     run_mode: report.manifest.mode.clone(),
+                    item_modes,
                     item_claim_classes,
                     coverage_status: if report.manifest.dataset_source_url.starts_with("http") {
                         "real-dataset".to_string()
@@ -3297,11 +3658,14 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
                     } else {
                         "partial / not full parity".to_string()
                     },
+                    primary_metric_label: primary_metric_label.to_string(),
                     accuracy: primary_metric_value,
+                    intrinsic_score,
+                    accelerated_score,
+                    score_delta,
                     item_count: report.item_count,
                     notes: {
                         let mut notes = vec![
-                            format!("primary_metric={primary_metric_label}"),
                             format!("dataset={}", report.manifest.dataset_local_path),
                             format!("checksum={}", report.manifest.dataset_checksum),
                             format!("source={}", report.manifest.dataset_source_url),
@@ -3332,6 +3696,13 @@ pub(crate) fn build_public_benchmark_leaderboard_report(
 pub(crate) fn public_benchmark_primary_metric(
     report: &PublicBenchmarkRunReport,
 ) -> (&'static str, f64) {
+    let (label, candidates) = public_benchmark_primary_metric_candidates(report);
+    (label, resolve_public_benchmark_metric(report, &candidates))
+}
+
+fn public_benchmark_primary_metric_candidates(
+    report: &PublicBenchmarkRunReport,
+) -> (&'static str, Vec<&'static str>) {
     let is_full_eval = report
         .manifest
         .runtime_settings
@@ -3340,18 +3711,9 @@ pub(crate) fn public_benchmark_primary_metric(
         .unwrap_or(false);
 
     match (report.manifest.benchmark_id.as_str(), is_full_eval) {
-        ("longmemeval", true) => (
-            "accuracy (LLM-judge, industry standard)",
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
-        ),
-        ("locomo", true) => (
-            "F1 (token-level, industry standard)",
-            report.metrics.get("f1").copied().unwrap_or(0.0),
-        ),
-        ("membench", true) => (
-            "MC accuracy (industry standard)",
-            report.metrics.get("mc_accuracy").copied().unwrap_or(0.0),
-        ),
+        ("longmemeval", true) => ("accuracy (LLM-judge, industry standard)", vec!["accuracy"]),
+        ("locomo", true) => ("F1 (token-level, industry standard)", vec!["f1"]),
+        ("membench", true) => ("MC accuracy (industry standard)", vec!["mc_accuracy"]),
         ("longmemeval", false) => {
             let is_community = report
                 .manifest
@@ -3362,38 +3724,49 @@ pub(crate) fn public_benchmark_primary_metric(
             if is_community {
                 (
                     "official_qa_accuracy (community standard)",
-                    report
-                        .metrics
-                        .get("qa_accuracy")
-                        .copied()
-                        .or_else(|| report.metrics.get("accuracy").copied())
-                        .unwrap_or(0.0),
+                    vec!["qa_accuracy", "accuracy"],
                 )
             } else {
                 (
                     "session_recall_any@5 (retrieval diagnostic)",
-                    report
-                        .metrics
-                        .get("session_recall_any@5")
-                        .copied()
-                        .or_else(|| report.metrics.get("accuracy").copied())
-                        .unwrap_or(0.0),
+                    vec!["session_recall_any@5", "accuracy"],
                 )
             }
         }
         ("locomo", false) => (
             "evidence_hit_rate@5 (retrieval diagnostic)",
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
+            vec!["accuracy"],
         ),
-        ("membench", false) => (
-            "target_hit_rate@5 (retrieval diagnostic)",
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
-        ),
-        _ => (
-            "accuracy (retrieval diagnostic)",
-            report.metrics.get("accuracy").copied().unwrap_or(0.0),
-        ),
+        ("membench", false) => ("target_hit_rate@5 (retrieval diagnostic)", vec!["accuracy"]),
+        _ => ("accuracy (retrieval diagnostic)", vec!["accuracy"]),
     }
+}
+
+fn resolve_public_benchmark_metric(report: &PublicBenchmarkRunReport, candidates: &[&str]) -> f64 {
+    candidates
+        .iter()
+        .find_map(|key| report.metrics.get(*key).copied())
+        .unwrap_or(0.0)
+}
+
+fn public_benchmark_dual_scores(report: &PublicBenchmarkRunReport) -> (Option<f64>, Option<f64>) {
+    let is_dual = report
+        .manifest
+        .runtime_settings
+        .get("dual")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    if !is_dual {
+        return (None, None);
+    }
+    let (_, candidates) = public_benchmark_primary_metric_candidates(report);
+    let intrinsic = candidates
+        .iter()
+        .find_map(|key| report.metrics.get(&format!("intrinsic::{key}")).copied());
+    let accelerated = candidates
+        .iter()
+        .find_map(|key| report.metrics.get(&format!("accelerated::{key}")).copied());
+    (intrinsic, accelerated)
 }
 
 pub(crate) fn check_benchmark_threshold(
