@@ -71,6 +71,24 @@ fn env_f64(name: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+fn sqlite_connection_pragmas() -> &'static str {
+    if env_truthy("MEMD_BENCH_VOLATILE_DB") {
+        return r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = OFF;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA foreign_keys = ON;
+        "#;
+    }
+
+    r#"
+        PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA foreign_keys = ON;
+    "#
+}
+
 /// FTS5 per-field weights (content, tags) for `bm25()` ranking.
 /// Default (1.0, 1.0) equals SQLite's built-in `rank`. When
 /// `MEMD_RETRIEVAL_FTS5_TUNED` is truthy, overrides from
@@ -179,12 +197,10 @@ impl SqliteStore {
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let db_path = path.as_ref().to_path_buf();
         let mut conn = Connection::open(&db_path).context("open sqlite database")?;
+        conn.execute_batch(sqlite_connection_pragmas())
+            .context("configure sqlite database")?;
         conn.execute_batch(
             r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA busy_timeout = 5000;
-            PRAGMA foreign_keys = ON;
-
             CREATE TABLE IF NOT EXISTS memory_items (
               id TEXT PRIMARY KEY,
               kind TEXT NOT NULL,
@@ -512,6 +528,17 @@ impl SqliteStore {
               ON ingestion_manifest(project, namespace);
             CREATE INDEX IF NOT EXISTS idx_ingestion_manifest_lane
               ON ingestion_manifest(lane);
+
+            CREATE TABLE IF NOT EXISTS memory_vectors (
+              memory_id TEXT PRIMARY KEY,
+              project TEXT,
+              namespace TEXT,
+              dim INTEGER NOT NULL,
+              vec BLOB NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_vectors_scope
+              ON memory_vectors(project, namespace);
             "#,
         )
         .context("initialize sqlite schema")?;
@@ -535,14 +562,8 @@ impl SqliteStore {
     pub(crate) fn connect(&self) -> anyhow::Result<Connection> {
         let conn = Connection::open(self.db_path.as_ref())
             .with_context(|| format!("open sqlite database {}", self.db_path.display()))?;
-        conn.execute_batch(
-            r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA busy_timeout = 5000;
-            PRAGMA foreign_keys = ON;
-            "#,
-        )
-        .context("configure sqlite connection")?;
+        conn.execute_batch(sqlite_connection_pragmas())
+            .context("configure sqlite connection")?;
         Ok(conn)
     }
 
@@ -1277,7 +1298,10 @@ impl SqliteStore {
                         if trimmed.is_empty() {
                             continue;
                         }
-                        if !aliases.iter().any(|existing| existing.eq_ignore_ascii_case(&trimmed)) {
+                        if !aliases
+                            .iter()
+                            .any(|existing| existing.eq_ignore_ascii_case(&trimmed))
+                        {
                             aliases.push(trimmed);
                             if aliases.len() >= limit {
                                 return Ok(aliases);
@@ -2004,8 +2028,7 @@ impl SqliteStore {
             return self.list();
         }
         let conn = self.connect()?;
-        let mut sql =
-            String::from("SELECT payload_json FROM memory_items WHERE 1=1");
+        let mut sql = String::from("SELECT payload_json FROM memory_items WHERE 1=1");
         let mut args: Vec<String> = Vec::new();
         if let Some(p) = project {
             sql.push_str(" AND project = ?");
@@ -2074,6 +2097,93 @@ impl SqliteStore {
         }
 
         Ok(results)
+    }
+
+    /// Upsert a memory vector keyed by memory id. `project` / `namespace`
+    /// mirror the MemoryItem scope so dense search can prefilter to the
+    /// same slice `snapshot_for_scope` uses.
+    pub fn upsert_memory_vector(
+        &self,
+        memory_id: Uuid,
+        project: Option<&str>,
+        namespace: Option<&str>,
+        dim: usize,
+        vec_bytes: &[u8],
+    ) -> anyhow::Result<()> {
+        let conn = self.connect()?;
+        conn.execute(
+            r#"
+            INSERT INTO memory_vectors (memory_id, project, namespace, dim, vec, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(memory_id) DO UPDATE SET
+              project = excluded.project,
+              namespace = excluded.namespace,
+              dim = excluded.dim,
+              vec = excluded.vec,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                memory_id.to_string(),
+                project,
+                namespace,
+                dim as i64,
+                vec_bytes,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .context("upsert memory vector")?;
+        Ok(())
+    }
+
+    /// Load every (id, raw-bytes) vector matching the given scope. Null
+    /// `project` / `namespace` filters degrade to "match any" (mirrors
+    /// `list_for_scope`). Returns raw bytes; caller converts to f32 slices.
+    pub fn list_vectors_for_scope(
+        &self,
+        project: Option<&str>,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<(Uuid, Vec<u8>)>> {
+        let conn = self.connect()?;
+        let mut clauses: Vec<&str> = Vec::new();
+        if project.is_some() {
+            clauses.push("project = ?");
+        }
+        if namespace.is_some() {
+            clauses.push("namespace = ?");
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
+            "SELECT memory_id, vec FROM memory_vectors{} LIMIT 20000",
+            where_clause
+        );
+        let mut stmt = conn.prepare(&sql).context("prepare list vectors")?;
+
+        let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::new();
+        if let Some(p) = project.as_ref() {
+            bound.push(p);
+        }
+        if let Some(n) = namespace.as_ref() {
+            bound.push(n);
+        }
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(bound.into_iter()), |row| {
+                let id_str: String = row.get(0)?;
+                let vec_bytes: Vec<u8> = row.get(1)?;
+                Ok((id_str, vec_bytes))
+            })
+            .context("query memory vectors")?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id_str, bytes) = row.context("read vector row")?;
+            if let Ok(id) = Uuid::parse_str(&id_str) {
+                out.push((id, bytes));
+            }
+        }
+        Ok(out)
     }
 
     pub fn count(&self) -> anyhow::Result<usize> {

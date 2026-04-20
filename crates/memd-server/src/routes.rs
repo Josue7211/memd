@@ -1,5 +1,6 @@
 use super::errors::MemdError;
 use super::*;
+use memd_schema::PressureMetrics;
 
 // B3-T6: atlas-at-recall 1-hop expansion flag. Default off.
 fn atlas_recall_enabled() -> bool {
@@ -38,6 +39,7 @@ pub(crate) async fn healthz(
         .iter()
         .filter(|i| i.status == MemoryStatus::Expired)
         .count();
+    let rag = state.rag_health_surface().await;
 
     Ok(Json(HealthResponse {
         status: "ok".to_string(),
@@ -49,6 +51,7 @@ pub(crate) async fn healthz(
             stale,
             expired,
         }),
+        rag: Some(rag),
     }))
 }
 
@@ -308,6 +311,81 @@ pub(crate) async fn search_memory(
                     fts_ranks.push((nid, tail_score));
                 }
             }
+        }
+    }
+    if state.rag.is_some() && rag_dense_enabled() {
+        match state.rag_dense_candidates(&req).await {
+            Ok(dense) if !dense.is_empty() => {
+                let tail_score = fts_ranks
+                    .last()
+                    .map(|(_, score)| *score * 0.5)
+                    .unwrap_or(0.15)
+                    .max(0.15);
+                let mut existing: std::collections::HashSet<Uuid> =
+                    fts_ranks.iter().map(|(id, _)| *id).collect();
+                for (id, _) in dense {
+                    if existing.insert(id) {
+                        fts_ranks.push((id, tail_score));
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(error) => warn!(error = %format_args!("{error:#}"), "rag dense retrieval failed"),
+        }
+    }
+
+    // B3-Part2: intrinsic dense blend (in-process fastembed). Gated via
+    // MEMD_INTRINSIC_DENSE=1. Scopes the vector scan to the same project+
+    // namespace slice as `snapshot_for_scope`, so per-question bench
+    // namespaces never trigger a global-corpus vector scan. Dense scores
+    // replace fts scores rather than tail-append, so purely-semantic matches
+    // (zero lexical overlap) surface into the top-K.
+    if let Some(embedder) = state.embedder.as_deref()
+        && crate::embed::intrinsic_dense_enabled()
+        && let Some(query_text) = req.query.as_deref().map(str::trim).filter(|q| !q.is_empty())
+    {
+        match embedder.embed_normalized(query_text) {
+            Ok(q_vec) => {
+                match state
+                    .store
+                    .list_vectors_for_scope(req.project.as_deref(), req.namespace.as_deref())
+                {
+                    Ok(candidates) if !candidates.is_empty() => {
+                        let mut scored: Vec<(Uuid, f64)> = Vec::with_capacity(candidates.len());
+                        for (id, bytes) in candidates {
+                            let v = crate::embed::bytes_to_vec(&bytes);
+                            let score = crate::embed::cosine_on_unit(&q_vec, &v) as f64;
+                            scored.push((id, score));
+                        }
+                        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        scored.truncate(200);
+                        let existing: std::collections::HashMap<Uuid, f64> =
+                            fts_ranks.iter().copied().collect();
+                        let mut blended: Vec<(Uuid, f64)> = Vec::with_capacity(scored.len() + fts_ranks.len());
+                        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+                        for (id, dense_score) in scored {
+                            seen.insert(id);
+                            let fts_score = existing.get(&id).copied().unwrap_or(0.0);
+                            // Heavy dense weight — the gate exists because
+                            // FTS alone is at 0.828, and we need pure
+                            // semantic hits to win when lexical overlap is
+                            // absent. Fts contributes as a tie-breaker.
+                            let blended_score = dense_score + 0.1 * fts_score;
+                            blended.push((id, blended_score));
+                        }
+                        for (id, fts_score) in fts_ranks.iter() {
+                            if !seen.contains(id) {
+                                blended.push((*id, 0.1 * *fts_score));
+                            }
+                        }
+                        blended.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        fts_ranks = blended;
+                    }
+                    Ok(_) => {}
+                    Err(error) => warn!(error = %format_args!("{error:#}"), "list_vectors_for_scope failed"),
+                }
+            }
+            Err(error) => warn!(error = %format_args!("{error:#}"), "query embed failed"),
         }
     }
     let items = filter_items(&items, &req, &plan, &fts_ranks);

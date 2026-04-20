@@ -1,5 +1,6 @@
 mod atlas;
 mod backup;
+mod embed;
 mod errors;
 mod helpers;
 mod inspection;
@@ -7,6 +8,7 @@ mod keys;
 mod latency;
 mod procedural;
 mod query_sanitize;
+mod rag_bridge;
 mod rate_limit;
 mod repair;
 mod routes;
@@ -29,6 +31,7 @@ mod working;
 mod tests;
 
 pub(crate) use helpers::*;
+pub(crate) use rag_bridge::*;
 pub(crate) use routes::*;
 pub(crate) use store::{DuplicateMatch, RecordEventArgs, SqliteStore};
 
@@ -44,6 +47,7 @@ use axum::{
 };
 use chrono::Utc;
 pub(crate) use keys::{apply_lifecycle, canonical_key, redundancy_key, validate_source_quality};
+use memd_rag::RagClient;
 use memd_schema::{
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallHit,
     AssociativeRecallRequest, AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse,
@@ -71,20 +75,20 @@ use memd_schema::{
     MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord,
     MemoryInboxRequest, MemoryInboxResponse, MemoryItem, MemoryKind,
     MemoryMaintenanceReportRequest, MemoryMaintenanceReportResponse, MemoryPolicyResponse,
-    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, PressureMetrics,
-    ProcedureDetectRequest, ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse,
-    ProcedureMatchRequest, ProcedureMatchResponse, ProcedurePromoteRequest,
-    ProcedurePromoteResponse, ProcedureRecordRequest, ProcedureRecordResponse,
-    ProcedureRetireRequest, ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse,
-    PromoteMemoryRequest, PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse,
-    RetrievalIntent, RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse,
-    SkillPolicyActivationEntriesRequest, SkillPolicyActivationEntriesResponse,
-    SkillPolicyApplyReceiptsRequest, SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest,
-    SkillPolicyApplyResponse, SourceMemoryRequest, SourceMemoryResponse, SourceQuality,
-    StoreMemoryRequest, StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse,
-    VerifyMemoryRequest, VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse,
-    VisibleMemorySnapshotResponse, VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse,
-    WorkingMemoryRequest, WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
+    MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility, ProcedureDetectRequest,
+    ProcedureDetectResponse, ProcedureListRequest, ProcedureListResponse, ProcedureMatchRequest,
+    ProcedureMatchResponse, ProcedurePromoteRequest, ProcedurePromoteResponse,
+    ProcedureRecordRequest, ProcedureRecordResponse, ProcedureRetireRequest,
+    ProcedureRetireResponse, ProcedureUseRequest, ProcedureUseResponse, PromoteMemoryRequest,
+    PromoteMemoryResponse, RepairMemoryRequest, RepairMemoryResponse, RetrievalIntent,
+    RetrievalRoute, SearchMemoryRequest, SearchMemoryResponse, SkillPolicyActivationEntriesRequest,
+    SkillPolicyActivationEntriesResponse, SkillPolicyApplyReceiptsRequest,
+    SkillPolicyApplyReceiptsResponse, SkillPolicyApplyRequest, SkillPolicyApplyResponse,
+    SourceMemoryRequest, SourceMemoryResponse, SourceQuality, StoreMemoryRequest,
+    StoreMemoryResponse, TimelineMemoryRequest, TimelineMemoryResponse, VerifyMemoryRequest,
+    VerifyMemoryResponse, VisibleMemoryArtifactDetailResponse, VisibleMemorySnapshotResponse,
+    VisibleMemoryUiActionRequest, VisibleMemoryUiActionResponse, WorkingMemoryRequest,
+    WorkingMemoryResponse, WorkspaceMemoryRequest, WorkspaceMemoryResponse,
 };
 pub(crate) use routing::RetrievalPlan;
 use serde::Deserialize;
@@ -98,6 +102,8 @@ struct AppState {
     store: SqliteStore,
     latency: std::sync::Arc<latency::LatencyHistogram>,
     rate_limiter: std::sync::Arc<rate_limit::RateLimiter>,
+    rag: Option<std::sync::Arc<RagClient>>,
+    embedder: Option<std::sync::Arc<embed::Embedder>>,
 }
 
 // B3-Part2-prereq: kill-switch for quadratic entity auto-link on the store hot path.
@@ -161,7 +167,6 @@ impl AppState {
             redundancy_key: Some(redundancy_key.clone()),
             ..item
         };
-        let entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
         let duplicate =
             self.store
                 .insert_or_get_duplicate(&item, &canonical_key, &redundancy_key)?;
@@ -180,6 +185,8 @@ impl AppState {
             ) {
                 warn!(error = %format_args!("{e:#}"), "record_item_event (restored)");
             }
+            self.fanout_rag_ingest(revived.clone());
+            self.maybe_upsert_vector(&revived);
             return Ok((revived, None));
         }
         if let Some(found) = duplicate.as_ref() {
@@ -199,10 +206,14 @@ impl AppState {
             ) {
                 warn!(error = %format_args!("{e:#}"), "record_item_event (reinforced)");
             }
+            self.fanout_rag_ingest(reinforced.clone());
+            self.maybe_upsert_vector(&reinforced);
             return Ok((reinforced, Some(found.clone())));
         }
         if duplicate.is_none() {
-            if let Err(e) = self.record_item_event(
+            let entity = self.store.resolve_entity_for_item(&item, &canonical_key)?;
+            if let Err(e) = self.record_item_event_for_entity(
+                &entity.record,
                 &item,
                 event_type_for_stage(stage),
                 format!(
@@ -240,7 +251,52 @@ impl AppState {
                 }
             }
         }
+        self.fanout_rag_ingest(item.clone());
+        self.maybe_upsert_vector(&item);
         Ok((item, duplicate))
+    }
+
+    fn maybe_upsert_vector(&self, item: &MemoryItem) {
+        let Some(embedder) = self.embedder.as_deref() else {
+            return;
+        };
+        let vec = match embedder.embed_normalized(&item.content) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %format_args!("{err:#}"), "embed_normalized failed");
+                return;
+            }
+        };
+        let bytes = embed::vec_to_bytes(&vec);
+        if let Err(err) = self.store.upsert_memory_vector(
+            item.id,
+            item.project.as_deref(),
+            item.namespace.as_deref(),
+            embedder.dim(),
+            &bytes,
+        ) {
+            warn!(error = %format_args!("{err:#}"), "upsert_memory_vector failed");
+        }
+    }
+
+    fn fanout_rag_ingest(&self, item: MemoryItem) {
+        if let Some(rag) = self.rag.clone() {
+            rag_bridge::spawn_ingest(rag, item);
+        }
+    }
+
+    async fn rag_dense_candidates(
+        &self,
+        req: &SearchMemoryRequest,
+    ) -> anyhow::Result<Vec<(Uuid, f64)>> {
+        let Some(rag) = self.rag.as_deref() else {
+            return Ok(Vec::new());
+        };
+        rag_bridge::fetch_dense_candidates(rag, req).await
+    }
+
+    async fn rag_health_surface(&self) -> memd_schema::RagHealthStatus {
+        rag_bridge::health_surface(self.rag.as_deref()).await
     }
 
     fn revive_duplicate_on_explicit_store(
@@ -510,9 +566,19 @@ impl AppState {
     ) -> anyhow::Result<MemoryEventRecord> {
         let canonical_key = canonical_key(item);
         let entity = self.store.resolve_entity_for_item(item, &canonical_key)?;
-        let context = Some(entity_context_frame(&entity.record, item));
+        self.record_item_event_for_entity(&entity.record, item, event_type, summary)
+    }
+
+    fn record_item_event_for_entity(
+        &self,
+        entity: &MemoryEntityRecord,
+        item: &MemoryItem,
+        event_type: &str,
+        summary: String,
+    ) -> anyhow::Result<MemoryEventRecord> {
+        let context = Some(entity_context_frame(entity, item));
         self.store.record_event(
-            &entity.record,
+            entity,
             item.id,
             RecordEventArgs {
                 event_type: event_type.to_string(),
@@ -528,7 +594,7 @@ impl AppState {
                 tags: item.tags.clone(),
                 context,
                 confidence: item.confidence,
-                salience_score: entity.record.salience_score,
+                salience_score: entity.salience_score,
             },
         )
     }
@@ -624,10 +690,30 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    let embedder = if embed::intrinsic_dense_enabled() {
+        let cache_dir = embed::default_cache_dir();
+        match embed::Embedder::try_new(&cache_dir) {
+            Ok(e) => {
+                tracing::info!(
+                    cache_dir = %cache_dir.display(),
+                    "intrinsic dense embedder ready (fastembed AllMiniLML6V2)"
+                );
+                Some(std::sync::Arc::new(e))
+            }
+            Err(err) => {
+                error!(error = %format_args!("{err:#}"), "failed to init fastembed; intrinsic dense disabled");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let state = AppState {
         store,
         latency: latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(rate_limit::RateLimiter::new()),
+        rag: rag_bridge::build_rag_client(),
+        embedder,
     };
     let app = Router::new()
         .route("/", get(dashboard))

@@ -1952,6 +1952,8 @@ mod tests {
             store: crate::SqliteStore::open(&path).unwrap(),
             latency: crate::latency::LatencyHistogram::new(),
             rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+            rag: None,
+            embedder: None,
         }
     }
 

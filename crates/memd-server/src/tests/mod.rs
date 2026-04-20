@@ -3,7 +3,12 @@ use axum::{
     body::{Body, to_bytes},
     http::Request,
 };
+use memd_rag::{
+    RagBackendHealth, RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestResponse,
+    RagRetrieveItem, RagRetrieveMode, RagRetrieveResponse,
+};
 use memd_schema::{CoordinationMode, MemoryRepairMode, SkillPolicyActivationRecord};
+use std::sync::{Arc, Mutex};
 use tower::util::ServiceExt;
 
 fn sample_memory_item(workspace: Option<&str>) -> MemoryItem {
@@ -46,8 +51,118 @@ fn temp_state(name: &str) -> (std::path::PathBuf, AppState) {
         store: SqliteStore::open(&db_path).expect("open temp store"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
     (dir, state)
+}
+
+fn temp_state_with_rag(name: &str, rag_url: Option<&str>) -> (std::path::PathBuf, AppState) {
+    let (dir, mut state) = temp_state(name);
+    state.rag = rag_url.map(|url| Arc::new(RagClient::new(url).expect("build test rag client")));
+    (dir, state)
+}
+
+fn set_env(name: &str, value: &str) {
+    unsafe {
+        std::env::set_var(name, value);
+    }
+}
+
+fn remove_env(name: &str) {
+    unsafe {
+        std::env::remove_var(name);
+    }
+}
+
+struct EnvGuard(&'static str);
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        remove_env(self.0);
+    }
+}
+
+fn set_test_env(name: &'static str, value: &str) -> EnvGuard {
+    set_env(name, value);
+    EnvGuard(name)
+}
+
+#[derive(Clone)]
+struct RagIngestCaptureState {
+    ingest_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RagIngestRequest>>>>,
+}
+
+async fn mock_rag_healthz() -> Json<RagBackendHealthResponse> {
+    Json(RagBackendHealthResponse {
+        status: "ok".to_string(),
+        backend: RagBackendHealth {
+            connected: true,
+            name: Some("rag-sidecar".to_string()),
+            multimodal: true,
+            profile: Some("sparse".to_string()),
+        },
+    })
+}
+
+async fn mock_rag_ingest(
+    State(state): State<RagIngestCaptureState>,
+    Json(req): Json<RagIngestRequest>,
+) -> Json<RagIngestResponse> {
+    if let Some(tx) = state.ingest_tx.lock().expect("lock ingest tx").take() {
+        let _ = tx.send(req.clone());
+    }
+    Json(RagIngestResponse {
+        status: "ok".to_string(),
+        track_id: req.source.id,
+        items: 1,
+    })
+}
+
+async fn mock_rag_retrieve(
+    State(response): State<RagRetrieveResponse>,
+) -> Json<RagRetrieveResponse> {
+    Json(response)
+}
+
+async fn spawn_mock_rag_ingest_server() -> (String, tokio::sync::oneshot::Receiver<RagIngestRequest>)
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let state = RagIngestCaptureState {
+        ingest_tx: Arc::new(Mutex::new(Some(tx))),
+    };
+    let app = Router::new()
+        .route("/healthz", get(mock_rag_healthz))
+        .route("/v1/ingest", post(mock_rag_ingest))
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock rag ingest server");
+    let addr = listener.local_addr().expect("mock rag ingest addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("serve mock rag ingest server");
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    (format!("http://{}", addr), rx)
+}
+
+async fn spawn_mock_rag_retrieve_server(response: RagRetrieveResponse) -> String {
+    let app = Router::new()
+        .route("/v1/retrieve", post(mock_rag_retrieve))
+        .with_state(response);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock rag retrieve server");
+    let addr = listener.local_addr().expect("mock rag retrieve addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("serve mock rag retrieve server");
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    format!("http://{}", addr)
 }
 
 fn test_hive_router(state: AppState) -> Router {
@@ -735,6 +850,8 @@ fn live_truth_precedes_project_memory() {
         store: SqliteStore::open(&db_path).expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let _ = state
@@ -827,6 +944,8 @@ fn current_task_context_keeps_project_fact_visible_under_synced_noise() {
         store: SqliteStore::open(&db_path).expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let _ = state
@@ -919,6 +1038,8 @@ fn current_task_context_prefers_matching_workspace_memory_under_cross_workspace_
         store: SqliteStore::open(&db_path).expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let _ = state
@@ -1014,6 +1135,8 @@ fn superseded_memory_drops_out_after_manual_correction_loop() {
         store: SqliteStore::open(&db_path).expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let (old_item, _) = state
@@ -1428,6 +1551,8 @@ async fn ui_artifact_handler_returns_detail_response() {
         .expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1452,6 +1577,8 @@ async fn ui_action_handler_returns_open_metadata() {
         .expect("open temp db"),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
     let item = ui::test_insert_visible_item(&state, "runtime spine", true).unwrap();
 
@@ -1483,6 +1610,8 @@ async fn atlas_generate_creates_regions_from_stored_memory() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store several memory items of different kinds
@@ -1555,6 +1684,8 @@ async fn atlas_explore_returns_nodes_for_region() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items
@@ -1632,6 +1763,8 @@ async fn atlas_explore_single_node_returns_that_item() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let req = StoreMemoryRequest {
@@ -1695,6 +1828,8 @@ async fn atlas_pivot_filters_by_min_trust() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items with different confidence
@@ -1769,6 +1904,8 @@ async fn atlas_explore_generates_trails_for_multi_node_regions() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items with varying confidence
@@ -1858,6 +1995,8 @@ async fn atlas_explore_time_pivot_filters_recent_items() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items
@@ -1968,6 +2107,8 @@ async fn atlas_lane_tags_create_lane_specific_regions() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items with lane tags
@@ -2053,6 +2194,8 @@ async fn atlas_expand_returns_neighborhood_for_seed_items() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let req = StoreMemoryRequest {
@@ -2108,6 +2251,8 @@ async fn atlas_nodes_include_evidence_count() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let req = StoreMemoryRequest {
@@ -2176,6 +2321,8 @@ async fn atlas_rename_region_persists_new_name() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Create items so regions can be generated
@@ -2256,6 +2403,8 @@ async fn atlas_tag_overlap_fallback_finds_neighbors() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store a seed item with tags
@@ -2395,6 +2544,8 @@ async fn atlas_explore_with_evidence_returns_events() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     let (item, _) = state
@@ -2464,6 +2615,8 @@ async fn atlas_scope_pivot_filters_by_scope() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store project-scoped and global-scoped items
@@ -2566,6 +2719,8 @@ async fn atlas_from_working_seeds_from_working_memory() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store Status items (working memory candidates)
@@ -2667,6 +2822,8 @@ async fn atlas_supersedes_neighborhood_finds_corrections() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store the old item (will be superseded)
@@ -2775,6 +2932,8 @@ async fn atlas_persisted_links_survive_reload() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store two items
@@ -2900,6 +3059,8 @@ async fn atlas_salience_pivot_uses_entity_salience_score() {
         store: store.clone(),
         latency: crate::latency::LatencyHistogram::new(),
         rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: None,
+        embedder: None,
     };
 
     // Store items — entity salience_score is set during store_item
@@ -5232,6 +5393,96 @@ fn rrf_merge_boosts_fts_matched_items_in_search() {
 }
 
 #[test]
+fn filter_items_keeps_fts_hits_even_when_raw_question_text_is_not_a_substring() {
+    let (dir, state) = temp_state("h2-rrf-natural-language");
+
+    let (target, _) = state
+        .store_item(
+            StoreMemoryRequest {
+                content: "graduated with a degree in business administration from UCLA"
+                    .to_string(),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: None,
+                visibility: Some(MemoryVisibility::Workspace),
+                source_agent: Some("codex".to_string()),
+                source_system: Some("memd".to_string()),
+                source_path: None,
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.9),
+                ttl_seconds: None,
+                last_verified_at: Some(Utc::now()),
+                supersedes: Vec::new(),
+                tags: vec!["degree".to_string(), "ucla".to_string()],
+                belief_branch: None,
+                status: None,
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("store degree fact");
+
+    let raw_query = "What degree did I graduate with?".to_string();
+    let fts_ranks = state
+        .store
+        .fts_search("degree ucla", 100)
+        .expect("fts search");
+    assert!(
+        fts_ranks.iter().any(|(id, _)| *id == target.id),
+        "FTS should find the degree fact from the sanitized query"
+    );
+
+    let items = enrich_with_entities(&state, state.snapshot().expect("snapshot")).expect("enrich");
+    let plan = RetrievalPlan::resolve(None, None);
+    let results = filter_items(
+        &items,
+        &SearchMemoryRequest {
+            query: Some(raw_query),
+            limit: Some(10),
+            ..Default::default()
+        },
+        &plan,
+        &fts_ranks,
+    );
+
+    assert!(
+        results.iter().any(|item| item.id == target.id),
+        "raw-question filtering must not discard an FTS hit"
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup h2-rrf-natural-language");
+}
+
+#[test]
+fn search_score_prefers_query_token_overlap_over_unrelated_high_metadata_item() {
+    let plan = RetrievalPlan::resolve(None, None);
+    let query = Some("What should I serve for dinner this weekend with my homegrown ingredients?"
+        .to_string());
+    let relevant = MemoryItem {
+        content: "homegrown cherry tomatoes basil mint dinner ideas and garden produce"
+            .to_string(),
+        tags: vec!["garden".to_string(), "dinner".to_string()],
+        confidence: 0.7,
+        source_quality: Some(SourceQuality::Canonical),
+        ..sample_memory_item(None)
+    };
+    let noisy = MemoryItem {
+        content: "generic project status update about architecture and planning".to_string(),
+        tags: vec!["architecture".to_string()],
+        confidence: 0.95,
+        source_quality: Some(SourceQuality::Canonical),
+        ..sample_memory_item(None)
+    };
+
+    assert!(
+        search_score(&relevant, None, 0.8, &query, None, None, &plan)
+            > search_score(&noisy, None, 0.95, &query, None, None, &plan)
+    );
+}
+
+#[test]
 fn ab_influence_recall_changes_search_output() {
     let (dir, state) = temp_state("h2-ab-influence");
 
@@ -7270,6 +7521,8 @@ async fn rate_limit_middleware_throttles_writes_per_agent_and_passes_reads() {
             4,
             std::time::Duration::from_secs(60),
         )),
+        rag: None,
+        embedder: None,
     };
 
     let app = Router::new()
@@ -7682,4 +7935,242 @@ fn cross_harness_e2e_a_to_b_with_corrections_picked_up_by_a() {
     }
 
     std::fs::remove_dir_all(dir).expect("cleanup x-harness");
+}
+
+#[tokio::test]
+async fn healthz_route_without_rag_env_marks_rag_disabled() {
+    let (dir, state) = temp_state("memd-healthz-no-rag");
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("build healthz request"),
+        )
+        .await
+        .expect("run healthz route");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = decode_json(response).await;
+    assert_eq!(body["rag"]["enabled"], false);
+    assert_eq!(body["rag"]["reachable"], false);
+    assert!(body["rag"]["name"].is_null());
+
+    std::fs::remove_dir_all(dir).expect("cleanup healthz temp dir");
+}
+
+#[tokio::test]
+async fn healthz_route_surfaces_reachable_rag_name() {
+    let (rag_url, _rx) = spawn_mock_rag_ingest_server().await;
+    let (dir, state) = temp_state_with_rag("memd-healthz-rag", Some(&rag_url));
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("build healthz request"),
+        )
+        .await
+        .expect("run healthz route");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = decode_json(response).await;
+    assert_eq!(body["rag"]["enabled"], true);
+    assert_eq!(body["rag"]["reachable"], true);
+    assert_eq!(body["rag"]["name"], "rag-sidecar");
+
+    std::fs::remove_dir_all(dir).expect("cleanup rag healthz temp dir");
+}
+
+#[tokio::test]
+async fn store_memory_fanouts_rag_ingest_with_identity_contract() {
+    let (rag_url, rx) = spawn_mock_rag_ingest_server().await;
+    let (dir, state) = temp_state_with_rag("memd-rag-ingest", Some(&rag_url));
+    let app = Router::new()
+        .route("/memory/store", post(store_memory))
+        .with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/store")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&StoreMemoryRequest {
+                        content: "rag ingest fanout contract".to_string(),
+                        kind: MemoryKind::Fact,
+                        scope: MemoryScope::Project,
+                        project: Some("memd".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: None,
+                        belief_branch: None,
+                        source_agent: Some("codex".to_string()),
+                        source_system: Some("cli".to_string()),
+                        source_path: None,
+                        source_quality: None,
+                        confidence: None,
+                        ttl_seconds: None,
+                        last_verified_at: None,
+                        supersedes: Vec::new(),
+                        tags: vec!["rag".to_string(), "ingest".to_string()],
+                        status: None,
+                        lane: None,
+                    })
+                    .expect("serialize store request"),
+                ))
+                .expect("build store request"),
+        )
+        .await
+        .expect("run store route");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: StoreMemoryResponse = decode_json(response).await;
+    let captured = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .expect("wait for rag ingest fanout")
+        .expect("rag ingest request");
+    assert_eq!(captured.source.id, body.item.id);
+    let expected_source_path = body.item.id.to_string();
+    assert_eq!(
+        captured.source.source_path.as_deref(),
+        Some(expected_source_path.as_str())
+    );
+
+    std::fs::remove_dir_all(dir).expect("cleanup ingest temp dir");
+}
+
+#[tokio::test]
+async fn search_memory_injects_dense_rag_candidates() {
+    let (dir, state) = temp_state("memd-rag-dense");
+    let query = "dense \"alpha";
+    let first = state
+        .store_item(
+            StoreMemoryRequest {
+                content: format!("{query} first item"),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("seed-a.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["rag".to_string()],
+                status: Some(MemoryStatus::Active),
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("seed first item")
+        .0;
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    let second = state
+        .store_item(
+            StoreMemoryRequest {
+                content: format!("{query} second item"),
+                kind: MemoryKind::Fact,
+                scope: MemoryScope::Project,
+                project: Some("memd".to_string()),
+                namespace: Some("main".to_string()),
+                workspace: Some("shared".to_string()),
+                visibility: Some(MemoryVisibility::Workspace),
+                belief_branch: None,
+                source_agent: Some("codex".to_string()),
+                source_system: Some("cli".to_string()),
+                source_path: Some("seed-b.md".to_string()),
+                source_quality: Some(SourceQuality::Canonical),
+                confidence: Some(0.8),
+                ttl_seconds: None,
+                last_verified_at: None,
+                supersedes: Vec::new(),
+                tags: vec!["rag".to_string()],
+                status: Some(MemoryStatus::Active),
+                lane: None,
+            },
+            MemoryStage::Canonical,
+        )
+        .expect("seed second item")
+        .0;
+
+    let retrieve_response = RagRetrieveResponse {
+        status: "ok".to_string(),
+        mode: RagRetrieveMode::Text,
+        items: vec![RagRetrieveItem {
+            content: "dense candidate".to_string(),
+            source: Some(first.id.to_string()),
+            score: 0.98,
+        }],
+    };
+    let rag_url = spawn_mock_rag_retrieve_server(retrieve_response).await;
+    let _dense_guard = set_test_env("MEMD_RETRIEVAL_RAG_DENSE", "1");
+    let search_state = AppState {
+        store: state.store.clone(),
+        latency: crate::latency::LatencyHistogram::new(),
+        rate_limiter: std::sync::Arc::new(crate::rate_limit::RateLimiter::new()),
+        rag: Some(Arc::new(
+            RagClient::new(&rag_url).expect("build dense rag client"),
+        )),
+        embedder: None,
+    };
+
+    let app = Router::new()
+        .route("/memory/search", post(search_memory))
+        .with_state(search_state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/memory/search")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&SearchMemoryRequest {
+                        query: Some(query.to_string()),
+                        route: None,
+                        intent: None,
+                        scopes: Vec::new(),
+                        kinds: Vec::new(),
+                        statuses: Vec::new(),
+                        project: Some("memd".to_string()),
+                        namespace: Some("main".to_string()),
+                        workspace: Some("shared".to_string()),
+                        visibility: None,
+                        belief_branch: None,
+                        source_agent: None,
+                        tags: Vec::new(),
+                        stages: Vec::new(),
+                        limit: Some(10),
+                        max_chars_per_item: None,
+                    })
+                    .expect("serialize search request"),
+                ))
+                .expect("build search request"),
+        )
+        .await
+        .expect("run search route");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SearchMemoryResponse = decode_json(response).await;
+    assert_eq!(body.items.first().map(|item| item.id), Some(first.id));
+    assert_eq!(body.items.len(), 2);
+    assert_eq!(body.items[1].id, second.id);
+
+    std::fs::remove_dir_all(dir).expect("cleanup dense temp dir");
 }
