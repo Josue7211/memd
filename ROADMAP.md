@@ -11,12 +11,12 @@ milestone_status: in_progress
 current_phase: B3
 phase_status: gate-passed
 next_milestone: V3
-next_step: B3 tail-ranking — 500Q dense blend cleared gate at 0.9360@5; single-session-preference still 0.60, optional reranker over top-10 is next; then move to C3
+next_step: C3 Reranker — B3 tail-ranking shipped 2026-04-20 (60Q probe: pref 0.600→0.867@5, overall 0.800→0.933@5 on the sample); merge fix skips lexical when primary has ≥5 items (zero lexical rescues in 60Q, pure dilution). 500Q canonical not rerun; previous 0.936@5 baseline stands, projected ~0.952. Move to C3.
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: b3_part2_gate_passed_2026-04-20
+last_handoff: b3_part2_tail_ranking_fix_2026-04-20
 -->
 
 ## Status Snapshot
@@ -33,7 +33,7 @@ last_handoff: b3_part2_gate_passed_2026-04-20
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `B3 tail-ranking` (optional) — 500Q `session_recall_any@5 = 0.936` clears the ≥0.92 gate; remaining gap is `single-session-preference` at 0.600 (30 Qs). `@30 = 1.000` confirms answer sessions are in the haystack, so a cheap reranker over top-10 is the lever. Then C3.
+- next step: `C3 Reranker` — B3 tail-ranking fix shipped 2026-04-20 (commit `7165d9b`). 60Q probe decomposition found 0 lexical rescues and 7 pref cases where merge diluted server rank ≤5 into merged rank ≥6; fix skips lexical fusion when primary has ≥5 items. 60Q pref 0.600→0.867@5, non-pref types flat at 1.000. 500Q canonical not rerun (user directive); prior 0.936@5 baseline stands, projected ~0.952@5 post-fix. Remaining 4 pref misses have gold at server rank ≥6 — belongs in server ranker, not client merge.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)
