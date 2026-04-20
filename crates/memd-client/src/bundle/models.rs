@@ -417,6 +417,8 @@ pub(crate) struct PublicBenchmarkItemResult {
     pub question_id: String,
     pub claim_class: String,
     #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
     pub question: Option<String>,
     #[serde(default)]
     pub question_type: Option<String>,
@@ -473,10 +475,20 @@ pub(crate) struct PublicBenchmarkLeaderboardRow {
     pub benchmark_name: String,
     pub benchmark_version: String,
     pub run_mode: String,
+    #[serde(default)]
+    pub item_modes: Vec<String>,
     pub item_claim_classes: Vec<String>,
     pub coverage_status: String,
     pub parity_status: String,
+    #[serde(default)]
+    pub primary_metric_label: String,
     pub accuracy: f64,
+    #[serde(default)]
+    pub intrinsic_score: Option<f64>,
+    #[serde(default)]
+    pub accelerated_score: Option<f64>,
+    #[serde(default)]
+    pub score_delta: Option<f64>,
     pub item_count: usize,
     pub notes: Vec<String>,
 }

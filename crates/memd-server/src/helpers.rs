@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 pub(crate) fn enrich_with_entities(
     state: &AppState,
@@ -154,6 +155,8 @@ pub(crate) fn filter_items(
     let query = req.query.as_ref().map(|q| q.to_ascii_lowercase());
     let limit = req.limit.unwrap_or(10).min(100);
     let max_chars = req.max_chars_per_item.unwrap_or(420).clamp(120, 4000);
+    let fts_ids: std::collections::HashSet<Uuid> =
+        fts_ranks.iter().map(|(id, _)| *id).collect();
 
     let mut filtered: Vec<MemoryViewItem> = items
         .iter()
@@ -209,6 +212,7 @@ pub(crate) fn filter_items(
                         .tags
                         .iter()
                         .any(|tag| tag.to_ascii_lowercase().contains(query))
+                    || (!fts_ids.is_empty() && fts_ids.contains(&entry.item.id))
             })
         })
         .cloned()
@@ -305,6 +309,40 @@ pub(crate) fn compact_content(content: &str, max_chars: usize) -> String {
     compact
 }
 
+fn tokenize_search_text(text: &str) -> BTreeSet<String> {
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| token.len() >= 3)
+        .map(|token| token.to_ascii_lowercase())
+        .collect()
+}
+
+fn search_keyword_tokens(query: &str) -> Vec<String> {
+    let stop_words = [
+        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were", "have",
+        "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your", "their",
+        "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from", "ago", "last",
+        "that", "this", "there", "about", "get", "got", "give", "gave", "buy", "bought",
+        "made", "make",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    tokenize_search_text(query)
+        .into_iter()
+        .filter(|token| !stop_words.contains(token.as_str()))
+        .collect()
+}
+
+fn utf8_prefix(content: &str, max_bytes: usize) -> &str {
+    if content.len() <= max_bytes {
+        return content;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    &content[..end]
+}
+
 pub(crate) fn parse_wiki_links(content: &str) -> Vec<String> {
     let mut links = Vec::new();
     let mut remaining = content;
@@ -370,7 +408,7 @@ pub(crate) fn detect_content_lane(
     }
 
     // 3. Content keyword scan (first 2KB)
-    let window = &content[..content.len().min(2048)];
+    let window = utf8_prefix(content, 2048);
     let window_lower = window.to_ascii_lowercase();
 
     static LANE_KEYWORDS: &[(&str, &[&str])] = &[
@@ -914,6 +952,26 @@ pub(crate) fn search_score(
             .filter(|tag| tag.to_ascii_lowercase().contains(query))
             .count();
         score += tag_hits as f32 * 0.5;
+
+        let doc_tokens = tokenize_search_text(&content);
+        let query_tokens = tokenize_search_text(query);
+        let overlap = query_tokens.intersection(&doc_tokens).count() as f32;
+        score += overlap * 0.35;
+
+        let keywords = search_keyword_tokens(query);
+        if !keywords.is_empty() {
+            let keyword_hits = keywords
+                .iter()
+                .filter(|kw| {
+                    content.contains(kw.as_str())
+                        || item
+                            .tags
+                            .iter()
+                            .any(|tag| tag.to_ascii_lowercase().contains(kw.as_str()))
+                })
+                .count() as f32;
+            score += (keyword_hits / keywords.len() as f32) * 1.2;
+        }
     }
 
     score -= age_penalty(item.updated_at);
@@ -1213,6 +1271,14 @@ mod tests {
                 location: Some("/tmp/memd".to_string()),
             }),
         }
+    }
+
+    #[test]
+    fn utf8_prefix_respects_char_boundaries() {
+        let text = "é".repeat(1025);
+        let prefix = utf8_prefix(&text, 2048);
+        assert!(prefix.is_char_boundary(prefix.len()));
+        assert_eq!(prefix.len(), 2048);
     }
 
     #[test]

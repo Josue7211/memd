@@ -7,9 +7,7 @@
 use std::path::Path;
 
 use anyhow::Context;
-use memd_core::contract::{
-    CONTRACT_FILE_NAME, ContractEvidence, MemdContract, verify_contract,
-};
+use memd_core::contract::{CONTRACT_FILE_NAME, ContractEvidence, MemdContract, verify_contract};
 
 use crate::cli::args::{ContractGenerateArgs, ContractVerifyArgs};
 use crate::runtime::collect_files_touched;
@@ -40,7 +38,10 @@ pub fn run_contract_verify(args: &ContractVerifyArgs) -> anyhow::Result<()> {
             files.len()
         );
     } else {
-        println!("contract verify FAILED — {} violation(s):", violations.len());
+        println!(
+            "contract verify FAILED — {} violation(s):",
+            violations.len()
+        );
         for v in &violations {
             println!("  - {}: {}", v.guarantee, v.detail);
         }
@@ -57,7 +58,10 @@ pub fn run_contract_generate(args: &ContractGenerateArgs) -> anyhow::Result<()> 
     let contract = MemdContract::default();
     let path = args.output.join(CONTRACT_FILE_NAME);
     if path.exists() && !args.force {
-        anyhow::bail!("{} already exists — pass --force to overwrite", path.display());
+        anyhow::bail!(
+            "{} already exists — pass --force to overwrite",
+            path.display()
+        );
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -96,7 +100,10 @@ fn any_sealed_ledger_exists(output: &Path) -> bool {
         }
         let sealed = entry.path().join("sealed");
         if let Ok(sd) = std::fs::read_dir(&sealed) {
-            if sd.flatten().any(|f| f.path().extension().is_some_and(|e| e == "json")) {
+            if sd
+                .flatten()
+                .any(|f| f.path().extension().is_some_and(|e| e == "json"))
+            {
                 return true;
             }
         }
@@ -106,10 +113,13 @@ fn any_sealed_ledger_exists(output: &Path) -> bool {
 
 fn live_ledger_exists(output: &Path) -> bool {
     let state = output.join("state");
-    let Ok(rd) = std::fs::read_dir(&state) else { return false; };
+    let Ok(rd) = std::fs::read_dir(&state) else {
+        return false;
+    };
     for entry in rd.flatten() {
         if entry.file_name().to_string_lossy().starts_with("session-")
-            && entry.path().join("file_interactions.json").exists() {
+            && entry.path().join("file_interactions.json").exists()
+        {
             return true;
         }
     }
@@ -118,21 +128,32 @@ fn live_ledger_exists(output: &Path) -> bool {
 
 fn sealed_dir_empty(output: &Path) -> bool {
     let state = output.join("state");
-    let Ok(rd) = std::fs::read_dir(&state) else { return true; };
+    let Ok(rd) = std::fs::read_dir(&state) else {
+        return true;
+    };
     for entry in rd.flatten() {
         let sealed = entry.path().join("sealed");
-        let Ok(sd) = std::fs::read_dir(&sealed) else { continue; };
-        if sd.flatten().next().is_some() { return false; }
+        let Ok(sd) = std::fs::read_dir(&sealed) else {
+            continue;
+        };
+        if sd.flatten().next().is_some() {
+            return false;
+        }
     }
     true
 }
 
 fn enforcement_policy_configured(output: &Path) -> bool {
     let cfg = output.join("config.json");
-    let Ok(bytes) = std::fs::read(&cfg) else { return false; };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return false; };
+    let Ok(bytes) = std::fs::read(&cfg) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
     matches!(
-        v.pointer("/continuity/enforcement").and_then(|s| s.as_str()),
+        v.pointer("/continuity/enforcement")
+            .and_then(|s| s.as_str()),
         Some("off") | Some("warn") | Some("block")
     )
 }
@@ -144,17 +165,25 @@ fn enforcement_hook_wired(output: &Path) -> bool {
 fn preference_recall_evidence(output: &Path) -> Option<bool> {
     let green = output.join("state/preference-replay.green");
     let red = output.join("state/preference-replay.red");
-    if green.exists() { Some(true) }
-    else if red.exists() { Some(false) }
-    else { None }
+    if green.exists() {
+        Some(true)
+    } else if red.exists() {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn file_layout_gate_evidence(output: &Path) -> Option<bool> {
     let green = output.join("state/file-layout-gate.green");
     let red = output.join("state/file-layout-gate.red");
-    if green.exists() { Some(true) }
-    else if red.exists() { Some(false) }
-    else { None }
+    if green.exists() {
+        Some(true)
+    } else if red.exists() {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

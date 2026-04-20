@@ -515,6 +515,17 @@ pub(crate) fn entity_matches_context(
     true
 }
 
+fn truncate_utf8_boundary(value: &mut String, max_len: usize) {
+    if value.len() <= max_len {
+        return;
+    }
+    let mut new_len = max_len;
+    while new_len > 0 && !value.is_char_boundary(new_len) {
+        new_len -= 1;
+    }
+    value.truncate(new_len);
+}
+
 fn compact_entity_state(item: &MemoryItem) -> String {
     let mut state = item
         .content
@@ -522,8 +533,55 @@ fn compact_entity_state(item: &MemoryItem) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     if state.len() > 240 {
-        state.truncate(240);
+        truncate_utf8_boundary(&mut state, 240);
         state.push('…');
     }
     state
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+
+    fn sample_item(content: String) -> MemoryItem {
+        MemoryItem {
+            id: Uuid::new_v4(),
+            content,
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("tests".to_string()),
+            workspace: None,
+            visibility: MemoryVisibility::default(),
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.8,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn compact_entity_state_truncates_on_char_boundary() {
+        let item = sample_item("é".repeat(121));
+        let compacted = compact_entity_state(&item);
+        assert!(compacted.ends_with('…'));
+        assert!(compacted.is_char_boundary(compacted.len()));
+        assert!(compacted.len() <= 243);
+    }
 }

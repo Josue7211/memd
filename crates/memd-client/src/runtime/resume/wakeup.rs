@@ -71,7 +71,11 @@ fn extract_record_id(line: &str) -> Option<String> {
         .find(|c: char| c.is_whitespace() || c == '|')
         .unwrap_or(rest.len());
     let id = rest[..end].trim();
-    if id.is_empty() { None } else { Some(id.to_string()) }
+    if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    }
 }
 
 fn truncate_visible_chars(value: &str, max_chars: usize) -> String {
@@ -87,7 +91,9 @@ fn truncate_visible_chars(value: &str, max_chars: usize) -> String {
 }
 
 pub(crate) fn render_continuity_gate_block(un_read: &[String], verbose: bool) -> String {
-    if un_read.is_empty() { return String::new(); }
+    if un_read.is_empty() {
+        return String::new();
+    }
     let mut s = String::new();
     s.push_str("## Continuity Gate\n\n");
     s.push_str(
@@ -110,28 +116,38 @@ pub(crate) fn render_preferences_block(
     verbose: bool,
     seen_ids: &mut std::collections::HashSet<String>,
 ) -> String {
-    if preferences.is_empty() { return String::new(); }
+    if preferences.is_empty() {
+        return String::new();
+    }
     let dedup = priority_dedup_enabled();
     let item_limit = if claude_strict { 110 } else { 140 };
     let count = if verbose { 5 } else { 3 };
     let mut rows: Vec<String> = Vec::new();
     for p in preferences.iter() {
-        if rows.len() >= count { break; }
+        if rows.len() >= count {
+            break;
+        }
         let trimmed = p.trim();
         if dedup {
             if let Some(id) = extract_record_id(trimmed) {
-                if !seen_ids.insert(id) { continue; }
+                if !seen_ids.insert(id) {
+                    continue;
+                }
             }
         }
         rows.push(format!("- {}\n", compact_inline(trimmed, item_limit)));
     }
-    if rows.is_empty() { return String::new(); }
+    if rows.is_empty() {
+        return String::new();
+    }
     let mut s = String::new();
     s.push_str(&format!(
         "## Preferences{}\n\n",
         layer_suffix("L2 — On-Demand")
     ));
-    for r in rows { s.push_str(&r); }
+    for r in rows {
+        s.push_str(&r);
+    }
     s.push('\n');
     s
 }
@@ -272,7 +288,9 @@ pub(crate) fn render_bundle_wakeup_markdown(
         let reordered: Vec<_> = non_live.into_iter().chain(live.into_iter()).collect();
         let mut rendered = 0usize;
         for item in reordered.iter() {
-            if rendered >= limit { break; }
+            if rendered >= limit {
+                break;
+            }
             let line = item.record.trim();
             if dedup {
                 if let Some(id) = extract_record_id(line) {
@@ -284,15 +302,15 @@ pub(crate) fn render_bundle_wakeup_markdown(
         }
         let total = snapshot.context.records.len();
         if total > rendered {
-            prefix.push_str(&format!("- + {} more via `memd lookup`\n", total - rendered));
+            prefix.push_str(&format!(
+                "- + {} more via `memd lookup`\n",
+                total - rendered
+            ));
         }
         prefix.push('\n');
     }
 
-    prefix.push_str(&format!(
-        "## Focus{}\n\n",
-        layer_suffix("L2 — On-Demand")
-    ));
+    prefix.push_str(&format!("## Focus{}\n\n", layer_suffix("L2 — On-Demand")));
     if snapshot.working.records.is_empty() {
         prefix.push_str("- none\n");
     } else {
@@ -300,11 +318,15 @@ pub(crate) fn render_bundle_wakeup_markdown(
         let item_limit = if claude_strict { 110 } else { 140 };
         let mut rendered = 0usize;
         for item in snapshot.working.records.iter() {
-            if rendered >= limit { break; }
+            if rendered >= limit {
+                break;
+            }
             let line = item.record.trim();
             if dedup {
                 if let Some(id) = extract_record_id(line) {
-                    if !seen_ids.insert(id) { continue; }
+                    if !seen_ids.insert(id) {
+                        continue;
+                    }
                 }
             }
             prefix.push_str(&format!("- {}\n", compact_inline(line, item_limit)));
@@ -367,7 +389,10 @@ pub(crate) fn render_bundle_wakeup_markdown(
     }
 
     if !claude_strict {
-        prefix.push_str(&render_continuity_gate_block(&snapshot.un_read_paths, verbose));
+        prefix.push_str(&render_continuity_gate_block(
+            &snapshot.un_read_paths,
+            verbose,
+        ));
     }
 
     let continuity = snapshot.continuity_capsule();
@@ -377,10 +402,7 @@ pub(crate) fn render_bundle_wakeup_markdown(
         || continuity.next_action.is_some()
         || continuity.blocker.is_some()
     {
-        prefix.push_str(&format!(
-            "## Continuity{}\n\n",
-            layer_suffix("L3 — Deep")
-        ));
+        prefix.push_str(&format!("## Continuity{}\n\n", layer_suffix("L3 — Deep")));
         let continuity_limit = if claude_strict { 96 } else { 140 };
         if let Some(current_task) = continuity.current_task.as_deref() {
             prefix.push_str(&format!(
@@ -900,8 +922,7 @@ mod tests {
 
     #[test]
     fn wakeup_markdown_surfaces_files_touched_block_when_populated() {
-        let dir =
-            std::env::temp_dir().join(format!("memd-wakeup-ft-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("memd-wakeup-ft-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
 
         let mut snapshot = sample_snapshot();
@@ -933,15 +954,13 @@ mod tests {
     /// wake blocks are trimmed. A3 Part 1 continuity guarantee.
     #[test]
     fn wakeup_markdown_emits_files_touched_under_claude_strict() {
-        let dir = std::env::temp_dir()
-            .join(format!("memd-wakeup-ft-claude-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("memd-wakeup-ft-claude-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp bundle");
 
         let mut snapshot = sample_snapshot();
         snapshot.agent = Some("claude-code@session-abc".to_string());
-        snapshot.files_touched = (0..12)
-            .map(|i| format!("src/file_{i}.rs"))
-            .collect();
+        snapshot.files_touched = (0..12).map(|i| format!("src/file_{i}.rs")).collect();
 
         let markdown = render_bundle_wakeup_markdown(&dir, &snapshot, false);
         assert!(

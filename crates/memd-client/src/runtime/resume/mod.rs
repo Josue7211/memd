@@ -12,16 +12,17 @@ pub(crate) fn collect_files_touched(output: &Path) -> Vec<String> {
     };
 
     let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
-    let consider = |p: std::path::PathBuf,
-                    latest: &mut Option<(std::time::SystemTime, std::path::PathBuf)>| {
-        if let Ok(meta) = std::fs::metadata(&p) {
-            if let Ok(mt) = meta.modified() {
-                if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
-                    *latest = Some((mt, p));
+    let consider =
+        |p: std::path::PathBuf,
+         latest: &mut Option<(std::time::SystemTime, std::path::PathBuf)>| {
+            if let Ok(meta) = std::fs::metadata(&p) {
+                if let Ok(mt) = meta.modified() {
+                    if latest.as_ref().map_or(true, |(l, _)| mt > *l) {
+                        *latest = Some((mt, p));
+                    }
                 }
             }
-        }
-    };
+        };
 
     for entry in rd.flatten() {
         if !entry.file_name().to_string_lossy().starts_with("session-") {
@@ -387,13 +388,8 @@ pub(crate) async fn read_bundle_resume(
         })
         .await
     {
-        Ok(resp) => resp
-            .records
-            .into_iter()
-            .take(3)
-            .map(|r| r.record)
-            .collect(),
-        Err(_) => Vec::new(),  // fail-soft: no preferences = empty block
+        Ok(resp) => resp.records.into_iter().take(3).map(|r| r.record).collect(),
+        Err(_) => Vec::new(), // fail-soft: no preferences = empty block
     };
 
     let snapshot = ResumeSnapshot {

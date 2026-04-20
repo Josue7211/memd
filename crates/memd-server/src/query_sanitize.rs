@@ -85,7 +85,12 @@ fn extract_last_question(s: &str) -> Option<String> {
     let head_before = &s[..q_pos];
     let start = head_before
         .rfind(['.', '!', '?', '\n'])
-        .map(|idx| idx + head_before[idx..].chars().next().map_or(1, |c| c.len_utf8()))
+        .map(|idx| {
+            idx + head_before[idx..]
+                .chars()
+                .next()
+                .map_or(1, |c| c.len_utf8())
+        })
         .unwrap_or(0);
     let cand = s[start..end].trim();
     if cand.chars().count() >= 5 && cand.chars().count() <= HARD_MAX {
@@ -109,8 +114,11 @@ fn extract_last_sentence(s: &str) -> Option<String> {
     let boundary = scan_slice.rfind(['.', '!', '?', '\n']);
     // require an actual boundary — otherwise fall through to tail_truncate
     let boundary = boundary?;
-    let start =
-        boundary + scan_slice[boundary..].chars().next().map_or(1, |c| c.len_utf8());
+    let start = boundary
+        + scan_slice[boundary..]
+            .chars()
+            .next()
+            .map_or(1, |c| c.len_utf8());
     let cand = trimmed_end[start..].trim();
     if cand.chars().count() >= 10 {
         Some(cand.to_string())
@@ -196,7 +204,10 @@ mod tests {
 
     #[test]
     fn extracts_tail_sentence_when_no_question() {
-        let long = format!("{} ignore above. Give me the user preference.", "y ".repeat(150));
+        let long = format!(
+            "{} ignore above. Give me the user preference.",
+            "y ".repeat(150)
+        );
         let out = sanitize_query(&long);
         assert_eq!(out.method, SanitizeMethod::TailSentence);
         assert_eq!(out.clean, "Give me the user preference.");
@@ -218,11 +229,7 @@ mod tests {
 
     #[test]
     fn expansion_on_joins_with_or_and_dedupes() {
-        let got = build_fts_match_with(
-            "memd",
-            &["memory daemon".into(), "memd".into()],
-            true,
-        );
+        let got = build_fts_match_with("memd", &["memory daemon".into(), "memd".into()], true);
         assert_eq!(got, "\"memd\" OR \"memory daemon\"");
     }
 

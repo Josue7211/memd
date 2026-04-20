@@ -2,7 +2,7 @@
 phase: B3
 name: Intrinsic Retrieval (RAG-Optional)
 version: v3
-status: pending
+status: in_progress
 depends_on: [A3]
 notes: Renamed A3→B3 on 2026-04-17 when new A3 "memd Continuity Foundation" was inserted at V3 entry (continuity bugs supersede retrieval work — can't benchmark a product whose memory leaks state across compaction). Still carries the intrinsic-wins-first / sidecar-optional framing from the 2026-04-17 RAG-optional correction.
 backlog_items:
@@ -11,6 +11,7 @@ backlog_items:
   - "2026-04-13-status-noise-floods-memory"
   - "2026-04-14-memory-dedup-incomplete"
   - "2026-04-14-no-behavior-changing-recall-proof"
+  - "2026-04-18-longmemeval-intrinsic-primary-score-still-below-target"
 ---
 
 # Phase B3: Intrinsic Retrieval (RAG-Optional)
@@ -50,6 +51,7 @@ Dual-bench-delta required (regenerate [[docs/verification/PUBLIC_LEADERBOARD.md]
 - pre: LongMemEval=0.860, LoCoMo=0.415, MemBench=0.346, ConvoMem=0.000
 - post (B3 targets): **LongMemEval ≥ 0.92 intrinsic**, **MemBench ≥ 0.70 intrinsic** (clears floor), **LoCoMo ≥ 0.55 intrinsic** (on path to 0.70 in C3), **ConvoMem ≥ 0.10 intrinsic** (sanity jump off 0.000; adapter fix + ≥0.70 lands in F3)
 - This is the number that matters — the product must be great without RAG. 0.70 floor is bare minimum; stretch above it.
+- latest recorded product-path rerun (2026-04-18, `--retrieval-backend memd`, `turn_diagnostics=false`): `session_recall_any@5 = 0.828`, `session_recall_any@10 = 0.882`, `session_recall_any@30 = 0.978`, `session_recall_any@50 = 0.998`, duration `1468764 ms` (~24.5 min). The runtime blocker is cleared; the score blocker is still active.
 
 **Accelerated (sidecar ON, the optional bump):**
 - post: demonstrable ≥ +0.02 delta per metric over intrinsic (if less, sidecar isn't pulling weight)
@@ -84,6 +86,8 @@ Evidence (alongside bench-delta):
 ## Fail Conditions
 
 - **Intrinsic LongMemEval < 0.92 OR MemBench < 0.70** — core product is still not good enough; do not proceed to C3 until fixed
+- This fail condition is currently live: the latest 500-question intrinsic
+  product-path rerun is `0.828` on `session_recall_any@5`
 - **Any intrinsic metric regresses** (LoCoMo drops below 0.42, ConvoMem below 0.00) — something in the new SQL path is degrading recall on the unfocused slices; fix before merge
 - Sidecar becomes load-bearing (disabling it tanks the product) — revert; intrinsic path must stand alone
 - Wake packet still status-flooded — admission cap + layering not enforced
@@ -140,8 +144,42 @@ Bench posture (HEAD 4fd3f33, flags default):
 - All product paths default-off or dedup-on so user-facing wake/search
   behavior is unchanged by a mere binary upgrade.
 
-Part 2 (sidecar wiring, dual-bench reporting) remains pending and
-depends on a bench route that actually calls memd-server.
+Part 2 is now partially landed. The bench route does call
+`memd-server`, the optional sidecar plumbing exists, and dual-mode rows
+exist. What remains pending is the **quality close-out**: intrinsic
+LongMemEval is still `0.828`, so B3 does not clear on plumbing alone.
+
+## B3 Part 2 — status snapshot (2026-04-18)
+
+Part 2 plumbing is now in the product path and the primary-gate harness
+is no longer the thing blocking close-out.
+
+Landed in code:
+
+- optional `RagClient` state on `memd-server`, store fan-out with identity
+  contract, dense candidate injection in `search_memory`, and `/healthz`
+  rag state surfacing
+- dual-mode benchmark rows with top-level `mode`
+  (`intrinsic` / `accelerated`)
+- bench probes gated behind `MEMD_BENCH_PROBES`
+- LongMemEval turn diagnostics moved behind explicit
+  `--turn-diagnostics`; default 500-question path now pays only for the
+  session-level primary metric
+
+Verified on 2026-04-18:
+
+- `cargo test -q -p memd-client public_benchmark_tests` green
+- `cargo test -q -p memd-server -p memd-client` green
+- `CARGO_TARGET_DIR=/tmp/memd-target cargo build --release -p memd-client -p memd-server` green
+- full 500-question intrinsic product-path rerun completed in
+  `1468764 ms` (~24.5 min) with `session_recall_any@5 = 0.828`
+
+Current gate read:
+
+- runtime / harness blocker: **fixed**
+- B3 intrinsic close-out target (`LongMemEval ≥ 0.92`): **still red**
+- implication: do not close B3, do not claim leaderboard win, keep work
+  focused on retrieval quality rather than harness throughput
 
 ## Task 5 verification (2026-04-17, no code change)
 

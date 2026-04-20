@@ -434,8 +434,8 @@ fn resume_prompt_surfaces_current_task_snapshot() {
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
         files_touched: Vec::new(),
-            un_read_paths: Vec::new(),
-            preferences: Vec::new(),
+        un_read_paths: Vec::new(),
+        preferences: Vec::new(),
     };
 
     let base = snapshot;

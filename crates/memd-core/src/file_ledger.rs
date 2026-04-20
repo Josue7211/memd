@@ -75,15 +75,12 @@ impl FileInteractionLedger {
 
     pub fn load_from_path(path: &Path) -> io::Result<Self> {
         let bytes = fs::read(path)?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 }
 
 pub fn session_dir(output: &Path, session_id: &str) -> PathBuf {
-    output
-        .join("state")
-        .join(format!("session-{session_id}"))
+    output.join("state").join(format!("session-{session_id}"))
 }
 
 pub fn ledger_path(output: &Path, session_id: &str) -> PathBuf {

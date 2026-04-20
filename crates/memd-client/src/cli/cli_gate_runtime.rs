@@ -1,9 +1,9 @@
-use std::io::Read;
 use memd_core::contract::{CONTRACT_FILE_NAME, FileLayoutSchema, MemdContract};
 use memd_core::enforcement::{
     EnforcementPolicy, FreshReadIndex, format_gate_output, gate_write_decision,
     load_latest_sealed_paths,
 };
+use std::io::Read;
 
 use crate::cli::args::HookGateArgs;
 
@@ -22,14 +22,27 @@ pub(crate) async fn run_gate(args: &HookGateArgs) -> anyhow::Result<Option<Strin
     let v: serde_json::Value = serde_json::from_str(&payload_raw)?;
     let tool = v.get("tool_name").and_then(|s| s.as_str()).unwrap_or("");
     // Only gate Edit/Write/NotebookEdit. Read passes through unchanged.
-    if !matches!(tool, "Edit" | "Write" | "NotebookEdit") { return Ok(None); }
-    let path = v.pointer("/tool_input/file_path")
+    if !matches!(tool, "Edit" | "Write" | "NotebookEdit") {
+        return Ok(None);
+    }
+    let path = v
+        .pointer("/tool_input/file_path")
         .and_then(|s| s.as_str())
-        .or_else(|| v.pointer("/tool_input/notebook_path").and_then(|s| s.as_str()))
+        .or_else(|| {
+            v.pointer("/tool_input/notebook_path")
+                .and_then(|s| s.as_str())
+        })
         .unwrap_or("");
-    if path.is_empty() { return Ok(None); }
-    let session_id = args.session_id.clone()
-        .or_else(|| v.get("session_id").and_then(|s| s.as_str().map(String::from)))
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let session_id = args
+        .session_id
+        .clone()
+        .or_else(|| {
+            v.get("session_id")
+                .and_then(|s| s.as_str().map(String::from))
+        })
         .unwrap_or_else(|| "unknown".into());
     let policy = resolve_policy(args, &args.output);
     let sealed = load_latest_sealed_paths(&args.output);
@@ -39,20 +52,11 @@ pub(crate) async fn run_gate(args: &HookGateArgs) -> anyhow::Result<Option<Strin
     // contract schema uses "docs/..." style, so absolute host paths would
     // otherwise fall through as Unmanaged.
     let rel = normalize_to_repo_rel(path, &args.output);
-    let decision = gate_write_decision(
-        policy,
-        &rel,
-        &sealed,
-        fresh.paths(),
-        &schema,
-    );
+    let decision = gate_write_decision(policy, &rel, &sealed, fresh.paths(), &schema);
     // Mark the file-layout gate as wired so `memd contract verify` can
     // surface the guarantee as green-on-evidence.
     let _ = std::fs::create_dir_all(args.output.join("state"));
-    let _ = std::fs::write(
-        args.output.join("state/file-layout-gate.green"),
-        b"wired\n",
-    );
+    let _ = std::fs::write(args.output.join("state/file-layout-gate.green"), b"wired\n");
     Ok(format_gate_output(decision))
 }
 
@@ -101,7 +105,10 @@ fn resolve_policy(args: &HookGateArgs, output: &std::path::Path) -> EnforcementP
     let cfg = output.join("config.json");
     if let Ok(bytes) = std::fs::read(&cfg) {
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            if let Some(s) = v.pointer("/continuity/enforcement").and_then(|s| s.as_str()) {
+            if let Some(s) = v
+                .pointer("/continuity/enforcement")
+                .and_then(|s| s.as_str())
+            {
                 return match s {
                     "off" => EnforcementPolicy::Off,
                     "warn" => EnforcementPolicy::Warn,

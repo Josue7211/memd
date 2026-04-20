@@ -1,6 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::{fs, path::{Path, PathBuf}};
 use crate::file_ledger::{FileInteractionLedger, FileOp, ledger_path};
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,9 +104,9 @@ pub fn gate_write_decision(
 pub fn format_gate_output(decision: GateDecision) -> Option<String> {
     match decision {
         GateDecision::Allow => None,
-        GateDecision::Warn { reason, .. } => Some(
-            serde_json::json!({ "systemMessage": reason }).to_string(),
-        ),
+        GateDecision::Warn { reason, .. } => {
+            Some(serde_json::json!({ "systemMessage": reason }).to_string())
+        }
         GateDecision::Deny { reason, .. } => Some(
             serde_json::json!({
                 "hookSpecificOutput": {
@@ -187,12 +190,18 @@ pub fn verify_completion_ready(
 
 pub fn load_latest_sealed_paths(output: &Path) -> Vec<String> {
     let state = output.join("state");
-    let Ok(rd) = fs::read_dir(&state) else { return Vec::new(); };
+    let Ok(rd) = fs::read_dir(&state) else {
+        return Vec::new();
+    };
     let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
     for entry in rd.flatten() {
-        if !entry.file_name().to_string_lossy().starts_with("session-") { continue; }
+        if !entry.file_name().to_string_lossy().starts_with("session-") {
+            continue;
+        }
         let sealed = entry.path().join("sealed");
-        let Ok(sd) = fs::read_dir(&sealed) else { continue; };
+        let Ok(sd) = fs::read_dir(&sealed) else {
+            continue;
+        };
         for s in sd.flatten() {
             let p = s.path();
             if let Ok(meta) = fs::metadata(&p) {
@@ -396,7 +405,9 @@ mod tests {
     fn verify_completion_blocks_when_block_policy_and_no_checkpoint() {
         let out = verify_completion_ready(
             EnforcementPolicy::Block,
-            CompletionSignals { has_recent_checkpoint: false },
+            CompletionSignals {
+                has_recent_checkpoint: false,
+            },
         );
         match out {
             CompletionDecision::Block { reason } => {
@@ -411,7 +422,9 @@ mod tests {
         assert_eq!(
             verify_completion_ready(
                 EnforcementPolicy::Block,
-                CompletionSignals { has_recent_checkpoint: true },
+                CompletionSignals {
+                    has_recent_checkpoint: true
+                },
             ),
             CompletionDecision::Ready
         );
@@ -422,7 +435,9 @@ mod tests {
         assert!(matches!(
             verify_completion_ready(
                 EnforcementPolicy::Warn,
-                CompletionSignals { has_recent_checkpoint: false },
+                CompletionSignals {
+                    has_recent_checkpoint: false
+                },
             ),
             CompletionDecision::Warn { .. }
         ));
@@ -433,7 +448,9 @@ mod tests {
         assert_eq!(
             verify_completion_ready(
                 EnforcementPolicy::Off,
-                CompletionSignals { has_recent_checkpoint: false },
+                CompletionSignals {
+                    has_recent_checkpoint: false
+                },
             ),
             CompletionDecision::Ready
         );

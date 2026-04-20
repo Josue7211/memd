@@ -199,7 +199,8 @@ pub fn verify_contract(
     {
         violations.push(ContractViolation {
             guarantee: "enforces_continuity_gate_when_configured".into(),
-            detail: "continuity.enforcement is configured but PreToolUse gate hook is not wired".into(),
+            detail: "continuity.enforcement is configured but PreToolUse gate hook is not wired"
+                .into(),
         });
     }
     if g.replays_preferences_on_cold_boot
@@ -210,9 +211,7 @@ pub fn verify_contract(
             detail: "preferences stored via `memd remember --kind preference` did not surface in cold-boot wake".into(),
         });
     }
-    if g.enforces_file_layout_contract
-        && matches!(evidence.file_layout_gate_wired, Some(false))
-    {
+    if g.enforces_file_layout_contract && matches!(evidence.file_layout_gate_wired, Some(false)) {
         violations.push(ContractViolation {
             guarantee: "enforces_file_layout_contract".into(),
             detail: "file_layout schema present in contract but PreToolUse gate does not yet widen to Edit/Write paths".into(),
@@ -296,7 +295,10 @@ mod tests {
     #[test]
     fn default_contract_has_four_guarantees() {
         let c = MemdContract::default();
-        assert!(c.guarantees.surfaces_files_touched_when_sealed_ledger_exists);
+        assert!(
+            c.guarantees
+                .surfaces_files_touched_when_sealed_ledger_exists
+        );
         assert!(c.guarantees.seals_session_ledger_on_precompact);
         assert!(c.guarantees.enforces_continuity_gate_when_configured);
         assert!(c.guarantees.replays_preferences_on_cold_boot);
@@ -316,7 +318,10 @@ mod tests {
             file_layout_gate_wired: None,
         };
         let v = verify_contract(&c, &evidence);
-        assert!(v.iter().any(|x| x.guarantee == "seals_session_ledger_on_precompact"));
+        assert!(
+            v.iter()
+                .any(|x| x.guarantee == "seals_session_ledger_on_precompact")
+        );
     }
 
     #[test]
@@ -333,7 +338,10 @@ mod tests {
             file_layout_gate_wired: None,
         };
         let v = verify_contract(&c, &evidence);
-        assert!(v.iter().any(|x| x.guarantee == "enforces_continuity_gate_when_configured"));
+        assert!(
+            v.iter()
+                .any(|x| x.guarantee == "enforces_continuity_gate_when_configured")
+        );
     }
 
     #[test]
@@ -350,7 +358,10 @@ mod tests {
             file_layout_gate_wired: None,
         };
         let v = verify_contract(&c, &evidence);
-        assert!(v.iter().any(|x| x.guarantee == "replays_preferences_on_cold_boot"));
+        assert!(
+            v.iter()
+                .any(|x| x.guarantee == "replays_preferences_on_cold_boot")
+        );
     }
 
     #[test]
@@ -411,7 +422,13 @@ mod tests {
         let json = serde_json::to_string_pretty(&c).unwrap();
         let parsed: MemdContract = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.file_layout, c.file_layout);
-        assert!(parsed.file_layout.denylist.iter().any(|p| p == "docs/superpowers/"));
+        assert!(
+            parsed
+                .file_layout
+                .denylist
+                .iter()
+                .any(|p| p == "docs/superpowers/")
+        );
     }
 
     #[test]
@@ -433,7 +450,10 @@ mod tests {
             file_layout_gate_wired: Some(false),
         };
         let v = verify_contract(&c, &evidence);
-        assert!(v.iter().any(|x| x.guarantee == "enforces_file_layout_contract"));
+        assert!(
+            v.iter()
+                .any(|x| x.guarantee == "enforces_file_layout_contract")
+        );
     }
 
     #[test]
@@ -450,6 +470,9 @@ mod tests {
             file_layout_gate_wired: None,
         };
         let v = verify_contract(&c, &evidence);
-        assert!(v.iter().all(|x| x.guarantee != "replays_preferences_on_cold_boot"));
+        assert!(
+            v.iter()
+                .all(|x| x.guarantee != "replays_preferences_on_cold_boot")
+        );
     }
 }

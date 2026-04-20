@@ -738,11 +738,7 @@ impl SqliteStore {
     /// For each seed item, collects entity-link counterparts (from/to),
     /// dedupes, drops the seeds themselves, caps at `limit` neighbors.
     /// Returns empty vec on error — callers should treat this as best-effort.
-    pub(crate) fn one_hop_neighbors_for_items(
-        &self,
-        seeds: &[Uuid],
-        limit: usize,
-    ) -> Vec<Uuid> {
+    pub(crate) fn one_hop_neighbors_for_items(&self, seeds: &[Uuid], limit: usize) -> Vec<Uuid> {
         if limit == 0 || seeds.is_empty() {
             return Vec::new();
         }
@@ -948,7 +944,11 @@ fn compact_label(content: &str) -> String {
     if first_line.len() <= 80 {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..77])
+        let mut end = 77;
+        while end > 0 && !first_line.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &first_line[..end])
     }
 }
 

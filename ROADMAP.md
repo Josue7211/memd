@@ -8,8 +8,8 @@ version: v3
 version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
-current_phase: B3
-phase_status: gate-passed
+current_phase: C3
+phase_status: ready
 next_milestone: V3
 next_step: C3 Reranker — B3 tail-ranking shipped 2026-04-20 (60Q probe: pref 0.600→0.867@5, overall 0.800→0.933@5 on the sample); merge fix skips lexical when primary has ≥5 items (zero lexical rescues in 60Q, pure dilution). 500Q canonical not rerun; previous 0.936@5 baseline stands, projected ~0.952. Move to C3.
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]

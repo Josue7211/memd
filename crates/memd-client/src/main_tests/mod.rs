@@ -182,7 +182,7 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
         atlas_region_hints: Vec::new(),
         handoff_quality: None,
         files_touched: Vec::new(),
-            un_read_paths: Vec::new(),
+        un_read_paths: Vec::new(),
         preferences: Vec::new(),
     }
 }
@@ -190,11 +190,11 @@ fn codex_test_snapshot(project: &str, namespace: &str, agent: &str) -> ResumeSna
 mod mock_server_support;
 pub(crate) use self::mock_server_support::*;
 mod autoresearch_evolution_tests;
-mod continuity_foundation_tests;
-pub(crate) mod continuity_enforcement_tests;
 mod awareness_hive_tests;
 mod benchmark_runtime_tests;
 mod bootstrap_harness_tests;
+pub(crate) mod continuity_enforcement_tests;
+mod continuity_foundation_tests;
 mod gap_coordination_tests;
 mod hive_coordination_tests;
 mod public_benchmark_tests;

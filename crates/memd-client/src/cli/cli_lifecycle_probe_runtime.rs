@@ -16,6 +16,7 @@ use crate::MemdClient;
 
 const PROBE_TAG: &str = "lifecycle_probe";
 const PROBE_NAMESPACE: &str = "lifecycle_probe";
+const PROBE_AGENT: &str = "memd-lifecycle-probe";
 
 pub async fn run_lifecycle_probe(client: &MemdClient) -> LifecycleProbeReport {
     let probe_id = Uuid::new_v4().to_string();
@@ -82,7 +83,7 @@ async fn do_store(client: &MemdClient, probe_id: &str) -> anyhow::Result<(Uuid, 
         workspace: None,
         visibility: None,
         belief_branch: None,
-        source_agent: Some("memd-lifecycle-probe".into()),
+        source_agent: Some(PROBE_AGENT.into()),
         source_system: Some("memd".into()),
         source_path: None,
         source_quality: None,
@@ -101,6 +102,7 @@ async fn do_store(client: &MemdClient, probe_id: &str) -> anyhow::Result<(Uuid, 
 async fn do_recall(client: &MemdClient, probe_id: &str, id: Uuid) -> anyhow::Result<String> {
     let req = SearchMemoryRequest {
         namespace: Some(PROBE_NAMESPACE.into()),
+        source_agent: Some(PROBE_AGENT.into()),
         tags: vec![format!("probe:{probe_id}")],
         statuses: vec![MemoryStatus::Active],
         limit: Some(8),
@@ -136,6 +138,7 @@ async fn do_verify_expired(
     let active = client
         .search(&SearchMemoryRequest {
             namespace: Some(PROBE_NAMESPACE.into()),
+            source_agent: Some(PROBE_AGENT.into()),
             tags: vec![format!("probe:{probe_id}")],
             statuses: vec![MemoryStatus::Active],
             limit: Some(8),
@@ -150,6 +153,7 @@ async fn do_verify_expired(
     let expired = client
         .search(&SearchMemoryRequest {
             namespace: Some(PROBE_NAMESPACE.into()),
+            source_agent: Some(PROBE_AGENT.into()),
             tags: vec![format!("probe:{probe_id}")],
             statuses: vec![MemoryStatus::Expired],
             limit: Some(8),
@@ -157,7 +161,9 @@ async fn do_verify_expired(
         })
         .await?;
     if expired.items.iter().any(|i| i.id == id) {
-        Ok(format!("expired {id} recoverable via explicit status filter"))
+        Ok(format!(
+            "expired {id} recoverable via explicit status filter"
+        ))
     } else {
         anyhow::bail!("expired id {id} missing from expired-status search");
     }

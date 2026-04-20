@@ -90,10 +90,8 @@ mod tests {
 
     #[test]
     fn report_round_trips_through_json() {
-        let report = LifecycleProbeReport::from_steps(
-            "probe-3",
-            vec![LifecycleProbeStep::ok("store")],
-        );
+        let report =
+            LifecycleProbeReport::from_steps("probe-3", vec![LifecycleProbeStep::ok("store")]);
         let json = serde_json::to_string(&report).unwrap();
         let parsed: LifecycleProbeReport = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, report);

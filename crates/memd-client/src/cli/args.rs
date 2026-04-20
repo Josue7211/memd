@@ -2740,6 +2740,14 @@ pub(crate) struct PublicBenchmarkArgs {
     pub(crate) dry_run: bool,
 
     #[arg(long, default_value_t = false)]
+    pub(crate) dual: bool,
+
+    /// LongMemEval only: also compute turn-level retrieval diagnostics.
+    /// Default off so the primary 500-Q gate pays only for the session metric.
+    #[arg(long, default_value_t = false)]
+    pub(crate) turn_diagnostics: bool,
+
+    #[arg(long, default_value_t = false)]
     pub(crate) all: bool,
 
     #[arg(long, alias = "output", default_value_os_t = default_bundle_root_path())]

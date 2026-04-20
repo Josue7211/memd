@@ -2543,6 +2543,14 @@ pub struct PressureMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagHealthStatus {
+    pub enabled: bool,
+    pub reachable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub items: usize,
@@ -2550,6 +2558,8 @@ pub struct HealthResponse {
     pub eval_score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pressure: Option<PressureMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag: Option<RagHealthStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -204,8 +204,8 @@ fn prime_reads_since_session_reads_live_ledger() {
 /// CLI path (`memd diagnostics lifecycle-probe`) for the authoritative check.
 #[tokio::test]
 async fn lifecycle_probe_reports_green_on_healthy_server() {
-    let base_url = std::env::var("MEMD_TEST_BASE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8787".to_string());
+    let base_url =
+        std::env::var("MEMD_TEST_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string());
     let client = MemdClient::new(&base_url).expect("build client");
     match client.healthz().await {
         Ok(_) => {}
@@ -344,13 +344,22 @@ async fn a3_gate_compaction_mid_edit_ten_files_end_to_end() {
         ("crates/memd-core/src/contract.rs", FileOp::Read),
         ("crates/memd-core/src/enforcement.rs", FileOp::Edit),
         ("crates/memd-client/src/cli/mod.rs", FileOp::Read),
-        ("crates/memd-client/src/cli/cli_hook_runtime.rs", FileOp::Edit),
-        ("crates/memd-client/src/runtime/resume/wakeup.rs", FileOp::Edit),
+        (
+            "crates/memd-client/src/cli/cli_hook_runtime.rs",
+            FileOp::Edit,
+        ),
+        (
+            "crates/memd-client/src/runtime/resume/wakeup.rs",
+            FileOp::Edit,
+        ),
         (".memd/contract.json", FileOp::Write),
         (".memd/hooks/memd-precompact-save.sh", FileOp::Edit),
         (".memd/hooks/memd-preedit-prime.sh", FileOp::Write),
         ("ROADMAP.md", FileOp::Read),
-        ("docs/phases/v3/phase-a3-continuity-foundation.md", FileOp::Read),
+        (
+            "docs/phases/v3/phase-a3-continuity-foundation.md",
+            FileOp::Read,
+        ),
     ];
 
     // Session A: record each interaction via the public hook entrypoint.
@@ -447,4 +456,3 @@ async fn a3_gate_compaction_mid_edit_ten_files_end_to_end() {
     };
     run_prime_reads(&pr_args).expect("prime-reads after seal must succeed");
 }
-
