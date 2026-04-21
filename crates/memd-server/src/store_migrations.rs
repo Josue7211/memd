@@ -405,6 +405,107 @@ pub(crate) fn migrate_fts5_index(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// E3-D2: episodes + episode_facts + FTS5 narrative index.
+/// Idempotent — re-run is a no-op if tables exist.
+pub(crate) fn migrate_episodes_tables(conn: &Connection) -> anyhow::Result<()> {
+    let has_episodes = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'episodes'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_episodes {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE episodes (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              mind TEXT,
+              title TEXT NOT NULL,
+              narrative TEXT NOT NULL,
+              project TEXT,
+              namespace TEXT,
+              started_at TEXT NOT NULL,
+              ended_at TEXT NOT NULL,
+              fact_count INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_session_id
+              ON episodes(session_id);
+            CREATE INDEX IF NOT EXISTS idx_episodes_project_namespace
+              ON episodes(project, namespace);
+            CREATE INDEX IF NOT EXISTS idx_episodes_ended_at
+              ON episodes(ended_at DESC);
+
+            CREATE TABLE episode_facts (
+              episode_id TEXT NOT NULL,
+              fact_id TEXT NOT NULL,
+              relation TEXT NOT NULL,
+              PRIMARY KEY (episode_id, fact_id),
+              FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_episode_facts_fact_id
+              ON episode_facts(fact_id);
+            "#,
+        )
+        .context("create episodes tables")?;
+    }
+
+    let has_fts = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'episodes_fts'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_fts {
+        conn.execute_batch(
+            r#"
+            CREATE VIRTUAL TABLE episodes_fts USING fts5(
+                title,
+                narrative,
+                episode_id UNINDEXED
+            );
+
+            CREATE TRIGGER IF NOT EXISTS episodes_fts_ai
+            AFTER INSERT ON episodes BEGIN
+                INSERT INTO episodes_fts(episode_id, title, narrative)
+                VALUES (new.id, new.title, new.narrative);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS episodes_fts_au
+            AFTER UPDATE ON episodes BEGIN
+                DELETE FROM episodes_fts WHERE episode_id = old.id;
+                INSERT INTO episodes_fts(episode_id, title, narrative)
+                VALUES (new.id, new.title, new.narrative);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS episodes_fts_ad
+            AFTER DELETE ON episodes BEGIN
+                DELETE FROM episodes_fts WHERE episode_id = old.id;
+            END;
+            "#,
+        )
+        .context("create episodes_fts")?;
+
+        conn.execute_batch(
+            r#"
+            INSERT INTO episodes_fts(episode_id, title, narrative)
+            SELECT id, title, narrative FROM episodes;
+            "#,
+        )
+        .context("backfill episodes_fts")?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn create_hive_session_identity_indexes(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"

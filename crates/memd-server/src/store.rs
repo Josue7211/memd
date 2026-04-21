@@ -34,7 +34,7 @@ use crate::store_hive::{
     refresh_hive_session_presence,
 };
 use crate::store_migrations::{
-    create_hive_session_identity_indexes, migrate_fts5_index,
+    create_hive_session_identity_indexes, migrate_episodes_tables, migrate_fts5_index,
     migrate_hive_sessions_identity_columns, migrate_hive_sessions_last_wake_at,
     migrate_lane_column, migrate_memory_items_embedding_model, migrate_memory_vectors_chunk_idx,
     migrate_memory_vectors_embedding_model, migrate_redundancy_key, migrate_version_column,
@@ -562,6 +562,7 @@ impl SqliteStore {
         create_hive_session_identity_indexes(&conn)?;
         migrate_fts5_index(&conn)?;
         migrate_memory_vectors_chunk_idx(&conn)?;
+        migrate_episodes_tables(&conn)?;
 
         stamp_schema_version(&conn)?;
 

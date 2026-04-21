@@ -2981,6 +2981,94 @@ pub struct IngestLanesResponse {
     pub files_stale: usize,
 }
 
+/// E3-D2: session boundaries derived from event-spine gaps.
+/// A new session starts when the idle gap between consecutive events
+/// exceeds `session_gap_seconds` (default 30min = 1800s).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSpan {
+    pub id: Uuid,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub event_count: usize,
+    pub memory_ids: Vec<Uuid>,
+}
+
+/// E3-D2: episode = a session's events consolidated into a narrative.
+/// `narrative` is prose — subject to FTS5 index for cross-session recall.
+/// `session_id` scopes the episode to one boundary; `fact_count` = number
+/// of linked memory items in `episode_facts`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Episode {
+    pub id: Uuid,
+    pub mind: Option<String>,
+    pub title: String,
+    pub narrative: String,
+    pub session_id: Uuid,
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub fact_count: usize,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EpisodeFactRelation {
+    Origin,
+    Evidence,
+    Reference,
+    Outcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpisodeFactLink {
+    pub episode_id: Uuid,
+    pub fact_id: Uuid,
+    pub relation: EpisodeFactRelation,
+}
+
+/// E3-D2 request: consolidate recent sessions into episodes.
+/// - `since`: only consider events after this timestamp (default = last 24h)
+/// - `session_gap_seconds`: gap threshold for session boundaries (default 1800)
+/// - `dry_run`: detect sessions but do not persist episodes
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsolidateEpisodesRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub since: Option<DateTime<Utc>>,
+    pub session_gap_seconds: Option<u64>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// E3-D2 response. `idempotent_skipped` = sessions already consolidated
+/// (same session_id already has an episode). Must be non-zero on second
+/// run of the same window for idempotency proof.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConsolidateEpisodesResponse {
+    pub sessions_detected: usize,
+    pub episodes_created: Vec<Episode>,
+    pub idempotent_skipped: usize,
+    pub total_events_scanned: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListEpisodesRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: Option<usize>,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ListEpisodesResponse {
+    pub episodes: Vec<Episode>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
