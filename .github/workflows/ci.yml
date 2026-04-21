@@ -34,6 +34,33 @@ jobs:
       - name: Test
         run: cargo test
 
+  leaderboard-transparency:
+    # I3 gate — cheap, always runs when retrieval code or leaderboard is touched.
+    # Validates 8-field method cards, retraction log presence, gaming-audit
+    # rule (>=0.90 requires audit/contested/recorded-unpinned marker), and
+    # reproduction commands. Does not require a full bench rerun.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect leaderboard-impacting changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            transparency:
+              - 'crates/memd-client/src/benchmark/**'
+              - 'crates/memd-client/src/runtime/**'
+              - 'crates/memd-server/**'
+              - 'docs/verification/PUBLIC_LEADERBOARD.md'
+              - 'scripts/regen-leaderboard.sh'
+
+      - name: Run leaderboard transparency gate
+        if: steps.changes.outputs.transparency == 'true'
+        run: bash scripts/regen-leaderboard.sh --check
+
   bench-public:
     runs-on: ubuntu-latest
 

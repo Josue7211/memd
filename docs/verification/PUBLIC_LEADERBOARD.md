@@ -65,7 +65,7 @@ Eight required fields per card: bench+split+SHA, canonical metric+formula, backe
   ```
 - **Verification**: `replay-pending` (H3 code landed 2026-04-21; full bench rerun deferred to J3 per cadence).
 - **Primary value**: pending J3 rerun.
-- **Diagnostic secondary**: `session_recall_any@5` (retrieval-only). Prior 0.936 retained as diagnostic; see retraction log for context.
+- **Diagnostic secondary**: `session_recall_any@5` (retrieval-only). Prior 0.936 retracted as primary; retained as diagnostic-only context (see retraction log).
 - **Cost ledger**: `judge_prompt_tokens`, `judge_completion_tokens`, `judge_cost_usd`, `judge_cache_hit_rate`, `judge_cache_hits`, `judge_cache_misses` emitted per run into `.memd/benchmarks/history/benchmark-runs.jsonl`.
 - **Competitor row**: Mem0 93.4% (`audit: upstream paper table, top_k disclosed, 2026-04-21`). Supermemory 81.6% GPT-4o / 84.6% GPT-5 (`audit: upstream blog method disclosed, 2026-04-21`). MemPalace 96.6% ⚠ contested (per MemPalace's own issue tracker — benchmark wraps ChromaDB instead of exercising MemPalace library code; `audit: pending`).
 - **Gaming-audit note**: MemPalace 96.6% exceeds the 0.90 gaming threshold without a passing audit. Rendered as `⚠ contested`; not treated as a reproducible competitor baseline.
