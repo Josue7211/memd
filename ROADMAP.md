@@ -3,16 +3,16 @@
 `ROADMAP.md` is the single roadmap source of truth for this repo.
 
 <!-- ROADMAP_STATE
-truth_date: 2026-04-20
+truth_date: 2026-04-21
 version: v3
 version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
-current_phase: H3
+current_phase: J3
 phase_status: pending
 next_milestone: V3
-next_step: H3 Canonical Metrics — replace retrieval-diagnostic metrics with canonical per phase doc
-active_blockers: [non-canonical-metric-gap, phantom-locomo-membench-scores]
+next_step: J3 V3 Floor Verification — paired canonical-metric bench run after H3+I3 pair closed 2026-04-21
+active_blockers: []
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
@@ -28,13 +28,13 @@ bench_cadence: every_two_phases  # test every TWO phases per user directive 2026
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
-- current phase: `F3: Bench Honesty` (reopened 2026-04-21). E3 code-complete 2026-04-21. F3 reopened after the paired E3+F3 bench run exposed: (1) adapter parity gap — LoCoMo/MemBench/ConvoMem hard-wired to lexical word-overlap in `build_context_retrieval_run_report`, no memd retrieval path (only LongMemEval has a backend dispatcher); (2) non-canonical metrics — memd reports retrieval-diagnostic (`hit_rate@5`) not industry-canonical (QA accuracy / token-F1 / MC accuracy). Prior "verified release board" numbers LoCoMo `>0.80` and MemBench `0.993` are retracted — they do not reproduce from head. F3 split into G3 Bench Adapter Parity → H3 Canonical Metrics → I3 Leaderboard Transparency → J3 V3 Floor Verification. V3 completion gate now binds to J3's paired canonical-metric run.
+- current phase: `J3: V3 Floor Verification` (pending, opens 2026-04-21). G3 closed 2026-04-21 (bench adapter parity — all 4 benches dispatch via `PublicBenchmarkBackend`). H3 closed 2026-04-21 (canonical metrics — GPT-4o judge cache + token-F1 scorer landed; full rerun deferred). I3 closed 2026-04-21 (leaderboard transparency — 8-field method cards, retraction log, gaming-audit rule, `scripts/regen-leaderboard.sh` gate in CI). Diagnostic-primary numbers (LongMemEval 0.936, LoCoMo 0.709, MemBench 0.993) are retracted from primary into diagnostic-secondary only; see `docs/verification/PUBLIC_LEADERBOARD.md` retraction log. V3 completion gate now binds to J3's paired canonical-metric run on the H3 scorers.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
 - M3: `verified` — J2+O2+P2 pass gates, 593 tests, benchmarks zero regression, node verification 18✓/4~/0✗, CI gate all pass, amnesia checklist 15/15
 - M4 progress: `K2` complete (10/10 substeps on main, last commit `235d959`); `L2` complete (9/9 substeps on `research/mining`, last commit `7ce2b7c`). Tests at L2 exit: 190 server + 430 client.
-- next step: `E3 Consolidation + Sessions` — turn the current release board into a cleaner, more durable post-D3 state: long-tail LongMemEval bump, cross-session LoCoMo lift toward `≥0.80`, and consolidation/session behavior that preserves the already-cleared floor while pushing the stretch targets.
+- next step: `J3 V3 Floor Verification` — paired canonical-metric bench run using the H3 scorers (`qa_accuracy` GPT-4o judge, `token_f1_avg`, `mc_accuracy`, `accuracy`) against the G3 memd-dispatching adapter paths. Success gate: ≥0.70 intrinsic floor on all four benches per H3 canonical primaries. All leaderboard rows currently marked `replay-pending`; J3 flips the ones that clear the floor to `verified` and leaves the rest recorded-unpinned.
 - M4 deferred: `I2` (Human Dashboard, 11 substeps), `M2-evo` (Overnight Evolution), `N2` (Integrations Polish) all paused. Resume after V3 ships bench parity, OR cherry-pick if a V3 phase needs M4 infra (e.g. M2-evo dream loop overlap with D3).
 - V3 targets (floor, intrinsic/sidecar-OFF): LME ≥0.70, LoCoMo ≥0.70, MemBench ≥0.70, ConvoMem ≥0.70 — 70% is where competition sits, that is bare minimum. Stretch (intrinsic): LME ≥0.92, LoCoMo ≥0.75, MemBench ≥0.75, ConvoMem ≥0.75. Accelerated (sidecar ON) is bonus, not gate. See `## V3` block below.
 - M0 benchmark baseline: LongMemEval 82.8%, LoCoMo 41.5%, MemBench 34.6%, ConvoMem 0.0% (retrieval-only)

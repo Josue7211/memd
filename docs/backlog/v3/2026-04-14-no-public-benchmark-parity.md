@@ -1,16 +1,18 @@
 ---
-status: open
+status: resolved
 severity: high
 phase: F3
 opened: 2026-04-14
+resolved: 2026-04-21
 scope: memd-core
 ---
 # No Public Benchmark Parity
 
-- status: `open`
+- status: `resolved` (2026-04-21 via V3 G3 + H3 + I3)
 - severity: `high`
-- phase: `V2-H2`
+- phase: `V2-H2 → V3 F3 split into G3/H3/I3/J3`
 - opened: `2026-04-14`
+- resolved: `2026-04-21`
 - scope: memd-core
 - extraction source:
   - `mempalace/benchmarks/README.md`
@@ -77,3 +79,13 @@ Approach: industry-standard end-to-end eval (not retrieval recall@k).
 - Remove `gold_answer` from retrieval candidate construction.
 - Score from source conversations / information flow first, then evaluate predictions using the benchmark's intended semantics.
 - Next correction: move from retrieval-local proxy metrics to fuller upstream-style generation/evaluation for `LoCoMo` and `MemBench`.
+
+## Resolution — 2026-04-21
+
+Closed by the V3 F3 split into four phases. All four deliverables landed on `research/mining`:
+
+- **G3 Bench Adapter Parity** (commits `9e8aaba..25d91f5`) — all four benches (LongMemEval, LoCoMo, MemBench, ConvoMem) dispatch retrieval through the shared `PublicBenchmarkBackend` enum. Memd backend routes every bench through `/memory/store` + `/memory/search` with per-item namespace isolation. 4 parity tests + 1 fallback test pin the invariant that the dispatch actually branches vs lexical.
+- **H3 Canonical Metrics** (commits `df4ab21..294b2f7`) — GPT-4o judge for LongMemEval `qa_accuracy` with disk-backed response cache keyed by (qid, prediction_hash), judge cost bookkeeping, `MEMD_BENCH_JUDGE_BUDGET_USD` env cap, `token_f1_avg` for LoCoMo (already landed in B3), `mc_accuracy` for MemBench with MQI-deferred backlog filed (`2026-04-21-membench-mqi-weights-undisclosed.md`), ConvoMem accuracy disclaimer.
+- **I3 Leaderboard Transparency** (commits `17e53e7..1ca8891`) — `docs/verification/PUBLIC_LEADERBOARD.md` rewritten with an 8-field method card per row (bench+split+SHA, canonical metric+formula, backend, judge model+version, commit SHA, reproduction command, verification tier, cost ledger). Retraction log blunt-lists LoCoMo 0.709, MemBench 0.993, and LongMemEval 0.936 as diagnostic-only — none are canonical primaries. `scripts/regen-leaderboard.sh --check` enforces the 8-field contract + gaming-audit rule (≥0.90 without audit → fail) in CI via the new `leaderboard-transparency` job.
+
+Residual work is J3 (V3 Floor Verification — the paired canonical-metric rerun), which is a benchmark-run obligation, not a parity-gap bug. Parity itself is done.

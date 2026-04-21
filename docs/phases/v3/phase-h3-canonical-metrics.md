@@ -2,10 +2,11 @@
 phase: H3
 name: Canonical Metrics
 version: v3
-status: pending
+status: complete
 opened: 2026-04-21
+closed: 2026-04-21
 depends_on: [G3]
-backlog_items: []
+backlog_items: [2026-04-21-membench-mqi-weights-undisclosed]
 ---
 
 # Phase H3: Canonical Metrics

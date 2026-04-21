@@ -2,8 +2,9 @@
 phase: I3
 name: Leaderboard Transparency
 version: v3
-status: pending
+status: complete
 opened: 2026-04-21
+closed: 2026-04-21
 depends_on: [G3, H3]
 backlog_items:
   - "2026-04-14-no-public-benchmark-parity"
