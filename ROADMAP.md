@@ -8,15 +8,15 @@ version: v3
 version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
-current_phase: C3
-phase_status: ready
+current_phase: E3
+phase_status: in_progress
 next_milestone: V3
-next_step: C3 Reranker — B3 tail-ranking shipped 2026-04-20 (60Q probe: pref 0.600→0.867@5, overall 0.800→0.933@5 on the sample); merge fix skips lexical when primary has ≥5 items (zero lexical rescues in 60Q, pure dilution). 500Q canonical not rerun; previous 0.936@5 baseline stands, projected ~0.952. Move to C3.
+next_step: E3 Consolidation + Sessions: long-tail LME bump, cross-session LoCoMo to >=0.80, consolidation/session behavior.
 active_blockers: [rag-sidecar-disabled-no-fallback, atlas-fully-built-completely-dormant]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
-last_handoff: b3_part2_tail_ranking_fix_2026-04-20
+last_handoff: c3_d3_f3_closed_e3_entry_2026-04-21
 -->
 
 ## Status Snapshot
