@@ -1,4 +1,11 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use memd_rag::{
     RagBackendHealthResponse, RagClient, RagIngestRequest, RagIngestSource, RagRerankCandidate,
@@ -8,7 +15,27 @@ use memd_schema::{MemoryItem, RagHealthStatus, SearchMemoryRequest};
 use tracing::warn;
 use uuid::Uuid;
 
+static RAG_FAILURES: AtomicU64 = AtomicU64::new(0);
+
+fn record_failure() {
+    RAG_FAILURES.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn rag_failure_count() -> u64 {
+    RAG_FAILURES.load(Ordering::Relaxed)
+}
+
 const RAG_HEALTH_TIMEOUT: Duration = Duration::from_millis(500);
+const RAG_DEFAULT_TIMEOUT_MS: u64 = 300;
+
+fn rag_timeout() -> Duration {
+    let millis = std::env::var("MEMD_RAG_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(RAG_DEFAULT_TIMEOUT_MS);
+    Duration::from_millis(millis)
+}
 
 pub(crate) fn build_rag_client() -> Option<Arc<RagClient>> {
     let url = std::env::var("MEMD_RAG_URL").ok()?;
@@ -106,16 +133,40 @@ pub(crate) async fn fetch_dense_candidates(
         return Ok(Vec::new());
     };
 
-    let response = client
-        .retrieve(&RagRetrieveRequest {
+    let timeout = rag_timeout();
+    let response = match tokio::time::timeout(
+        timeout,
+        client.retrieve(&RagRetrieveRequest {
             query: query.to_string(),
             project: req.project.clone(),
             namespace: req.namespace.clone(),
             mode: RagRetrieveMode::Auto,
             limit: Some(req.limit.unwrap_or(10).max(1)),
             include_cross_modal: false,
-        })
-        .await?;
+        }),
+    )
+    .await
+    {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            record_failure();
+            warn!(
+                target: "memd::rag_bridge",
+                error = %format_args!("{error:#}"),
+                "rag retrieve failed; degrading to lexical"
+            );
+            return Ok(Vec::new());
+        }
+        Err(_) => {
+            record_failure();
+            warn!(
+                target: "memd::rag_bridge",
+                timeout_ms = timeout.as_millis() as u64,
+                "rag retrieve timed out; degrading to lexical"
+            );
+            return Ok(Vec::new());
+        }
+    };
 
     let mut seen = HashSet::new();
     let mut candidates = Vec::new();
@@ -143,8 +194,10 @@ pub(crate) async fn rerank_candidates(
         return Ok(Vec::new());
     }
 
-    let response = client
-        .rerank(&RagRerankRequest {
+    let timeout = rag_timeout();
+    let response = match tokio::time::timeout(
+        timeout,
+        client.rerank(&RagRerankRequest {
             query: query.to_string(),
             candidates: candidates
                 .iter()
@@ -154,8 +207,30 @@ pub(crate) async fn rerank_candidates(
                 })
                 .collect(),
             top_k: Some(top_k.max(1).min(candidates.len())),
-        })
-        .await?;
+        }),
+    )
+    .await
+    {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            record_failure();
+            warn!(
+                target: "memd::rag_bridge",
+                error = %format_args!("{error:#}"),
+                "rag rerank failed; skipping rerank"
+            );
+            return Ok(Vec::new());
+        }
+        Err(_) => {
+            record_failure();
+            warn!(
+                target: "memd::rag_bridge",
+                timeout_ms = timeout.as_millis() as u64,
+                "rag rerank timed out; skipping rerank"
+            );
+            return Ok(Vec::new());
+        }
+    };
 
     let mut ranked = Vec::new();
     for item in response.items {
@@ -168,16 +243,18 @@ pub(crate) async fn rerank_candidates(
 }
 
 pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatus {
+    let recent_failures = rag_failure_count();
     let Some(client) = client else {
         return RagHealthStatus {
             enabled: false,
             reachable: false,
             name: None,
+            recent_failures,
         };
     };
 
     match tokio::time::timeout(RAG_HEALTH_TIMEOUT, client.healthz()).await {
-        Ok(Ok(response)) => health_from_response(response),
+        Ok(Ok(response)) => health_from_response(response, recent_failures),
         Ok(Err(error)) => {
             warn!(
                 target: "memd::rag_bridge",
@@ -188,6 +265,7 @@ pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatu
                 enabled: true,
                 reachable: false,
                 name: None,
+                recent_failures,
             }
         }
         Err(_) => {
@@ -196,15 +274,20 @@ pub(crate) async fn health_surface(client: Option<&RagClient>) -> RagHealthStatu
                 enabled: true,
                 reachable: false,
                 name: None,
+                recent_failures,
             }
         }
     }
 }
 
-fn health_from_response(response: RagBackendHealthResponse) -> RagHealthStatus {
+fn health_from_response(
+    response: RagBackendHealthResponse,
+    recent_failures: u64,
+) -> RagHealthStatus {
     RagHealthStatus {
         enabled: true,
         reachable: response.backend.connected,
         name: response.backend.name,
+        recent_failures,
     }
 }

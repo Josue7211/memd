@@ -2562,6 +2562,12 @@ pub struct RagHealthStatus {
     pub reachable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub recent_failures: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
