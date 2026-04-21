@@ -1298,6 +1298,11 @@ pub(crate) fn estimate_judge_cost_usd(
         "gpt-4o-2024-08-06" | "gpt-4o" => (2.50, 10.00),
         "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => (0.15, 0.60),
         "gpt-4-turbo" | "gpt-4-turbo-2024-04-09" => (10.00, 30.00),
+        // codex-lb models route through the user's OAuth Codex subscription
+        // (flat-rate, no per-token marginal cost). Report 0.0 so the ledger
+        // reflects actual marginal spend; raw token counts still recorded.
+        "gpt-5.4" | "gpt-5.4-mini" | "gpt-5.3-codex" | "gpt-5.3-codex-spark"
+        | "gpt-5.2" | "gpt-oss-120b" | "gpt-oss-20b" | "codex-auto-review" => (0.0, 0.0),
         _ => (2.50, 10.00),
     };
     let p = prompt_tokens as f64 * input_per_mtok / 1_000_000.0;
@@ -4080,6 +4085,262 @@ pub(crate) async fn build_membench_full_eval_report(
             reranker_provider: None,
             limit: Some(item_count),
             runtime_settings: json!({"full_eval": true, "generator_model": generator_config.model}),
+            hardware_summary: String::new(),
+            duration_ms: total_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        },
+        metrics,
+        item_count,
+        failures,
+        items: results,
+    })
+}
+
+/// k3-convomem: cheap fallback normalized-match scorer, retained for unit tests
+/// and judge-unavailable paths. Canonical ConvoMem scoring uses the
+/// `build_convomem_judge_prompt` LLM judge mirroring upstream
+/// `DefaultAnsweringEvaluation` (RIGHT/WRONG).
+pub(crate) fn convomem_exact_match(predicted: &str, gold: &str) -> bool {
+    fn normalize(s: &str) -> String {
+        let trimmed = s
+            .trim()
+            .trim_matches(|c: char| matches!(c, '"' | '\'' | '`' | '.' | '!' | '?' | ',' | ';'))
+            .trim();
+        let lower = trimmed.to_lowercase();
+        lower
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    let n_pred = normalize(predicted);
+    let n_gold = normalize(gold);
+    if n_pred.is_empty() || n_gold.is_empty() {
+        return false;
+    }
+    if n_pred == n_gold {
+        return true;
+    }
+    // Allow "the answer is X" style wrappers around the gold value.
+    n_pred.contains(&n_gold) || n_gold.contains(&n_pred)
+}
+
+pub(crate) fn convomem_retrieval_docs(
+    item: &PublicBenchmarkDatasetFixtureItem,
+) -> Vec<(String, String)> {
+    convomem_message_docs(
+        item.metadata
+            .get("conversations")
+            .unwrap_or(&JsonValue::Null),
+    )
+}
+
+/// k3-convomem: mirror of upstream `DefaultAnsweringEvaluation.getJudgePromptTemplate`.
+/// Upstream (Salesforce/ConvoMem, Scala) scores factual evidence via an LLM judge
+/// returning RIGHT/WRONG, not substring/exact match. We use the same prompt wording
+/// verbatim so judge-swap (ours = gpt-5.4-mini, upstream = Gemini 2.5 flash) is the
+/// only deviation. Disclose the judge-swap in the PUBLIC_LEADERBOARD method card.
+pub(crate) fn build_convomem_judge_prompt(question: &str, gold: &str, model_answer: &str) -> String {
+    let guidelines = "**Crucial Guidelines for your judgment:**\n\n1.  **Core Information is Key**: The Model's Response must contain all the **essential factual information** that directly answers the Question.\n2.  **Equivalence Counts**: Phrasing doesn't need to be identical. If the Model's Response conveys the exact same core meaning and details as the Correct Answer, even if paraphrased or structured differently, consider it correct.\n3.  **Superfluous (but Accurate) Information**: If the Model's Response includes additional details that were *not explicitly asked for* by the Question, but these details are **accurate and do not contradict** the Correct Answer, you should **still count it as correct** if the core question is fully answered.\n4.  **Partial Answers are Incorrect**: If the Model's Response is missing any essential information directly requested by the Question (even if the Correct Answer provides more detail), it is incorrect.\n5.  **Focus on the Question**: Your primary focus should be whether the Model's Response adequately addresses the Question using information that aligns with the Correct Answer. Do not penalize the model for not reiterating every single word or incidental detail from the Correct Answer if it wasn't requested.";
+    format!(
+        "I will provide you with a **Question**, a **Correct Answer**, and a **Model's Response**. Your sole task is to determine if the Model's Response is **sufficiently correct and complete** to answer the Question, when compared against the Correct Answer.\n\n{guidelines}\n\n**Answer only \"RIGHT\" or \"WRONG\". Do not provide any additional text, explanations, or reasoning.**\n\nQuestion: {question}\nCorrect Answer: {gold}\nModel Response: {model_answer}\n\nAnswer (RIGHT/WRONG):"
+    )
+}
+
+pub(crate) async fn build_convomem_full_eval_report(
+    dataset: &PublicBenchmarkDatasetFixture,
+    top_k: usize,
+    mode: &str,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
+    generator_config: &GeneratorConfig,
+) -> anyhow::Result<PublicBenchmarkRunReport> {
+    let started = Instant::now();
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+    let mut total_latency_ms: u128 = 0;
+    let mut correct = 0usize;
+    let mut per_category_correct = BTreeMap::<String, usize>::new();
+    let mut per_category_total = BTreeMap::<String, usize>::new();
+    let mut total_prompt_tokens: u64 = 0;
+    let mut total_completion_tokens: u64 = 0;
+
+    let total_items = dataset.items.len();
+    eprintln!("[convomem] starting full-eval: {total_items} items, top_k={top_k}");
+    for (item_index, item) in dataset.items.iter().enumerate() {
+        let item_started = Instant::now();
+        let category = item
+            .metadata
+            .get("category")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        eprintln!(
+            "[convomem] [{}/{}] {} cat={category}",
+            item_index + 1,
+            total_items,
+            item.question_id
+        );
+
+        let docs = convomem_retrieval_docs(item);
+        let ranked = dispatch_context_retrieval_ranked(
+            "convomem",
+            &item.item_id,
+            &item.query,
+            &docs,
+            mode,
+            retrieval_config,
+        );
+        let context = ranked
+            .iter()
+            .take(top_k)
+            .map(|((_, text), _)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        eprintln!(
+            "[convomem]   retrieval done, context_len={}",
+            context.len()
+        );
+
+        let prompt = build_generation_prompt(&item.query, &context);
+        eprintln!("[convomem]   calling generator…");
+        let gen_response = call_generator(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.model,
+            &prompt,
+        )
+        .await?;
+        total_prompt_tokens += gen_response.prompt_tokens;
+        total_completion_tokens += gen_response.completion_tokens;
+
+        let judge_prompt = build_convomem_judge_prompt(
+            &item.query,
+            &item.gold_answer,
+            &gen_response.content,
+        );
+        let cache_key = judge_cache_key(
+            "convomem-full-eval",
+            &item.question_id,
+            &gen_response.content,
+            &generator_config.grader_model,
+            &judge_prompt,
+        );
+        eprintln!("[convomem]   calling judge…");
+        let judge = call_openai_yes_no_grader_cached(
+            &generator_config.base_url,
+            &generator_config.api_key,
+            &generator_config.grader_model,
+            &judge_prompt,
+            &cache_key,
+        )
+        .await?;
+        total_prompt_tokens += judge.prompt_tokens;
+        total_completion_tokens += judge.completion_tokens;
+        let judge_verdict = judge.content.trim().to_ascii_uppercase();
+        let is_correct = judge_verdict.contains("RIGHT") && !judge_verdict.contains("WRONG");
+        eprintln!(
+            "[convomem]   judge={judge_verdict} → correct={is_correct}"
+        );
+        if is_correct {
+            correct += 1;
+            *per_category_correct.entry(category.clone()).or_insert(0) += 1;
+        } else {
+            failures.push(json!({
+                "item_id": item.item_id,
+                "category": category,
+                "predicted": gen_response.content,
+                "gold": item.gold_answer,
+                "judge_verdict": judge.content,
+            }));
+        }
+        *per_category_total.entry(category.clone()).or_insert(0) += 1;
+
+        let item_latency_ms = item_started.elapsed().as_millis().max(1);
+        total_latency_ms += item_latency_ms;
+        results.push(PublicBenchmarkItemResult {
+            item_id: item.item_id.clone(),
+            question_id: item.question_id.clone(),
+            claim_class: "full-eval".to_string(),
+            mode: None,
+            question: Some(item.query.clone()),
+            question_type: Some(category),
+            ranked_items: Vec::new(),
+            retrieved_items: Vec::new(),
+            retrieval_scores: Vec::new(),
+            hit: is_correct,
+            answer: Some(item.gold_answer.clone()),
+            observed_answer: Some(gen_response.content),
+            correctness: Some(json!({
+                "score": if is_correct { 1.0 } else { 0.0 },
+                "evaluation_protocol": "convomem-full-eval-llm-judge",
+                "judge_model": generator_config.grader_model,
+                "judge_verdict": judge.content,
+            })),
+            latency_ms: item_latency_ms,
+            token_usage: Some(json!({
+                "prompt_tokens": gen_response.prompt_tokens,
+                "completion_tokens": gen_response.completion_tokens,
+            })),
+            cost_estimate_usd: None,
+        });
+    }
+
+    let item_count = results.len();
+    let accuracy = if item_count == 0 {
+        0.0
+    } else {
+        correct as f64 / item_count as f64
+    };
+    let mut metrics = BTreeMap::new();
+    metrics.insert("accuracy".to_string(), accuracy);
+    metrics.insert("item_count".to_string(), item_count as f64);
+    for (cat, total) in &per_category_total {
+        let c = per_category_correct.get(cat).copied().unwrap_or(0);
+        metrics.insert(
+            format!("per_category::{cat}::accuracy"),
+            if *total == 0 {
+                0.0
+            } else {
+                c as f64 / *total as f64
+            },
+        );
+    }
+
+    let latencies: Vec<u128> = results.iter().map(|r| r.latency_ms).collect();
+    let (p50, p95) = compute_latency_percentiles(&latencies);
+    metrics.insert("latency_p50_ms".to_string(), p50);
+    metrics.insert("latency_p95_ms".to_string(), p95);
+    metrics.insert(
+        "wall_clock_ms".to_string(),
+        started.elapsed().as_millis() as f64,
+    );
+
+    Ok(PublicBenchmarkRunReport {
+        manifest: PublicBenchmarkManifest {
+            benchmark_id: String::new(),
+            benchmark_version: String::new(),
+            dataset_name: String::new(),
+            dataset_source_url: String::new(),
+            dataset_local_path: String::new(),
+            dataset_checksum: String::new(),
+            dataset_split: String::new(),
+            git_sha: None,
+            dirty_worktree: false,
+            run_timestamp: Utc::now(),
+            mode: "full-eval".to_string(),
+            top_k,
+            reranker_id: None,
+            reranker_provider: None,
+            limit: Some(item_count),
+            runtime_settings: json!({
+                "full_eval": true,
+                "generator_model": generator_config.model,
+                "judge_model": generator_config.grader_model,
+                "judge_prompt": "DefaultAnsweringEvaluation (upstream ConvoMem)",
+            }),
             hardware_summary: String::new(),
             duration_ms: total_latency_ms,
             token_usage: Some(json!({

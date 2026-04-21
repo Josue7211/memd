@@ -1587,6 +1587,16 @@ pub(crate) async fn run_public_benchmark_command(
                 )
                 .await?
             }
+            "convomem" => {
+                build_convomem_full_eval_report(
+                    &selected_dataset,
+                    top_k,
+                    mode,
+                    &retrieval_config,
+                    &generator_config,
+                )
+                .await?
+            }
             other => anyhow::bail!("--full-eval not yet supported for {other}"),
         }
     } else if args.community_standard {
