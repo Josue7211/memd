@@ -11,7 +11,7 @@ milestone_status: in_progress
 current_phase: E3
 phase_status: code_complete_bench_deferred
 next_milestone: V3
-next_step: E3 code-complete + both V3 blockers resolved 2026-04-21. Atlas dormancy closed via lazy-region-gen in GET /atlas/regions (commit 64ee7ce). RAG sidecar fallback: retrieve/rerank timeouts + MEMD_RAG_TIMEOUT_MS + failure counter (eec95de), bounded retry on background ingest (03e65ef). Every-2-phases bench cadence satisfied (E3 + blocker-resolution pair) — ready to run deferred bench gate.
+next_step: E3 code-complete + both V3 blockers resolved 2026-04-21. Atlas dormancy closed via lazy-region-gen in GET /atlas/regions (commit 64ee7ce). RAG sidecar fallback: retrieve/rerank timeouts + MEMD_RAG_TIMEOUT_MS + failure counter (eec95de), bounded retry on background ingest (03e65ef). Bench gate remains deferred per every-2-phases cadence — pair partner is F3 per prior handoff; blocker-resolution does not substitute. Next: ship F3, then run paired E3+F3 bench.
 active_blockers: []
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
