@@ -2399,10 +2399,22 @@ pub(crate) async fn get_atlas_regions(
     State(state): State<AppState>,
     Query(req): Query<AtlasRegionsRequest>,
 ) -> Result<Json<AtlasRegionsResponse>, (StatusCode, String)> {
-    let response = state
+    let mut response = state
         .store
         .list_atlas_regions(&req)
         .map_err(internal_error)?;
+    if response.regions.is_empty() {
+        let generated = state
+            .store
+            .generate_regions_for_project(
+                req.project.as_deref(),
+                req.namespace.as_deref(),
+                req.lane.as_deref(),
+            )
+            .map_err(internal_error)?;
+        let limit = req.limit.unwrap_or(generated.len());
+        response.regions = generated.into_iter().take(limit).collect();
+    }
     Ok(Json(response))
 }
 
