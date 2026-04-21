@@ -1370,6 +1370,29 @@ pub(crate) fn membench_retrieval_docs(
         .collect()
 }
 
+/// Token-intersection ranker used by LoCoMo/MemBench/ConvoMem bench adapters
+/// before G3. Extracted verbatim from `build_context_retrieval_run_report` so
+/// the `Lexical` backend variant can reuse it without drift. Rust's
+/// `Vec::sort_by` is stable, so equal scores preserve input (docs) order —
+/// do not replace with `sort_unstable_by` without re-auditing bench numbers.
+pub(crate) fn rank_public_benchmark_lexical_docs(
+    query: &str,
+    docs: &[(String, String)],
+) -> Vec<((String, String), f64)> {
+    let query_tokens = tokenize_public_benchmark_text(query);
+    let mut ranked = docs
+        .iter()
+        .map(|(doc_id, text)| {
+            let score = query_tokens
+                .intersection(&tokenize_public_benchmark_text(text))
+                .count() as f64;
+            ((doc_id.clone(), text.clone()), score)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+    ranked
+}
+
 pub(crate) fn build_context_retrieval_run_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
@@ -1386,19 +1409,9 @@ pub(crate) fn build_context_retrieval_run_report(
 
     for (index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
-        let query_tokens = tokenize_public_benchmark_text(&item.query);
         let docs = retrieval_docs(item);
         let expected = expected_targets(item);
-        let mut ranked = docs
-            .iter()
-            .map(|(doc_id, text)| {
-                let score = query_tokens
-                    .intersection(&tokenize_public_benchmark_text(text))
-                    .count() as f64;
-                ((doc_id.clone(), text.clone()), score)
-            })
-            .collect::<Vec<_>>();
-        ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+        let ranked = rank_public_benchmark_lexical_docs(&item.query, &docs);
 
         let retrieved_items = ranked
             .iter()
