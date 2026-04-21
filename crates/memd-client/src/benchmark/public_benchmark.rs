@@ -1398,6 +1398,7 @@ pub(crate) fn build_context_retrieval_run_report(
     top_k: usize,
     mode: &str,
     reranker_id: Option<&str>,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
     retrieval_docs: impl Fn(&PublicBenchmarkDatasetFixtureItem) -> Vec<(String, String)>,
     expected_targets: impl Fn(&PublicBenchmarkDatasetFixtureItem) -> BTreeSet<String>,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
@@ -1411,7 +1412,19 @@ pub(crate) fn build_context_retrieval_run_report(
         let item_started = Instant::now();
         let docs = retrieval_docs(item);
         let expected = expected_targets(item);
-        let ranked = rank_public_benchmark_lexical_docs(&item.query, &docs);
+        // G3 step 3: dispatcher threaded through. Step 4 replaces the
+        // non-lexical arms with real memd/sidecar/rrf adapters keyed on
+        // `dataset.benchmark_id`. Until then all variants route to the
+        // lexical scorer so --backend memd does not silently ship broken
+        // numbers for LoCoMo/MemBench/ConvoMem.
+        let ranked = match retrieval_config.longmemeval_backend {
+            PublicBenchmarkBackend::Lexical
+            | PublicBenchmarkBackend::Memd
+            | PublicBenchmarkBackend::Sidecar
+            | PublicBenchmarkBackend::Rrf => {
+                rank_public_benchmark_lexical_docs(&item.query, &docs)
+            }
+        };
 
         let retrieved_items = ranked
             .iter()
@@ -3724,6 +3737,7 @@ pub(crate) fn build_public_benchmark_item_results(
             top_k,
             mode,
             reranker_id,
+            retrieval_config,
             locomo_retrieval_docs,
             |item| {
                 public_benchmark_string_vec(item.metadata.get("evidence"))
@@ -3738,6 +3752,7 @@ pub(crate) fn build_public_benchmark_item_results(
             top_k,
             mode,
             reranker_id,
+            retrieval_config,
             membench_retrieval_docs,
             |item| {
                 item.metadata
@@ -3756,6 +3771,7 @@ pub(crate) fn build_public_benchmark_item_results(
             top_k,
             mode,
             reranker_id,
+            retrieval_config,
             |item| {
                 convomem_message_docs(
                     item.metadata
