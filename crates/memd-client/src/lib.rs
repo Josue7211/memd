@@ -3,8 +3,9 @@ use memd_schema::{
     AgentProfileRequest, AgentProfileResponse, AgentProfileUpsertRequest, AssociativeRecallRequest,
     AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest,
     AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse, CandidateMemoryRequest,
-    CandidateMemoryResponse, CompactContextResponse, ContextRequest, ContextResponse,
-    CorrectMemoryRequest, CorrectMemoryResponse, EntityLinkRequest, EntityLinkResponse,
+    CandidateMemoryResponse, CompactContextResponse, ConsolidateEpisodesRequest,
+    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
+    CorrectMemoryResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
@@ -268,6 +269,13 @@ impl MemdClient {
 
     pub async fn drain(&self, req: &MemoryDrainRequest) -> anyhow::Result<MemoryDrainResponse> {
         self.post_json("/memory/maintenance/drain", req).await
+    }
+
+    pub async fn consolidate_episodes(
+        &self,
+        req: &ConsolidateEpisodesRequest,
+    ) -> anyhow::Result<ConsolidateEpisodesResponse> {
+        self.post_json("/episodes/consolidate", req).await
     }
 
     pub async fn dismiss_inbox(

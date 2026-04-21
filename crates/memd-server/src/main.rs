@@ -57,8 +57,9 @@ use memd_schema::{
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
-    CorrectMemoryRequest, CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest,
-    DivergenceSummary, EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
+    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, CorrectMemoryRequest,
+    CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest, DivergenceSummary,
+    EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
     ExplainMemoryRequest, ExplainMemoryResponse, HealthResponse, HiveBoardRequest,
@@ -71,7 +72,8 @@ use memd_schema::{
     HiveSessionAutoRetireResponse, HiveSessionRetireRequest, HiveSessionRetireResponse,
     HiveSessionUpsertRequest, HiveSessionsRequest, HiveSessionsResponse, HiveTaskAssignRequest,
     HiveTaskUpsertRequest, HiveTasksRequest, HiveTasksResponse, InboxDismissRequest,
-    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse, MaintainReport,
+    InboxDismissResponse, InboxMemoryItem, IngestLanesRequest, IngestLanesResponse,
+    ListEpisodesRequest, ListEpisodesResponse, MaintainReport,
     MaintainReportRequest, MemoryConsolidationRequest, MemoryConsolidationResponse,
     MemoryContextFrame, MemoryDecayRequest, MemoryDecayResponse, MemoryDrainRequest,
     MemoryDrainResponse, MemoryEntityLinkRecord, MemoryEntityRecord, MemoryEventRecord,
@@ -926,6 +928,8 @@ async fn main() {
         .route("/coordination/tasks", get(get_hive_tasks))
         .route("/memory/maintenance/decay", post(decay_memory))
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
+        .route("/episodes/consolidate", post(consolidate_episodes_handler))
+        .route("/episodes/list", get(list_episodes_handler))
         .route("/memory/maintenance/drain", post(drain_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
         .route("/memory/inbox/dismiss", post(dismiss_inbox))

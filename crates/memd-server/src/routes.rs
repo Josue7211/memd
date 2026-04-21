@@ -2558,6 +2558,29 @@ pub(crate) async fn post_ingest_lanes(
     }))
 }
 
+pub(crate) async fn consolidate_episodes_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ConsolidateEpisodesRequest>,
+) -> Result<Json<ConsolidateEpisodesResponse>, (StatusCode, String)> {
+    let now = chrono::Utc::now();
+    state
+        .store
+        .consolidate_episodes(&req, now)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub(crate) async fn list_episodes_handler(
+    State(state): State<AppState>,
+    Query(req): Query<ListEpisodesRequest>,
+) -> Result<Json<ListEpisodesResponse>, (StatusCode, String)> {
+    state
+        .store
+        .list_episodes(&req)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 #[derive(Clone)]
 pub(crate) struct MemoryViewItem {
     pub(crate) item: MemoryItem,

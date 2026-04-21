@@ -4,9 +4,9 @@ use anyhow::Context;
 use clap::Parser;
 use memd_client::MemdClient;
 use memd_schema::{
-    ExpireMemoryRequest, MemoryConsolidationRequest, MemoryDecayRequest, MemoryDrainRequest,
-    MemoryKind, MemoryScope, MemoryStage, MemoryStatus, ProcedureDetectRequest,
-    SearchMemoryRequest, VerifyMemoryRequest,
+    ConsolidateEpisodesRequest, ExpireMemoryRequest, MemoryConsolidationRequest,
+    MemoryDecayRequest, MemoryDrainRequest, MemoryKind, MemoryScope, MemoryStage, MemoryStatus,
+    ProcedureDetectRequest, SearchMemoryRequest, VerifyMemoryRequest,
 };
 use tokio::time::{Duration, sleep};
 
@@ -45,24 +45,28 @@ async fn main() -> anyhow::Result<()> {
         let result = run_once(&client, &args).await?;
         if args.report {
             println!(
-                "learning report: reinforced={} cooled={} consolidated={} procedures={} stale_checked={} drained={} skipped={}",
+                "learning report: reinforced={} cooled={} consolidated={} procedures={} episodes={}+{}skip stale_checked={} drained={} skipped={}",
                 result.verified,
                 result.decayed,
                 result.consolidated,
                 result.procedures_detected,
+                result.episodes_created,
+                result.episodes_skipped,
                 result.expired,
                 result.drained,
                 result.skipped
             );
         } else {
             println!(
-                "verification pass complete: verified={}, expired={}, drained={}, decayed={}, consolidated={}, procedures={}, skipped={}",
+                "verification pass complete: verified={}, expired={}, drained={}, decayed={}, consolidated={}, procedures={}, episodes={}+{}skip, skipped={}",
                 result.verified,
                 result.expired,
                 result.drained,
                 result.decayed,
                 result.consolidated,
                 result.procedures_detected,
+                result.episodes_created,
+                result.episodes_skipped,
                 result.skipped
             );
         }
@@ -77,6 +81,8 @@ struct WorkerResult {
     decayed: usize,
     consolidated: usize,
     procedures_detected: usize,
+    episodes_created: usize,
+    episodes_skipped: usize,
     skipped: usize,
 }
 
@@ -174,6 +180,11 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         .await
         .context("drain expired items")?;
 
+    let episodes = client
+        .consolidate_episodes(&ConsolidateEpisodesRequest::default())
+        .await
+        .context("consolidate episodes (dream loop)")?;
+
     Ok(WorkerResult {
         verified,
         expired,
@@ -181,6 +192,8 @@ async fn run_once(client: &MemdClient, args: &Args) -> anyhow::Result<WorkerResu
         decayed: decay.updated,
         consolidated: consolidation.consolidated,
         procedures_detected: procedures.created,
+        episodes_created: episodes.episodes_created.len(),
+        episodes_skipped: episodes.idempotent_skipped,
         skipped: 0,
     })
 }
