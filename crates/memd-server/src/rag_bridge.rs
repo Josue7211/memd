@@ -113,7 +113,26 @@ pub(crate) async fn ingest_item(client: &RagClient, item: &MemoryItem) -> anyhow
             tags: item.tags.clone(),
         },
     };
-    client.ingest(&request).await.map(|_| ())
+    let per_attempt = rag_timeout().saturating_mul(2);
+    let backoffs = [Duration::from_millis(100), Duration::from_millis(500)];
+    let mut last_error: Option<anyhow::Error> = None;
+    for attempt in 0..=backoffs.len() {
+        match tokio::time::timeout(per_attempt, client.ingest(&request)).await {
+            Ok(Ok(_)) => return Ok(()),
+            Ok(Err(error)) => last_error = Some(error.into()),
+            Err(_) => {
+                last_error = Some(anyhow::anyhow!(
+                    "rag ingest timed out after {}ms",
+                    per_attempt.as_millis()
+                ))
+            }
+        }
+        if let Some(delay) = backoffs.get(attempt) {
+            tokio::time::sleep(*delay).await;
+        }
+    }
+    record_failure();
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("rag ingest failed with no error recorded")))
 }
 
 pub(crate) async fn fetch_dense_candidates(
