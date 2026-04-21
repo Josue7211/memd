@@ -2619,6 +2619,117 @@ fn dispatcher_parity_convomem_rrf_vs_lexical() {
     assert_dispatcher_routes("convomem");
 }
 
+/// j3-prep-1: `build_locomo_full_eval_report` previously ignored
+/// `retrieval_config` and ranked via a hardcoded lexical token-intersection.
+/// This test pins the fix by running the exact retrieval shape the full_eval
+/// path uses — `locomo_retrieval_docs(item)` → `dispatch_context_retrieval_ranked("locomo", ...)`
+/// — under lexical and rrf, asserting divergent order. Future regressions
+/// that re-hardcode lexical fail here.
+#[test]
+fn locomo_full_eval_retrieval_honors_backend_dispatch() {
+    let item = PublicBenchmarkDatasetFixtureItem {
+        item_id: "loco-1".to_string(),
+        question_id: "loco-1".to_string(),
+        query: "the cat sat on what mat".to_string(),
+        claim_class: "full-eval".to_string(),
+        gold_answer: "the mat".to_string(),
+        metadata: json!({
+            "conversation": {
+                "session_1": [
+                    {"dia_id": "d_abs", "speaker": "A", "text": "cat sat on the mat"},
+                    {"dia_id": "d_plain", "speaker": "A", "text": "cat sat on the mat"},
+                    {"dia_id": "d_cat_only", "speaker": "A", "text": "cat"},
+                    {"dia_id": "d_unrelated", "speaker": "A", "text": "the quick brown fox jumps over the lazy dog"}
+                ]
+            },
+            "category_name": "single-hop"
+        }),
+    };
+    let docs = locomo_retrieval_docs(&item);
+    assert!(!docs.is_empty(), "locomo_retrieval_docs must emit dialogs");
+    let lex = dispatch_context_retrieval_ranked(
+        "locomo",
+        &item.item_id,
+        &item.query,
+        &docs,
+        "full-eval",
+        &parity_cfg(PublicBenchmarkBackend::Lexical),
+    );
+    let rrf = dispatch_context_retrieval_ranked(
+        "locomo",
+        &item.item_id,
+        &item.query,
+        &docs,
+        "full-eval",
+        &parity_cfg(PublicBenchmarkBackend::Rrf),
+    );
+    let lex_ids: Vec<&str> = lex.iter().map(|((id, _), _)| id.as_str()).collect();
+    let rrf_ids: Vec<&str> = rrf.iter().map(|((id, _), _)| id.as_str()).collect();
+    assert_eq!(
+        lex_ids.len(),
+        rrf_ids.len(),
+        "locomo full-eval: both backends must return every doc"
+    );
+    assert_ne!(
+        lex_ids, rrf_ids,
+        "locomo full-eval: dispatcher is not routing — lexical and rrf rank identically"
+    );
+}
+
+/// j3-prep-2: mirrors the LoCoMo test above for MemBench. Pins that
+/// `build_membench_full_eval_report` dispatches via `dispatch_context_retrieval_ranked("membench", ...)`
+/// rather than a hardcoded lexical scorer.
+#[test]
+fn membench_full_eval_retrieval_honors_backend_dispatch() {
+    let item = PublicBenchmarkDatasetFixtureItem {
+        item_id: "mb-1".to_string(),
+        question_id: "mb-1".to_string(),
+        query: "the cat sat on what mat".to_string(),
+        claim_class: "full-eval".to_string(),
+        gold_answer: "A".to_string(),
+        metadata: json!({
+            "topic": "general",
+            "ground_truth": "A",
+            "choices": ["the mat", "the roof", "nowhere"],
+            "message_list": [[
+                {"mid": "m_abs", "user_message": "cat sat on the mat"},
+                {"mid": "m_plain", "user_message": "cat sat on the mat"},
+                {"mid": "m_cat_only", "user_message": "cat"},
+                {"mid": "m_unrelated", "user_message": "the quick brown fox jumps over the lazy dog"}
+            ]]
+        }),
+    };
+    let docs = membench_retrieval_docs(&item);
+    assert!(!docs.is_empty(), "membench_retrieval_docs must emit turns");
+    let lex = dispatch_context_retrieval_ranked(
+        "membench",
+        &item.item_id,
+        &item.query,
+        &docs,
+        "full-eval",
+        &parity_cfg(PublicBenchmarkBackend::Lexical),
+    );
+    let rrf = dispatch_context_retrieval_ranked(
+        "membench",
+        &item.item_id,
+        &item.query,
+        &docs,
+        "full-eval",
+        &parity_cfg(PublicBenchmarkBackend::Rrf),
+    );
+    let lex_ids: Vec<&str> = lex.iter().map(|((id, _), _)| id.as_str()).collect();
+    let rrf_ids: Vec<&str> = rrf.iter().map(|((id, _), _)| id.as_str()).collect();
+    assert_eq!(
+        lex_ids.len(),
+        rrf_ids.len(),
+        "membench full-eval: both backends must return every doc"
+    );
+    assert_ne!(
+        lex_ids, rrf_ids,
+        "membench full-eval: dispatcher is not routing — lexical and rrf rank identically"
+    );
+}
+
 #[test]
 fn dispatcher_memd_without_base_url_falls_back_to_lexical() {
     // G3 contract: Backend::Memd with no memd_base_url degrades to

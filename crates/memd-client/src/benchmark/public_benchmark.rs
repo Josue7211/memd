@@ -3680,8 +3680,8 @@ pub(crate) async fn build_longmemeval_full_eval_report(
 pub(crate) async fn build_locomo_full_eval_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
-    _mode: &str,
-    _retrieval_config: &PublicBenchmarkRetrievalConfig,
+    mode: &str,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
     generator_config: &GeneratorConfig,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     let started = Instant::now();
@@ -3710,19 +3710,18 @@ pub(crate) async fn build_locomo_full_eval_report(
             item.question_id
         );
 
-        // Step 1: Retrieve context
+        // Step 1: Retrieve context via dispatched backend (lexical/memd/rrf/sidecar).
+        // j3-prep-1: honor --retrieval-backend for LoCoMo full-eval. Prior
+        // hardcoded lexical intersection ignored `retrieval_config`.
         let docs = locomo_retrieval_docs(item);
-        let query_tokens = tokenize_public_benchmark_text(&item.query);
-        let mut ranked = docs
-            .iter()
-            .map(|(doc_id, text)| {
-                let score = query_tokens
-                    .intersection(&tokenize_public_benchmark_text(text))
-                    .count() as f64;
-                ((doc_id.clone(), text.clone()), score)
-            })
-            .collect::<Vec<_>>();
-        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let ranked = dispatch_context_retrieval_ranked(
+            "locomo",
+            &item.item_id,
+            &item.query,
+            &docs,
+            mode,
+            retrieval_config,
+        );
         let context = ranked
             .iter()
             .take(top_k)
@@ -3859,8 +3858,8 @@ pub(crate) async fn build_locomo_full_eval_report(
 pub(crate) async fn build_membench_full_eval_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
-    _mode: &str,
-    _retrieval_config: &PublicBenchmarkRetrievalConfig,
+    mode: &str,
+    retrieval_config: &PublicBenchmarkRetrievalConfig,
     generator_config: &GeneratorConfig,
 ) -> anyhow::Result<PublicBenchmarkRunReport> {
     let started = Instant::now();
@@ -3916,19 +3915,18 @@ pub(crate) async fn build_membench_full_eval_report(
             item.question_id
         );
 
-        // Step 1: Retrieve context
+        // Step 1: Retrieve context via dispatched backend (lexical/memd/rrf/sidecar).
+        // j3-prep-2: honor --retrieval-backend for MemBench full-eval. Prior
+        // hardcoded lexical intersection ignored `retrieval_config`.
         let docs = membench_retrieval_docs(item);
-        let query_tokens = tokenize_public_benchmark_text(&item.query);
-        let mut ranked = docs
-            .iter()
-            .map(|(doc_id, text)| {
-                let score = query_tokens
-                    .intersection(&tokenize_public_benchmark_text(text))
-                    .count() as f64;
-                ((doc_id.clone(), text.clone()), score)
-            })
-            .collect::<Vec<_>>();
-        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let ranked = dispatch_context_retrieval_ranked(
+            "membench",
+            &item.item_id,
+            &item.query,
+            &docs,
+            mode,
+            retrieval_config,
+        );
         let context = ranked
             .iter()
             .take(top_k)
