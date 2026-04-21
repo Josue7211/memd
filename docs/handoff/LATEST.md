@@ -1,1 +1,1 @@
-2026-04-21-f3-reopened-bench-honesty-expanded.md
+2026-04-21-g3-complete-next-h3.md
