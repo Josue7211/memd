@@ -1393,6 +1393,94 @@ pub(crate) fn rank_public_benchmark_lexical_docs(
     ranked
 }
 
+/// G3 step 4 dispatcher: routes a single (query, docs) pair through the
+/// configured backend and produces ranked `((doc_id, text), score)` pairs
+/// in the shape `build_context_retrieval_run_report` consumes. On any
+/// memd/sidecar/rrf failure we fall back to the lexical scorer rather
+/// than abort the bench — matches the LongMemEval adapter's RRF-with-
+/// lexical-fallback contract (`merge_ranked_longmemeval_results`).
+pub(crate) fn dispatch_context_retrieval_ranked(
+    bench_id: &str,
+    item_id: &str,
+    query: &str,
+    docs: &[(String, String)],
+    mode: &str,
+    config: &PublicBenchmarkRetrievalConfig,
+) -> Vec<((String, String), f64)> {
+    if docs.is_empty() {
+        return Vec::new();
+    }
+    match config.longmemeval_backend {
+        PublicBenchmarkBackend::Lexical => rank_public_benchmark_lexical_docs(query, docs),
+        PublicBenchmarkBackend::Rrf => {
+            let (corpus_ids, corpus): (Vec<String>, Vec<String>) = docs.iter().cloned().unzip();
+            let ranked = rank_longmemeval_corpus_via_rrf(query, &corpus, &corpus_ids, mode);
+            ranked_indices_to_docs(ranked, docs, query)
+        }
+        PublicBenchmarkBackend::Memd => {
+            let Some(base_url) = config.memd_base_url.as_deref() else {
+                if std::env::var_os("MEMD_BENCH_PROBES").is_some() {
+                    eprintln!(
+                        "[bench-probe] memd-fallback-no-url bench={bench_id} item={item_id}"
+                    );
+                }
+                return rank_public_benchmark_lexical_docs(query, docs);
+            };
+            let (corpus_ids, corpus): (Vec<String>, Vec<String>) = docs.iter().cloned().unzip();
+            let namespace = bench_item_namespace(bench_id, item_id, &corpus_ids, &corpus);
+            match rank_corpus_via_memd(
+                bench_id, base_url, query, &corpus, &corpus_ids, mode, &namespace,
+            ) {
+                Ok(ranked) => ranked_indices_to_docs(ranked, docs, query),
+                Err(err) => {
+                    if std::env::var_os("MEMD_BENCH_PROBES").is_some() {
+                        eprintln!(
+                            "[bench-probe] memd-dispatch-error bench={bench_id} item={item_id} err={err}"
+                        );
+                    }
+                    rank_public_benchmark_lexical_docs(query, docs)
+                }
+            }
+        }
+        PublicBenchmarkBackend::Sidecar => {
+            // Sidecar adapter for LoCoMo/MemBench/ConvoMem is not in scope
+            // for G3 (J3 evaluates accelerated vs intrinsic). Routing
+            // sidecar through lexical here keeps the CLI flag honest:
+            // the bench manifest still records `sidecar` in the backend
+            // column, and behavior is documented as fallback.
+            rank_public_benchmark_lexical_docs(query, docs)
+        }
+    }
+}
+
+/// Map the `(corpus_index, score)` shape returned by
+/// `rank_corpus_via_memd` / `rank_longmemeval_corpus_via_rrf` back into
+/// the `((doc_id, text), score)` shape `build_context_retrieval_run_report`
+/// consumes. Indices not produced by the backend are appended at the end
+/// with score 0.0 in original docs order, so the caller still sees every
+/// doc (matches lexical behavior, which scores every doc).
+fn ranked_indices_to_docs(
+    ranked: Vec<(usize, f64)>,
+    docs: &[(String, String)],
+    _query: &str,
+) -> Vec<((String, String), f64)> {
+    let mut out = Vec::with_capacity(docs.len());
+    let mut seen = std::collections::HashSet::with_capacity(docs.len());
+    for (index, score) in &ranked {
+        if let Some(doc) = docs.get(*index)
+            && seen.insert(*index)
+        {
+            out.push((doc.clone(), *score));
+        }
+    }
+    for (index, doc) in docs.iter().enumerate() {
+        if seen.insert(index) {
+            out.push((doc.clone(), 0.0));
+        }
+    }
+    out
+}
+
 pub(crate) fn build_context_retrieval_run_report(
     dataset: &PublicBenchmarkDatasetFixture,
     top_k: usize,
@@ -1408,23 +1496,19 @@ pub(crate) fn build_context_retrieval_run_report(
     let mut total_latency_ms: u128 = 0;
     let mut hits: usize = 0;
 
+    let bench_id = dataset.benchmark_id.as_str();
     for (index, item) in dataset.items.iter().enumerate() {
         let item_started = Instant::now();
         let docs = retrieval_docs(item);
         let expected = expected_targets(item);
-        // G3 step 3: dispatcher threaded through. Step 4 replaces the
-        // non-lexical arms with real memd/sidecar/rrf adapters keyed on
-        // `dataset.benchmark_id`. Until then all variants route to the
-        // lexical scorer so --backend memd does not silently ship broken
-        // numbers for LoCoMo/MemBench/ConvoMem.
-        let ranked = match retrieval_config.longmemeval_backend {
-            PublicBenchmarkBackend::Lexical
-            | PublicBenchmarkBackend::Memd
-            | PublicBenchmarkBackend::Sidecar
-            | PublicBenchmarkBackend::Rrf => {
-                rank_public_benchmark_lexical_docs(&item.query, &docs)
-            }
-        };
+        let ranked = dispatch_context_retrieval_ranked(
+            bench_id,
+            &item.item_id,
+            &item.query,
+            &docs,
+            mode,
+            retrieval_config,
+        );
 
         let retrieved_items = ranked
             .iter()
@@ -1672,6 +1756,26 @@ pub(crate) fn longmemeval_bench_namespace(
     format!("longmemeval-{kind}-{:016x}", hasher.finish())
 }
 
+/// G3 step 5: per-item namespace isolation. Hashes (bench_id, item_id,
+/// corpus_ids, corpus) so two items with the same query but different
+/// haystacks land in distinct memd namespaces, preventing cross-question
+/// bleed in the LoCoMo/MemBench/ConvoMem dispatcher path. Two calls with
+/// identical inputs return the same string — `claim_public_benchmark_namespace`
+/// then short-circuits the second ingest pass.
+pub(crate) fn bench_item_namespace(
+    bench_id: &str,
+    item_id: &str,
+    corpus_ids: &[String],
+    corpus: &[String],
+) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bench_id.hash(&mut hasher);
+    item_id.hash(&mut hasher);
+    corpus_ids.hash(&mut hasher);
+    corpus.hash(&mut hasher);
+    format!("{bench_id}-{item_id}-{:016x}", hasher.finish())
+}
+
 fn claim_public_benchmark_namespace(namespace: &str) -> bool {
     static PRIMED_NAMESPACES: std::sync::OnceLock<std::sync::Mutex<BTreeSet<String>>> =
         std::sync::OnceLock::new();
@@ -1912,6 +2016,7 @@ pub(crate) fn rank_longmemeval_corpus_via_sidecar(
 }
 
 async fn bench_memd_roundtrip(
+    bench_id: String,
     store_url: String,
     search_url: String,
     project: Option<String>,
@@ -1958,7 +2063,7 @@ async fn bench_memd_roundtrip(
                 supersedes: Vec::new(),
                 tags: vec![
                     "public-benchmark".to_string(),
-                    "longmemeval".to_string(),
+                    bench_id.clone(),
                     corpus_id.clone(),
                 ],
                 status: None,
@@ -2181,26 +2286,54 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
     mode: &str,
     namespace: &str,
 ) -> anyhow::Result<Vec<(usize, f64)>> {
+    rank_corpus_via_memd(
+        "longmemeval",
+        base_url,
+        query,
+        corpus,
+        corpus_ids,
+        mode,
+        namespace,
+    )
+}
+
+/// G3 step 4: generic memd-backed corpus ranker. Same intrinsic path as
+/// `rank_longmemeval_corpus_via_memd`, but `bench_id` parameterizes the
+/// project name, ingest tag, and worker thread label — so LoCoMo,
+/// MemBench, and ConvoMem can dispatch through `/memory/store` +
+/// `/memory/search` without cloning the runtime + RRF dance per bench.
+/// Returns `(corpus_index, score)` pairs after RRF-merging memd ranking
+/// with the lexical fallback (see `merge_ranked_longmemeval_results`).
+pub(crate) fn rank_corpus_via_memd(
+    bench_id: &str,
+    base_url: &str,
+    query: &str,
+    corpus: &[String],
+    corpus_ids: &[String],
+    mode: &str,
+    namespace: &str,
+) -> anyhow::Result<Vec<(usize, f64)>> {
     bench_probe!(
-        "[bench-probe] enter ns={namespace} corpus_len={}",
+        "[bench-probe] enter bench={bench_id} ns={namespace} corpus_len={}",
         corpus.len()
     );
     let t0 = std::time::Instant::now();
     let lexical_fallback = rank_public_benchmark_corpus(query, corpus, corpus_ids, mode);
     bench_probe!(
-        "[bench-probe] lexical_fallback done ns={namespace} elapsed_ms={}",
+        "[bench-probe] lexical_fallback done bench={bench_id} ns={namespace} elapsed_ms={}",
         t0.elapsed().as_millis()
     );
 
     let store_url = format!("{}/memory/store", base_url.trim_end_matches('/'));
     let search_url = format!("{}/memory/search", base_url.trim_end_matches('/'));
-    let project = Some("memd-public-benchmark-longmemeval".to_string());
+    let project = Some(format!("memd-public-benchmark-{bench_id}"));
     let namespace_owned = Some(namespace.to_string());
 
     // Use a dedicated OS thread owning its own current-thread tokio runtime
     // to avoid `reqwest::blocking`'s internal dual-runtime dance (observed
     // to wedge under bench load; see B3 part2 prereq). Running on a fresh
     // thread also sidesteps any outer runtime the caller may already own.
+    let bench_id_owned = bench_id.to_string();
     let project_for_thread = project.clone();
     let namespace_for_thread = namespace_owned.clone();
     let query_owned = query.to_string();
@@ -2209,8 +2342,9 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
     let store_url_owned = store_url.clone();
     let search_url_owned = search_url.clone();
     let ns_label = namespace.to_string();
+    let bench_id_for_thread = bench_id_owned.clone();
     let handle = std::thread::Builder::new()
-        .name(format!("bench-memd-{}", ns_label))
+        .name(format!("bench-memd-{bench_id_owned}-{ns_label}"))
         .spawn(
             move || -> anyhow::Result<memd_schema::SearchMemoryResponse> {
                 let rt = tokio::runtime::Builder::new_current_thread()
@@ -2218,6 +2352,7 @@ pub(crate) fn rank_longmemeval_corpus_via_memd(
                     .build()
                     .context("build tokio runtime for public benchmark memd client")?;
                 rt.block_on(bench_memd_roundtrip(
+                    bench_id_for_thread,
                     store_url_owned,
                     search_url_owned,
                     project_for_thread,
