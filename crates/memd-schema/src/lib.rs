@@ -3069,6 +3069,49 @@ pub struct ListEpisodesResponse {
     pub episodes: Vec<Episode>,
 }
 
+/// E3-D5 request: scan existing vectors in scope, cluster near-duplicates
+/// by cosine distance, preview which rows would be merged under
+/// `MEMD_STORE_DEDUP=1`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DedupScanRequest {
+    pub project: Option<String>,
+    pub namespace: Option<String>,
+    /// Cosine distance threshold (default: 0.15).
+    pub threshold_cosine_distance: Option<f32>,
+    /// Cap on clusters returned (default: 50).
+    pub limit: Option<usize>,
+    /// Reserved: when false, the server would actually merge. For now
+    /// D5 only supports dry_run=true.
+    #[serde(default = "default_dry_run_true")]
+    pub dry_run: bool,
+}
+
+fn default_dry_run_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DedupDuplicate {
+    pub id: Uuid,
+    pub similarity: f32,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DedupCluster {
+    /// Richest survivor (highest confidence, ties broken by updated_at desc).
+    pub survivor_id: Uuid,
+    pub survivor_preview: String,
+    pub duplicates: Vec<DedupDuplicate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DedupScanResponse {
+    pub clusters: Vec<DedupCluster>,
+    pub vectors_scanned: usize,
+    pub threshold_cosine_distance: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

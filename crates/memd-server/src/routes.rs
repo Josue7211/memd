@@ -2581,6 +2581,27 @@ pub(crate) async fn list_episodes_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
+pub(crate) async fn dedup_scan_handler(
+    State(state): State<AppState>,
+    Json(req): Json<DedupScanRequest>,
+) -> Result<Json<DedupScanResponse>, (StatusCode, String)> {
+    let model = state
+        .embedder
+        .as_deref()
+        .map(|e| e.model_code().to_string())
+        .ok_or_else(|| {
+            (
+                StatusCode::PRECONDITION_FAILED,
+                "embedder not configured; dedup scan unavailable".to_string(),
+            )
+        })?;
+    state
+        .store
+        .scan_duplicates(&req, &model)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 #[derive(Clone)]
 pub(crate) struct MemoryViewItem {
     pub(crate) item: MemoryItem,

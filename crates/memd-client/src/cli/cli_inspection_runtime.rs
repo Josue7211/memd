@@ -924,6 +924,46 @@ pub(crate) async fn run_consolidate_command(
     Ok(())
 }
 
+pub(crate) async fn run_dedup_command(
+    client: &MemdClient,
+    args: DedupArgs,
+) -> anyhow::Result<()> {
+    let response = client
+        .dedup_scan(&memd_schema::DedupScanRequest {
+            project: args.project.clone(),
+            namespace: args.namespace.clone(),
+            threshold_cosine_distance: args.threshold,
+            limit: Some(args.limit),
+            dry_run: args.dry_run,
+        })
+        .await?;
+    if args.json {
+        print_json(&response)?;
+        return Ok(());
+    }
+    println!(
+        "dedup scan: vectors_scanned={} threshold={:.3} clusters={}",
+        response.vectors_scanned,
+        response.threshold_cosine_distance,
+        response.clusters.len()
+    );
+    for (idx, cluster) in response.clusters.iter().enumerate() {
+        println!(
+            "\n[{}] survivor {} — {}",
+            idx + 1,
+            cluster.survivor_id,
+            cluster.survivor_preview
+        );
+        for dup in &cluster.duplicates {
+            println!(
+                "    dup {} sim={:.3} — {}",
+                dup.id, dup.similarity, dup.preview
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn run_maintenance_report_command(
     client: &MemdClient,
     args: MaintenanceReportArgs,

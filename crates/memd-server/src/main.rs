@@ -58,7 +58,8 @@ use memd_schema::{
     AtlasRegionsRequest, AtlasRegionsResponse, AtlasRenameRegionRequest, AtlasRenameRegionResponse,
     AtlasSaveTrailRequest, AtlasSaveTrailResponse, CandidateMemoryRequest, CandidateMemoryResponse,
     CompactContextResponse, CompactMemoryRecord, ContextRequest, ContextResponse,
-    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, CorrectMemoryRequest,
+    ConsolidateEpisodesRequest, ConsolidateEpisodesResponse, CorrectMemoryRequest, DedupScanRequest,
+    DedupScanResponse,
     CorrectMemoryResponse, DecayDiagnosticsResponse, DivergenceRequest, DivergenceSummary,
     EntityLinkRequest, EntityLinkResponse, EntityLinksRequest,
     EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse, EntitySearchHit,
@@ -998,6 +999,7 @@ async fn main() {
         .route("/memory/maintenance/consolidate", post(consolidate_memory))
         .route("/episodes/consolidate", post(consolidate_episodes_handler))
         .route("/episodes/list", get(list_episodes_handler))
+        .route("/memory/dedup/scan", post(dedup_scan_handler))
         .route("/memory/maintenance/drain", post(drain_memory))
         .route("/memory/maintenance/report", get(get_maintenance_report))
         .route("/memory/inbox/dismiss", post(dismiss_inbox))

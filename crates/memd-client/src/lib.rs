@@ -4,7 +4,7 @@ use memd_schema::{
     AssociativeRecallResponse, AtlasExpandRequest, AtlasExpandResponse, AtlasExploreRequest,
     AtlasExploreResponse, AtlasRegionsRequest, AtlasRegionsResponse, CandidateMemoryRequest,
     CandidateMemoryResponse, CompactContextResponse, ConsolidateEpisodesRequest,
-    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest,
+    ConsolidateEpisodesResponse, ContextRequest, ContextResponse, CorrectMemoryRequest, DedupScanRequest, DedupScanResponse,
     CorrectMemoryResponse, EntityLinkRequest, EntityLinkResponse,
     EntityLinksRequest, EntityLinksResponse, EntityMemoryRequest, EntityMemoryResponse,
     EntitySearchRequest, EntitySearchResponse, ExpireMemoryRequest, ExpireMemoryResponse,
@@ -276,6 +276,13 @@ impl MemdClient {
         req: &ConsolidateEpisodesRequest,
     ) -> anyhow::Result<ConsolidateEpisodesResponse> {
         self.post_json("/episodes/consolidate", req).await
+    }
+
+    pub async fn dedup_scan(
+        &self,
+        req: &DedupScanRequest,
+    ) -> anyhow::Result<DedupScanResponse> {
+        self.post_json("/memory/dedup/scan", req).await
     }
 
     pub async fn dismiss_inbox(

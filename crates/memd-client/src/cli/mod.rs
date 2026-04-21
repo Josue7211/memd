@@ -886,6 +886,9 @@ pub(crate) async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         Commands::Consolidate(args) => {
             run_consolidate_command(&client, args).await?;
         }
+        Commands::Dedup(args) => {
+            run_dedup_command(&client, args).await?;
+        }
         Commands::MaintenanceReport(args) => {
             run_maintenance_report_command(&client, args).await?;
         }

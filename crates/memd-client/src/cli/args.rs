@@ -89,6 +89,8 @@ pub(crate) enum Commands {
     Procedure(ProcedureArgs),
     Events(EventsArgs),
     Consolidate(ConsolidateArgs),
+    /// E3-D5: scan existing memory vectors for near-duplicates (cosine).
+    Dedup(DedupArgs),
     MaintenanceReport(MaintenanceReportArgs),
     Maintain(MaintainArgs),
     Policy(PolicyArgs),
@@ -946,6 +948,31 @@ pub(crate) struct ConsolidateArgs {
 
     #[arg(long)]
     pub(crate) follow: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct DedupArgs {
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+
+    #[arg(long)]
+    pub(crate) namespace: Option<String>,
+
+    /// Cosine distance threshold (default: 0.15).
+    #[arg(long)]
+    pub(crate) threshold: Option<f32>,
+
+    /// Max clusters to emit.
+    #[arg(long, default_value_t = 50)]
+    pub(crate) limit: usize,
+
+    /// Preview only. Future: set false to apply merges.
+    #[arg(long, default_value_t = true)]
+    pub(crate) dry_run: bool,
+
+    /// Emit JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
