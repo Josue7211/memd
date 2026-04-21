@@ -310,3 +310,105 @@ fn health_from_response(
         recent_failures,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use memd_schema::{MemoryKind, MemoryScope, MemoryStage, MemoryStatus, MemoryVisibility};
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn dummy_item() -> MemoryItem {
+        MemoryItem {
+            id: Uuid::new_v4(),
+            content: "test".to_string(),
+            redundancy_key: None,
+            belief_branch: None,
+            preferred: false,
+            kind: MemoryKind::Fact,
+            scope: MemoryScope::Project,
+            project: Some("memd".to_string()),
+            namespace: Some("main".to_string()),
+            workspace: None,
+            visibility: MemoryVisibility::default(),
+            source_agent: None,
+            source_system: None,
+            source_path: None,
+            source_quality: None,
+            confidence: 0.8,
+            ttl_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_verified_at: None,
+            supersedes: Vec::new(),
+            tags: Vec::new(),
+            status: MemoryStatus::Active,
+            stage: MemoryStage::Canonical,
+            lane: None,
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn rag_timeout_reads_env_with_floor_and_default() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
+        assert_eq!(rag_timeout(), Duration::from_millis(RAG_DEFAULT_TIMEOUT_MS));
+
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "42") };
+        assert_eq!(rag_timeout(), Duration::from_millis(42));
+
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "0") };
+        assert_eq!(rag_timeout(), Duration::from_millis(RAG_DEFAULT_TIMEOUT_MS));
+
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "not-a-number") };
+        assert_eq!(rag_timeout(), Duration::from_millis(RAG_DEFAULT_TIMEOUT_MS));
+
+        unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
+    }
+
+    #[tokio::test]
+    async fn fetch_dense_degrades_to_empty_on_unreachable_sidecar() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };
+        let before = rag_failure_count();
+        let client = RagClient::new("http://127.0.0.1:1").expect("client");
+        let req = SearchMemoryRequest {
+            query: Some("anything".to_string()),
+            limit: Some(5),
+            ..Default::default()
+        };
+        let result = fetch_dense_candidates(&client, &req).await;
+        assert!(matches!(result, Ok(ref v) if v.is_empty()));
+        assert!(rag_failure_count() > before);
+        unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
+    }
+
+    #[tokio::test]
+    async fn rerank_degrades_to_empty_on_unreachable_sidecar() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };
+        let before = rag_failure_count();
+        let client = RagClient::new("http://127.0.0.1:1").expect("client");
+        let candidates = vec![(Uuid::new_v4(), "hello".to_string())];
+        let result = rerank_candidates(&client, "q", &candidates, 5).await;
+        assert!(matches!(result, Ok(ref v) if v.is_empty()));
+        assert!(rag_failure_count() > before);
+        unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
+    }
+
+    #[tokio::test]
+    async fn ingest_retries_then_records_failure() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("MEMD_RAG_TIMEOUT_MS", "1") };
+        let before = rag_failure_count();
+        let client = RagClient::new("http://127.0.0.1:1").expect("client");
+        let item = dummy_item();
+        let result = ingest_item(&client, &item).await;
+        assert!(result.is_err(), "ingest must surface final error after retries");
+        assert!(rag_failure_count() > before);
+        unsafe { std::env::remove_var("MEMD_RAG_TIMEOUT_MS") };
+    }
+}
