@@ -8,11 +8,11 @@ version: v3
 version_status: in_progress
 current_milestone: V3
 milestone_status: in_progress
-current_phase: E3
-phase_status: code_complete_bench_deferred
+current_phase: F3
+phase_status: reopened_2026-04-21
 next_milestone: V3
-next_step: E3 code-complete + both V3 blockers resolved 2026-04-21. Atlas dormancy closed via lazy-region-gen in GET /atlas/regions (commit 64ee7ce). RAG sidecar fallback: retrieve/rerank timeouts + MEMD_RAG_TIMEOUT_MS + failure counter (eec95de), bounded retry on background ingest (03e65ef). Bench gate remains deferred per every-2-phases cadence — pair partner is F3 per prior handoff; blocker-resolution does not substitute. Next: ship F3, then run paired E3+F3 bench.
-active_blockers: []
+next_step: F3 reopened 2026-04-21. Paired E3+F3 bench on 2026-04-21 exposed two gaps: (1) adapter parity — `build_context_retrieval_run_report` routes LoCoMo/MemBench/ConvoMem through lexical word-overlap, not memd retrieval (only LongMemEval has a backend dispatcher); (2) non-canonical metrics — memd publishes retrieval-diagnostic (`hit_rate@5`) not industry-canonical (LongMemEval=GPT-4o-judged QA accuracy per Mem0/Supermemory; LoCoMo=token F1 per Mem0/MemMachine/Letta; MemBench=MQI composite; ConvoMem=accuracy). Phantom claims LoCoMo>0.80 and MemBench 0.993 do not reproduce at head. F3 split into G3 Bench Adapter Parity → H3 Canonical Metrics → I3 Leaderboard Transparency → J3 V3 Floor Verification. No V3 ship until J3 produces a stranger-reproducible paired run on canonical metrics.
+active_blockers: [bench-adapter-parity-gap, non-canonical-metric-gap, phantom-locomo-membench-scores]
 v1_status: frozen_architecture_complete
 v2_status: m4_deferred_for_v3
 note: V3 active — FINAL memory OS, above and beyond. Floor: ≥0.70 intrinsic on ALL benches (LME/LoCoMo/MemBench/ConvoMem) without sidecar. A3 Continuity Foundation closed 2026-04-17: Part 1 (file-interaction ledger + prime-reads + PreCompact non-blocking + PreEdit prime), Part 2 (hooks consolidation under .memd/hooks, contract v0.2, write-path hook gate, preference replay), Part 3 (file_layout v0.3 guarantee, backlog/phases regroup under v1/v2/v3, LATEST.md symlink fix, MANIFEST.json + `memd hooks doctor` green/red, lifecycle-probe NDJSON log, cross-harness pre-send validator pure function + 4 tests). B3 Part 2 plumbing landed 2026-04-18 (optional RAG fan-out, dense candidate injection, healthz rag state, dual-mode bench rows, turn diagnostics opt-in). 2026-04-20: 500-Q intrinsic product-path rerun on the real dense blend lands `session_recall_any@5 = 0.936` — gate 0.92 passed. The prior 0.828/0.882 numbers were lexical-only fallback because the bench search path left `source_agent=None` and `MemoryVisibility::Private` denied every item; one-line fix at public_benchmark.rs:1770 unblocked dense. V3 phase order: A3 ✓ → B3 Intrinsic Retrieval → C3 Reranker → D3 Atlas → E3 Consolidation → F3 Bench Honesty.
@@ -28,7 +28,7 @@ bench_cadence: every_two_phases  # test every TWO phases per user directive 2026
 - v1 status: `frozen` — architecture complete, operations broken (honest score: 1.8/10)
 - v2/M4 status: `deferred` — K2 + L2 done; I2 + M2-evo + N2 paused for V3 (M4 polish ships visibility but not score; V3 ships score)
 - current milestone: `V3: Make It Compete` (Tier 5 — FINAL memory OS, above and beyond the 70% competition floor without sidecar) — in progress
-- current phase: `E3: Consolidation + Sessions` (code-complete 2026-04-21, bench run deferred per every-2-phases cadence) — A3/B3/C3/D3/F3 are complete enough to move forward. Verified release board: LongMemEval `0.936`, LoCoMo `>0.80` (user-confirmed 2026-04-21, supersedes stale 0.709 snapshot), ConvoMem `0.998`, MemBench `0.993`; F3 replay baselines live at `0.966 / 0.889 / 0.938 / 0.841`. Floor (≥0.70) and stretch (≥0.75) both cleared on LoCoMo; remaining work is the long-tail / cross-session consolidation push.
+- current phase: `F3: Bench Honesty` (reopened 2026-04-21). E3 code-complete 2026-04-21. F3 reopened after the paired E3+F3 bench run exposed: (1) adapter parity gap — LoCoMo/MemBench/ConvoMem hard-wired to lexical word-overlap in `build_context_retrieval_run_report`, no memd retrieval path (only LongMemEval has a backend dispatcher); (2) non-canonical metrics — memd reports retrieval-diagnostic (`hit_rate@5`) not industry-canonical (QA accuracy / token-F1 / MC accuracy). Prior "verified release board" numbers LoCoMo `>0.80` and MemBench `0.993` are retracted — they do not reproduce from head. F3 split into G3 Bench Adapter Parity → H3 Canonical Metrics → I3 Leaderboard Transparency → J3 V3 Floor Verification. V3 completion gate now binds to J3's paired canonical-metric run.
 - completed: `M0` (verified), `M1` (verified 2026-04-15, eval 95), `M2` (verified 2026-04-16), `M3` (verified 2026-04-16); partial `M4`: `K2` (complete 2026-04-16), `L2` (complete 2026-04-16); `I2`/`M2-evo`/`N2` deferred
 - M1: `verified` — B2+C2+F2 pass gates, remote deployed, eval 95
 - M2: `verified` — D2+G2+E2+H2 pass gates, 624 tests, benchmarks zero regression, node verification 15✓/6~/0✗, remote deployed
@@ -207,7 +207,7 @@ Reference ceiling: mempalace 96.6% LongMemEval pure-cosine, 100% with rerank ([[
 
 Every V3 phase is **dual-gated**: measured bench delta AND product-quality win (see each phase doc's `## Product Win` section). Every phase reports **intrinsic (sidecar-off) score** as the primary number, with an accelerated (sidecar-on) column as a secondary delta. Bench without product-win = benchmaxxing. Rag-dependent score without matching intrinsic score = crutch. No merge on any gate alone.
 
-Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to insert `A3 memd Continuity Foundation` at entry after user directive made memd core-continuity bugs a hard precondition to any retrieval phase. Old A3–E3 shifted to B3–F3.
+Phase IDs are in execution order (A3 first, J3 last). Reshuffled 2026-04-17 to insert `A3 memd Continuity Foundation` at entry after user directive made memd core-continuity bugs a hard precondition to any retrieval phase. Old A3–E3 shifted to B3–F3. Expanded 2026-04-21 after bench-honesty research revealed adapter-parity gap + non-canonical metrics in F3 — F3 reopened, G3/H3/I3/J3 added.
 
 | Phase | Name | Status | Owns (backlog / target) | Phase Doc |
 | --- | --- | --- | --- | --- |
@@ -215,8 +215,12 @@ Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to i
 | B3 | Intrinsic Retrieval (RAG-Optional) | `complete` | LME 0.86→**≥0.92**, MemBench 0.35→**≥0.70**, LoCoMo 0.42→**≥0.55** (on path to ≥0.70), ConvoMem→≥0.10 | [[phase-b3-activate-retrieval]] |
 | C3 | Reranker + Embeddings | `complete` | LME ≥0.95, LoCoMo 0.55→**≥0.70** | [[phase-c3-reranker-embeddings]] |
 | D3 | Atlas at Recall | `complete` | LoCoMo ≥0.75, MemBench ≥0.75 | [[phase-d3-atlas-at-recall]] |
-| E3 | Consolidation + Sessions | `in_progress` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-e3-consolidation-sessions]] |
-| F3 | Bench Honesty | `complete` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live | [[phase-f3-bench-honesty]] |
+| E3 | Consolidation + Sessions | `code_complete_bench_deferred` | LME long-tail +0.03, LoCoMo ≥0.80 | [[phase-e3-consolidation-sessions]] |
+| F3 | Bench Honesty | `reopened` | ConvoMem 0→**≥0.70**, MemPalace cross-baseline live — reopened 2026-04-21 after adapter + canonical-metric gaps surfaced; split into G3/H3/I3/J3 | [[phase-f3-bench-honesty]] |
+| G3 | Bench Adapter Parity | `pending` | all 4 benches dispatch through `PublicBenchmarkBackend` enum; `--backend memd` routes LoCoMo/MemBench/ConvoMem through memd retrieval, not hard-wired lexical | [[phase-g3-bench-adapter-parity]] |
+| H3 | Canonical Metrics | `pending` | LongMemEval GPT-4o-judged QA accuracy, LoCoMo token F1, MemBench MC accuracy (MQI deferred), ConvoMem accuracy — the metrics mem0/supermemory/letta/mempalace publish against | [[phase-h3-canonical-metrics]] |
+| I3 | Leaderboard Transparency | `pending` | per-row method card (backend/metric/judge/fixture/commit/repro cmd), retraction log for phantom LoCoMo>0.80 + MemBench 0.993, gaming-audit rule (score ≥0.90 requires audit trail) | [[phase-i3-leaderboard-transparency]] |
+| J3 | V3 Floor Verification | `pending` | paired intrinsic(sidecar-off)/accelerated(sidecar-on) run on canonical metrics; stranger-reproducible; one run → one verdict → V3 ships on the truth | [[phase-j3-floor-verification]] |
 
 **Roadmap-coverage rule** (user directive 2026-04-17 "every backlog issue should be in the roadmap for a fix"): every backlog item MUST have a `phase:` frontmatter field pointing at the V3 or M4 phase that owns its fix. `docs/backlog/INDEX.md` is regenerated from frontmatter by `make backlog-index`; coverage audit runs in A3 and blocks A3 exit if any item is unassigned.
 
@@ -226,8 +230,9 @@ Phase IDs are in execution order (A3 first, F3 last). Reshuffled 2026-04-17 to i
 - `## Pass Gate` — bench delta: `pre / post / evidence / regression budget`, evidence = regenerated [[docs/verification/PUBLIC_LEADERBOARD.md]]
 - `## Product Win` — qualitative UX/product gain: what a dogfooder feels, how it compares to competitor surface, evidence = recorded session trace / sample outputs / comparison note
 
-**V3 completion gate**:
-- **Bench floor (intrinsic, sidecar OFF) — ≥0.70 on ALL four metrics**: LongMemEval ≥ 0.70, LoCoMo ≥ 0.70, MemBench ≥ 0.70, ConvoMem ≥ 0.70. This is the floor, not the goal — 70% is where competition already sits, so it is the bare minimum for a FINAL memory OS. A version that ships with any metric below 0.70 intrinsic is not done.
+**V3 completion gate** (measured by J3 — paired intrinsic/accelerated run on canonical metrics per H3, with transparency per I3):
+- **Metrics are canonical, not proxy**: LongMemEval = GPT-4o-judged QA accuracy (industry per Mem0/Supermemory), LoCoMo = token F1 (industry per Mem0/MemMachine/Letta), MemBench = MC accuracy (MQI composite deferred pending upstream weights), ConvoMem = accuracy. Retrieval-diagnostic metrics (`hit_rate@5`) ship as secondary columns only. Numbers claimed on proxy metrics cannot satisfy the gate.
+- **Bench floor (intrinsic, sidecar OFF) — ≥0.70 on ALL four canonical metrics**: LongMemEval ≥ 0.70, LoCoMo ≥ 0.70, MemBench ≥ 0.70, ConvoMem ≥ 0.70. This is the floor, not the goal — 70% is where competition already sits (Mem0 93.4% LME / 91.6% LoCoMo, Supermemory 81.6-84.6% LME), so it is the bare minimum for a FINAL memory OS. A version that ships with any metric below 0.70 intrinsic is not done.
 - **Bench stretch (intrinsic, sidecar OFF) — above and beyond**: LongMemEval ≥ 0.92, LoCoMo ≥ 0.80, MemBench ≥ 0.75, ConvoMem ≥ 0.75. Goal is clear daylight over the 70% floor, not a hairline pass.
 - Bench (accelerated, sidecar ON): demonstrable positive delta per metric (≥ +0.02 over intrinsic) or the sidecar is not pulling weight. No metric drops > 0.02 accelerated vs intrinsic. Accelerated numbers are a bonus column, never the gate.
 - Product: on 5 dogfood surfaces (wake quality, correction UX, atlas navigation, episode readability, leaderboard verifiability) memd reads as best-in-class — not parity, better — against mempalace/supermemory/letta/mem0 to a stranger who didn't build it. Stranger test is run with sidecar OFF.

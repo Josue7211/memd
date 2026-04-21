@@ -2,14 +2,39 @@
 phase: F3
 name: Bench Honesty
 version: v3
-status: complete
+status: reopened
+reopened: 2026-04-21
 depends_on: [A3, B3, C3, D3, E3]
-notes: Renamed E3→F3 on 2026-04-17 when new A3 (memd Continuity Foundation) was inserted at V3 entry. Deliverable 1 (ConvoMem adapter fix) remains parallelizable with B3 Intrinsic Retrieval since it is an adapter bug, not a retrieval-quality problem.
+split_into: [G3, H3, I3, J3]
+notes: |
+  Reopened 2026-04-21. Prior "complete" stamp was wrong on two counts:
+  (1) adapter gap — `build_context_retrieval_run_report` (public_benchmark.rs:1373) routes LoCoMo/MemBench/ConvoMem through pure token-intersection lexical ranking, so no B3/C3/D3 retrieval change can show up in those numbers; only LongMemEval has a backend dispatcher.
+  (2) non-canonical metrics — the headline numbers (retrieval hit@5) are not the metrics mempalace/mem0/supermemory publish against. Industry canonical: LongMemEval = GPT-4o-judged QA accuracy (Mem0 93.4%, Supermemory 81.6%/84.6%, MemPalace 96.6% disputed); LoCoMo = token F1 (Mem0 91.6%, MemMachine 91.69%, Letta 74%); MemBench = composite MQI (weights undisclosed, no competitor reports); ConvoMem = accuracy (no competitor reports).
+  Split into four follow-up phases: G3 Bench Adapter Parity, H3 Canonical Metrics, I3 Leaderboard Transparency, J3 V3 Floor Verification.
 backlog_items:
   - "2026-04-14-no-public-benchmark-parity"
   - "2026-04-14-no-behavior-changing-recall-proof"
   - "2026-04-14-no-data-recovery-procedure"
 ---
+
+## Reopened 2026-04-21
+
+Original F3 closed on assumption that `make bench-public` measured end-to-end retrieval for all four benches. Discovery: it does not. LoCoMo (0.4149) and MemBench (0.3463) in the 2026-04-21 run match M0 baselines to 3 significant figures because the bench path is lexical word-overlap, not memd retrieval.
+
+Research summary (2026-04-21, industry canonical metrics per upstream papers + competitor publications):
+
+| Bench | Canonical metric | Judge / formula | Competitor scores |
+| --- | --- | --- | --- |
+| LongMemEval | QA accuracy | GPT-4o (gpt-4o-2024-08-06), binary correct/incorrect | Mem0 93.4%, Supermemory 81.6% (GPT-4o) / 84.6% (GPT-5), MemPalace 96.6% (disputed — ChromaDB-only) |
+| LoCoMo | Token F1 | 2PR/(P+R) on answer span tokens | Mem0 91.6%, MemMachine 91.69%, Letta 74.0% |
+| MemBench | MQI composite (accuracy / efficiency / capacity, weights undisclosed) | — | none published |
+| ConvoMem | Accuracy on first 150 conversations | — | none published |
+
+memd's `session_recall_any@5`, `evidence_hit_rate@5`, `target_hit_rate@5` are retrieval diagnostics, not the canonical headline numbers. They are useful for internal gating but cannot be compared to the competitor board.
+
+Rest of this phase doc describes the original scope, left intact for audit trail. Actual execution continues in G3 / H3 / I3 / J3.
+
+
 
 # Phase F3: Bench Honesty
 
