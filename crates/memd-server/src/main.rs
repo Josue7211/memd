@@ -1,6 +1,7 @@
 mod atlas;
 mod backup;
 mod embed;
+mod episodes;
 mod errors;
 mod helpers;
 mod inspection;
