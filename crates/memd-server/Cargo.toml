@@ -25,3 +25,4 @@ fastembed = { version = "5.13.2", default-features = false, features = ["hf-hub-
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tempfile = "3"

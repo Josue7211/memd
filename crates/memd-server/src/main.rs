@@ -17,6 +17,7 @@ mod routing;
 mod status;
 mod store;
 mod store_entities;
+mod store_episodes;
 mod store_hive;
 mod store_hive_lifecycle;
 mod store_ingestion;
